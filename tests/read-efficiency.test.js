@@ -37,3 +37,24 @@ test('the large auxiliary settings document is loaded only when the roles tab is
   assert.match(source, /tab==='roles'.*loadAuxOnce\(\)/);
   assert.doesNotMatch(source, /subscribeAux\(\);subscribeSessions\(\)/);
 });
+
+test('the timetable subscribes only to the visible date range', () => {
+  const source = read('index.html');
+  assert.match(source, /where\('date','>=',range\.start\)/);
+  assert.match(source, /where\('date','<=',range\.end\)/);
+  assert.doesNotMatch(source, /db\.collection\(SESSION_COLLECTION\)\.onSnapshot/);
+});
+
+test('the timetable loads the faculty directory only when an admin tool needs it', () => {
+  const source = read('index.html');
+  assert.match(source, /function ensureFacultyDirectory/);
+  assert.doesNotMatch(source, /if \(UCVM\.admin\(profile\)\) subscribeFacultyDirectory\(\)/);
+});
+
+test('faculty admin enhancements reuse the page snapshots', () => {
+  const source = read('faculty-admin-enhancements.js');
+  assert.match(source, /UCVM_ADMIN_DATA/);
+  assert.doesNotMatch(source, /collection\('faculty'\)\.onSnapshot/);
+  assert.doesNotMatch(source, /collection\('sessions'\)\.onSnapshot/);
+  assert.doesNotMatch(source, /db\.doc\(`users\/\$\{u\.uid\}`\)\.get\(\)/);
+});

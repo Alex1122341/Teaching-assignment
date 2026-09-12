@@ -431,7 +431,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script><script src="faculty-access.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script><script src="session-guard.js"></script><script src="faculty-access.js"></script>
   <script>
 (() => {
   'use strict';
@@ -809,10 +809,15 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
   let sessionUnsubscribe = null;
   let facultyUnsubscribe = null;
   let facultyDirectory = [];
+  let facultyLoading = null;
+  let sessionRangeKey = '';
+  let allSessionsCache = null;
+  let allSessionsLoading = null;
   const profileSnapshots=new Map();
   window.UCVM_PAGE_DATA={
     sessions:()=>sessions.slice(),
     faculty:()=>facultyDirectory.slice(),
+    allSessions:()=>ensureAllSessions(),
     profileSnapshot:uid=>{
       if(!profileSnapshots.has(uid))profileSnapshots.set(uid,db.collection('users').doc(uid).get());
       return profileSnapshots.get(uid);
@@ -912,10 +917,28 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     }
   }
 
+  function visibleSessionRange() {
+    if (viewMode === 'month') {
+      const wstart = weekStart(selectedWeek, selectedSemester);
+      const monthChoice = $('filter-month').value;
+      const month = monthChoice === 'all' ? wstart.getMonth() : Number(monthChoice);
+      const year = month >= 4 ? 2026 : 2027;
+      return { start:ymd(new Date(year, month, 1)), end:ymd(new Date(year, month + 1, 0)) };
+    }
+    const start = weekStart(selectedWeek, selectedSemester);
+    return { start:ymd(start), end:ymd(addDays(start, 4)) };
+  }
+
   function subscribeSessions() {
     if (!db || !currentUser) return;
+    const range=visibleSessionRange(), key=`${viewMode}:${range.start}:${range.end}`;
+    if(sessionUnsubscribe&&sessionRangeKey===key)return;
     if (sessionUnsubscribe) { try { sessionUnsubscribe(); } catch (_) {} }
-    sessionUnsubscribe = db.collection(SESSION_COLLECTION).onSnapshot(snapshot => {
+    sessionRangeKey=key;
+    sessionUnsubscribe = db.collection(SESSION_COLLECTION)
+      .where('date','>=',range.start)
+      .where('date','<=',range.end)
+      .onSnapshot(snapshot => {
       sessions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       window.dispatchEvent(new Event('ucvm:sessions-updated'));
       scheduleSource = sessions.length ? 'firestore' : 'firestore-empty';
@@ -929,6 +952,18 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       toast('The synchronized Firestore timetable could not be read.', true); render();
     });
   }
+
+  function refreshSessionScope(){if(currentUser)subscribeSessions();else render()}
+  async function ensureAllSessions(){
+    if(allSessionsCache)return allSessionsCache.slice();
+    if(allSessionsLoading)return allSessionsLoading;
+    allSessionsLoading=db.collection(SESSION_COLLECTION).get().then(snapshot=>{
+      allSessionsCache=snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));
+      return allSessionsCache.slice();
+    }).finally(()=>{allSessionsLoading=null});
+    return allSessionsLoading;
+  }
+  function invalidateAllSessions(){allSessionsCache=null}
 
 
   function swapNumeric(v){ if(v===undefined||v===null||v==='') return null; const n=Number(v); return Number.isFinite(n)?n:null; }
@@ -1007,14 +1042,17 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     return parts.join(' · ');
   }
 
-  function unsubscribeFacultyDirectory(){ if(facultyUnsubscribe){try{facultyUnsubscribe()}catch(_){ } facultyUnsubscribe=null;} facultyDirectory=[]; }
-  function subscribeFacultyDirectory(){
-    if(!db||!UCVM.admin(currentUser)){unsubscribeFacultyDirectory();return;}
-    if(facultyUnsubscribe){try{facultyUnsubscribe()}catch(_){}}
-    facultyUnsubscribe=db.collection('faculty').onSnapshot(snapshot=>{
+  function unsubscribeFacultyDirectory(){ if(facultyUnsubscribe){try{facultyUnsubscribe()}catch(_){ } facultyUnsubscribe=null;} facultyDirectory=[];facultyLoading=null; }
+  function ensureFacultyDirectory(){
+    if(!db||!UCVM.admin(currentUser))return Promise.resolve([]);
+    if(facultyDirectory.length)return Promise.resolve(facultyDirectory.slice());
+    if(facultyLoading)return facultyLoading;
+    facultyLoading=db.collection('faculty').get().then(snapshot=>{
       facultyDirectory=snapshot.docs.map(d=>({__id:d.id,...d.data()})).filter(f=>f.active!==false).sort((a,b)=>swapFacultyName(a).localeCompare(swapFacultyName(b)));
       window.dispatchEvent(new Event('ucvm:faculty-updated'));
-    },err=>{console.error('[faculty subscription for swap]',err);facultyDirectory=[];toast('Faculty list could not be loaded for SWAP. Check admin faculty read rules.',true)});
+      return facultyDirectory.slice();
+    }).catch(err=>{console.error('[faculty load for admin tools]',err);facultyDirectory=[];toast('Faculty list could not be loaded. Check admin faculty read rules.',true);return[]}).finally(()=>{facultyLoading=null});
+    return facultyLoading;
   }
 
   function buildSwapDoeState(){
@@ -1024,7 +1062,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       state.set(id,{faculty:f,scheduled:0,fixed,sourceAssigned,contract:swapContractTeachingDOE(f)});
       for(const a of swapFacultyAliases(f)) if(!aliases.has(a)) aliases.set(a,id);
     }
-    for(const sess of sessions){
+    for(const sess of (allSessionsCache||sessions)){
       for(const a of (Array.isArray(sess.assignments)?sess.assignments:[])){
         let id=String(a?.ucid||'').trim(); if(!id) id=aliases.get(swapNameKey(a?.name))||'';
         const row=state.get(id); if(!row)continue; const c=swapAssignmentCredit(a); if(c!==null)row.scheduled+=c;
@@ -1052,12 +1090,13 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
   }
   function swapPct(v,d=2){return v===null?'—':`${Number(v).toFixed(d)}%`}
 
-  function openSwapModal(sessionId,initialAssignmentIndex=0){
+  async function openSwapModal(sessionId,initialAssignmentIndex=0){
     if(!UCVM.admin(currentUser)){toast('Admin permission is required to swap faculty.',true);return;}
     if(scheduleSource!=='firestore'){toast('The synchronized live timetable must be loaded first.',true);return;}
     const s=sessions.find(x=>x.id===sessionId); if(!s)return;
+    await Promise.all([ensureFacultyDirectory(),ensureAllSessions()]);
     const assignments=sessionAssignmentsForSwap(s); if(!assignments.length){toast('This course block has no faculty assignment to swap.',true);return;}
-    if(!facultyDirectory.length){toast('Faculty directory is still loading. Try SWAP again in a moment.',true);return;}
+    if(!facultyDirectory.length){toast('Faculty directory could not be loaded.',true);return;}
     let selected=Math.min(Math.max(0,Number(initialAssignmentIndex)||0),assignments.length-1);
     const doeState=buildSwapDoeState();
     const renderSwap=()=>{
@@ -1119,7 +1158,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       const batch=db.batch(),ref=db.collection(SESSION_COLLECTION).doc(session.id),logRef=db.collection(SESSION_LOG_COLLECTION).doc();
       batch.set(ref,{...firestoreSafeSession(next),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
       batch.set(logRef,{action:'swap_faculty',sessionId:session.id,course:session.course,date:session.date,topic:session.topic,role:outgoing.role||session.type||'',doeCredit:credit,fromFaculty:{ucid:String(outgoing.ucid||oldFaculty?.__id||''),name:oldName},toFaculty:{ucid:String(replacement.__id),name:newName},toFacultyCurrentAssignedDOE:currentNew,toFacultyProjectedAssignedDOE:projectedNew,changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
-      await batch.commit(); closeModal(); toast(`SWAP complete: ${oldName} → ${newName}. Faculty DOE will update automatically.`);
+      await batch.commit(); invalidateAllSessions(); closeModal(); toast(`SWAP complete: ${oldName} → ${newName}. Faculty DOE will update automatically.`);
     }catch(err){console.error('[faculty swap]',err);toast('SWAP failed. Check Firestore session write permissions.',true)}
   }
 
@@ -1157,7 +1196,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       const b = document.createElement('button');
       b.className = 'pill-btn' + (w === selectedWeek ? ' active' : '');
       b.textContent = `W${w}`; b.dataset.week = w;
-      b.addEventListener('click', () => { selectedWeek = w; syncWeekUI(); render(); });
+      b.addEventListener('click', () => { selectedWeek = w; syncWeekUI(); refreshSessionScope(); });
       (w <= 8 ? r1 : r2).appendChild(b);
       const opt = document.createElement('option'); opt.value = w; opt.textContent = `Week ${w} - ${formatDate(weekStart(w, selectedSemester))}`;
       if (w === selectedWeek) opt.selected = true;
@@ -1183,9 +1222,9 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       document.querySelectorAll('[data-semester]').forEach(x => x.classList.toggle('active', x === b));
       $('filter-month').value = 'all';
       renderWeekControls();
-      render();
+      refreshSessionScope();
     });
-    $('week-mobile-select').addEventListener('change', e => { selectedWeek = Number(e.target.value); syncWeekUI(); render(); });
+    $('week-mobile-select').addEventListener('change', e => { selectedWeek = Number(e.target.value); syncWeekUI(); refreshSessionScope(); });
     ['search-input','filter-course','filter-type'].forEach(id => $(id).addEventListener(id === 'search-input' ? 'input' : 'change', render));
     $('filter-month').addEventListener('change', e => {
       if (e.target.value !== 'all') {
@@ -1193,14 +1232,14 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
         document.querySelectorAll('[data-semester]').forEach(x => x.classList.toggle('active', x.dataset.semester === selectedSemester));
         renderWeekControls();
       }
-      render();
+      refreshSessionScope();
     });
     $('reset-filters').addEventListener('click', resetFilters);
-    $('cal-prev').addEventListener('click', () => { selectedWeek = Math.max(1, selectedWeek - 1); syncWeekUI(); render(); });
-    $('cal-next').addEventListener('click', () => { selectedWeek = Math.min(WEEK_COUNT, selectedWeek + 1); syncWeekUI(); render(); });
-    $('cal-today').addEventListener('click', () => { setInitialAcademicPeriod(); $('filter-month').value='all'; renderWeekControls(); syncWeekUI(); render(); toast('Moved to the current academic week.'); });
-    $('cal-week-btn').addEventListener('click', () => { viewMode = 'week'; setViewButtons(); render(); });
-    $('cal-month-btn').addEventListener('click', () => { viewMode = 'month'; setViewButtons(); render(); });
+    $('cal-prev').addEventListener('click', () => { selectedWeek = Math.max(1, selectedWeek - 1); syncWeekUI(); refreshSessionScope(); });
+    $('cal-next').addEventListener('click', () => { selectedWeek = Math.min(WEEK_COUNT, selectedWeek + 1); syncWeekUI(); refreshSessionScope(); });
+    $('cal-today').addEventListener('click', () => { setInitialAcademicPeriod(); $('filter-month').value='all'; renderWeekControls(); syncWeekUI(); refreshSessionScope(); toast('Moved to the current academic week.'); });
+    $('cal-week-btn').addEventListener('click', () => { viewMode = 'week'; setViewButtons(); refreshSessionScope(); });
+    $('cal-month-btn').addEventListener('click', () => { viewMode = 'month'; setViewButtons(); refreshSessionScope(); });
     $('color-toggle').addEventListener('click', () => { colorsOn = !colorsOn; $('color-toggle').textContent = `Colors: ${colorsOn ? 'On' : 'Off'}`; render(); });
     $('side-toggle-btn').addEventListener('click', () => { $('main-view').classList.toggle('side-collapsed'); $('side-toggle-btn').textContent = $('main-view').classList.contains('side-collapsed') ? '<' : '>'; });
     $('dark-toggle').addEventListener('click', () => { document.documentElement.classList.toggle('dark'); $('dark-toggle').textContent = document.documentElement.classList.contains('dark') ? 'Light' : 'Moon'; applyUISettings(uiEditDraft || uiSettings); });
@@ -1226,7 +1265,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     $('search-input').value = ''; $('filter-month').value = 'all'; $('filter-course').value = 'all'; $('filter-type').value = 'all';
     myTimetableOnly = false; if (currentUser) $('my-timetable-btn').textContent = 'My Timetable';
     selectedWeek = 1; renderWeekControls();
-    render();
+    refreshSessionScope();
   }
 
   function setViewButtons() {
@@ -1395,9 +1434,10 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
   function instructorDisplayText(s){const a=Array.isArray(s?.assignments)?s.assignments:[];const names=a.map(x=>String(x?.name||'').trim()).filter(Boolean);return (names.length?names:splitInstructorNames(s?.instructor||'')).join('\n')}
   function labDetailsFromAssignments(type,assignments,topic){if(String(type).toUpperCase()!=='LAB')return undefined;const map=new Map();for(const a of assignments){const t=a.topic||topic||'Lab';if(!map.has(t))map.set(t,[]);map.get(t).push(a)}return[...map].map(([t,arr])=>({topic:t,instructor:arr.map(a=>`${a.name}${a.role?' ('+a.role+')':''}`).join('; '),room:''}))}
 
-  function openSessionForm(existing = null) {
+  async function openSessionForm(existing = null) {
     if (!canEdit()) { toast('Editor permission is required to change sessions.', true); return; }
     if (scheduleSource !== 'firestore') { toast('The live Firestore timetable is unavailable. Sync it from Faculty Dashboard first.', true); return; }
+    if(UCVM.admin(currentUser))await Promise.all([ensureFacultyDirectory(),ensureAllSessions()]);
     const s = existing || {
       id: '', date: ymd(weekStart(selectedWeek, selectedSemester)), week: selectedWeek, semester:selectedSemester, year:1,
       course:'200', type:'LEC', topic:'New Session', instructor:'', room:'', start:'09:00', end:'10:00', assignments:[]
@@ -1477,6 +1517,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
         const logRef=db.collection(SESSION_LOG_COLLECTION).doc();
         batch.set(logRef,{action:existing?'update':'create',sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:assignments.map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null})),changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
         await batch.commit();
+        invalidateAllSessions();
         closeModal();
         toast(existing?'Live session updated.':'Live session added.');
       } catch(err) {
@@ -1502,7 +1543,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       batch.delete(db.collection(SESSION_COLLECTION).doc(id));
       const logRef=db.collection(SESSION_LOG_COLLECTION).doc();
       batch.set(logRef,{action:'delete',sessionId:id,course:s.course,date:s.date,topic:s.topic,changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
-      await batch.commit(); closeModal(); toast('Live session deleted.');
+      await batch.commit(); invalidateAllSessions(); closeModal(); toast('Live session deleted.');
     } catch(err) { console.error(err); toast('Delete failed. Check Firestore session write rules.', true); }
   }
 
@@ -1526,6 +1567,8 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
           currentUser = null;
           myTimetableOnly = false;
           if (sessionUnsubscribe) { try { sessionUnsubscribe(); } catch (_) {} sessionUnsubscribe = null; }
+          sessionRangeKey='';
+          allSessionsCache=null;
           unsubscribeFacultyDirectory();
           scheduleSource = 'signed-out';
           sessions = [];
@@ -1586,7 +1629,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
           updateAuthUI();
           renderUpdates();
           subscribeSessions();
-          if (UCVM.admin(profile)) subscribeFacultyDirectory(); else unsubscribeFacultyDirectory();
+          unsubscribeFacultyDirectory();
           render();
           setAppLocked(false);
           updateScheduleSourceUI();

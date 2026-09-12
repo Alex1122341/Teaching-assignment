@@ -67,6 +67,7 @@ $webFiles = @(
     'index.html',
     'password.html',
     'password.js',
+    'session-guard.js',
     'user-management.html',
     'user-management.js'
 )

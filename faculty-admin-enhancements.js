@@ -100,7 +100,11 @@
  function queueManagedRoles(){if(roleAppendQueued)return;roleAppendQueued=true;requestAnimationFrame(()=>{roleAppendQueued=false;appendManagedRoleRows()})}
 
  function subscribe(){
-  if(facultyUnsub)facultyUnsub();if(sessionUnsub)sessionUnsub();facultyUnsub=db.collection('faculty').onSnapshot(s=>{faculty=s.docs.map(d=>({__id:d.id,...d.data()})).sort((a,b)=>facultyName(a).localeCompare(facultyName(b)));facultyById=new Map(faculty.map(f=>[String(f.__id),f]));updateDoeFilters();renderDoeList();queueManagedRoles()},e=>console.warn('[DOE enhancement faculty]',e));sessionUnsub=db.collection('sessions').onSnapshot(s=>{sessions=s.docs.map(d=>({id:d.id,...d.data()}));renderDoeList()},e=>console.warn('[DOE enhancement sessions]',e))
+  if(facultyUnsub)facultyUnsub();if(sessionUnsub)sessionUnsub();
+  const syncFaculty=()=>{faculty=(window.UCVM_ADMIN_DATA?.faculty?.()||[]).sort((a,b)=>facultyName(a).localeCompare(facultyName(b)));facultyById=new Map(faculty.map(f=>[String(f.__id),f]));updateDoeFilters();renderDoeList();queueManagedRoles()};
+  const syncSessions=()=>{sessions=window.UCVM_ADMIN_DATA?.sessions?.()||[];renderDoeList()};
+  window.addEventListener('ucvm:admin-faculty-updated',syncFaculty);window.addEventListener('ucvm:admin-sessions-updated',syncSessions);
+  facultyUnsub=()=>window.removeEventListener('ucvm:admin-faculty-updated',syncFaculty);sessionUnsub=()=>window.removeEventListener('ucvm:admin-sessions-updated',syncSessions);syncFaculty();syncSessions()
  }
  function watchDom(){
   const inspect=()=>{ensureDoeView();renameDashboard();const form=$('edit-form');if(form&&form.children.length&&form.elements?.namedItem('ucid'))enhanceEditor(form)};inspect();
@@ -108,5 +112,6 @@
   document.addEventListener('submit',ev=>{const form=ev.target;if(form?.id!=='edit-form'||!form.querySelector('#ucvm-doe-role-section'))return;const id=String(form.elements.namedItem('ucid')?.value||'').trim(),f=facultyById.get(id)||{},after=readEditorExtras(form);pendingExtra={id,name:String(form.elements.namedItem('preferredFullName')?.value||facultyName(f)||id),before:{roles:managedRoles(f),override:f?.doeOverride2026_27||null},after};waitForEditorSave(pendingExtra)},true)
  }
  installStyles();watchDom();
- auth.onAuthStateChanged(async u=>{user=u;profile=null;if(!u)return;try{const s=await db.doc(`users/${u.uid}`).get();profile=s.data()||{};if(profile.active!==true||!UCVM.admin(profile))return;subscribe()}catch(e){console.warn('[DOE enhancement auth]',e)}});
+ const startFromPage=()=>{const sharedProfile=window.UCVM_ADMIN_DATA?.profile?.();if(!sharedProfile||sharedProfile.active!==true||!UCVM.admin(sharedProfile))return false;profile=sharedProfile;subscribe();return true};
+ auth.onAuthStateChanged(u=>{user=u;profile=null;if(facultyUnsub)facultyUnsub();if(sessionUnsub)sessionUnsub();facultyUnsub=sessionUnsub=null;if(!u)return;if(!startFromPage())window.addEventListener('ucvm:admin-ready',startFromPage,{once:true})});
 })();

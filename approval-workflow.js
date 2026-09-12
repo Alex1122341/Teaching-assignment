@@ -11,6 +11,7 @@
  let me=null,user=null,role='',sessions=new Map(),people=[],peopleByUid=new Map(),groups=[],myGroups=[],hiccScope=new Set();
  let hiccMode=false,requests=[],requestUnsub=null,sessionUnsub=null,groupUnsub=null,peopleUnsub=null,renderQueued=false;
  let approvalFaculty=[],approvalFacultyById=new Map(),approvalFacultyLoaded=false;
+ let approvalSessionsComplete=false;
 
  const css=document.createElement('style');
  css.id='ucvm-approval-workflow-style';
@@ -64,7 +65,9 @@
   const q=await db.collection('faculty').get();approvalFaculty=q.docs.map(d=>({__id:d.id,...d.data()}));approvalFacultyById=new Map(approvalFaculty.map(f=>[String(f.__id),f]));approvalFacultyLoaded=true;
  }
  async function ensureApprovalSessions(){
-  if(sessions.size)return;const shared=window.UCVM_PAGE_DATA?.sessions?.()||[];if(shared.length){sessions=new Map(shared.map(s=>[s.id,s]));return}const q=await db.collection(SESSIONS).get();sessions=new Map(q.docs.map(d=>[d.id,{id:d.id,...d.data()}]));
+  if(approvalSessionsComplete)return;
+  if(window.UCVM_PAGE_DATA?.allSessions){const rows=await window.UCVM_PAGE_DATA.allSessions();sessions=new Map(rows.map(s=>[s.id,s]));approvalSessionsComplete=true;return}
+  const q=await db.collection(SESSIONS).get();sessions=new Map(q.docs.map(d=>[d.id,{id:d.id,...d.data()}]));approvalSessionsComplete=true;
  }
  function buildDoeState(){
   const state=new Map(),aliases=new Map();
@@ -120,7 +123,7 @@
   if(sessionUnsub){sessionUnsub();sessionUnsub=null}
   if(!user)return;
   if(window.UCVM_PAGE_DATA?.sessions){
-   const sync=()=>{const rows=window.UCVM_PAGE_DATA.sessions();sessions=new Map(rows.map(s=>[s.id,s]));rebuildHiccScope();queueDecorate()};
+   const sync=()=>{const rows=window.UCVM_PAGE_DATA.sessions();sessions=new Map(rows.map(s=>[s.id,s]));approvalSessionsComplete=false;rebuildHiccScope();queueDecorate()};
    window.addEventListener('ucvm:sessions-updated',sync);sync();sessionUnsub=()=>window.removeEventListener('ucvm:sessions-updated',sync);return;
   }
   sessionUnsub=db.collection(SESSIONS).onSnapshot(q=>{
