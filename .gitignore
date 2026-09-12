@@ -2,3 +2,6 @@ node_modules/
 .firebase/
 *-debug.log
 .env*
+output/
+.afc-sample.js
+.faculty-admin-inline.js

@@ -2,10 +2,14 @@
 const {initializeApp}=require('firebase-admin/app');
 const {getAuth}=require('firebase-admin/auth');
 const {getFirestore,FieldValue,Timestamp}=require('firebase-admin/firestore');
+const {getStorage}=require('firebase-admin/storage');
 const {onCall,HttpsError}=require('firebase-functions/v2/https');
 const {onDocumentWrittenWithAuthContext}=require('firebase-functions/v2/firestore');
 const {createHash}=require('node:crypto');
-const {ROLES,normalizeRole,isAdmin,isGeneral,isFaculty,changes}=require('./policy');
+const {ROLES,normalizeRole,isAdmin,isGeneral,isFaculty,historyAll,changes}=require('./policy');
+const {validateDraft,nextStatus}=require('./afc-policy');
+const {renderAfcPdf}=require('./afc-pdf');
+const path=require('node:path');
 initializeApp();const db=getFirestore(),auth=getAuth();
 const fail=(code,msg)=>{throw new HttpsError(code,msg)};
 const str=(v,max=200)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -47,7 +51,7 @@ exports.saveAccount=onCall(async req=>{
   if(!memberships.empty&&!isFaculty({role}))fail('failed-precondition','Remove this account from faculty groups before assigning an ADFA role.');
   const patch={name,email,role,facultyId,active:d.active!==false,updatedAt:stamp()};
   if(created)Object.assign(patch,{mustChangePassword:true,createdAt:stamp()});
-  tx.set(ref,patch,{merge:true});tx.create(db.collection('account_audit').doc(),audit(p,created?'account_created':'account_updated',{targetUid:uid,role,active:patch.active}));
+  tx.set(ref,patch,{merge:true});tx.create(db.collection('account_audit').doc(),audit(p,created?'account_created':'account_updated',{targetUid:uid,targetName:name,targetEmail:email,role,active:patch.active}));
  });
  }catch(e){if(created)await auth.deleteUser(uid);throw e}
  // Firestore active is authoritative; no role or password is stored in browser state as authority.
@@ -143,3 +147,58 @@ function logTrigger(collection,entity){return onDocumentWrittenWithAuthContext({
  });}
 exports.auditSession=logTrigger('sessions','session');
 exports.auditFaculty=logTrigger('faculty','faculty');
+
+const afcPublic=r=>{const out={...r};for(const[k,v]of Object.entries(out)){if(v&&typeof v.toDate==='function')out[k]=v.toDate().toISOString()}return out};
+const sameFaculty=(a,f,p)=>{const ids=new Set([f.id,f.ucid,p.facultyId].map(String)),names=new Set([f.preferredFullName,f.hrFullName,f.name].filter(Boolean).map(x=>String(x).trim().toLowerCase()));return ids.has(String(a?.ucid||a?.facultyId||''))||names.has(String(a?.name||'').trim().toLowerCase())};
+async function reportToIdentity(name){
+ name=str(name);if(!name)return{};
+ for(const field of ['preferredFullName','hrFullName','hrFirstLast','teachingAssignmentName']){const q=await db.collection('faculty').where(field,'==',name).limit(1).get();if(!q.empty){const u=await db.collection('users').where('facultyId','==',q.docs[0].id).where('active','==',true).limit(1).get();if(!u.empty)return{reportToFacultyId:q.docs[0].id,reportToUid:u.docs[0].id}}}
+ return{};
+}
+function afcAudit(p,action,requestId,data={}){return audit(p,action,{requestId,...data})}
+
+exports.submitAfcRequest=onCall({timeoutSeconds:60},async req=>{
+ const p=await actor(req);if(!isFaculty(p)||!p.facultyId)fail('permission-denied','A linked faculty, HICC or VISC account is required.');
+ const fdoc=await db.doc(`faculty/${id(p.facultyId)}`).get();if(!fdoc.exists)fail('failed-precondition','Linked Faculty Directory record is missing.');
+ const f={id:fdoc.id,...fdoc.data()},d=req.data||{},startDate=str(d.startDate,10),endDate=str(d.endDate,10);
+ const sq=await db.collection('sessions').where('date','>=',startDate).where('date','<=',endDate).get();
+ const teachingSessions=sq.docs.map(x=>({id:x.id,...x.data()})).filter(s=>(s.assignments||[]).some(a=>sameFaculty(a,f,p))).map(s=>({id:s.id,date:s.date||'',start:s.start||'',end:s.end||'',course:s.course||'',topic:s.topic||s.type||''}));
+ const draft={startDate,endDate,reason:str(d.reason,30),purposeDestination:str(d.purposeDestination,1000),coverage:str(d.coverage,2000),signatureName:str(d.signatureName,160),attested:d.attested===true,teachingSessions};
+ let workDays;try{workDays=validateDraft(draft)}catch(e){fail('invalid-argument',e.message)}
+ const route=await reportToIdentity(f.reportsTo),ref=db.collection('afc_requests').doc(),now=new Date().toISOString();
+ const record={requesterUid:p.uid,requesterEmail:p.email||'',facultyId:fdoc.id,facultyName:f.preferredFullName||f.hrFullName||p.name,facultySnapshot:{ucid:f.ucid||fdoc.id,firstName:f.firstName||'',lastName:f.lastName||'',rank:f.rank||f.currentTitle||'',currentTitle:f.currentTitle||'',appointmentType:f.appointmentType||'',primaryDepartment:f.primaryDepartment||f.department||'',expiryDate:f.expiryDate||''},reportsTo:f.reportsTo||'',...route,...draft,workDays,applicantSignature:{name:draft.signatureName,uid:p.uid,signedAt:now,attested:true},status:route.reportToUid?'pending_report_to':'pending_admin',submittedAt:stamp(),updatedAt:stamp()};
+ await db.runTransaction(async tx=>{tx.create(ref,record);tx.create(db.collection('afc_audit').doc(),afcAudit(p,'afc_submitted',ref.id,{status:record.status,facultyId:fdoc.id}))});
+ return{id:ref.id,status:record.status,workDays,teachingCount:teachingSessions.length};
+});
+
+exports.listAfcRequests=onCall(async req=>{
+ const p=await actor(req);let docs=[];
+ if(historyAll(p))docs=(await db.collection('afc_requests').orderBy('submittedAt','desc').limit(100).get()).docs;
+ else{const queries=[db.collection('afc_requests').where('requesterUid','==',p.uid).limit(100).get()];if(isFaculty(p))queries.push(db.collection('afc_requests').where('reportToUid','==',p.uid).limit(100).get());const sets=await Promise.all(queries),seen=new Map();for(const s of sets)for(const d of s.docs)seen.set(d.id,d);docs=[...seen.values()].sort((a,b)=>(b.data().submittedAt?.toMillis?.()||0)-(a.data().submittedAt?.toMillis?.()||0)).slice(0,100)}
+ return{requests:docs.map(d=>({id:d.id,...afcPublic(d.data())}))};
+});
+
+exports.reviewAfcRequest=onCall({timeoutSeconds:60,memory:'512MiB'},async req=>{
+ const p=await actor(req),requestId=id(req.data?.id),action=str(req.data?.action,20),signatureName=str(req.data?.signatureName,160),rejectionReason=str(req.data?.rejectionReason,1000),ref=db.doc(`afc_requests/${requestId}`),snap=await ref.get();if(!snap.exists)fail('not-found','AFC request not found.');
+ const r=snap.data(),adfa=historyAll(p),reportTo=r.reportToUid===p.uid;if(!signatureName)fail('invalid-argument','Type the approver electronic signature.');if(action==='recommend'&&!reportTo&&!adfa)fail('permission-denied','Only Reports To or an ADFA administrator may recommend this request.');if(action==='approve'&&!adfa)fail('permission-denied','ADFA Administrator approval is required.');if(action==='reject'&&!reportTo&&!adfa)fail('permission-denied','You cannot reject this request.');if(action==='reject'&&!rejectionReason)fail('invalid-argument','A rejection reason is required.');
+ let status;try{status=nextStatus(action,r)}catch(e){fail('failed-precondition',e.message)}const signedAt=new Date().toISOString(),patch={status,updatedAt:stamp()};
+ if(action==='recommend')patch.reportToSignature={name:signatureName,uid:p.uid,signedAt,signedOnBehalf:adfa&&!reportTo};
+ if(action==='reject')Object.assign(patch,{rejectionReason,rejectedSignature:{name:signatureName,uid:p.uid,signedAt}});
+ if(action==='approve')patch.adminSignature={name:signatureName,uid:p.uid,signedAt};
+ if(status==='approved'){
+  const complete={...r,...patch},bytes=await renderAfcPdf(complete,path.join(__dirname,'templates','absence-from-campus-app.pdf')),pdfPath=`afc-approved/${requestId}.pdf`;
+  await getStorage().bucket().file(pdfPath).save(bytes,{resumable:false,metadata:{contentType:'application/pdf',cacheControl:'private, no-store',metadata:{requestId}}});
+  patch.pdfPath=pdfPath;patch.pdfSha256=createHash('sha256').update(bytes).digest('hex');patch.approvedAt=stamp();
+  const facultyRef=db.doc(`faculty/${id(r.facultyId)}`);
+  await db.runTransaction(async tx=>{const current=await tx.get(ref);if(current.data()?.status!==r.status)fail('aborted','This request changed. Refresh and try again.');tx.update(ref,patch);tx.update(facultyRef,{awayFromCampusRecords:FieldValue.arrayUnion({requestId,startDate:r.startDate,endDate:r.endDate,workDays:r.workDays,purpose:r.reason==='vacation'?'Vacation':r.purposeDestination,status:'approved',sourceName:'AFC request',approvedAt:signedAt}),updatedAt:stamp(),updatedBy:p.uid,updatedByName:p.name||p.email});tx.create(db.collection('afc_audit').doc(),afcAudit(p,'afc_approved',requestId,{facultyId:r.facultyId}))});
+ }else await db.runTransaction(async tx=>{const current=await tx.get(ref);if(current.data()?.status!==r.status)fail('aborted','This request changed. Refresh and try again.');tx.update(ref,patch);tx.create(db.collection('afc_audit').doc(),afcAudit(p,`afc_${action}`,requestId,{status}))});
+ return{status};
+});
+
+exports.getAfcPdf=onCall({timeoutSeconds:60},async req=>{
+ const p=await actor(req),requestId=id(req.data?.id),snap=await db.doc(`afc_requests/${requestId}`).get();if(!snap.exists)fail('not-found','AFC request not found.');const r=snap.data();if(!r.pdfPath||r.status!=='approved')fail('failed-precondition','The approved PDF is not ready.');if(!historyAll(p)&&r.requesterUid!==p.uid&&r.reportToUid!==p.uid)fail('permission-denied','This PDF is restricted to the faculty member, Reports To and ADFA administrators.');const [bytes]=await getStorage().bucket().file(r.pdfPath).download();return{filename:`AFC-${r.facultyId}-${r.startDate}-${r.endDate}.pdf`,base64:bytes.toString('base64'),sha256:r.pdfSha256||''};
+});
+
+exports.removeAssignedAdFields=onCall(async req=>{
+ const p=await actor(req);general(p);const marker=db.doc('settings/migrations_assigned_ad_removed'),done=await marker.get();if(done.exists)return{ok:true,removed:0,alreadyDone:true};const q=await db.collection('faculty').get();let removed=0;for(let i=0;i<q.docs.length;i+=400){const batch=db.batch();for(const d of q.docs.slice(i,i+400)){if(Object.prototype.hasOwnProperty.call(d.data(),'assignedAD')){batch.update(d.ref,{assignedAD:FieldValue.delete()});removed++}}await batch.commit()}await db.runTransaction(async tx=>{tx.set(marker,{completedAt:stamp(),completedBy:p.uid,removed});tx.create(db.collection('account_audit').doc(),audit(p,'assigned_ad_removed',{removed}))});return{ok:true,removed};
+});

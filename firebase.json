@@ -1,6 +1,7 @@
 {
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
   },
   "hosting": {
     "public": ".",
@@ -11,7 +12,9 @@
       "**/.*",
       "**/node_modules/**",
       "functions/**",
-      "tests/**"
+      "tests/**",
+      "docs/**",
+      "output/**"
     ]
   },
   "emulators": {

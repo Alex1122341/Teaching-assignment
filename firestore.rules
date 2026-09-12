@@ -7,6 +7,7 @@ service cloud.firestore {
   function admin(){return ready() && profile().role in ['owner','administrator','other_office','admin','adfa_general','adfa_regular'];}
   function approver(){return ready() && profile().role in ['owner','administrator','other_office','adfa_general','adfa_regular'];}
   function general(){return ready() && profile().role in ['owner','adfa_general'];}
+  function historyAll(){return ready() && profile().role in ['owner','administrator','admin','adfa_general','adfa_regular'];}
   function hicc(){return ready() && profile().role == 'hicc';}
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
   function explicitRole(r){return r in ['owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty'];}
@@ -24,6 +25,11 @@ service cloud.firestore {
   function validSelfSwap(d){return d.requestType == 'faculty_swap' && d.fromFaculty is map && d.toFaculty is map && ((d.fromFaculty.facultyId is string && selfFacultyId(d.fromFaculty.facultyId)) || (d.toFaculty.facultyId is string && selfFacultyId(d.toFaculty.facultyId)));}
   function validRequestCreate(){return facultyMember() && request.resource.data.requesterUid == request.auth.uid && request.resource.data.requesterRole == profile().role && request.resource.data.status == 'pending' && request.resource.data.requestedAt == request.time && request.resource.data.sessionId is string && request.resource.data.requestType in ['faculty_swap','session_edit'] && (validSelfSwap(request.resource.data) || ownsRequestGroup(request.resource.data));}
   function validRequestDecision(){return approver() && resource.data.status == 'pending' && request.resource.data.status in ['approved','rejected'] && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','approvedBy','approvedByName','approvedAt','appliedAt','rejectedBy','rejectedByName','rejectedAt','rejectionReason']) && ((request.resource.data.status == 'approved' && request.resource.data.approvedBy == request.auth.uid && request.resource.data.approvedAt == request.time && request.resource.data.appliedAt == request.time) || (request.resource.data.status == 'rejected' && request.resource.data.rejectedBy == request.auth.uid && request.resource.data.rejectedAt == request.time));}
+  function afcRead(d){return historyAll() || d.requesterUid == request.auth.uid || d.reportToUid == request.auth.uid;}
+  function afcCreate(){return facultyMember() && request.resource.data.requesterUid == request.auth.uid && request.resource.data.facultyId == profile().facultyId && request.resource.data.reportToUid is string && request.resource.data.status == (request.resource.data.reportToUid.size() > 0 ? 'pending_report_to' : 'pending_admin') && request.resource.data.applicantSignature.uid == request.auth.uid && request.resource.data.applicantSignature.attested == true && request.resource.data.submittedAt == request.time && request.resource.data.updatedAt == request.time;}
+  function afcRecommend(){return resource.data.status == 'pending_report_to' && request.resource.data.status == 'pending_admin' && (request.auth.uid == resource.data.reportToUid || historyAll()) && request.resource.data.reportToSignature.uid == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','reportToSignature','updatedAt']);}
+  function afcReject(){return resource.data.status in ['pending_report_to','pending_admin'] && request.resource.data.status == 'rejected' && (historyAll() || request.auth.uid == resource.data.reportToUid) && request.resource.data.rejectedSignature.uid == request.auth.uid && request.resource.data.rejectionReason is string && request.resource.data.rejectionReason.size() > 0 && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','rejectionReason','rejectedSignature','updatedAt']);}
+  function afcApprove(){return historyAll() && resource.data.status == 'pending_admin' && request.resource.data.status == 'approved' && request.resource.data.adminSignature.uid == request.auth.uid && request.resource.data.pdfChunkCount is int && request.resource.data.pdfChunkCount > 0 && request.resource.data.approvedAt == request.time && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','adminSignature','pdfChunkCount','pdfSha256','pdfByteLength','approvedAt','updatedAt']);}
 
   match /users/{uid} {
    allow get: if signedIn() && (request.auth.uid == uid || general() || (facultyMember() && facultyRole(resource.data.role)));
@@ -57,23 +63,35 @@ service cloud.firestore {
   }
   match /settings/{id} {allow read,write: if admin();}
   match /session_change_log/{id} {
-   allow read: if ready();
+   allow read: if ready() && (historyAll() || resource.data.changedBy == request.auth.uid);
    allow create: if admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
    allow update: if admin() && resource.data.changedBy == request.auth.uid && request.resource.data.changedBy == resource.data.changedBy && request.resource.data.changedAt == resource.data.changedAt && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['changes','changedByEmail','changedByName']);
    allow delete: if false;
   }
   match /faculty_change_log/{id} {
-   allow read: if admin();
+   allow read: if ready() && (historyAll() || resource.data.changedBy == request.auth.uid);
    allow create: if admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
    allow update: if admin() && resource.data.changedBy == request.auth.uid && request.resource.data.changedBy == resource.data.changedBy && request.resource.data.changedAt == resource.data.changedAt && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['changes','facultyName','changedByEmail','changedByName']);
    allow delete: if false;
   }
   match /account_audit/{id} {
-   allow read: if general();
+   allow read: if ready() && (historyAll() || resource.data.changedBy == request.auth.uid);
    allow create: if ready() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time && (general() || (hicc() && request.resource.data.action == 'group_members_updated' && get(/databases/$(database)/documents/faculty_groups/$(request.resource.data.groupId)).data.ownerUid == request.auth.uid));
    allow update,delete: if false;
   }
-  match /audit_events/{id} {allow read: if ready(); allow write: if false;}
+  match /audit_events/{id} {allow read: if ready() && (historyAll() || resource.data.changedBy == request.auth.uid); allow write: if false;}
+  match /afc_requests/{id} {
+   allow read: if ready() && afcRead(resource.data);
+   allow create: if afcCreate();
+   allow update: if ready() && (afcRecommend() || afcReject() || afcApprove());
+   allow delete: if false;
+   match /pdf_chunks/{part} {
+    allow read: if ready() && afcRead(get(/databases/$(database)/documents/afc_requests/$(id)).data);
+    allow create: if historyAll() && getAfter(/databases/$(database)/documents/afc_requests/$(id)).data.status == 'approved' && request.resource.data.index is int && request.resource.data.base64 is string && request.resource.data.sha256 == getAfter(/databases/$(database)/documents/afc_requests/$(id)).data.pdfSha256;
+    allow update,delete: if false;
+   }
+  }
+  match /afc_audit/{id} {allow read: if ready() && (historyAll() || resource.data.changedBy == request.auth.uid || resource.data.requesterUid == request.auth.uid || resource.data.reportToUid == request.auth.uid); allow create: if ready() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time; allow update,delete: if false;}
   match /{document=**} {allow read,write: if false;}
  }
 }

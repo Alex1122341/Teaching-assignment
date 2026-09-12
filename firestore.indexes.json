@@ -1,0 +1,8 @@
+{
+  "indexes": [
+    {"collectionGroup":"session_change_log","queryScope":"COLLECTION","fields":[{"fieldPath":"changedBy","order":"ASCENDING"},{"fieldPath":"changedAt","order":"DESCENDING"}]},
+    {"collectionGroup":"faculty_change_log","queryScope":"COLLECTION","fields":[{"fieldPath":"changedBy","order":"ASCENDING"},{"fieldPath":"changedAt","order":"DESCENDING"}]},
+    {"collectionGroup":"account_audit","queryScope":"COLLECTION","fields":[{"fieldPath":"changedBy","order":"ASCENDING"},{"fieldPath":"changedAt","order":"DESCENDING"}]}
+  ],
+  "fieldOverrides": []
+}

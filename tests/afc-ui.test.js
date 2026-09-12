@@ -1,0 +1,20 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const html = fs.readFileSync(path.join(root, 'faculty-dashboard.html'), 'utf8');
+
+test('faculty dashboard exposes the AFC request and review tab', () => {
+  assert.match(html, /id="afc-tab"/);
+  assert.match(html, /id="afc-panel"/);
+  assert.match(html, /pdf-lib/);
+  assert.match(html, /afc-workflow\.js/);
+});
+
+test('AFC UI collects dates, conditional details, coverage, and electronic signature', () => {
+  const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
+  for (const field of ['startDate','endDate','reason','purposeDestination','coverage','signatureName','attested']) assert.match(source, new RegExp(field));
+  assert.match(source, /pdf_chunks/);
+});
