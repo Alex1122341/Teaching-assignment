@@ -14,7 +14,8 @@
       "functions/**",
       "tests/**",
       "docs/**",
-      "output/**"
+      "output/**",
+      "tools/**"
     ]
   },
   "emulators": {
