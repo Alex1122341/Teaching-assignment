@@ -11,6 +11,8 @@ test('Assigned AD is removed from faculty lookup, editor, filters, and exports',
 
 test('an existing DOE override is highlighted beside the faculty name', () => {
   assert.match(source, /doeOverride2026_27/);
+  assert.match(source, /function overrideOf\(r\)\{const o=r\?\.doeOverride2026_27;return o&&numeric\(o\.value\)!==null\?o:null\}/);
+  assert.match(source, /Override DOE \$\{Number\(o\.value\)\.toFixed\(2\)\}%/);
   assert.match(source, /override-badge/);
   assert.match(source, /Office DOE Override/);
 });

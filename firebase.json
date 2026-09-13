@@ -17,6 +17,7 @@
       "SETUP.md",
       "**/.*",
       "**/node_modules/**",
+      "**/*.log",
       "functions/**",
       "tests/**",
       "docs/**",
