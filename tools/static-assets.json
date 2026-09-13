@@ -5,6 +5,7 @@
   "afc-workflow.js",
   "approval-workflow.js",
   "availability-lookup.js",
+  "data-index.js",
   "faculty-access.css",
   "faculty-access.js",
   "faculty-admin-enhancements.js",
