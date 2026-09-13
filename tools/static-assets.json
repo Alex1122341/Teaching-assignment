@@ -6,6 +6,7 @@
   "approval-workflow.js",
   "availability-lookup.js",
   "data-index.js",
+  "index-maintenance.js",
   "faculty-access.css",
   "faculty-access.js",
   "faculty-admin-enhancements.js",

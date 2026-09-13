@@ -420,7 +420,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script><script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script><script src="session-guard.js"></script><script src="data-index.js"></script><script src="faculty-access.js"></script><script src="afc-pdf-browser.js"></script><script src="signature-capture.js"></script><script src="afc-actions.js"></script><script src="information-center.js"></script><script src="availability-lookup.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script><script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script><script src="session-guard.js"></script><script src="data-index.js"></script><script src="index-maintenance.js"></script><script src="faculty-access.js"></script><script src="afc-pdf-browser.js"></script><script src="signature-capture.js"></script><script src="afc-actions.js"></script><script src="information-center.js"></script><script src="availability-lookup.js"></script>
   <script>
 (() => {
   'use strict';
@@ -865,7 +865,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
   }
 
   function firestoreSafeSession(s) {
-    const clean = JSON.parse(JSON.stringify(s || {}));
+    const clean = JSON.parse(JSON.stringify(UCVM_INDEX_MAINTENANCE.sessionForWrite(s)));
     delete clean.__id;
     return clean;
   }
@@ -939,6 +939,10 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     return allSessionsLoading;
   }
   function invalidateAllSessions(){allSessionsCache=null}
+  async function refreshDerivedIndexes(){
+    try{const [facultyRows,sessionRows]=await Promise.all([ensureFacultyDirectory(),ensureAllSessions()]);await UCVM_INDEX_MAINTENANCE.writeDerivedIndexes(db,facultyRows,sessionRows,currentUser||{})}
+    catch(error){console.error('[derived index refresh]',error);toast('The schedule was saved, but its lookup index could not be refreshed.',true)}
+  }
 
 
   function swapNumeric(v){ if(v===undefined||v===null||v==='') return null; const n=Number(v); return Number.isFinite(n)?n:null; }
@@ -1133,7 +1137,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       const batch=db.batch(),ref=db.collection(SESSION_COLLECTION).doc(session.id),logRef=db.collection(SESSION_LOG_COLLECTION).doc();
       batch.set(ref,{...firestoreSafeSession(next),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
       batch.set(logRef,{action:'swap_faculty',sessionId:session.id,course:session.course,date:session.date,topic:session.topic,role:outgoing.role||session.type||'',doeCredit:credit,fromFaculty:{ucid:String(outgoing.ucid||oldFaculty?.__id||''),name:oldName},toFaculty:{ucid:String(replacement.__id),name:newName},toFacultyCurrentAssignedDOE:currentNew,toFacultyProjectedAssignedDOE:projectedNew,changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
-      await batch.commit(); invalidateAllSessions(); closeModal(); toast(`SWAP complete: ${oldName} → ${newName}. Faculty DOE will update automatically.`);
+      await batch.commit(); invalidateAllSessions(); await refreshDerivedIndexes(); closeModal(); toast(`SWAP complete: ${oldName} → ${newName}. Faculty DOE will update automatically.`);
     }catch(err){console.error('[faculty swap]',err);toast('SWAP failed. Check Firestore session write permissions.',true)}
   }
 
@@ -1566,7 +1570,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       const logRef=db.collection(SESSION_LOG_COLLECTION).doc();
       batch.set(logRef,{action:'create',sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:next.assignments.map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null})),changes:[{field:'session',label:'Session',before:null,after:[next.course,next.date,next.start+'-'+next.end,next.topic].filter(Boolean).join(' · ')}],changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
     }
-    await batch.commit();invalidateAllSessions();closeModal();toast(`${result.sessions.length} live sessions added.`);return true;
+    await batch.commit();invalidateAllSessions();await refreshDerivedIndexes();closeModal();toast(`${result.sessions.length} live sessions added.`);return true;
   }
   async function openBulkSessionForm(){
     if(!UCVM.admin(currentUser)){toast('ADFA permission is required.',true);return}
@@ -1670,6 +1674,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
         batch.set(logRef,{action:existing?'update':'create',sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:assignments.map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null})),changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
         await batch.commit();
         invalidateAllSessions();
+        await refreshDerivedIndexes();
         closeModal();
         toast(existing?'Live session updated.':'Live session added.');
       } catch(err) {
@@ -1695,7 +1700,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       batch.delete(db.collection(SESSION_COLLECTION).doc(id));
       const logRef=db.collection(SESSION_LOG_COLLECTION).doc();
       batch.set(logRef,{action:'delete',sessionId:id,course:s.course,date:s.date,topic:s.topic,changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
-      await batch.commit(); invalidateAllSessions(); closeModal(); toast('Live session deleted.');
+      await batch.commit(); invalidateAllSessions(); await refreshDerivedIndexes(); closeModal(); toast('Live session deleted.');
     } catch(err) { console.error(err); toast('Delete failed. Check Firestore session write rules.', true); }
   }
 

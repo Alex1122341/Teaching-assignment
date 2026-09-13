@@ -20,7 +20,7 @@
    f.rank,f.currentTitle,f.appointmentType,f.campus,f.primaryDepartment,f.department,f.reportsTo,
    f.teachingArea,f.teachingAreaEmphasis,f.boardSpecialties,f.boardCertification,
    summary.displayName,summary.traineeSummary,summary.specialProjectText,summary.roles,
-   workload.credits,workload.trainee
+   workload.credits,workload.trainee,f.awayFromCampusRecords
   ])).join(' ').toLowerCase();
  }
  function contractTeachingDOE(f){return [f?.doe?.teaching,f?.doeTeaching,f?.teachingDOE,f?.contractTeachingDOE].map(number).find(v=>v!==null)??null}
