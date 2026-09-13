@@ -58,6 +58,10 @@ if ([string]::IsNullOrWhiteSpace($deployClient)) {
 $stagingPath = Join-Path ([System.IO.Path]::GetTempPath()) 'ucvm-teaching-azure-static'
 $webFiles = @(
     'approval-workflow.js',
+    'signature-capture.js',
+    'afc-actions.js',
+    'information-center.js',
+    'availability-lookup.js',
     'afc-pdf-browser.js',
     'afc-workflow.js',
     'absence-from-campus-app.pdf',

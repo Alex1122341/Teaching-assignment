@@ -9,7 +9,7 @@
  const $=id=>document.getElementById(id), esc=UCVM.esc;
  const REQUESTS='change_requests', SESSIONS='sessions', LOGS='session_change_log';
  let me=null,user=null,role='',sessions=new Map(),people=[],peopleByUid=new Map(),groups=[],myGroups=[],hiccScope=new Set();
- let hiccMode=false,requests=[],requestUnsub=null,sessionUnsub=null,groupUnsub=null,peopleUnsub=null,renderQueued=false;
+ let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleUnsub=null,renderQueued=false;
  let approvalFaculty=[],approvalFacultyById=new Map(),approvalFacultyLoaded=false;
  let approvalSessionsComplete=false;
 
@@ -140,6 +140,11 @@
     injectButtons();queueDecorate();
   },e=>console.warn('[workflow requests]',e));
  }
+ function listenAfcRequests(){
+  if(afcUnsub){afcUnsub();afcUnsub=null}
+  afcRequests=[];if(!user||!isApprover())return;
+  afcUnsub=db.collection('afc_requests').where('status','in',['pending_report_to','pending_admin']).limit(100).onSnapshot(s=>{afcRequests=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.submittedAt?.toMillis?.()||0)-(a.submittedAt?.toMillis?.()||0));injectButtons()},e=>console.warn('[workflow AFC requests]',e));
+ }
 
  function groupTokens(g){
   const vals=[g?.name,g?.tag,g?.groupTag].flatMap(v=>Array.isArray(v)?v:[v]);
@@ -183,7 +188,7 @@
   }else $('my-requests-btn')?.remove();
 
   if(isApprover()){
-    const pending=requests.filter(r=>r.status==='pending').length,b=mkButton('approval-queue-btn','Approvals');
+    const pending=requests.filter(r=>r.status==='pending').length+afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length,b=mkButton('approval-queue-btn','Approvals');
     b.innerHTML=`Approvals${pending?` <span class="workflow-count">${pending}</span>`:''}`;
     if(!b.isConnected)bar.insertBefore(b,bar.firstChild);b.onclick=()=>openApprovalQueue();
   }else $('approval-queue-btn')?.remove();
@@ -277,6 +282,8 @@
   return (r.changes||[]).map(c=>`<div class="workflow-approval-change"><strong>${esc(c.field)}</strong>${esc(c.before)} → ${esc(c.after)}</div>`).join('');
  }
  function requestCard(r,admin=false){const when=r.requestedAt?.toDate?.().toLocaleString('en-CA',{timeZone:'America/Edmonton'})||'Pending timestamp',impact=admin&&r.status==='pending'?`<div class="workflow-impact" data-approval-impact="${esc(r.id)}"><div class="workflow-impact-title">DOE & schedule checks</div>Checking live DOE and timetable conflicts…</div>`:'';return `<div class="workflow-card ${esc(r.status||'pending')}"><div class="workflow-card-head"><div><div class="workflow-card-title">${esc(r.course||'')} · ${esc(r.topic||'')}</div><div class="workflow-card-meta">${esc(r.requesterName||r.requesterEmail||'')} · ${esc(UCVM.label(r.requesterRole||''))} · ${esc(when)}</div></div><span class="workflow-pill">${statusLabel(r)}</span></div>${requestDetail(r)}${r.reason?`<div class="workflow-note">Reason: ${esc(r.reason)}</div>`:''}${impact}${admin&&r.status==='pending'?`<div class="workflow-actions"><button class="btn btn-primary" data-approve-request="${esc(r.id)}">Approve & apply</button><button class="btn btn-secondary" data-reject-request="${esc(r.id)}">Reject</button></div>`:''}</div>`}
+ function afcStatus(s){return({pending_report_to:'Reports To signature needed',pending_admin:'ADMIN signature needed',approved:'Approved',rejected:'Rejected'})[s]||s}
+ function afcCard(r,active=false){const when=r.submittedAt?.toDate?.().toLocaleString('en-CA',{timeZone:'America/Edmonton'})||'Pending timestamp',action=r.status==='pending_report_to'?'recommend':'approve';return `<div class="workflow-card ${esc(r.status||'pending')}"><div class="workflow-card-head"><div><div class="workflow-card-title">${esc(r.facultyName)} · AFC ${esc(r.startDate)} – ${esc(r.endDate)}</div><div class="workflow-card-meta">${esc(r.requesterEmail||'')} · ${esc(when)} · ${esc(r.workDays)} workday(s)</div></div><span class="workflow-pill">${esc(afcStatus(r.status))}</span></div><div class="workflow-note">Teaching cross-check: ${r.teachingSessions?.length?`${r.teachingSessions.length} assignment(s); coverage supplied`:'no teaching assignment found'}.</div>${active?`<div class="workflow-actions"><button class="btn btn-primary" data-afc-action="${action}" data-afc-id="${esc(r.id)}">${action==='recommend'?'Sign for Reports To & forward':'Sign & approve PDF'}</button><button class="btn btn-secondary" data-afc-action="reject" data-afc-id="${esc(r.id)}">Sign & reject</button></div>`:''}</div>`}
  function openMyRequests(){showModal(`<div class="modal-header"><div class="modal-title">My change requests</div><div class="modal-subtitle">Pending requests do not change the live timetable until ADFA approves.</div></div><div class="modal-body">${requests.map(r=>requestCard(r,false)).join('')||'<p>No requests yet.</p>'}</div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`)}
 
  function swapImpactHtml(r,current){
@@ -292,8 +299,10 @@
   for(const el of document.querySelectorAll('[data-approval-impact]')){const r=requests.find(x=>x.id===el.dataset.approvalImpact),current=r?sessions.get(r.sessionId):null;if(!r||!current){el.innerHTML='<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check warn">The live session could not be found. Do not approve until reviewed manually.</div>';continue}try{el.innerHTML=r.requestType==='faculty_swap'?swapImpactHtml(r,current):editImpactHtml(r,current)}catch(e){console.error('[approval impact]',e);el.innerHTML=`<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check unknown">Unable to calculate checks: ${esc(e.message)}</div>`}}
  }
  async function openApprovalQueue(){
-  const pending=requests.filter(r=>r.status==='pending'),done=requests.filter(r=>r.status!=='pending').slice(0,20);showModal(`<div class="modal-header"><div class="modal-title">ADFA approval queue</div><div class="modal-subtitle">ADFA General or ADFA Regular approval applies the request to the live Firestore timetable. DOE and timetable conflict checks below use the current live data.</div></div><div class="modal-body"><h3>Pending (${pending.length})</h3>${pending.map(r=>requestCard(r,true)).join('')||'<p>No pending requests.</p>'}${done.length?`<h3 style="margin-top:18px">Recent decisions</h3>${done.map(r=>requestCard(r,false)).join('')}`:''}</div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`);document.querySelectorAll('[data-approve-request]').forEach(b=>b.onclick=()=>approveRequest(b.dataset.approveRequest));document.querySelectorAll('[data-reject-request]').forEach(b=>b.onclick=()=>rejectRequest(b.dataset.rejectRequest));try{await hydrateApprovalImpacts()}catch(e){toast(`DOE/conflict checks could not load: ${e.message}`,true)}
+  const pending=requests.filter(r=>r.status==='pending'),done=requests.filter(r=>r.status!=='pending').slice(0,20),afcPending=afcRequests;showModal(`<div class="modal-header"><div class="modal-title">ADFA approval queue</div><div class="modal-subtitle">Timetable decisions use live DOE/conflict checks. AFC decisions create the signed, read-only PDF record.</div></div><div class="modal-body"><h3>AFC requests (${afcPending.length})</h3>${afcPending.map(r=>afcCard(r,true)).join('')||'<p>No pending AFC requests.</p>'}<h3 style="margin-top:18px">Timetable requests (${pending.length})</h3>${pending.map(r=>requestCard(r,true)).join('')||'<p>No pending timetable requests.</p>'}${done.length?`<h3 style="margin-top:18px">Recent timetable decisions</h3>${done.map(r=>requestCard(r,false)).join('')}`:''}</div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`);document.querySelectorAll('[data-approve-request]').forEach(b=>b.onclick=()=>approveRequest(b.dataset.approveRequest));document.querySelectorAll('[data-reject-request]').forEach(b=>b.onclick=()=>rejectRequest(b.dataset.rejectRequest));document.querySelectorAll('[data-afc-action]').forEach(b=>b.onclick=()=>decideAfc(b.dataset.afcId,b.dataset.afcAction));try{await hydrateApprovalImpacts()}catch(e){toast(`DOE/conflict checks could not load: ${e.message}`,true)}
  }
+
+ async function decideAfc(id,action){const r=afcRequests.find(x=>x.id===id);if(!r||!isApprover())return;let rejectionReason='';if(action==='reject'){rejectionReason=prompt('Reason for rejection:')?.trim()||'';if(!rejectionReason)return}const signature=await UCVM_SIGNATURE.capture({name:me?.name||user.email||'',email:user.email||'',uid:user.uid,title:`Sign AFC ${action}`});if(!signature){openApprovalQueue();return}try{await UCVM_AFC_ACTIONS.decide({db,user,profile:me,request:r,action,signature,rejectionReason});toast(action==='approve'?'AFC approved and signed PDF created.':action==='recommend'?'AFC signed and forwarded to ADMIN.':'AFC rejected.');closeModal()}catch(e){toast(e.message,true)}}
 
  function validateBase(current,base,fields){for(const f of fields)if(!sameVal(f==='date'?ymd(current[f]):current[f],base?.[f]))return false;return true}
  function approvalWarnings(r,current){
@@ -332,8 +341,8 @@
  }
 
  auth.onAuthStateChanged(async u=>{
-  user=u;me=null;role='';hiccMode=false;sessions.clear();requests=[];approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}if(peopleUnsub){peopleUnsub();peopleUnsub=null}
+  user=u;me=null;role='';hiccMode=false;sessions.clear();requests=[];afcRequests=[];approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}if(peopleUnsub){peopleUnsub();peopleUnsub=null}
   if(!u){injectButtons();queueDecorate();return}
-  try{const d=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(u.uid):await db.doc(`users/${u.uid}`).get();me=d.data()||{};await UCVM.ready(u,me);role=UCVM.role(me.role);listenPeople();listenGroups();listenSessions();listenRequests();injectButtons()}catch(e){console.warn('[approval workflow init]',e)}
+  try{const d=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(u.uid):await db.doc(`users/${u.uid}`).get();me=d.data()||{};await UCVM.ready(u,me);role=UCVM.role(me.role);listenPeople();listenGroups();listenSessions();listenRequests();listenAfcRequests();injectButtons()}catch(e){console.warn('[approval workflow init]',e)}
  });
 })();

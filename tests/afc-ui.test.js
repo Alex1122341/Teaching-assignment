@@ -15,6 +15,6 @@ test('faculty dashboard exposes the AFC request and review tab', () => {
 
 test('AFC UI collects dates, conditional details, coverage, and electronic signature', () => {
   const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
-  for (const field of ['startDate','endDate','reason','purposeDestination','coverage','signatureName','attested']) assert.match(source, new RegExp(field));
-  assert.match(source, /pdf_chunks/);
+  for (const field of ['startDate','endDate','reason','purposeDestination','coverage','applicantSignature','UCVM_SIGNATURE']) assert.match(source, new RegExp(field));
+  assert.match(fs.readFileSync(path.join(root, 'afc-actions.js'), 'utf8'), /pdf_chunks/);
 });

@@ -38,3 +38,13 @@ check('trigger auditing captures actor and deletion details, and deduplicates re
 check('ADFA direct writes are allowed, actor spoofing and client audit markers are blocked',async()=>{
  const {assertFails,assertSucceeds}=dep('@firebase/rules-unit-testing'),{doc,setDoc,deleteDoc}=dep('firebase/firestore');const db=env.authenticatedContext('regular').firestore();await assertSucceeds(setDoc(doc(db,'sessions/admin-create'),{course:'301',topic:'Admin add',updatedBy:'regular'}));await assertFails(setDoc(doc(db,'sessions/forged-actor'),{topic:'Forged actor',updatedBy:'general'}));await assertFails(setDoc(doc(db,'sessions/forged-marker'),{topic:'Forged marker',updatedBy:'regular',auditEventId:'fake'}));await assertSucceeds(deleteDoc(doc(db,'sessions/admin-create')));
 });
+check('bulk imports are limited to ADFA General and information centre is readable by signed-in users',async()=>{
+ const {assertFails,assertSucceeds}=dep('@firebase/rules-unit-testing'),{doc,setDoc,getDoc,serverTimestamp}=dep('firebase/firestore');
+ const regularDb=env.authenticatedContext('regular').firestore(),generalDb=env.authenticatedContext('general').firestore(),memberDb=env.authenticatedContext('member').firestore();
+ await assertFails(setDoc(doc(regularDb,'faculty/f1'),{awayFromCampusRecords:[],awayFromCampusImportedBy:'regular',updatedBy:'regular'},{merge:true}));
+ await assertSucceeds(setDoc(doc(generalDb,'faculty/f1'),{awayFromCampusRecords:[],awayFromCampusImportedBy:'general',updatedBy:'general'},{merge:true}));
+ await assertFails(setDoc(doc(regularDb,'sessions/s1'),{sourceWorkbook:'bulk.json',bulkImportedBy:'regular',updatedBy:'regular'},{merge:true}));
+ await assertSucceeds(setDoc(doc(generalDb,'public_info/information_center'),{messages:[{id:'m1',title:'Update',body:'Message'}],updatedBy:'general',updatedAt:serverTimestamp()}));
+ await assertSucceeds(getDoc(doc(memberDb,'public_info/information_center')));
+ await assertFails(setDoc(doc(regularDb,'public_info/information_center'),{messages:[],updatedBy:'regular',updatedAt:serverTimestamp()}));
+});

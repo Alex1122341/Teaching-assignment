@@ -30,6 +30,9 @@ service cloud.firestore {
   function afcRecommend(){return resource.data.status == 'pending_report_to' && request.resource.data.status == 'pending_admin' && (request.auth.uid == resource.data.reportToUid || historyAll()) && request.resource.data.reportToSignature.uid == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','reportToSignature','updatedAt']);}
   function afcReject(){return resource.data.status in ['pending_report_to','pending_admin'] && request.resource.data.status == 'rejected' && (historyAll() || request.auth.uid == resource.data.reportToUid) && request.resource.data.rejectedSignature.uid == request.auth.uid && request.resource.data.rejectionReason is string && request.resource.data.rejectionReason.size() > 0 && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','rejectionReason','rejectedSignature','updatedAt']);}
   function afcApprove(){return historyAll() && resource.data.status == 'pending_admin' && request.resource.data.status == 'approved' && request.resource.data.adminSignature.uid == request.auth.uid && request.resource.data.pdfChunkCount is int && request.resource.data.pdfChunkCount > 0 && request.resource.data.approvedAt == request.time && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','adminSignature','pdfChunkCount','pdfSha256','pdfByteLength','approvedAt','updatedAt']);}
+  function bulkFacultyImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['awayFromCampusRecords','awayFromCampusSource','awayFromCampusImportedAt','awayFromCampusImportedBy','facultySummary2026_27','facultySummarySource2026_27','facultySummaryImportedAt','facultySummaryImportedBy','workloadPolicy2026_27','workloadPolicySource2026_27','workloadPolicyImportedAt2026_27','workloadPolicyImportedBy2026_27','bulkImportedAt','bulkImportedBy']);}
+  function bulkFacultyImportCreate(){return request.resource.data.keys().hasAny(['awayFromCampusRecords','facultySummary2026_27','workloadPolicy2026_27','bulkImportedAt','bulkImportedBy']);}
+  function bulkSessionImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']);}
 
   match /users/{uid} {
    allow get: if signedIn() && (request.auth.uid == uid || general() || (facultyMember() && facultyRole(resource.data.role)));
@@ -46,13 +49,14 @@ service cloud.firestore {
   }
   match /sessions/{id} {
    allow read: if ready();
-   allow create: if admin() && request.resource.data.updatedBy == request.auth.uid;
-   allow update: if admin() && request.resource.data.updatedBy == request.auth.uid;
+   allow create: if admin() && request.resource.data.updatedBy == request.auth.uid && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general());
+   allow update: if admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkSessionImportChange() || general());
    allow delete: if admin();
   }
   match /faculty/{id} {
    allow get,list: if admin() || ownFacultyRecord();
-   allow create,update: if admin() && request.resource.data.updatedBy == request.auth.uid;
+   allow create: if admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportCreate() || general());
+   allow update: if admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportChange() || general());
    allow delete: if admin();
   }
   match /change_requests/{id} {
@@ -61,7 +65,8 @@ service cloud.firestore {
    allow update: if validRequestDecision();
    allow delete: if false;
   }
-  match /settings/{id} {allow read,write: if admin();}
+  match /settings/{id} {allow read: if admin(); allow write: if admin() && (id != 'faculty_summary_2026_27' || general());}
+  match /public_info/{id} {allow read: if ready(); allow create,update: if general() && request.resource.data.messages is list && request.resource.data.messages.size() <= 10 && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time; allow delete: if false;}
   match /session_change_log/{id} {
    allow read: if ready() && (historyAll() || resource.data.changedBy == request.auth.uid);
    allow create: if admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
