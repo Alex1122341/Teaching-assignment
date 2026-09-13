@@ -27,6 +27,11 @@
  .workflow-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.workflow-grid .form-field{margin:0}
  .workflow-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.workflow-pill{display:inline-block;padding:2px 6px;border:1px solid var(--border);border-radius:999px;font-size:9.5px;font-weight:750}
  .workflow-hidden-by-hicc{display:none!important}.workflow-session-pending{outline:2px dashed #b7791f;outline-offset:-2px}
+ .workflow-swap-pending{outline:3px solid var(--uc-red,#d6001c)!important;outline-offset:1px!important;box-shadow:0 0 0 4px rgba(214,0,28,.16),0 5px 14px rgba(86,0,12,.2)!important}
+ .workflow-swap-pending-label{position:absolute;top:3px;right:3px;z-index:3;display:inline-flex;align-items:center;padding:2px 5px;border-radius:3px;background:var(--uc-red,#d6001c);color:#fff;font-size:8px;font-weight:900;line-height:1.2;letter-spacing:.04em;white-space:nowrap;pointer-events:none}
+ .schedule-list tr.workflow-swap-pending{outline:none!important;box-shadow:none!important}.schedule-list tr.workflow-swap-pending>td{background:#fff1f2!important;border-top:2px solid var(--uc-red,#d6001c);border-bottom:2px solid var(--uc-red,#d6001c)}
+ .schedule-list tr.workflow-swap-pending>td:first-child{border-left:4px solid var(--uc-red,#d6001c)}.schedule-list tr.workflow-swap-pending>td:last-child{border-right:2px solid var(--uc-red,#d6001c)}
+ .schedule-list .workflow-swap-pending-label{position:static;margin-right:6px;vertical-align:middle}
  .workflow-approval-change{margin-top:6px;font-size:11px}.workflow-approval-change strong{display:inline-block;min-width:90px}
  .workflow-impact{margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
  .workflow-impact-title{font-size:10px;font-weight:850;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);margin-bottom:7px}
@@ -203,11 +208,17 @@
  }
  function decorate(){
   renderQueued=false;
-  const pendingIds=new Set(requests.filter(r=>r.status==='pending').map(r=>r.sessionId));
+  const pendingIds=new Set(requests.filter(r=>r.status==='pending').map(r=>String(r.sessionId||'')));
+  const pendingSwapIds=new Set(requests.filter(r=>r.status==='pending'&&r.requestType==='faculty_swap').map(r=>String(r.sessionId||'')));
   document.querySelectorAll('[data-session-id]').forEach(el=>{
-    const id=el.dataset.sessionId;
+    const id=String(el.dataset.sessionId||''),hasPendingSwap=pendingSwapIds.has(id);
     el.classList.toggle('workflow-hidden-by-hicc',hiccMode&&role==='hicc'&&!hiccScope.has(id));
     el.classList.toggle('workflow-session-pending',pendingIds.has(id));
+    el.classList.toggle('workflow-swap-pending',hasPendingSwap);
+    const labelHost=el.matches('tr')?el.querySelector('td:first-child'):el;
+    const existingLabel=labelHost?.querySelector(':scope > .workflow-swap-pending-label');
+    if(hasPendingSwap&&labelHost&&!existingLabel){const label=document.createElement('span');label.className='workflow-swap-pending-label';label.textContent='SWAP PENDING';labelHost.prepend(label)}
+    else if(!hasPendingSwap)existingLabel?.remove();
   });
   if(hiccMode)realignVisible();
  }
