@@ -33,6 +33,8 @@ service cloud.firestore {
   function bulkFacultyImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['awayFromCampusRecords','awayFromCampusSource','awayFromCampusImportedAt','awayFromCampusImportedBy','facultySummary2026_27','facultySummarySource2026_27','facultySummaryImportedAt','facultySummaryImportedBy','workloadPolicy2026_27','workloadPolicySource2026_27','workloadPolicyImportedAt2026_27','workloadPolicyImportedBy2026_27','bulkImportedAt','bulkImportedBy']);}
   function bulkFacultyImportCreate(){return request.resource.data.keys().hasAny(['awayFromCampusRecords','facultySummary2026_27','workloadPolicy2026_27','bulkImportedAt','bulkImportedBy']);}
   function bulkSessionImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']);}
+  function clientCreatedSessionHasNoAuditMarker(){return !request.resource.data.keys().hasAny(['auditEventId']);}
+  function clientKeptSessionAuditMarker(){return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['auditEventId']);}
 
   match /users/{uid} {
    allow get: if signedIn() && (request.auth.uid == uid || general() || (facultyMember() && facultyRole(resource.data.role)));
@@ -49,8 +51,8 @@ service cloud.firestore {
   }
   match /sessions/{id} {
    allow read: if ready();
-   allow create: if admin() && request.resource.data.updatedBy == request.auth.uid && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general());
-   allow update: if admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkSessionImportChange() || general());
+   allow create: if admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general());
+   allow update: if admin() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && (!bulkSessionImportChange() || general());
    allow delete: if admin();
   }
   match /faculty/{id} {
