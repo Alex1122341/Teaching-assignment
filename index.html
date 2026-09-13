@@ -168,6 +168,10 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
 .swap-unavailable td{background:#fff9f9}
 @media(max-width:900px){.ucalgary-masthead-inner{padding:11px 14px}.ucalgary-product{display:none}.ucalgary-wordmark{font-size:16px}.ucalgary-faculty{font-size:12px}.main-content{padding-left:12px;padding-right:12px}.brand-block{border-right:none;padding-right:0}}
 
+/* V9.8 compact exports and spreadsheet-style bulk session entry */
+.main-view{display:block!important}.compact-export-bar{margin-top:8px;min-height:34px;padding:5px 8px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;border:1px solid var(--border);border-radius:4px;background:var(--surface);box-shadow:var(--shadow)}.compact-export-label{font-size:10px;font-weight:850;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);margin-right:2px}.compact-export-note{font-size:9.5px;color:var(--text-3);margin-left:auto}.compact-export-bar .export-btn{padding:4px 8px;font-size:10.5px}.modal-box.bulk-wide{width:min(1500px,98vw)}.bulk-toolbar{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:9px}.bulk-toolbar .btn{padding:6px 10px;font-size:11px}.bulk-count{margin-left:auto;font-size:10.5px;font-weight:700;color:var(--text-3)}.bulk-sheet-wrap{max-height:56vh;overflow:auto;border:1px solid var(--border);background:var(--surface)}.bulk-sheet{width:100%;min-width:1320px;border-collapse:separate;border-spacing:0;font-size:11px}.bulk-sheet th{position:sticky;top:0;z-index:3;padding:6px;background:#f1f0ee;border-right:1px solid var(--border);border-bottom:1px solid var(--border);text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3)}.bulk-sheet td{padding:0;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface)}.bulk-sheet input,.bulk-sheet select{width:100%;min-width:76px;height:32px;padding:4px 6px;border:0;background:transparent;color:var(--text);font-size:11px;outline:none}.bulk-sheet input:focus,.bulk-sheet select:focus{box-shadow:inset 0 0 0 2px rgba(214,0,28,.35);background:#fffafb}.bulk-sheet tr.bulk-row-error td{background:#fff1f2}.bulk-sheet .bulk-date{min-width:128px}.bulk-sheet .bulk-topic{min-width:210px}.bulk-sheet .bulk-faculty{min-width:220px}.bulk-remove{width:30px;height:30px;color:var(--danger);font-weight:800}.bulk-paste-panel{margin:8px 0;padding:9px;border:1px solid var(--border);background:var(--surface-2);border-radius:4px}.bulk-paste-panel textarea{width:100%;min-height:90px;padding:7px;border:1px solid var(--border);background:var(--surface);font:11px/1.4 Consolas,monospace;resize:vertical}.bulk-errors{margin-top:8px;padding:8px 10px;border-left:3px solid var(--danger);background:#fff1f2;color:#8f1527;font-size:10.5px;white-space:pre-line}.outlook-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}.outlook-summary div{padding:10px;border:1px solid var(--border);background:var(--surface-2);text-align:center}.outlook-summary strong{display:block;font-size:18px;color:var(--accent)}
+@media(max-width:760px){.compact-export-note{width:100%;margin-left:0}.modal-box.bulk-wide{width:99vw}.bulk-sheet-wrap{max-height:62vh}.outlook-summary{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body class="auth-locked">
@@ -290,6 +294,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
                 <option value="Quiz/Midterm">Quiz/Midterm</option>
                 <option value="OSCE">OSCE</option>
                 <option value="Exam">Exam</option>
+                <option value="CCC">CCC</option>
               </select>
               <span class="fbar-arrow">v</span>
             </div>
@@ -302,7 +307,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
   </div>
 
   <div class="main-content">
-    <button class="side-toggle-btn" id="side-toggle-btn" title="Hide Latest Updates / Data Export panel">&gt;</button>
     <div class="main-view" id="main-view">
       <div class="cal-column">
         <div class="cal-toolbar">
@@ -317,7 +321,8 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
             <button class="fbar-reset hidden" id="ui-edit-mode-btn">Edit UI</button>
             <button class="fbar-reset hidden" id="manage-users-btn">Manage Users</button>
             <button class="fbar-reset hidden" id="faculty-dashboard-btn">Faculty Dashboard</button>
-            <button class="fbar-reset hidden" id="add-session-btn">+ Add Session</button>
+            <button class="fbar-reset hidden" id="bulk-add-session-btn">+ Add Sessions</button>
+            <button class="fbar-reset hidden" id="add-session-btn">+ Add One</button>
             <button class="fbar-reset" id="color-toggle">Colors: On</button>
             <div class="cal-view-toggle">
               <button class="cal-view-btn" id="cal-day-btn">Day</button>
@@ -330,30 +335,14 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
         <div class="cal-card" id="cal-card">
           <div id="calendar-body"></div>
         </div>
-      </div>
-
-      <div class="side-column" id="side-column">
-        <div class="side-panel updates-panel" id="updates-panel" data-ui-editable="Latest Updates panel">
-          <div class="side-panel-header">
-            <span class="side-panel-title" id="ui-updates-title">Latest Updates</span>
-            <span class="side-panel-sub" id="ui-updates-subtitle">Schedule source / local changes</span>
-          </div>
-          <div class="side-panel-body" id="latest-updates-body"></div>
-        </div>
-        <div class="side-panel export-panel" id="export-panel" data-ui-editable="Data Export panel">
-          <div class="side-panel-header">
-            <span class="side-panel-title" id="ui-export-title">Data Export</span>
-          </div>
-          <div class="side-panel-body export-panel-body">
-            <div class="export-section-label">Export Schedule Data</div>
-            <div class="export-btn-row">
-              <button class="export-btn" id="export-csv">CSV</button>
-              <button class="export-btn" id="export-calendar">Calendar (.ics)</button>
-              <button class="export-btn" id="reset-test-data">Reload Source Data</button>
-              <button class="export-btn hidden" id="publish-firestore-schedule">Initialize Live Schedule</button>
-            </div>
-            <div class="test-note">Exports contain the synchronized 2026-27 sessions from All Faculty Summaries, including Years 1-4.</div>
-          </div>
+        <div class="compact-export-bar" id="compact-export-bar" data-ui-editable="Data Export bar">
+          <span class="compact-export-label" id="ui-export-title">Export</span>
+          <button class="export-btn" id="export-csv">CSV</button>
+          <button class="export-btn" id="export-calendar">Calendar (.ics)</button>
+          <button class="export-btn hidden" id="outlook-invite-btn">Outlook Invite Package</button>
+          <button class="export-btn" id="reset-test-data">Reload</button>
+          <button class="export-btn hidden" id="publish-firestore-schedule">Initialize Live Schedule</button>
+          <span class="compact-export-note">Uses the current filters.</span>
         </div>
       </div>
     </div>
@@ -376,8 +365,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
         <label class="ui-control"><span>Page title</span><input id="ui-set-page" type="text" maxlength="40"></label>
         <label class="ui-control"><span>Banner label</span><input id="ui-set-banner-label" type="text" maxlength="40"></label>
         <label class="ui-control"><span>Banner message</span><textarea id="ui-set-banner-message" rows="3" maxlength="180"></textarea></label>
-        <label class="ui-control"><span>Updates title</span><input id="ui-set-updates-title" type="text" maxlength="60"></label>
-        <label class="ui-control"><span>Updates subtitle</span><input id="ui-set-updates-subtitle" type="text" maxlength="100"></label>
         <label class="ui-control"><span>Export title</span><input id="ui-set-export-title" type="text" maxlength="60"></label>
       </section>
 
@@ -394,7 +381,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
         <div class="ui-editor-section-title">Show / hide</div>
         <label class="ui-switch-row"><span>Top test banner</span><input id="ui-show-banner" type="checkbox"></label>
         <label class="ui-switch-row"><span>Course List button</span><input id="ui-show-course-list" type="checkbox"></label>
-        <label class="ui-switch-row"><span>Latest Updates</span><input id="ui-show-updates" type="checkbox"></label>
         <label class="ui-switch-row"><span>Data Export</span><input id="ui-show-export" type="checkbox"></label>
         <label class="ui-switch-row"><span>Colors toggle</span><input id="ui-show-color-toggle" type="checkbox"></label>
         <label class="ui-switch-row"><span>My Timetable button</span><input id="ui-show-my-timetable" type="checkbox"></label>
@@ -439,7 +425,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
 (() => {
   'use strict';
 
-  const UPDATES_KEY = 'ucvm_live_updates_v95';
   const SESSION_COLLECTION = 'sessions';
   const SESSION_LOG_COLLECTION = 'session_change_log';
   const SPRING_BASE_MONDAY = new Date(2026, 3, 27);
@@ -557,9 +542,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     pageTitle: 'Teaching Schedule',
     bannerLabel: '2026-2027 TEACHING SCHEDULE · WORKLOAD DOE V9.7',
     bannerMessage: '2026-27 timetable is synchronized with the Faculty Dashboard from All Faculty Summaries. Both pages use the same live Firestore sessions.',
-    updatesTitle: 'Latest Updates',
-    updatesSubtitle: 'Schedule source / local changes',
-    exportTitle: 'Data Export',
+    exportTitle: 'Export',
     accent: '#d6001c',
     sidebarWidth: 320,
     radius: 4,
@@ -567,7 +550,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     density: 'normal',
     showBanner: true,
     showCourseList: true,
-    showUpdates: true,
     showExport: true,
     showColorToggle: true,
     showMyTimetable: true
@@ -587,15 +569,13 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     x.pageTitle = text(x.pageTitle, DEFAULT_UI_SETTINGS.pageTitle, 40);
     x.bannerLabel = text(x.bannerLabel, DEFAULT_UI_SETTINGS.bannerLabel, 40);
     x.bannerMessage = text(x.bannerMessage, DEFAULT_UI_SETTINGS.bannerMessage, 180);
-    x.updatesTitle = text(x.updatesTitle, DEFAULT_UI_SETTINGS.updatesTitle, 60);
-    x.updatesSubtitle = text(x.updatesSubtitle, DEFAULT_UI_SETTINGS.updatesSubtitle, 100);
     x.exportTitle = text(x.exportTitle, DEFAULT_UI_SETTINGS.exportTitle, 60);
     x.accent = /^#[0-9a-f]{6}$/i.test(String(x.accent)) ? String(x.accent) : DEFAULT_UI_SETTINGS.accent;
     x.sidebarWidth = Math.max(240, Math.min(440, Number(x.sidebarWidth) || DEFAULT_UI_SETTINGS.sidebarWidth));
     x.radius = Math.max(2, Math.min(18, Number(x.radius) || DEFAULT_UI_SETTINGS.radius));
     x.fontSize = Math.max(12, Math.min(17, Number(x.fontSize) || DEFAULT_UI_SETTINGS.fontSize));
     x.density = ['compact','normal','roomy'].includes(x.density) ? x.density : 'normal';
-    ['showBanner','showCourseList','showUpdates','showExport','showColorToggle','showMyTimetable'].forEach(k => x[k] = x[k] !== false);
+    ['showBanner','showCourseList','showExport','showColorToggle','showMyTimetable'].forEach(k => x[k] = x[k] !== false);
     return x;
   }
 
@@ -635,8 +615,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     setText('ui-brand-page', x.pageTitle);
     setText('ui-banner-label', x.bannerLabel);
     setText('ui-banner-message', x.bannerMessage);
-    setText('ui-updates-title', x.updatesTitle);
-    setText('ui-updates-subtitle', x.updatesSubtitle);
     setText('ui-export-title', x.exportTitle);
     setText('gate-status', $('gate-status')?.textContent || 'Sign in required.');
     const gateTitle=$('.auth-gate-title'); if (gateTitle) gateTitle.textContent=`${x.academicYear} ${x.pageTitle}`;
@@ -645,12 +623,9 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     document.body.classList.toggle('ui-density-compact', x.density === 'compact');
     document.body.classList.toggle('ui-density-roomy', x.density === 'roomy');
     $('course-list-btn')?.classList.toggle('ui-pref-hidden', !x.showCourseList);
-    $('updates-panel')?.classList.toggle('ui-pref-hidden', !x.showUpdates);
-    $('export-panel')?.classList.toggle('ui-pref-hidden', !x.showExport);
+    $('compact-export-bar')?.classList.toggle('ui-pref-hidden', !x.showExport);
     $('color-toggle')?.classList.toggle('ui-pref-hidden', !x.showColorToggle);
     const myBtn=$('my-timetable-btn'); if (myBtn) myBtn.classList.toggle('ui-pref-hidden', !x.showMyTimetable);
-    $('main-view')?.classList.toggle('ui-no-sidebar', !x.showUpdates && !x.showExport);
-    $('side-toggle-btn')?.classList.toggle('ui-pref-hidden', !x.showUpdates && !x.showExport);
   }
 
   function isAdmin() { return UCVM.admin(currentUser); }
@@ -662,8 +637,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     $('ui-set-page').value=x.pageTitle;
     $('ui-set-banner-label').value=x.bannerLabel;
     $('ui-set-banner-message').value=x.bannerMessage;
-    $('ui-set-updates-title').value=x.updatesTitle;
-    $('ui-set-updates-subtitle').value=x.updatesSubtitle;
     $('ui-set-export-title').value=x.exportTitle;
     $('ui-set-accent').value=x.accent;
     $('ui-set-sidebar').value=String(x.sidebarWidth);
@@ -672,7 +645,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     $('ui-set-density').value=x.density;
     $('ui-show-banner').checked=x.showBanner;
     $('ui-show-course-list').checked=x.showCourseList;
-    $('ui-show-updates').checked=x.showUpdates;
     $('ui-show-export').checked=x.showExport;
     $('ui-show-color-toggle').checked=x.showColorToggle;
     $('ui-show-my-timetable').checked=x.showMyTimetable;
@@ -688,8 +660,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       pageTitle:$('ui-set-page').value,
       bannerLabel:$('ui-set-banner-label').value,
       bannerMessage:$('ui-set-banner-message').value,
-      updatesTitle:$('ui-set-updates-title').value,
-      updatesSubtitle:$('ui-set-updates-subtitle').value,
       exportTitle:$('ui-set-export-title').value,
       accent:$('ui-set-accent').value,
       sidebarWidth:Number($('ui-set-sidebar').value),
@@ -698,7 +668,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       density:$('ui-set-density').value,
       showBanner:$('ui-show-banner').checked,
       showCourseList:$('ui-show-course-list').checked,
-      showUpdates:$('ui-show-updates').checked,
       showExport:$('ui-show-export').checked,
       showColorToggle:$('ui-show-color-toggle').checked,
       showMyTimetable:$('ui-show-my-timetable').checked
@@ -753,7 +722,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       applyUISettings(uiEditDraft);
       toast('Default UI preview loaded. Save locally to keep it.');
     });
-    const ids=['ui-set-year','ui-set-brand','ui-set-page','ui-set-banner-label','ui-set-banner-message','ui-set-updates-title','ui-set-updates-subtitle','ui-set-export-title','ui-set-accent','ui-set-sidebar','ui-set-radius','ui-set-font','ui-set-density','ui-show-banner','ui-show-course-list','ui-show-updates','ui-show-export','ui-show-color-toggle','ui-show-my-timetable'];
+    const ids=['ui-set-year','ui-set-brand','ui-set-page','ui-set-banner-label','ui-set-banner-message','ui-set-export-title','ui-set-accent','ui-set-sidebar','ui-set-radius','ui-set-font','ui-set-density','ui-show-banner','ui-show-course-list','ui-show-export','ui-show-color-toggle','ui-show-my-timetable'];
     ids.forEach(id => {
       const el=$(id);
       const event=(el.type==='checkbox'||el.tagName==='SELECT')?'change':'input';
@@ -808,7 +777,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
   ];
 
   let sessions = [];
-  let updates = loadUpdates();
   let sessionUnsubscribe = null;
   let facultyUnsubscribe = null;
   let facultyDirectory = [];
@@ -842,6 +810,8 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
   let renderedSessions = [];
   let colorsOn = true;
   let myTimetableOnly = false;
+  const MAX_BULK_SESSION_ROWS = 200;
+  let bulkRows = [];
 
   const $ = (id) => document.getElementById(id);
   const memoryStore = {};
@@ -892,19 +862,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     if (normalized === 'osce') return 'tg-type-osce';
     if (normalized === 'exam') return 'tg-type-exam';
     return 'tg-type-other';
-  }
-
-  function seedUpdates() {
-    return [
-      { when: 'Live source', who: 'Synchronized timetable', text: 'The timetable loads only from the Firestore sessions collection after an authorized sign-in.' },
-      { when: 'Synchronization', who: 'Faculty Dashboard', text: 'Main timetable and Faculty Dashboard use the same Firestore sessions for teaching assignments and DOE.' },
-      { when: 'Availability', who: 'Admin assignment tools', text: 'Faculty assignment checks Away from Campus records and overlapping live timetable sessions.' }
-    ];
-  }
-
-  function loadUpdates() {
-    try { return JSON.parse(storageGet(UPDATES_KEY)) || seedUpdates(); }
-    catch { return seedUpdates(); }
   }
 
   function firestoreSafeSession(s) {
@@ -1209,6 +1166,15 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
   }
 
   function roleIsFaculty(profile){ return ['faculty','hicc','visc'].includes(UCVM.role(profile?.role)); }
+  function sessionBelongsToCurrentFaculty(s){
+    if(!currentUser)return false;
+    const facultyId=String(currentUser.profile?.facultyId||'').trim();
+    const aliases=new Set([currentUser.instructorName,currentUser.name,currentUser.email].map(swapNameKey).filter(Boolean));
+    const assignments=Array.isArray(s.assignments)?s.assignments:[];
+    if(facultyId&&assignments.some(a=>String(a?.ucid||a?.facultyId||'').trim()===facultyId))return true;
+    if(assignments.some(a=>aliases.has(swapNameKey(a?.name))))return true;
+    return splitInstructorNames(s.instructor||'').some(name=>aliases.has(swapNameKey(name)));
+  }
   async function loadCccEvents(){
     if(cccLoaded)return cccEvents;
     if(cccLoading)return cccLoading;
@@ -1293,13 +1259,13 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     $('cal-list-btn').addEventListener('click', () => { viewMode = 'list'; setViewButtons(); refreshSessionScope(); });
     $('show-ccc').addEventListener('change', async e=>{showCcc=e.target.checked;if(showCcc){try{await loadCccEvents()}catch{e.target.checked=false;showCcc=false}}populateCourseFilter();render()});
     $('color-toggle').addEventListener('click', () => { colorsOn = !colorsOn; $('color-toggle').textContent = `Colors: ${colorsOn ? 'On' : 'Off'}`; render(); });
-    $('side-toggle-btn').addEventListener('click', () => { $('main-view').classList.toggle('side-collapsed'); $('side-toggle-btn').textContent = $('main-view').classList.contains('side-collapsed') ? '<' : '>'; });
     $('dark-toggle').addEventListener('click', () => { document.documentElement.classList.toggle('dark'); $('dark-toggle').textContent = document.documentElement.classList.contains('dark') ? 'Light' : 'Moon'; applyUISettings(uiEditDraft || uiSettings); });
     $('filter-toggle-btn').addEventListener('click', () => $('filter-bar-wrap').classList.toggle('expanded'));
     $('account-toggle').addEventListener('click', () => currentUser ? openAccountModal() : openLoginModal());
     $('auth-setup-btn').addEventListener('click', openAuthSetupModal);
     $('gate-sign-in').addEventListener('click', openLoginModal);
     $('gate-auth-setup').addEventListener('click', openAuthSetupModal);
+    $('bulk-add-session-btn').addEventListener('click', openBulkSessionForm);
     $('add-session-btn').addEventListener('click', () => openSessionForm());
     $('manage-users-btn').addEventListener('click', openUserManager);
     $('faculty-dashboard-btn').addEventListener('click', () => { window.location.href = UCVM.admin(currentUser) ? 'faculty-admin.html' : 'faculty-dashboard.html'; });
@@ -1307,6 +1273,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     $('course-list-btn').addEventListener('click', openCourseList);
     $('export-csv').addEventListener('click', () => openExportDialog('csv'));
     $('export-calendar').addEventListener('click', () => openExportDialog('ics'));
+    $('outlook-invite-btn').addEventListener('click', openOutlookInviteDialog);
     $('reset-test-data').addEventListener('click', resetTestData);
     $('publish-firestore-schedule').addEventListener('click', initializeLiveSchedule);
   }
@@ -1317,7 +1284,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     document.querySelectorAll('[data-semester]').forEach(x => x.classList.toggle('active', x.dataset.semester === 'fall'));
     $('search-input').value = ''; $('filter-month').value = 'all'; $('filter-type').value = 'all';
     selectedCourses.clear(); courseFilterActive=false; showCcc=false; $('show-ccc').checked=false; populateCourseFilter();
-    myTimetableOnly = false; if (currentUser) $('my-timetable-btn').textContent = 'My Timetable';
+    myTimetableOnly = roleIsFaculty(currentUser); if (currentUser) $('my-timetable-btn').textContent = myTimetableOnly ? 'Show All Timetable' : 'My Timetable';
     selectedWeek = 1; renderWeekControls();
     refreshSessionScope();
   }
@@ -1347,12 +1314,13 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     const month = $('filter-month').value;
     const type = $('filter-type').value;
     return source.filter(s => {
+      if(String(s.type||'').toUpperCase()==='CCC'&&!showCcc)return false;
       if (!options.ignorePeriod && selectedYear !== 'all' && String(s.year) !== selectedYear) return false;
       if (!options.ignorePeriod && s.semester !== selectedSemester) return false;
       if (!options.ignorePeriod && month !== 'all' && String(parseYmd(s.date).getMonth()) !== month) return false;
       if (courseFilterActive && !selectedCourses.has(String(s.course))) return false;
       if (type !== 'all' && s.type !== type) return false;
-      if (myTimetableOnly && currentUser) { const mine=swapNameKey(currentUser.instructorName||currentUser.name); const assigned=(Array.isArray(s.assignments)?s.assignments.map(a=>a.name):splitInstructorNames(s.instructor)); if(!assigned.some(n=>swapNameKey(n)===mine)) return false; }
+      if (myTimetableOnly && currentUser && !sessionBelongsToCurrentFaculty(s)) return false;
       if (q && !`${s.course} ${s.topic} ${s.instructor} ${s.room} ${s.type}`.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -1493,10 +1461,6 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     document.querySelectorAll('[data-session-id]').forEach(el => el.addEventListener('click', () => openSessionDetail(el.dataset.sessionId)));
   }
 
-  function renderUpdates() {
-    $('latest-updates-body').innerHTML = updates.slice(0, 20).map(u => `<div class="update-item"><div class="update-line-1">${escapeHtml(u.when)} - ${escapeHtml(u.who)}</div><div class="update-line-2">Schedule source / local change</div><div class="update-line-3">${escapeHtml(u.text)}</div></div>`).join('');
-  }
-
   function openSessionDetail(id) {
     const s = renderedSessions.find(x => x.id === id) || sessions.find(x => x.id === id); if (!s) return;
     const edit = !s.isCcc&&canEdit() ? `<button class="btn btn-primary" id="detail-edit">Edit Session</button>` : '';
@@ -1534,6 +1498,93 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
   function finalizeInstructorAssignments(rows,type,start,end,topic){return (Array.isArray(rows)?rows:[]).filter(a=>String(a?.name||'').trim()).map(a=>{const role=a.role||defaultTeachingRole(type);const h=Number.isFinite(Number(a.creditedHours))?Number(a.creditedHours):blockHours(start,end);const rate=doeRateForRole(role);const out={...a,ucid:a.ucid||null,name:String(a.name||'').trim(),topic:a.topic||topic,role,creditedHours:h,doeRate:rate,doeCredit:rate===null?null:Number((h*rate).toFixed(6)),source:'Live timetable edit'};delete out.__editorKey;return out})}
   function instructorDisplayText(s){const a=Array.isArray(s?.assignments)?s.assignments:[];const names=a.map(x=>String(x?.name||'').trim()).filter(Boolean);return (names.length?names:splitInstructorNames(s?.instructor||'')).join('\n')}
   function labDetailsFromAssignments(type,assignments,topic){if(String(type).toUpperCase()!=='LAB')return undefined;const map=new Map();for(const a of assignments){const t=a.topic||topic||'Lab';if(!map.has(t))map.set(t,[]);map.get(t).push(a)}return[...map].map(([t,arr])=>({topic:t,instructor:arr.map(a=>`${a.name}${a.role?' ('+a.role+')':''}`).join('; '),room:''}))}
+
+  function blankBulkRow(seed={}){
+    const date=seed.date||ymd(weekStart(selectedWeek,selectedSemester));
+    return {__key:crypto.randomUUID(),date,year:String(seed.year||1),course:String(seed.course||'200'),type:String(seed.type||'LEC'),start:seed.start||'09:00',end:seed.end||'10:00',topic:seed.topic||'',room:seed.room||'',faculty:seed.faculty||''};
+  }
+  function parseBulkPaste(text){
+    const rows=String(text||'').split(/\r?\n/).map(line=>line.split('\t')).filter(cells=>cells.some(cell=>String(cell).trim()));
+    if(rows.length&&/date/i.test(String(rows[0][0]))&&/course/i.test(String(rows[0][2])))rows.shift();
+    return rows.slice(0,MAX_BULK_SESSION_ROWS).map(cells=>blankBulkRow({date:String(cells[0]||'').trim(),year:String(cells[1]||'1').trim(),course:String(cells[2]||'').trim(),type:String(cells[3]||'LEC').trim(),start:String(cells[4]||'09:00').trim(),end:String(cells[5]||'10:00').trim(),topic:String(cells[6]||'').trim(),room:String(cells[7]||'').trim(),faculty:String(cells[8]||'').trim()}));
+  }
+  function bulkSelectOptions(values,current){return values.map(value=>`<option value="${escapeHtml(value)}" ${String(value)===String(current)?'selected':''}>${escapeHtml(value)}</option>`).join('')}
+  function renderBulkRows(){
+    const host=$('bulk-session-body');if(!host)return;
+    const courseOptions=[...new Set([...courseCodes(),'CCC'])].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+    host.innerHTML=bulkRows.map((row,index)=>`<tr data-bulk-row="${index}">
+      <td><input class="bulk-date" data-bulk-field="date" data-index="${index}" type="date" value="${escapeHtml(row.date)}"></td>
+      <td><select data-bulk-field="year" data-index="${index}">${bulkSelectOptions(['1','2','3','4'],row.year)}</select></td>
+      <td><select data-bulk-field="course" data-index="${index}">${bulkSelectOptions(courseOptions,row.course)}</select></td>
+      <td><select data-bulk-field="type" data-index="${index}">${bulkSelectOptions(['LEC','LAB','SRL','Quiz/Midterm','OSCE','Exam','CCC'],row.type)}</select></td>
+      <td><input data-bulk-field="start" data-index="${index}" type="time" value="${escapeHtml(row.start)}"></td>
+      <td><input data-bulk-field="end" data-index="${index}" type="time" value="${escapeHtml(row.end)}"></td>
+      <td><input class="bulk-topic" data-bulk-field="topic" data-index="${index}" value="${escapeHtml(row.topic)}" placeholder="Session topic"></td>
+      <td><input data-bulk-field="room" data-index="${index}" value="${escapeHtml(row.room)}" placeholder="Room"></td>
+      <td><input class="bulk-faculty" data-bulk-field="faculty" data-index="${index}" value="${escapeHtml(row.faculty)}" list="bulk-faculty-list" placeholder="Name, email or UCID; separate with ;"></td>
+      <td><button type="button" class="bulk-remove" data-bulk-remove="${index}" aria-label="Remove row ${index+1}">×</button></td>
+    </tr>`).join('');
+    $('bulk-row-count').textContent=`${bulkRows.length} / ${MAX_BULK_SESSION_ROWS} rows`;
+    host.querySelectorAll('[data-bulk-field]').forEach(input=>{const event=input.tagName==='SELECT'?'change':'input';input.addEventListener(event,()=>{const row=bulkRows[Number(input.dataset.index)];if(!row)return;row[input.dataset.bulkField]=input.value;if(input.dataset.bulkField==='course'&&input.value==='CCC'){row.type='CCC';if(!row.topic)row.topic='CCC Day';renderBulkRows()}})});
+    host.querySelectorAll('[data-bulk-remove]').forEach(button=>button.onclick=()=>{if(bulkRows.length===1)bulkRows=[blankBulkRow()];else bulkRows.splice(Number(button.dataset.bulkRemove),1);renderBulkRows()});
+  }
+  function resolveBulkFaculty(value,rowNumber){
+    const assignments=[],errors=[];
+    for(const token of String(value||'').split(/[;\n]+/).map(v=>v.trim()).filter(Boolean)){
+      if(swapNameKey(token)===swapNameKey('Other / Unassigned')){assignments.push({ucid:null,name:'Other / Unassigned'});continue}
+      const key=swapNameKey(token),match=facultyDirectory.find(f=>String(f.__id)===token||String(f.ucid||'')===token||String(f.email||'').toLowerCase()===token.toLowerCase()||swapFacultyAliases(f).has(key));
+      if(!match){errors.push(`Row ${rowNumber}: faculty "${token}" was not found.`);continue}
+      assignments.push({ucid:String(match.__id),name:swapFacultyName(match)});
+    }
+    return {assignments,errors};
+  }
+  function validateBulkRows(rows){
+    const errors=[],warnings=[],prepared=[];
+    if(!rows.length)errors.push('Add at least one row.');
+    if(rows.length>MAX_BULK_SESSION_ROWS)errors.push(`A maximum of ${MAX_BULK_SESSION_ROWS} rows can be saved at once.`);
+    rows.forEach((row,index)=>{
+      const n=index+1,date=String(row.date||''),course=String(row.course||'').trim(),type=String(row.type||'').trim(),topic=String(row.topic||'').trim(),start=String(row.start||''),end=String(row.end||''),year=Number(row.year);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(parseYmd(date).getTime()))errors.push(`Row ${n}: enter a valid date.`);
+      if(![1,2,3,4].includes(year))errors.push(`Row ${n}: year must be 1–4.`);
+      if(!course)errors.push(`Row ${n}: course is required.`);if(!type)errors.push(`Row ${n}: type is required.`);if(!topic)errors.push(`Row ${n}: topic is required.`);
+      if(!/^\d{2}:\d{2}$/.test(start)||!/^\d{2}:\d{2}$/.test(end)||timeToMinutes(end)<=timeToMinutes(start))errors.push(`Row ${n}: end time must be after start time.`);
+      const resolved=resolveBulkFaculty(row.faculty,n);errors.push(...resolved.errors);
+      const assignments=finalizeInstructorAssignments(resolved.assignments,type,start,end,topic);
+      for(const assignment of assignments){const faculty=facultyDirectory.find(f=>String(f.__id)===String(assignment.ucid||''));if(!faculty)continue;const availability=facultyAssignmentAvailability(faculty,date,start,end,'');if(availability.available!==true)warnings.push(`Row ${n} · ${assignment.name}: ${assignmentAvailabilityDetail(availability,date,start,end)}`)}
+      if(!errors.some(message=>message.startsWith(`Row ${n}:`))){const pos=academicPositionForDate(parseYmd(date));prepared.push({date,week:pos.week,semester:pos.semester,year,course,courseName:course==='CCC'?'Away from Campus':(COURSES.find(c=>String(c.code)===course)?.name||''),type:course==='CCC'?'CCC':type,topic,instructor:assignments.map(a=>a.name).join('; '),room:String(row.room||'').trim(),start,end,assignments,labDetails:labDetailsFromAssignments(type,assignments,topic),sourceSystem:'Bulk live timetable entry'})}
+    });
+    return {errors,warnings,sessions:prepared};
+  }
+  async function saveBulkSessions(rows){
+    const result=validateBulkRows(rows),errorBox=$('bulk-errors');
+    if(result.errors.length){errorBox.textContent=result.errors.join('\n');errorBox.classList.remove('hidden');document.querySelectorAll('[data-bulk-row]').forEach((tr,index)=>tr.classList.toggle('bulk-row-error',result.errors.some(message=>message.startsWith(`Row ${index+1}:`))));return false}
+    if(result.warnings.length&&!confirm(`Faculty availability warnings:\n\n${result.warnings.slice(0,20).join('\n')}${result.warnings.length>20?`\n…and ${result.warnings.length-20} more`:''}\n\nSave all ${result.sessions.length} sessions anyway?`))return false;
+    const batch=db.batch();
+    for(const session of result.sessions){
+      const ref=db.collection(SESSION_COLLECTION).doc(),next={id:ref.id,...session};
+      batch.set(ref,{...firestoreSafeSession(next),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      const logRef=db.collection(SESSION_LOG_COLLECTION).doc();
+      batch.set(logRef,{action:'create',sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:next.assignments.map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null})),changes:[{field:'session',label:'Session',before:null,after:[next.course,next.date,next.start+'-'+next.end,next.topic].filter(Boolean).join(' · ')}],changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
+    }
+    await batch.commit();invalidateAllSessions();closeModal();toast(`${result.sessions.length} live sessions added.`);return true;
+  }
+  async function openBulkSessionForm(){
+    if(!UCVM.admin(currentUser)){toast('ADFA permission is required.',true);return}
+    if(scheduleSource!=='firestore'){toast('The live Firestore timetable is unavailable.',true);return}
+    await Promise.all([ensureFacultyDirectory(),ensureAllSessions()]);bulkRows=[blankBulkRow()];
+    const facultyOptions=facultyDirectory.map(f=>`<option value="${escapeHtml(swapFacultyName(f))}">${escapeHtml([f.email,f.ucid||f.__id].filter(Boolean).join(' · '))}</option>`).join('');
+    showModal(`<div class="modal-header"><div class="modal-title">Add Multiple Live Sessions</div><div class="modal-subtitle">Edit rows like a spreadsheet or paste tab-separated rows copied from Excel. Every row is validated before one atomic save.</div></div><form id="bulk-session-form"><div class="modal-body">
+      <div class="bulk-toolbar"><button type="button" class="btn btn-secondary" id="bulk-add-row">+ Add row</button><button type="button" class="btn btn-secondary" id="bulk-duplicate-row">Duplicate last row</button><button type="button" class="btn btn-secondary" id="bulk-paste-rows">Paste Excel rows</button><span class="bulk-count" id="bulk-row-count"></span></div>
+      <div class="bulk-paste-panel hidden" id="bulk-paste-panel"><label class="form-label" for="bulk-paste-text">Paste columns: Date, Year, Course, Type, Start, End, Topic, Room, Faculty</label><textarea id="bulk-paste-text" placeholder="2026-09-14&#9;1&#9;CCC&#9;CCC&#9;07:30&#9;17:00&#9;CCC Day&#9;&#9;Faculty Name"></textarea><div><button type="button" class="btn btn-primary" id="bulk-paste-apply">Add pasted rows</button></div></div>
+      <datalist id="bulk-faculty-list">${facultyOptions}</datalist><div class="bulk-sheet-wrap"><table class="bulk-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>Faculty</th><th></th></tr></thead><tbody id="bulk-session-body"></tbody></table></div><div class="bulk-errors hidden" id="bulk-errors"></div>
+    </div><div class="modal-footer"><span class="form-hint">Maximum 200 rows. Faculty may be separated with semicolons.</span><div><button type="button" class="btn btn-secondary" id="bulk-cancel">Cancel</button> <button class="btn btn-primary" type="submit">Save all sessions</button></div></div></form>`);
+    document.querySelector('#modal .modal-box')?.classList.add('bulk-wide');renderBulkRows();
+    $('bulk-add-row').onclick=()=>{if(bulkRows.length>=MAX_BULK_SESSION_ROWS){toast(`Maximum ${MAX_BULK_SESSION_ROWS} rows.`,true);return}bulkRows.push(blankBulkRow(bulkRows.at(-1)||{}));renderBulkRows()};
+    $('bulk-duplicate-row').onclick=()=>{if(bulkRows.length>=MAX_BULK_SESSION_ROWS){toast(`Maximum ${MAX_BULK_SESSION_ROWS} rows.`,true);return}bulkRows.push(blankBulkRow({...bulkRows.at(-1),date:bulkRows.at(-1)?.date}));renderBulkRows()};
+    $('bulk-paste-rows').onclick=()=>$('bulk-paste-panel').classList.toggle('hidden');
+    $('bulk-paste-apply').onclick=()=>{const parsed=parseBulkPaste($('bulk-paste-text').value);if(!parsed.length){toast('No tab-separated rows found.',true);return}const first=bulkRows.length===1&&Object.values(bulkRows[0]).filter(Boolean).length<=8?[]:bulkRows;bulkRows=[...first,...parsed].slice(0,MAX_BULK_SESSION_ROWS);renderBulkRows();$('bulk-paste-panel').classList.add('hidden')};
+    $('bulk-cancel').onclick=closeModal;$('bulk-session-form').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;button.textContent='Saving...';try{if(!await saveBulkSessions(bulkRows)){button.disabled=false;button.textContent='Save all sessions'}}catch(error){console.error('[bulk session save]',error);$('bulk-errors').textContent='Save failed. No rows were added. Check Firestore permissions and try again.';$('bulk-errors').classList.remove('hidden');button.disabled=false;button.textContent='Save all sessions'}};
+  }
 
   async function openSessionForm(existing = null) {
     if (!canEdit()) { toast('Editor permission is required to change sessions.', true); return; }
@@ -1728,10 +1779,9 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
           };
           viewMode = roleIsFaculty(currentUser) ? 'day' : 'week';
           setViewButtons();
-          myTimetableOnly = false;
+          myTimetableOnly = roleIsFaculty(currentUser);
           closeModal();
           updateAuthUI();
-          renderUpdates();
           subscribeSessions();
           unsubscribeFacultyDirectory();
           render();
@@ -1965,6 +2015,8 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     b.textContent = currentUser ? `${currentUser.name} - ${currentUser.role}` : 'Sign in';
     b.classList.toggle('is-admin', canEdit());
     $('add-session-btn').classList.toggle('hidden', !canEdit());
+    $('bulk-add-session-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
+    $('outlook-invite-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
     $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || currentUser?.role === 'hicc'));
     $('faculty-dashboard-btn').classList.toggle('hidden', !currentUser);
     $('publish-firestore-schedule').classList.toggle('hidden', !UCVM.admin(currentUser));
@@ -1973,7 +2025,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     $('my-timetable-btn').classList.toggle('hidden', !currentUser);
     $('my-timetable-btn').classList.toggle('ui-pref-hidden', !uiSettings.showMyTimetable);
     if (!UCVM.admin(currentUser) && !$('ui-editor-panel').classList.contains('hidden')) closeUIEditor(true);
-    if (!currentUser || !myTimetableOnly) $('my-timetable-btn').textContent = 'My Timetable';
+    $('my-timetable-btn').textContent = currentUser && myTimetableOnly ? 'Show All Timetable' : 'My Timetable';
   }
 
   function openUserManager() {
@@ -2037,6 +2089,44 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
       return ['BEGIN:VEVENT',`UID:${icsEscape(s.id)}@ucvm-schedule`,`DTSTAMP:${stamp}Z`,`DTSTART;TZID=America/Edmonton:${icsDate(s.date)}T${s.start.replace(':','')}00`,`DTEND;TZID=America/Edmonton:${icsDate(s.date)}T${s.end.replace(':','')}00`,`SUMMARY:${summary}`,`DESCRIPTION:${description}`,s.room?`LOCATION:${icsEscape(s.room)}`:'','END:VEVENT'].filter(Boolean).join('\r\n');
     }).join('\r\n');
     downloadFile(`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//UCVM//Teaching Schedule//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n${events}\r\nEND:VCALENDAR\r\n`,'text/calendar;charset=utf-8','ucvm-filtered-timetable.ics');
+  }
+
+  function outlookAttendeesForSession(session){
+    const emails=new Map();
+    for(const assignment of Array.isArray(session.assignments)?session.assignments:[]){
+      const faculty=facultyDirectory.find(f=>String(f.__id)===String(assignment?.ucid||assignment?.facultyId||''))||facultyForAssignment(assignment);
+      const email=String(faculty?.email||'').trim().toLowerCase();if(email)emails.set(email,swapFacultyName(faculty)||assignment.name||email);
+    }
+    return [...emails].map(([email,name])=>({email,name}));
+  }
+  function exportOutlookInvites(data,organizer){
+    const stamp=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
+    const organizerEmail=String(organizer?.email||'').trim(),organizerName=String(organizer?.name||organizerEmail||'UCVM Scheduling');
+    const events=data.map(session=>{
+      const summary=icsEscape(`${session.course} ${session.type}${session.topic?` - ${session.topic}`:''}`),description=icsEscape(`Faculty: ${session.instructor||'TBD'}${session.room?`\nRoom: ${session.room}`:''}`),attendees=outlookAttendeesForSession(session).map(a=>`ATTENDEE;CN=${icsEscape(a.name)};ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:${icsEscape(a.email)}`);
+      const times=session.isCcc||session.timeUnknown||!session.start||!session.end?[`DTSTART;VALUE=DATE:${icsDate(session.date)}`,`DTEND;VALUE=DATE:${icsDate(ymd(addDays(parseYmd(session.date),1)))}`]:[`DTSTART;TZID=America/Edmonton:${icsDate(session.date)}T${session.start.replace(':','')}00`,`DTEND;TZID=America/Edmonton:${icsDate(session.date)}T${session.end.replace(':','')}00`];
+      return ['BEGIN:VEVENT',`UID:${icsEscape(session.id)}@ucvm-outlook`,`DTSTAMP:${stamp}Z`,...times,`SUMMARY:${summary}`,`DESCRIPTION:${description}`,session.room?`LOCATION:${icsEscape(session.room)}`:'',organizerEmail?`ORGANIZER;CN=${icsEscape(organizerName)}:mailto:${icsEscape(organizerEmail)}`:'',...attendees,'STATUS:CONFIRMED','SEQUENCE:0','END:VEVENT'].filter(Boolean).join('\r\n');
+    }).join('\r\n');
+    downloadFile(`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//UCVM//Outlook Teaching Invitations//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:REQUEST\r\n${events}\r\nEND:VCALENDAR\r\n`,'text/calendar;charset=utf-8','ucvm-outlook-invite-package.ics');
+  }
+  async function openOutlookInviteDialog(){
+    if(!UCVM.admin(currentUser)){toast('ADFA permission is required.',true);return}
+    try{
+      const [all]=await Promise.all([ensureAllSessions(),ensureFacultyDirectory()]);if(showCcc)await loadCccEvents();
+      const today=ymd(new Date());
+      showModal(`<div class="modal-header"><div class="modal-title">Outlook Invitation Package</div><div class="modal-subtitle">Prepare all currently filtered teaching sessions as Outlook meeting invitations.</div></div><form id="outlook-form"><div class="modal-body">
+        <div class="login-cheatsheet"><label><input type="radio" name="scope" value="date"> Date range</label> &nbsp; <label><input type="radio" name="scope" value="academic"> Academic period</label> &nbsp; <label><input type="radio" name="scope" value="all" checked> All filtered dates</label></div>
+        <div class="form-grid hidden" id="outlook-date-fields">${input('outlook-start','Start date','date',today)}${input('outlook-end','End date','date','2027-08-31')}</div>
+        <div class="form-grid hidden" id="outlook-academic-fields">${select('outlook-semester','Semester',['fall','winter','spring'],selectedSemester)}${select('outlook-week','Week',['all',...Array.from({length:WEEK_COUNT},(_,i)=>String(i+1))],'all')}${select('outlook-year','Year',['all','1','2','3','4'],selectedYear)}</div>
+        <div class="outlook-summary"><div><strong id="outlook-event-count">0</strong>sessions</div><div><strong id="outlook-attendee-count">0</strong>faculty emails</div><div><strong id="outlook-missing-count">0</strong>sessions without email</div></div>
+        <p class="form-hint"><strong>This download does not send invitations or silently modify faculty calendars.</strong> It creates a METHOD:REQUEST <code>.ics</code> package with organizer and attendee details. Open it in Outlook to review before sending. Direct one-click delivery requires a UCalgary Entra app with delegated User.Read and Calendars.ReadWrite approval.</p>
+      </div><div class="modal-footer"><button type="button" class="btn btn-secondary" id="outlook-cancel">Cancel</button><button class="btn btn-primary" type="submit">Download Outlook package</button></div></form>`);
+      const options=()=>{const form=new FormData($('outlook-form'));return{scope:form.get('scope'),start:$('outlook-start').value,end:$('outlook-end').value,semester:$('outlook-semester').value,week:$('outlook-week').value,year:$('outlook-year').value}};
+      const rows=()=>exportFilteredRows(all,options());
+      const refresh=()=>{const data=rows(),withEmail=data.filter(s=>outlookAttendeesForSession(s).length);$('outlook-event-count').textContent=String(data.length);$('outlook-attendee-count').textContent=String(new Set(data.flatMap(s=>outlookAttendeesForSession(s).map(a=>a.email))).size);$('outlook-missing-count').textContent=String(data.length-withEmail.length)};
+      $('outlook-cancel').onclick=closeModal;document.querySelectorAll('#outlook-form input[name="scope"]').forEach(radio=>radio.onchange=()=>{$('outlook-date-fields').classList.toggle('hidden',radio.value!=='date'||!radio.checked);$('outlook-academic-fields').classList.toggle('hidden',radio.value!=='academic'||!radio.checked);refresh()});document.querySelectorAll('#outlook-form input,#outlook-form select').forEach(input=>{if(input.name!=='scope')input.addEventListener('change',refresh)});refresh();
+      $('outlook-form').onsubmit=event=>{event.preventDefault();const data=rows();if(!data.length){toast('No sessions match the current filters and range.',true);return}exportOutlookInvites(data,currentUser);closeModal();toast(`${data.length} Outlook invitations prepared for review.`)};
+    }catch(error){console.error('[Outlook invitation package]',error);toast('Could not prepare the complete schedule for Outlook.',true)}
   }
 
   function resetTestData() { toast('There is no bundled timetable in V9.7. Use Faculty Dashboard → Teaching Summary → Replace & Sync All Faculty Summaries.', true); }
