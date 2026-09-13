@@ -789,6 +789,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
     sessions:()=>sessions.slice(),
     faculty:()=>facultyDirectory.slice(),
     allSessions:()=>ensureAllSessions(),
+    refreshDerivedIndexes:()=>refreshDerivedIndexes(),
     profileSnapshot:uid=>{
       if(!profileSnapshots.has(uid))profileSnapshots.set(uid,db.collection('users').doc(uid).get());
       return profileSnapshots.get(uid);

@@ -11,7 +11,7 @@
  let me=null,user=null,role='',sessions=new Map(),people=[],peopleByUid=new Map(),groups=[],myGroups=[],hiccScope=new Set();
  let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleUnsub=null,renderQueued=false;
  let approvalFaculty=[],approvalFacultyById=new Map(),approvalFacultyLoaded=false;
- let approvalSessionsComplete=false;
+ let approvalSessionsComplete=false,approvalSessionFacultyLoaded=new Set();
 
  const css=document.createElement('style');
  css.id='ucvm-approval-workflow-style';
@@ -63,16 +63,21 @@
  function contractTeachingDoe(f){return [f?.doe?.teaching,f?.doeTeaching,f?.teachingDOE,f?.contractTeachingDOE].map(num).find(v=>v!==null)??null}
  function assignmentCredit(a){const c=num(a?.doeCredit);if(c!==null)return c;const r=num(a?.doeRate),h=num(a?.creditedHours);return r!==null&&h!==null?Number((r*h).toFixed(6)):null}
  function resolveFaculty(ref){const id=String(ref?.facultyId||ref?.ucid||'').trim();if(id&&approvalFacultyById.has(id))return approvalFacultyById.get(id);const key=norm(ref?.name||'');if(!key)return null;return approvalFaculty.find(f=>facultyAliases(f).has(key))||null}
- async function ensureApprovalFaculty(){
-  if(!isApprover()||approvalFacultyLoaded)return;
-  const shared=window.UCVM_PAGE_DATA?.faculty?.()||[];
-  if(shared.length){approvalFaculty=shared;approvalFacultyById=new Map(shared.map(f=>[String(f.__id),f]));approvalFacultyLoaded=true;return}
-  const q=await db.collection('faculty').get();approvalFaculty=q.docs.map(d=>({__id:d.id,...d.data()}));approvalFacultyById=new Map(approvalFaculty.map(f=>[String(f.__id),f]));approvalFacultyLoaded=true;
+ function indexFaculty(e){return{__id:String(e.id),preferredFullName:e.name||e.id,hrFullName:e.hrName||'',email:e.email||'',rank:e.rank||'',campus:e.campus||'',teachingArea:e.specialty||'',reportsTo:e.reportsTo||'',doe:e.contractTeachingDOE===null?{}:{teaching:e.contractTeachingDOE},facultySummary2026_27:e.assignedTeachingDOE===null?null:{assignedTeachingDOE:e.assignedTeachingDOE},__index:true}}
+ function requestFacultyIds(requestRows){const ids=new Set();for(const r of requestRows||[]){for(const ref of [r.fromFaculty,r.toFaculty]){const id=String(ref?.facultyId||ref?.ucid||'').trim();if(id)ids.add(id)}const current=sessions.get(r.sessionId);for(const a of assignedArray(current)){const id=String(a?.ucid||a?.facultyId||'').trim();if(id)ids.add(id)}}return[...ids]}
+ async function ensureApprovalFaculty(requestRows=requests){
+  if(!isApprover())return;
+  if(!approvalFacultyLoaded){const snap=await db.collection('settings').doc('faculty_index').get();approvalFaculty=snap.exists?(snap.data().entries||[]).map(indexFaculty):[];approvalFacultyById=new Map(approvalFaculty.map(f=>[String(f.__id),f]));approvalFacultyLoaded=true}
+  const ids=requestFacultyIds(requestRows),missing=ids.filter(id=>approvalFacultyById.get(id)?.__index);
+  const details=await Promise.all(missing.map(id=>db.collection('faculty').doc(id).get()));for(const snap of details)if(snap.exists){const row={__id:snap.id,...snap.data()},old=approvalFacultyById.get(snap.id),at=approvalFaculty.indexOf(old);if(at>=0)approvalFaculty[at]=row;else approvalFaculty.push(row);approvalFacultyById.set(snap.id,row)}
  }
- async function ensureApprovalSessions(){
-  if(approvalSessionsComplete)return;
-  if(window.UCVM_PAGE_DATA?.allSessions){const rows=await window.UCVM_PAGE_DATA.allSessions();sessions=new Map(rows.map(s=>[s.id,s]));approvalSessionsComplete=true;return}
-  const q=await db.collection(SESSIONS).get();sessions=new Map(q.docs.map(d=>[d.id,{id:d.id,...d.data()}]));approvalSessionsComplete=true;
+ async function ensureRequestSessions(requestRows){
+  const ids=[...new Set((requestRows||[]).map(r=>String(r.sessionId||'')).filter(Boolean))],missing=ids.filter(id=>!sessions.has(id));
+  const docs=await Promise.all(missing.map(id=>db.doc(`${SESSIONS}/${id}`).get()));for(const snap of docs)if(snap.exists)sessions.set(snap.id,{id:snap.id,...snap.data()});approvalSessionsComplete=true;
+ }
+ async function ensureFacultySessionContext(requestRows){
+  const ids=requestFacultyIds(requestRows).filter(id=>!approvalSessionFacultyLoaded.has(id));
+  const sets=await Promise.all(ids.map(id=>db.collection(SESSIONS).where('facultyIds','array-contains',id).get()));for(let i=0;i<sets.length;i++){for(const d of sets[i].docs)sessions.set(d.id,{id:d.id,...d.data()});approvalSessionFacultyLoaded.add(ids[i])}
  }
  function buildDoeState(){
   const state=new Map(),aliases=new Map();
@@ -128,7 +133,7 @@
   if(sessionUnsub){sessionUnsub();sessionUnsub=null}
   if(!user)return;
   if(window.UCVM_PAGE_DATA?.sessions){
-   const sync=()=>{const rows=window.UCVM_PAGE_DATA.sessions();sessions=new Map(rows.map(s=>[s.id,s]));approvalSessionsComplete=false;rebuildHiccScope();queueDecorate()};
+   const sync=()=>{const rows=window.UCVM_PAGE_DATA.sessions();for(const s of rows)sessions.set(s.id,s);approvalSessionsComplete=false;rebuildHiccScope();queueDecorate()};
    window.addEventListener('ucvm:sessions-updated',sync);sync();sessionUnsub=()=>window.removeEventListener('ucvm:sessions-updated',sync);return;
   }
   sessionUnsub=db.collection(SESSIONS).onSnapshot(q=>{
@@ -305,8 +310,8 @@
   const date=r.patch?.date||current.date,start=r.patch?.start||current.start,end=r.patch?.end||current.end,state=buildDoeState(),rows=assignedArray(current).map(a=>{const f=resolveFaculty({facultyId:a.ucid,name:a.name}),st=f?state.get(String(f.__id)):null,av=availabilityFor(f,date,start,end,current.id),credit=assignmentCredit(a);return `<div class="workflow-person"><div class="workflow-person-name">${esc(a.name||facultyName(f))}</div><div class="workflow-metric">Session DOE: <strong>${credit===null?'Unrated':fmtDoe(credit)}</strong> · Current assigned DOE: <strong>${fmtDoe(st?.current??null)}</strong> · DOE is unchanged by this date/time/topic edit.</div>${availabilityHtml(av,start,end)}</div>`}).join('');
   return `<div class="workflow-impact-title">DOE & proposed-time conflict checks</div><div class="workflow-credit">Proposed session: ${esc(ymd(date))} ${esc(start||'—')}–${esc(end||'—')}. All currently assigned faculty are checked against their other live timetable sessions.</div><div class="workflow-edit-impact">${rows||'<div class="workflow-check unknown">No assigned faculty were found to check.</div>'}</div>`;
  }
- async function hydrateApprovalImpacts(){
-  await Promise.all([ensureApprovalFaculty(),ensureApprovalSessions()]);
+async function hydrateApprovalImpacts(){
+  await ensureRequestSessions(requests);await ensureApprovalFaculty(requests);await ensureFacultySessionContext(requests);
   for(const el of document.querySelectorAll('[data-approval-impact]')){const r=requests.find(x=>x.id===el.dataset.approvalImpact),current=r?sessions.get(r.sessionId):null;if(!r||!current){el.innerHTML='<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check warn">The live session could not be found. Do not approve until reviewed manually.</div>';continue}try{el.innerHTML=r.requestType==='faculty_swap'?swapImpactHtml(r,current):editImpactHtml(r,current)}catch(e){console.error('[approval impact]',e);el.innerHTML=`<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check unknown">Unable to calculate checks: ${esc(e.message)}</div>`}}
  }
  async function openApprovalQueue(){
@@ -330,7 +335,7 @@
  }
  async function approveRequest(id){
   if(!isApprover())return;const r=requests.find(x=>x.id===id);if(!r||r.status!=='pending')return;
-  await Promise.all([ensureApprovalFaculty(),ensureApprovalSessions()]);
+  await ensureRequestSessions([r]);await ensureApprovalFaculty([r]);await ensureFacultySessionContext([r]);
   const ref=db.doc(`${SESSIONS}/${r.sessionId}`),snap=await ref.get();if(!snap.exists)return toast('The session no longer exists. Reject or review this request manually.',true);const current={id:snap.id,...snap.data()};
   let patch={},log={};
   if(r.requestType==='session_edit'){
@@ -341,10 +346,11 @@
     const arr=assignedArray(current),fromId=String(r.fromFaculty?.facultyId||''),fromName=norm(r.fromFaculty?.name),idx=arr.findIndex(a=>(fromId&&String(a.ucid||'')===fromId)||(fromName&&norm(a.name)===fromName));if(idx<0)return toast('The outgoing instructor is no longer assigned. Approval is blocked.',true);
     const incoming={...(arr[idx]||{}),ucid:String(r.toFaculty?.facultyId||''),name:r.toFaculty?.name||'',category:'Faculty',source:'Approved swap request',swappedFrom:{ucid:String(arr[idx]?.ucid||''),name:arr[idx]?.name||''},swappedAt:new Date().toISOString()};arr[idx]=incoming;patch={assignments:arr,instructor:arr.map(a=>a.name).filter(Boolean).join('; ')};log={action:'swap_faculty',fromFaculty:r.fromFaculty||{},toFaculty:r.toFaculty||{},role:incoming.role||current.type||''};
   }else return;
+  if(patch.assignments)patch.facultyIds=UCVM_DATA_INDEX.sessionFacultyIds({...current,...patch});
   const warnings=approvalWarnings(r,current),warningText=warnings.length?`\n\nWARNING — availability/conflict checks:\n- ${warnings.join('\n- ')}\n\nYou may override as ADFA, but review these conflicts first.`:'';
   if(!confirm(`Approve and apply this ${r.requestType==='faculty_swap'?'faculty swap':'session change'} to the live timetable?${warningText}`))return;
   try{
-    const batch=db.batch(),reqRef=db.doc(`${REQUESTS}/${id}`),logRef=db.collection(LOGS).doc();batch.set(ref,{...patch,updatedBy:user.uid,updatedByName:me?.name||user.email||'',updatedAt:stamp()},{merge:true});batch.set(logRef,{...log,requestId:id,sessionId:r.sessionId,course:current.course||r.course||'',date:ymd(patch.date||current.date),topic:patch.topic||current.topic||'',changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:me?.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});await batch.commit();toast('Approved and applied to the live timetable.');closeModal();
+    const batch=db.batch(),reqRef=db.doc(`${REQUESTS}/${id}`),logRef=db.collection(LOGS).doc();batch.set(ref,{...patch,updatedBy:user.uid,updatedByName:me?.name||user.email||'',updatedAt:stamp()},{merge:true});batch.set(logRef,{...log,requestId:id,sessionId:r.sessionId,course:current.course||r.course||'',date:ymd(patch.date||current.date),topic:patch.topic||current.topic||'',changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:me?.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});await batch.commit();await window.UCVM_PAGE_DATA?.refreshDerivedIndexes?.();toast('Approved and applied to the live timetable.');closeModal();
   }catch(e){console.error(e);toast(e.message,true)}
  }
  async function rejectRequest(id){
@@ -352,7 +358,7 @@
  }
 
  auth.onAuthStateChanged(async u=>{
-  user=u;me=null;role='';hiccMode=false;sessions.clear();requests=[];afcRequests=[];approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}if(peopleUnsub){peopleUnsub();peopleUnsub=null}
+  user=u;me=null;role='';hiccMode=false;sessions.clear();requests=[];afcRequests=[];approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;approvalSessionFacultyLoaded=new Set();if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}if(peopleUnsub){peopleUnsub();peopleUnsub=null}
   if(!u){injectButtons();queueDecorate();return}
   try{const d=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(u.uid):await db.doc(`users/${u.uid}`).get();me=d.data()||{};await UCVM.ready(u,me);role=UCVM.role(me.role);listenPeople();listenGroups();listenSessions();listenRequests();listenAfcRequests();injectButtons()}catch(e){console.warn('[approval workflow init]',e)}
  });

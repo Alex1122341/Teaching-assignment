@@ -11,7 +11,7 @@ test('Firestore persistence is enabled through the shared initializer', () => {
   assert.match(source, /enablePersistence\(\{\s*synchronizeTabs:\s*true\s*\}\)/);
 });
 
-test('the main timetable shares its large snapshots with the approval workflow', () => {
+test('the main timetable shares visible snapshots and the profile read with the approval workflow', () => {
   const page = read('index.html');
   const workflow = read('approval-workflow.js');
   assert.match(page, /UCVM_PAGE_DATA/);
