@@ -67,6 +67,14 @@ service cloud.firestore {
   }
   match /settings/{id} {allow read: if admin(); allow write: if admin() && (id != 'faculty_summary_2026_27' || general());}
   match /public_info/{id} {allow read: if ready(); allow create,update: if general() && request.resource.data.messages is list && request.resource.data.messages.size() <= 10 && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time; allow delete: if false;}
+  match /public_schedule/{id} {
+   allow read: if ready() && id == 'ccc_events';
+   allow create,update: if id == 'ccc_events' && general()
+    && request.resource.data.keys().hasOnly(['events','count','facultyCount','source','updatedBy','updatedByName','updatedAt'])
+    && request.resource.data.events is list && request.resource.data.events.size() <= 1000
+    && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time;
+   allow delete: if false;
+  }
   match /session_change_log/{id} {
    allow read: if ready() && (historyAll() || resource.data.changedBy == request.auth.uid);
    allow create: if admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
