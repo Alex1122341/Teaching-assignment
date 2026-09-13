@@ -6,3 +6,4 @@ output/
 .afc-sample.js
 .faculty-admin-inline.js
 .worktrees/
+.deploy-static/

@@ -55,38 +55,10 @@ if ([string]::IsNullOrWhiteSpace($deployClient)) {
     throw 'Azure Static Web Apps deployment client is not installed. Run SWA CLI once to download it.'
 }
 
-$stagingPath = Join-Path ([System.IO.Path]::GetTempPath()) 'ucvm-teaching-azure-static'
-$webFiles = @(
-    'approval-workflow.js',
-    'signature-capture.js',
-    'afc-actions.js',
-    'information-center.js',
-    'availability-lookup.js',
-    'afc-pdf-browser.js',
-    'afc-workflow.js',
-    'absence-from-campus-app.pdf',
-    'faculty-access.css',
-    'faculty-access.js',
-    'faculty-admin-enhancements.js',
-    'faculty-admin.html',
-    'faculty-dashboard.html',
-    'faculty-dashboard.js',
-    'index.html',
-    'password.html',
-    'password.js',
-    'session-guard.js',
-    'user-management.html',
-    'user-management.js'
-)
-if (Test-Path -LiteralPath $stagingPath) {
-    Remove-Item -LiteralPath $stagingPath -Recurse -Force
-}
-New-Item -ItemType Directory -Path $stagingPath | Out-Null
-foreach ($file in $webFiles) {
-    $source = Join-Path $SitePath $file
-    if (-not (Test-Path -LiteralPath $source)) { throw "Required web file is missing: $source" }
-    Copy-Item -LiteralPath $source -Destination $stagingPath
-}
+$stagingPath = Join-Path $SitePath '.deploy-static'
+$builder = Join-Path $SitePath 'tools\build-static.js'
+& node $builder --output $stagingPath
+if ($LASTEXITCODE -ne 0) { throw "Static asset builder exited with code $LASTEXITCODE." }
 
 $deployVariables = @{
     DEPLOYMENT_ACTION = 'upload'
@@ -115,7 +87,4 @@ finally {
     }
     $deploymentToken = $null
     $armToken = $null
-    if (Test-Path -LiteralPath $stagingPath) {
-        Remove-Item -LiteralPath $stagingPath -Recurse -Force
-    }
 }

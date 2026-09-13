@@ -1,0 +1,22 @@
+[
+  "absence-from-campus-app.pdf",
+  "afc-actions.js",
+  "afc-pdf-browser.js",
+  "afc-workflow.js",
+  "approval-workflow.js",
+  "availability-lookup.js",
+  "faculty-access.css",
+  "faculty-access.js",
+  "faculty-admin-enhancements.js",
+  "faculty-admin.html",
+  "faculty-dashboard.html",
+  "faculty-dashboard.js",
+  "index.html",
+  "information-center.js",
+  "password.html",
+  "password.js",
+  "session-guard.js",
+  "signature-capture.js",
+  "user-management.html",
+  "user-management.js"
+]

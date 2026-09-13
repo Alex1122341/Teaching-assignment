@@ -4,26 +4,15 @@
     "indexes": "firestore.indexes.json"
   },
   "hosting": {
-    "public": ".",
+    "public": ".deploy-static",
+    "predeploy": ["node tools/build-static.js"],
     "headers": [
       {
         "source": "**/*.@(html|js|css)",
         "headers": [{ "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }]
       }
     ],
-    "ignore": [
-      "firebase.json",
-      "firestore.rules",
-      "SETUP.md",
-      "**/.*",
-      "**/node_modules/**",
-      "**/*.log",
-      "functions/**",
-      "tests/**",
-      "docs/**",
-      "output/**",
-      "tools/**"
-    ]
+    "ignore": []
   },
   "emulators": {
     "auth": {
