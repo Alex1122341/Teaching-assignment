@@ -46,6 +46,12 @@ test('the timetable subscribes only to the visible date range', () => {
   assert.doesNotMatch(source, /db\.collection\(SESSION_COLLECTION\)\.onSnapshot/);
 });
 
+test('the first administrator landing aborts timetable readers before redirecting', () => {
+  const source = read('faculty-access.js');
+  assert.match(source, /if\(scheduleAdminLanding\(user,p\)\)return false/);
+  assert.match(source, /window\.__ucvmAdminLandingScheduled/);
+});
+
 test('the timetable loads the faculty directory only when an admin tool needs it', () => {
   const source = read('timetable.js');
   assert.match(source, /function ensureFacultyDirectory/);

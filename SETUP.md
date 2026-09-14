@@ -64,3 +64,5 @@ Older log records remain visible but may show `Legacy entry; detailed before/aft
 ## Development checks
 
 Install the root development dependencies with `npm ci`. Run static tests with `npm test`; run the Firestore rule suite with `npm run test:emulator`. The `test-support/` modules are pure policy fixtures used by those tests and are excluded from both hosting packages.
+
+Build the shared Firebase/Azure publishing directory with `node tools/build-static.js`. Current query counts, migration hashes, rollback exports, and the 50,000-read estimate are recorded in `PERFORMANCE_REPORT.md`.

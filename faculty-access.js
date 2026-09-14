@@ -47,7 +47,7 @@ window.UCVM=(()=>{
   if(window.UCVMSessionGuard)window.UCVMSessionGuard.start(auth);
   return {auth,db};
  }
- function installLandingReset(){if(window.__ucvmLandingResetInstalled||typeof firebase==='undefined')return;window.__ucvmLandingResetInstalled=true;try{firebase.auth().onAuthStateChanged(u=>{if(!u)sessionStorage.removeItem('ucvm-admin-default-landing')})}catch(_){}}
+ function installLandingReset(){if(window.__ucvmLandingResetInstalled||typeof firebase==='undefined')return;window.__ucvmLandingResetInstalled=true;try{firebase.auth().onAuthStateChanged(u=>{if(!u){sessionStorage.removeItem('ucvm-admin-default-landing');window.__ucvmAdminLandingScheduled=false}})}catch(_){}}
  async function linkFacultyIdentity(user,p){
   if(admin(p))return;
   const emails=[user?.email,p?.email].map(v=>String(v||'').trim()).filter((v,i,a)=>v&&a.indexOf(v)===i);
@@ -65,19 +65,22 @@ window.UCVM=(()=>{
  }
  function scheduleAdminLanding(user,p){
   const page=(location.pathname.split('/').pop()||'index.html').toLowerCase(),raw=rawRole(p);
-  if(page!=='index.html'||!['owner','administrator','adfa_general','adfa_regular','admin'].includes(raw))return;
+  if(page!=='index.html'||!['owner','administrator','adfa_general','adfa_regular','admin'].includes(raw))return false;
+  if(window.__ucvmAdminLandingScheduled)return true;
   try{
-   if(sessionStorage.getItem('ucvm-admin-default-landing')===user.uid)return;
+   if(sessionStorage.getItem('ucvm-admin-default-landing')===user.uid)return false;
    sessionStorage.setItem('ucvm-admin-default-landing',user.uid);
+   window.__ucvmAdminLandingScheduled=true;
    setTimeout(()=>{
     try{
      const current=firebase.auth().currentUser;
      if(current&&current.uid===user.uid&&((location.pathname.split('/').pop()||'index.html').toLowerCase()==='index.html'))location.replace('faculty-admin.html');
     }catch(_){}
    },900);
-  }catch(_){}
+   return true;
+  }catch(_){return false}
  }
- async function ready(user,p){if(window.__ucvmSessionGuard?.blocked)return false;if(!p?.active)throw Error('This account is inactive.');if(p.mustChangePassword){location.replace('password.html');return false}installLandingReset();await linkFacultyIdentity(user,p);scheduleAdminLanding(user,p);return true}
+ async function ready(user,p){if(window.__ucvmSessionGuard?.blocked)return false;if(!p?.active)throw Error('This account is inactive.');if(p.mustChangePassword){location.replace('password.html');return false}installLandingReset();await linkFacultyIdentity(user,p);if(scheduleAdminLanding(user,p))return false;return true}
  function watch(user,p){let initial=true;return firebase.firestore().doc(`users/${user.uid}`).onSnapshot(s=>{const n=s.data();if(initial){initial=false;return}if(!n||['role','active','mustChangePassword'].some(k=>n[k]!==p[k]))location.reload()})}
  const value=v=>v===null||v===undefined?'—':Array.isArray(v)?v.map(x=>typeof x==='object'?`${x.name||x.ucid||''}${x.role?' ('+x.role+')':''}`:String(x)).filter(Boolean).join('; '):typeof v==='object'?JSON.stringify(v):String(v);
  const time=e=>e.changedAt?.toDate?e.changedAt.toDate().toLocaleString('en-CA',{timeZone:'America/Edmonton'}):'Pending';

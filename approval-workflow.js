@@ -11,7 +11,7 @@
  let me=null,user=null,role='',sessions=new Map(),people=[],peopleByUid=new Map(),groups=[],myGroups=[],hiccScope=new Set();
  let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleUnsub=null,renderQueued=false;
  let approvalFaculty=[],approvalFacultyById=new Map(),approvalFacultyLoaded=false;
- let approvalSessionsComplete=false,approvalSessionFacultyLoaded=new Set();
+ let approvalSessionsComplete=false,approvalSessionDatesLoaded=new Set(),openApprovalFromHash=location.hash==='#approvals';
 
  const css=document.createElement('style');
  css.id='ucvm-approval-workflow-style';
@@ -63,27 +63,27 @@
  function contractTeachingDoe(f){return [f?.doe?.teaching,f?.doeTeaching,f?.teachingDOE,f?.contractTeachingDOE].map(num).find(v=>v!==null)??null}
  function assignmentCredit(a){const c=num(a?.doeCredit);if(c!==null)return c;const r=num(a?.doeRate),h=num(a?.creditedHours);return r!==null&&h!==null?Number((r*h).toFixed(6)):null}
  function resolveFaculty(ref){const id=String(ref?.facultyId||ref?.ucid||'').trim();if(id&&approvalFacultyById.has(id))return approvalFacultyById.get(id);const key=norm(ref?.name||'');if(!key)return null;return approvalFaculty.find(f=>facultyAliases(f).has(key))||null}
- function indexFaculty(e){return{__id:String(e.id),preferredFullName:e.name||e.id,hrFullName:e.hrName||'',email:e.email||'',rank:e.rank||'',campus:e.campus||'',teachingArea:e.specialty||'',reportsTo:e.reportsTo||'',doe:e.contractTeachingDOE===null?{}:{teaching:e.contractTeachingDOE},facultySummary2026_27:e.assignedTeachingDOE===null?null:{assignedTeachingDOE:e.assignedTeachingDOE},__index:true}}
+ function indexFaculty(e){return{__id:String(e.id),preferredFullName:e.name||e.id,hrFullName:e.hrName||'',email:e.email||'',rank:e.rank||'',campus:e.campus||'',teachingArea:e.specialty||'',reportsTo:e.reportsTo||'',doe:e.contractTeachingDOE===null?{}:{teaching:e.contractTeachingDOE},facultySummary2026_27:e.assignedTeachingDOE===null?null:{assignedTeachingDOE:e.assignedTeachingDOE},__indexAssignedTeachingDOE:e.assignedTeachingDOE,__index:true}}
  function requestFacultyIds(requestRows){const ids=new Set();for(const r of requestRows||[]){for(const ref of [r.fromFaculty,r.toFaculty]){const id=String(ref?.facultyId||ref?.ucid||'').trim();if(id)ids.add(id)}const current=sessions.get(r.sessionId);for(const a of assignedArray(current)){const id=String(a?.ucid||a?.facultyId||'').trim();if(id)ids.add(id)}}return[...ids]}
  async function ensureApprovalFaculty(requestRows=requests){
   if(!isApprover())return;
   if(!approvalFacultyLoaded){const snap=await db.collection('settings').doc('faculty_index').get();approvalFaculty=snap.exists?(snap.data().entries||[]).map(indexFaculty):[];approvalFacultyById=new Map(approvalFaculty.map(f=>[String(f.__id),f]));approvalFacultyLoaded=true}
   const ids=requestFacultyIds(requestRows),missing=ids.filter(id=>approvalFacultyById.get(id)?.__index);
-  const details=await Promise.all(missing.map(id=>db.collection('faculty').doc(id).get()));for(const snap of details)if(snap.exists){const row={__id:snap.id,...snap.data()},old=approvalFacultyById.get(snap.id),at=approvalFaculty.indexOf(old);if(at>=0)approvalFaculty[at]=row;else approvalFaculty.push(row);approvalFacultyById.set(snap.id,row)}
+  const details=await Promise.all(missing.map(id=>db.collection('faculty').doc(id).get()));for(const snap of details)if(snap.exists){const old=approvalFacultyById.get(snap.id),row={__id:snap.id,...snap.data(),__indexAssignedTeachingDOE:old?.__indexAssignedTeachingDOE},at=approvalFaculty.indexOf(old);if(at>=0)approvalFaculty[at]=row;else approvalFaculty.push(row);approvalFacultyById.set(snap.id,row)}
  }
  async function ensureRequestSessions(requestRows){
   const ids=[...new Set((requestRows||[]).map(r=>String(r.sessionId||'')).filter(Boolean))],missing=ids.filter(id=>!sessions.has(id));
   const docs=await Promise.all(missing.map(id=>db.doc(`${SESSIONS}/${id}`).get()));for(const snap of docs)if(snap.exists)sessions.set(snap.id,{id:snap.id,...snap.data()});approvalSessionsComplete=true;
  }
  async function ensureFacultySessionContext(requestRows){
-  const ids=requestFacultyIds(requestRows).filter(id=>!approvalSessionFacultyLoaded.has(id));
-  const sets=await Promise.all(ids.map(id=>db.collection(SESSIONS).where('facultyIds','array-contains',id).get()));for(let i=0;i<sets.length;i++){for(const d of sets[i].docs)sessions.set(d.id,{id:d.id,...d.data()});approvalSessionFacultyLoaded.add(ids[i])}
+  const dates=[...new Set((requestRows||[]).flatMap(r=>[sessions.get(String(r.sessionId||''))?.date,r.patch?.date]).map(ymd).filter(Boolean))].filter(date=>!approvalSessionDatesLoaded.has(date));
+  const sets=await Promise.all(dates.map(date=>db.collection(SESSIONS).where('date','==',date).get()));for(let i=0;i<sets.length;i++){for(const d of sets[i].docs)sessions.set(d.id,{id:d.id,...d.data()});approvalSessionDatesLoaded.add(dates[i])}
  }
  function buildDoeState(){
   const state=new Map(),aliases=new Map();
-  for(const f of approvalFaculty){const s=facultySummary(f),fixed=num(s?.sourceNonTimetableTeachingDOE),sourceAssigned=num(s?.assignedTeachingDOE);state.set(String(f.__id),{faculty:f,scheduled:0,fixed,sourceAssigned,contract:contractTeachingDoe(f)});for(const a of facultyAliases(f))if(!aliases.has(a))aliases.set(a,String(f.__id))}
+  for(const f of approvalFaculty){const s=facultySummary(f),fixed=num(s?.sourceNonTimetableTeachingDOE),sourceAssigned=num(s?.assignedTeachingDOE),indexedCurrent=num(f.__indexAssignedTeachingDOE);state.set(String(f.__id),{faculty:f,scheduled:0,fixed,sourceAssigned,indexedCurrent,contract:contractTeachingDoe(f)});for(const a of facultyAliases(f))if(!aliases.has(a))aliases.set(a,String(f.__id))}
   for(const sess of sessions.values())for(const a of assignedArray(sess)){let id=String(a?.ucid||'').trim();if(!id)id=aliases.get(norm(a?.name))||'';const row=state.get(id),credit=assignmentCredit(a);if(row&&credit!==null)row.scheduled+=credit}
-  for(const row of state.values())row.current=row.fixed!==null?row.fixed+row.scheduled:(row.sourceAssigned!==null?row.sourceAssigned:null);
+  for(const row of state.values())row.current=row.indexedCurrent!==null?row.indexedCurrent:(row.fixed!==null?row.fixed+row.scheduled:(row.sourceAssigned!==null?row.sourceAssigned:null));
   return state;
  }
  function timeMinutes(v){const s=String(v||'').trim();if(!s)return null;let m=s.match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i);if(!m)return null;let h=Number(m[1]),min=Number(m[2]);if(m[3]){const ap=m[3].toUpperCase();if(h===12)h=0;if(ap==='PM')h+=12}if(h>23||min>59)return null;return h*60+min}
@@ -201,6 +201,7 @@
     const pending=requests.filter(r=>r.status==='pending').length+afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length,b=mkButton('approval-queue-btn','Approvals');
     b.innerHTML=`Approvals${pending?` <span class="workflow-count">${pending}</span>`:''}`;
     if(!b.isConnected)bar.insertBefore(b,bar.firstChild);b.onclick=()=>openApprovalQueue();
+    if(openApprovalFromHash){openApprovalFromHash=false;setTimeout(()=>openApprovalQueue(),0)}
   }else $('approval-queue-btn')?.remove();
  }
 
