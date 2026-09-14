@@ -43,10 +43,10 @@
     <button class="filter-toggle-btn" id="filter-toggle-btn">Filters v</button>
     <div class="filter-bar-inner" id="filter-bar-inner">
       <div class="brand-block">
-        <span class="brand-line brand-line-1" id="ui-brand-year" data-ui-editable="Academic year">2026-2027</span>
-        <span class="brand-line brand-line-2" id="ui-brand-name" data-ui-editable="Brand">UCVM</span>
-        <span class="brand-line brand-line-3" id="ui-brand-page" data-ui-editable="Page title">Teaching Schedule</span>
-        <button class="course-list-btn" id="course-list-btn" data-ui-editable="Course List button">Course List</button>
+        <span class="brand-line brand-line-1" id="ui-brand-year">2026-2027</span>
+        <span class="brand-line brand-line-2" id="ui-brand-name">UCVM</span>
+        <span class="brand-line brand-line-3" id="ui-brand-page">Teaching Schedule</span>
+        <button class="course-list-btn" id="course-list-btn">Course List</button>
       </div>
 
       <div class="filter-stack">
@@ -156,7 +156,6 @@
               <button class="fbar-reset hidden" id="my-change-history-btn">My Change History</button>
             </div>
             <button class="fbar-reset hidden" id="my-timetable-btn">My Timetable</button>
-            <button class="fbar-reset hidden" id="ui-edit-mode-btn">Edit UI</button>
             <button class="fbar-reset hidden" id="manage-users-btn">Manage Users</button>
             <button class="fbar-reset hidden" id="faculty-dashboard-btn">Faculty Dashboard</button>
             <button class="fbar-reset hidden" id="bulk-add-session-btn">+ Add Sessions</button>
@@ -173,7 +172,7 @@
         <div class="cal-card" id="cal-card">
           <div id="calendar-body"></div>
         </div>
-        <div class="compact-export-bar" id="compact-export-bar" data-ui-editable="Data Export bar">
+        <div class="compact-export-bar" id="compact-export-bar">
           <span class="compact-export-label" id="ui-export-title">Export</span>
           <button class="export-btn" id="export-csv">CSV</button>
           <button class="export-btn" id="export-calendar">Calendar (.ics)</button>
@@ -185,55 +184,7 @@
       </div>
     </div>
   </div>
-
-  <aside class="ui-editor-panel hidden" id="ui-editor-panel" aria-label="Admin UI editor">
-    <div class="ui-editor-head">
-      <div>
-        <div class="ui-editor-eyebrow">ADMIN ONLY · LOCAL PREVIEW</div>
-        <div class="ui-editor-title">Edit UI</div>
-        <div class="ui-editor-sub">Changes preview immediately. Nothing here is written to Firestore.</div>
-      </div>
-      <button class="ui-editor-x" id="ui-editor-x" type="button" aria-label="Cancel UI editing">x</button>
-    </div>
-    <div class="ui-editor-scroll">
-      <section class="ui-editor-section">
-        <div class="ui-editor-section-title">Brand & text</div>
-        <label class="ui-control"><span>Academic year</span><input id="ui-set-year" type="text" maxlength="24"></label>
-        <label class="ui-control"><span>Brand</span><input id="ui-set-brand" type="text" maxlength="32"></label>
-        <label class="ui-control"><span>Page title</span><input id="ui-set-page" type="text" maxlength="40"></label>
-        <label class="ui-control"><span>Banner label</span><input id="ui-set-banner-label" type="text" maxlength="40"></label>
-        <label class="ui-control"><span>Banner message</span><textarea id="ui-set-banner-message" rows="3" maxlength="180"></textarea></label>
-        <label class="ui-control"><span>Export title</span><input id="ui-set-export-title" type="text" maxlength="60"></label>
-      </section>
-
-      <section class="ui-editor-section">
-        <div class="ui-editor-section-title">Appearance</div>
-        <label class="ui-control ui-control-row"><span>Accent color</span><input id="ui-set-accent" type="color"></label>
-        <label class="ui-control"><span>Sidebar width <strong id="ui-sidebar-value"></strong></span><input id="ui-set-sidebar" type="range" min="240" max="440" step="10"></label>
-        <label class="ui-control"><span>Corner radius <strong id="ui-radius-value"></strong></span><input id="ui-set-radius" type="range" min="2" max="18" step="1"></label>
-        <label class="ui-control"><span>Text scale <strong id="ui-font-value"></strong></span><input id="ui-set-font" type="range" min="12" max="17" step="0.5"></label>
-        <label class="ui-control"><span>Density</span><select id="ui-set-density"><option value="compact">Compact</option><option value="normal">Normal</option><option value="roomy">Roomy</option></select></label>
-      </section>
-
-      <section class="ui-editor-section">
-        <div class="ui-editor-section-title">Show / hide</div>
-        <label class="ui-switch-row"><span>Top test banner</span><input id="ui-show-banner" type="checkbox"></label>
-        <label class="ui-switch-row"><span>Course List button</span><input id="ui-show-course-list" type="checkbox"></label>
-        <label class="ui-switch-row"><span>Data Export</span><input id="ui-show-export" type="checkbox"></label>
-        <label class="ui-switch-row"><span>Colors toggle</span><input id="ui-show-color-toggle" type="checkbox"></label>
-        <label class="ui-switch-row"><span>My Timetable button</span><input id="ui-show-my-timetable" type="checkbox"></label>
-      </section>
-
-      <div class="ui-editor-note">V8 stores UI settings in <code>localStorage</code> on this browser only. Another computer/browser will keep the default UI.</div>
-    </div>
-    <div class="ui-editor-actions">
-      <button class="btn btn-secondary" id="ui-editor-reset" type="button">Reset preview</button>
-      <button class="btn btn-secondary" id="ui-editor-cancel" type="button">Cancel</button>
-      <button class="btn btn-primary" id="ui-editor-save" type="button">Save locally</button>
-    </div>
-  </aside>
-
-  <div class="bottom-bar">
+<div class="bottom-bar">
     <div class="bottom-bar-spacer"></div>
     <div class="bottom-bar-center">
       <span class="conn-status"><span class="conn-dot" id="conn-dot"></span><span id="conn-text">Initializing Firebase Auth + Roles...</span></span>

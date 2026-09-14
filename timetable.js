@@ -109,202 +109,7 @@
     return { ...data, role };
   }
 
-
-  // V8 UI settings are intentionally local only. Firestore is NOT used to store UI preferences.
-  const UI_SETTINGS_KEY = 'ucvm_ui_settings_v96';
-  const DEFAULT_UI_SETTINGS = Object.freeze({
-    academicYear: '2026-2027',
-    brand: 'UCVM',
-    pageTitle: 'Teaching Schedule',
-    bannerLabel: '2026-2027 TEACHING SCHEDULE · WORKLOAD DOE V9.7',
-    bannerMessage: '2026-27 timetable is synchronized with the Faculty Dashboard from All Faculty Summaries. Both pages use the same live Firestore sessions.',
-    exportTitle: 'Export',
-    accent: '#d6001c',
-    sidebarWidth: 320,
-    radius: 4,
-    fontSize: 14,
-    density: 'normal',
-    showBanner: true,
-    showCourseList: true,
-    showExport: true,
-    showColorToggle: true,
-    showMyTimetable: true
-  });
-  let uiSettings = loadUISettings();
-  let uiEditOriginal = null;
-  let uiEditDraft = null;
-
-  function normalizeUISettings(raw) {
-    const x = { ...DEFAULT_UI_SETTINGS, ...(raw || {}) };
-    const text = (value, fallback, max) => {
-      const v = String(value ?? '').trim();
-      return (v || fallback).slice(0, max);
-    };
-    x.academicYear = text(x.academicYear, DEFAULT_UI_SETTINGS.academicYear, 24);
-    x.brand = text(x.brand, DEFAULT_UI_SETTINGS.brand, 32);
-    x.pageTitle = text(x.pageTitle, DEFAULT_UI_SETTINGS.pageTitle, 40);
-    x.bannerLabel = text(x.bannerLabel, DEFAULT_UI_SETTINGS.bannerLabel, 40);
-    x.bannerMessage = text(x.bannerMessage, DEFAULT_UI_SETTINGS.bannerMessage, 180);
-    x.exportTitle = text(x.exportTitle, DEFAULT_UI_SETTINGS.exportTitle, 60);
-    x.accent = /^#[0-9a-f]{6}$/i.test(String(x.accent)) ? String(x.accent) : DEFAULT_UI_SETTINGS.accent;
-    x.sidebarWidth = Math.max(240, Math.min(440, Number(x.sidebarWidth) || DEFAULT_UI_SETTINGS.sidebarWidth));
-    x.radius = Math.max(2, Math.min(18, Number(x.radius) || DEFAULT_UI_SETTINGS.radius));
-    x.fontSize = Math.max(12, Math.min(17, Number(x.fontSize) || DEFAULT_UI_SETTINGS.fontSize));
-    x.density = ['compact','normal','roomy'].includes(x.density) ? x.density : 'normal';
-    ['showBanner','showCourseList','showExport','showColorToggle','showMyTimetable'].forEach(k => x[k] = x[k] !== false);
-    return x;
-  }
-
-  function loadUISettings() {
-    try { return normalizeUISettings(JSON.parse(storageGet(UI_SETTINGS_KEY) || '{}')); }
-    catch (_) { return normalizeUISettings(DEFAULT_UI_SETTINGS); }
-  }
-
-  function saveUISettings(settings) {
-    uiSettings = normalizeUISettings(settings);
-    storageSet(UI_SETTINGS_KEY, JSON.stringify(uiSettings));
-  }
-
-  function hexToRgb(hex) {
-    const m = /^#([0-9a-f]{6})$/i.exec(hex || '');
-    if (!m) return [26,58,107];
-    const n = parseInt(m[1],16);
-    return [(n>>16)&255,(n>>8)&255,n&255];
-  }
-
-  function applyUISettings(settings) {
-    const x = normalizeUISettings(settings);
-    const root = document.documentElement;
-    const [r,g,b] = hexToRgb(x.accent);
-    root.style.setProperty('--accent', x.accent);
-    root.style.setProperty('--accent-2', x.accent);
-    root.style.setProperty('--accent-mid', `rgba(${r},${g},${b},.68)`);
-    root.style.setProperty('--accent-light', `rgba(${r},${g},${b},.11)`);
-    root.style.setProperty('--ui-sidebar-width', `${x.sidebarWidth}px`);
-    root.style.setProperty('--radius', `${x.radius}px`);
-    root.style.setProperty('--radius-lg', `${Math.min(24, x.radius + 4)}px`);
-    root.style.fontSize = `${x.fontSize}px`;
-
-    const setText = (id, value) => { const el=$(id); if (el) el.textContent=value; };
-    setText('ui-brand-year', x.academicYear);
-    setText('ui-brand-name', x.brand);
-    setText('ui-brand-page', x.pageTitle);
-    setText('ui-banner-label', x.bannerLabel);
-    setText('ui-banner-message', x.bannerMessage);
-    setText('ui-export-title', x.exportTitle);
-    setText('gate-status', $('gate-status')?.textContent || 'Sign in required.');
-    const gateTitle=$('.auth-gate-title'); if (gateTitle) gateTitle.textContent=`${x.academicYear} ${x.pageTitle}`;
-
-    document.body.classList.toggle('ui-banner-hidden', !x.showBanner);
-    document.body.classList.toggle('ui-density-compact', x.density === 'compact');
-    document.body.classList.toggle('ui-density-roomy', x.density === 'roomy');
-    $('course-list-btn')?.classList.toggle('ui-pref-hidden', !x.showCourseList);
-    $('compact-export-bar')?.classList.toggle('ui-pref-hidden', !x.showExport);
-    $('color-toggle')?.classList.toggle('ui-pref-hidden', !x.showColorToggle);
-    const myBtn=$('my-timetable-btn'); if (myBtn) myBtn.classList.toggle('ui-pref-hidden', !x.showMyTimetable);
-  }
-
   function isAdmin() { return UCVM.admin(currentUser); }
-
-  function fillUIEditor(settings) {
-    const x = normalizeUISettings(settings);
-    $('ui-set-year').value=x.academicYear;
-    $('ui-set-brand').value=x.brand;
-    $('ui-set-page').value=x.pageTitle;
-    $('ui-set-banner-label').value=x.bannerLabel;
-    $('ui-set-banner-message').value=x.bannerMessage;
-    $('ui-set-export-title').value=x.exportTitle;
-    $('ui-set-accent').value=x.accent;
-    $('ui-set-sidebar').value=String(x.sidebarWidth);
-    $('ui-set-radius').value=String(x.radius);
-    $('ui-set-font').value=String(x.fontSize);
-    $('ui-set-density').value=x.density;
-    $('ui-show-banner').checked=x.showBanner;
-    $('ui-show-course-list').checked=x.showCourseList;
-    $('ui-show-export').checked=x.showExport;
-    $('ui-show-color-toggle').checked=x.showColorToggle;
-    $('ui-show-my-timetable').checked=x.showMyTimetable;
-    $('ui-sidebar-value').textContent=`${x.sidebarWidth}px`;
-    $('ui-radius-value').textContent=`${x.radius}px`;
-    $('ui-font-value').textContent=`${x.fontSize}px`;
-  }
-
-  function readUIEditor() {
-    return normalizeUISettings({
-      academicYear:$('ui-set-year').value,
-      brand:$('ui-set-brand').value,
-      pageTitle:$('ui-set-page').value,
-      bannerLabel:$('ui-set-banner-label').value,
-      bannerMessage:$('ui-set-banner-message').value,
-      exportTitle:$('ui-set-export-title').value,
-      accent:$('ui-set-accent').value,
-      sidebarWidth:Number($('ui-set-sidebar').value),
-      radius:Number($('ui-set-radius').value),
-      fontSize:Number($('ui-set-font').value),
-      density:$('ui-set-density').value,
-      showBanner:$('ui-show-banner').checked,
-      showCourseList:$('ui-show-course-list').checked,
-      showExport:$('ui-show-export').checked,
-      showColorToggle:$('ui-show-color-toggle').checked,
-      showMyTimetable:$('ui-show-my-timetable').checked
-    });
-  }
-
-  function previewUIEditor() {
-    uiEditDraft=readUIEditor();
-    fillUIEditor(uiEditDraft);
-    applyUISettings(uiEditDraft);
-  }
-
-  function openUIEditor() {
-    if (!isAdmin()) { toast('Admin permission is required to edit the UI.', true); return; }
-    uiEditOriginal={...uiSettings};
-    uiEditDraft={...uiSettings};
-    fillUIEditor(uiEditDraft);
-    $('ui-editor-panel').classList.remove('hidden');
-    $('ui-edit-mode-btn').classList.add('ui-edit-active');
-    $('ui-edit-mode-btn').textContent='Editing UI';
-    document.body.classList.add('ui-editing');
-  }
-
-  function closeUIEditor(revert=true) {
-    if (revert && uiEditOriginal) applyUISettings(uiEditOriginal);
-    $('ui-editor-panel')?.classList.add('hidden');
-    $('ui-edit-mode-btn')?.classList.remove('ui-edit-active');
-    if ($('ui-edit-mode-btn')) $('ui-edit-mode-btn').textContent='Edit UI';
-    document.body.classList.remove('ui-editing');
-    uiEditOriginal=null;
-    uiEditDraft=null;
-  }
-
-  function saveUIEditor() {
-    if (!isAdmin()) { closeUIEditor(true); return; }
-    const next=readUIEditor();
-    saveUISettings(next);
-    applyUISettings(uiSettings);
-    closeUIEditor(false);
-    updateAuthUI();
-    toast('UI settings saved locally on this browser.');
-  }
-
-  function bindUIEditorControls() {
-    $('ui-edit-mode-btn').addEventListener('click', openUIEditor);
-    $('ui-editor-x').addEventListener('click', () => closeUIEditor(true));
-    $('ui-editor-cancel').addEventListener('click', () => closeUIEditor(true));
-    $('ui-editor-save').addEventListener('click', saveUIEditor);
-    $('ui-editor-reset').addEventListener('click', () => {
-      uiEditDraft={...DEFAULT_UI_SETTINGS};
-      fillUIEditor(uiEditDraft);
-      applyUISettings(uiEditDraft);
-      toast('Default UI preview loaded. Save locally to keep it.');
-    });
-    const ids=['ui-set-year','ui-set-brand','ui-set-page','ui-set-banner-label','ui-set-banner-message','ui-set-export-title','ui-set-accent','ui-set-sidebar','ui-set-radius','ui-set-font','ui-set-density','ui-show-banner','ui-show-course-list','ui-show-export','ui-show-color-toggle','ui-show-my-timetable'];
-    ids.forEach(id => {
-      const el=$(id);
-      const event=(el.type==='checkbox'||el.tagName==='SELECT')?'change':'input';
-      el.addEventListener(event, previewUIEditor);
-    });
-  }
 
   // Public course catalog is embedded so the page has no dependency on scheduleDataBase.js.
   // Live dates, times, instructors, DOE assignments and availability remain Firestore-only.
@@ -772,12 +577,10 @@
   }
 
   function init() {
-    applyUISettings(uiSettings);
     setInitialAcademicPeriod();
     populateCourseFilter();
     renderWeekControls();
     bindControls();
-    bindUIEditorControls();
     updateAuthUI();
     setAppLocked(true, 'Checking login status...');
     initFirebaseAuth();
@@ -888,7 +691,7 @@
     $('cal-list-btn').addEventListener('click', () => { viewMode = 'list'; if(roleIsFaculty(currentUser))lastFacultyTeachingView='list'; setViewButtons(); refreshSessionScope(); });
     $('show-ccc').addEventListener('change', async e=>{showCcc=e.target.checked;if(showCcc){try{await loadCccEvents()}catch{e.target.checked=false;showCcc=false}}populateCourseFilter();render()});
     $('color-toggle').addEventListener('click', () => { colorsOn = !colorsOn; $('color-toggle').textContent = `Colors: ${colorsOn ? 'On' : 'Off'}`; render(); });
-    $('dark-toggle').addEventListener('click', () => { document.documentElement.classList.toggle('dark'); $('dark-toggle').textContent = document.documentElement.classList.contains('dark') ? 'Light' : 'Moon'; applyUISettings(uiEditDraft || uiSettings); });
+    $('dark-toggle').addEventListener('click', () => { document.documentElement.classList.toggle('dark'); $('dark-toggle').textContent = document.documentElement.classList.contains('dark') ? 'Light' : 'Moon'; });
     $('filter-toggle-btn').addEventListener('click', () => $('filter-bar-wrap').classList.toggle('expanded'));
     $('account-toggle').addEventListener('click', () => currentUser ? openAccountModal() : openLoginModal());
     $('auth-setup-btn').addEventListener('click', openAuthSetupModal);
@@ -1662,10 +1465,7 @@
     for(const id of ['my-teaching-btn','afc-request-btn','my-change-history-btn'])$(id).classList.toggle('hidden',!currentUser);
     $('publish-firestore-schedule').classList.toggle('hidden', !UCVM.admin(currentUser));
     updateScheduleSourceUI();
-    $('ui-edit-mode-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
     $('my-timetable-btn').classList.toggle('hidden', !currentUser || roleIsFaculty(currentUser));
-    $('my-timetable-btn').classList.toggle('ui-pref-hidden', !uiSettings.showMyTimetable);
-    if (!UCVM.admin(currentUser) && !$('ui-editor-panel').classList.contains('hidden')) closeUIEditor(true);
     $('my-timetable-btn').textContent = currentUser && myTimetableOnly ? 'Show All Timetable' : 'My Timetable';
   }
 
