@@ -243,6 +243,27 @@
     catch { memoryStore[key] = value; }
   }
 
+  const SCHEDULE_FILTERS_KEY = 'ucvm-schedule-filters-expanded';
+  function initialScheduleFiltersExpanded(media, stored) {
+    if (stored === 'true') return true;
+    if (stored === 'false') return false;
+    return !media.matches;
+  }
+  function setScheduleFiltersExpanded(expanded, persist=true) {
+    const panel=$('schedule-filter-panel'),button=$('schedule-filter-toggle');
+    panel.hidden=!expanded;
+    button.setAttribute('aria-expanded',String(expanded));
+    const chevron=button.querySelector('.schedule-filter-chevron');
+    if(chevron)chevron.textContent=expanded?'⌃':'⌄';
+    if(persist)try{window.sessionStorage.setItem(SCHEDULE_FILTERS_KEY,String(expanded))}catch(_){ }
+  }
+  function initializeScheduleFilters(matchMedia=window.matchMedia.bind(window)) {
+    let stored=null;
+    try{stored=window.sessionStorage.getItem(SCHEDULE_FILTERS_KEY)}catch(_){ }
+    setScheduleFiltersExpanded(initialScheduleFiltersExpanded(matchMedia('(max-width: 900px)'),stored),false);
+    $('schedule-filter-toggle').addEventListener('click',()=>setScheduleFiltersExpanded($('schedule-filter-toggle').getAttribute('aria-expanded')!=='true'));
+  }
+
   function pad(n) { return String(n).padStart(2, '0'); }
   function ymd(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
   function addDays(date, days) { const d = new Date(date); d.setDate(d.getDate() + days); return d; }
@@ -692,7 +713,7 @@
     $('show-ccc').addEventListener('change', async e=>{showCcc=e.target.checked;if(showCcc){try{await loadCccEvents()}catch{e.target.checked=false;showCcc=false}}populateCourseFilter();render()});
     $('color-toggle').addEventListener('click', () => { colorsOn = !colorsOn; $('color-toggle').textContent = `Colors: ${colorsOn ? 'On' : 'Off'}`; render(); });
     $('dark-toggle').addEventListener('click', () => { document.documentElement.classList.toggle('dark'); $('dark-toggle').textContent = document.documentElement.classList.contains('dark') ? 'Light' : 'Moon'; });
-    $('filter-toggle-btn').addEventListener('click', () => $('filter-bar-wrap').classList.toggle('expanded'));
+    initializeScheduleFilters();
     $('account-toggle').addEventListener('click', () => currentUser ? openAccountModal() : openLoginModal());
     $('auth-setup-btn').addEventListener('click', openAuthSetupModal);
     $('gate-sign-in').addEventListener('click', openLoginModal);

@@ -40,7 +40,6 @@
   </div>
 
   <div class="filter-bar-wrap" id="filter-bar-wrap">
-    <button class="filter-toggle-btn" id="filter-toggle-btn">Filters v</button>
     <div class="filter-bar-inner" id="filter-bar-inner">
       <div class="brand-block">
         <span class="brand-line brand-line-1" id="ui-brand-year">2026-2027</span>
@@ -50,6 +49,8 @@
       </div>
 
       <div class="filter-stack">
+        <button class="schedule-filter-toggle" id="schedule-filter-toggle" type="button" aria-controls="schedule-filter-panel" aria-expanded="true"><span>Schedule filters</span><span class="schedule-filter-chevron" aria-hidden="true">⌃</span></button>
+        <div class="schedule-filter-panel" id="schedule-filter-panel">
         <div class="filter-block-row">
           <span class="filter-block-label">Year</span>
           <div class="btn-row btn-row-left" id="year-btn-row">
@@ -84,6 +85,7 @@
             <select class="fbar-select" id="week-mobile-select"></select>
             <span class="fbar-arrow">v</span>
           </div>
+        </div>
         </div>
 
         <div class="filter-row">
