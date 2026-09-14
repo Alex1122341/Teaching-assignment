@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>UCVM Faculty Admin Dashboard - Workload Guideline DOE V9.7</title>
+<title>Faculty Dashboard</title>
 <link rel="stylesheet" href="faculty-admin.css">
 
 </head>
@@ -14,20 +14,20 @@
         <div class="ucalgary-wordmark">UNIVERSITY OF CALGARY</div>
         <div class="ucalgary-faculty">Faculty of Veterinary Medicine</div>
       </div>
-      <div class="ucalgary-product">Faculty Administration &amp; Teaching Assignment</div>
+      <div class="ucalgary-product">Faculty Dashboard &amp; Teaching Assignment</div>
     </div>
     <div class="ucalgary-gold-rule"></div>
   </header>
 
 <div class="auth-gate" id="auth-gate">
-  <div class="gate-card"><div class="gate-brand">UCVM</div><div class="gate-title">Faculty Admin Dashboard</div><div class="gate-copy">This directory is restricted to active <strong>ADFA administrators</strong>. Faculty can use the <a href="faculty-dashboard.html">Faculty Dashboard</a>.</div><div class="gate-status" id="gate-status">Checking Firebase sign-in and administrator role…</div><button class="btn btn-primary" id="gate-back">Back to Timetable</button></div>
+  <div class="gate-card"><div class="gate-brand">UCVM</div><div class="gate-title">Faculty Dashboard</div><div class="gate-copy">This dashboard is restricted to active <strong>ADFA administrators</strong>. Faculty can use the <a href="index.html">Timetable</a> for teaching, AFC requests, and personal change history.</div><div class="gate-status" id="gate-status">Checking Firebase sign-in and administrator role…</div><button class="btn btn-primary" id="gate-back">Back to Timetable</button></div>
 </div>
 <header class="topbar">
-  <div class="brand"><div class="brand-mark">UCVM</div><div><div class="brand-title">Faculty Admin Dashboard</div><div class="brand-sub">V9.7 · synchronized teaching + workload-guideline DOE + AFC availability</div></div></div>
+  <div class="brand"><div class="brand-mark">UCVM</div><div><div class="brand-title">Faculty Dashboard</div><div class="brand-sub">V9.7 · synchronized teaching + workload-guideline DOE + AFC availability</div></div></div>
   <div class="top-actions"><span class="admin-chip" id="admin-chip">Admin</span><button class="btn" id="back-btn">Timetable</button><button class="btn" id="signout-btn">Sign out</button></div>
 </header>
 <main class="shell">
-  <div class="headline"><div><h1>Faculty Directory</h1><p>2026-27 teaching comes from <strong>2026-09-03 - All Faculty Summaries.xlsx</strong>. Role-level DOE is explained using the <strong>UCVM Workload Guidelines</strong> and the approved 2026-27 operational MASTER source. Away-from-campus availability comes from <strong>AFC Tracker Lookup (1).xlsx</strong>.</p></div><div class="status" id="sync-status">Waiting for authorization…</div></div>
+  <div class="headline"><div><h1>Faculty Dashboard</h1><p>2026-27 teaching comes from <strong>2026-09-03 - All Faculty Summaries.xlsx</strong>. Role-level DOE is explained using the <strong>UCVM Workload Guidelines</strong> and the approved 2026-27 operational MASTER source. Away-from-campus availability comes from <strong>AFC Tracker Lookup (1).xlsx</strong>.</p></div><div class="status" id="sync-status">Waiting for authorization…</div></div>
   <div class="summary-source-banner"><strong>Source policy:</strong> Teaching remains synchronized from <strong>2026-09-03 - All Faculty Summaries.xlsx</strong>. Away-from-campus availability is a separate admin-only HR source imported from <strong>AFC Tracker Lookup (1).xlsx</strong> and stored on faculty records so the dashboard and timetable assignment tools use the same availability data.</div>
   <div class="tabs"><button class="tab active" data-tab="lookup">Lookup</button><button class="tab" data-tab="summary">Teaching Summary</button><button class="tab" data-tab="roles">Roles & Appointments</button><button class="tab" data-tab="sessional">Sessional / Other</button><button class="tab" data-tab="database">Faculty Database</button><button class="tab" data-tab="history">Change History</button><a class="btn" href="index.html#approvals">AFC Requests</a><a class="btn hidden" id="user-management-link" href="user-management.html">User Management</a><a class="btn" href="password.html">Change password</a></div>
   <div class="kpis"><div class="kpi"><div class="kpi-label">Current Faculty</div><div class="kpi-value" id="kpi-total">0</div></div><div class="kpi"><div class="kpi-label">Source Summaries</div><div class="kpi-value" id="kpi-summary">0</div></div><div class="kpi"><div class="kpi-label">Assigned DOE Records</div><div class="kpi-value" id="kpi-doe">0</div></div><div class="kpi"><div class="kpi-label">Coordinator / HICC</div><div class="kpi-value" id="kpi-hicc">0</div></div><div class="kpi"><div class="kpi-label">VISC</div><div class="kpi-value" id="kpi-visc">0</div></div><div class="kpi"><div class="kpi-label">Live Timetable Sessions</div><div class="kpi-value" id="kpi-activities">0</div></div></div>

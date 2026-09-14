@@ -4,10 +4,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'faculty-dashboard.html'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-test('faculty dashboard exposes the AFC request and review tab', () => {
-  assert.match(html, /id="afc-tab"/);
+test('timetable exposes the AFC request panel', () => {
+  assert.match(html, /id="afc-request-btn"/);
   assert.match(html, /id="afc-panel"/);
   assert.match(html, /asset-loader\.js/);
   assert.doesNotMatch(html, /pdf-lib/);

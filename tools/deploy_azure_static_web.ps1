@@ -3,7 +3,8 @@ param(
     [string]$SubscriptionId = 'd81fa2f8-5115-49c9-80c5-51accac46bed',
     [string]$ResourceGroup = 'rg-ucvm-teaching-lab',
     [string]$AppName = 'ucvm-teaching-lab-web',
-    [string]$TenantId = 'c609a0ec-a5e3-4631-9686-192280bd9151'
+    [string]$TenantId = 'c609a0ec-a5e3-4631-9686-192280bd9151',
+    [switch]$BuildOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +44,19 @@ function Get-ArmAccessToken {
     throw 'Microsoft Entra device authorization expired.'
 }
 
+$stagingPath = Join-Path $SitePath '.deploy-static'
+$builder = Join-Path $SitePath 'tools\build-static.js'
+& node $builder --output $stagingPath
+if ($LASTEXITCODE -ne 0) { throw "Static asset builder exited with code $LASTEXITCODE." }
+
+$azureConfig = @{
+    routes = @(
+        @{ route = '/faculty-dashboard.html'; redirect = '/index.html'; statusCode = 301 }
+    )
+}
+$azureConfig | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stagingPath 'staticwebapp.config.json') -Encoding utf8
+if ($BuildOnly) { return }
+
 $armToken = Get-ArmAccessToken
 $secretUri = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Web/staticSites/$AppName/listSecrets?api-version=2023-12-01"
 $deploymentToken = (Invoke-RestMethod -Method Post -Uri $secretUri -Headers @{ Authorization = "Bearer $armToken" }).properties.apiKey
@@ -54,11 +68,6 @@ $deployClient = Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.swa\dep
 if ([string]::IsNullOrWhiteSpace($deployClient)) {
     throw 'Azure Static Web Apps deployment client is not installed. Run SWA CLI once to download it.'
 }
-
-$stagingPath = Join-Path $SitePath '.deploy-static'
-$builder = Join-Path $SitePath 'tools\build-static.js'
-& node $builder --output $stagingPath
-if ($LASTEXITCODE -ne 0) { throw "Static asset builder exited with code $LASTEXITCODE." }
 
 $deployVariables = @{
     DEPLOYMENT_ACTION = 'upload'

@@ -50,10 +50,10 @@
  function renameDashboard(){
   if(document.documentElement.dataset.ucvmDashboardRenamed==='1')return;
   document.documentElement.dataset.ucvmDashboardRenamed='1';
-  document.title='UCVM Faculty Dashboard - DOE & Faculty Administration';
+  document.title='UCVM Faculty Dashboard - DOE & Teaching';
   const bt=document.querySelector('.brand-title');if(bt)bt.textContent='Faculty Dashboard';
   const gt=document.querySelector('.gate-title');if(gt)gt.textContent='Faculty Dashboard';
-  const gc=document.querySelector('.gate-copy');if(gc)gc.innerHTML='This dashboard is restricted to active <strong>Owner, Administrator, or Other Office</strong> accounts. Faculty can use the <a href="faculty-dashboard.html">personal Faculty Dashboard</a>.';
+  const gc=document.querySelector('.gate-copy');if(gc)gc.innerHTML='This dashboard is restricted to active <strong>Owner, Administrator, or Other Office</strong> accounts. Faculty can use the <a href="index.html">Timetable</a> for teaching, AFC requests, and personal change history.';
  }
 
  function ensureDoeView(){

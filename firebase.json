@@ -12,7 +12,14 @@
         "headers": [{ "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }]
       }
     ],
-    "ignore": []
+    "ignore": [],
+    "redirects": [
+      {
+        "source": "/faculty-dashboard.html",
+        "destination": "/index.html",
+        "type": 301
+      }
+    ]
   },
   "emulators": {
     "auth": {

@@ -2,6 +2,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
+const {execFileSync}=require('node:child_process');
 
 const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
@@ -35,4 +36,25 @@ test('static builder validates sources and copies exactly the manifest',()=>{
  assert.match(builder,/startsWith/);
  assert.match(builder,/copyFileSync/);
  assert.match(builder,/rmSync/);
+});
+
+test('Firebase redirects the retired faculty page to the timetable',()=>{
+ const hosting=JSON.parse(read('firebase.json')).hosting;
+ assert.deepEqual(hosting.redirects?.find(rule=>rule.source==='/faculty-dashboard.html'),{
+  source:'/faculty-dashboard.html',destination:'/index.html',type:301
+ });
+});
+
+test('Azure stages its redirect after the static builder and preserves exactly the application allowlist',()=>{
+ execFileSync(process.platform==='win32'?'pwsh.exe':'pwsh',[
+  '-NoProfile','-File',path.join(root,'tools/deploy_azure_static_web.ps1'),'-SitePath',root,'-BuildOnly'
+ ],{cwd:root,encoding:'utf8',timeout:30000});
+ const output=path.join(root,'.deploy-static');
+ const config=JSON.parse(fs.readFileSync(path.join(output,'staticwebapp.config.json'),'utf8'));
+ assert.deepEqual(config.routes,[{route:'/faculty-dashboard.html',redirect:'/index.html',statusCode:301}]);
+ const manifest=JSON.parse(read('tools/static-assets.json'));
+ assert.equal(manifest.length,27);
+ assert.deepEqual(fs.readdirSync(output).filter(name=>name!=='staticwebapp.config.json').sort(),[...manifest].sort());
+ for(const name of manifest)assert.deepEqual(fs.readFileSync(path.join(output,name)),fs.readFileSync(path.join(root,name)));
+ assert.equal(fs.existsSync(path.join(output,'faculty-dashboard.html')),false);
 });

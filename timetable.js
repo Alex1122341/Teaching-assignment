@@ -897,7 +897,7 @@
     $('bulk-add-session-btn').addEventListener('click', openBulkSessionForm);
     $('add-session-btn').addEventListener('click', () => openSessionForm());
     $('manage-users-btn').addEventListener('click', openUserManager);
-    $('faculty-dashboard-btn').addEventListener('click', () => { window.location.href = UCVM.admin(currentUser) ? 'faculty-admin.html' : 'faculty-dashboard.html'; });
+    $('faculty-dashboard-btn').addEventListener('click', () => { if (UCVM.admin(currentUser)) window.location.href = 'faculty-admin.html'; });
     $('my-timetable-btn').addEventListener('click', () => { myTimetableOnly = !myTimetableOnly; $('my-timetable-btn').textContent = myTimetableOnly ? 'Show All Timetable' : 'My Timetable'; render(); });
     $('course-list-btn').addEventListener('click', openCourseList);
     $('export-csv').addEventListener('click', () => openExportDialog('csv'));
@@ -1658,7 +1658,7 @@
     $('bulk-add-session-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
     $('outlook-invite-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
     $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || currentUser?.role === 'hicc'));
-    $('faculty-dashboard-btn').classList.toggle('hidden', !currentUser);
+    $('faculty-dashboard-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
     for(const id of ['my-teaching-btn','afc-request-btn','my-change-history-btn'])$(id).classList.toggle('hidden',!currentUser);
     $('publish-firestore-schedule').classList.toggle('hidden', !UCVM.admin(currentUser));
     updateScheduleSourceUI();

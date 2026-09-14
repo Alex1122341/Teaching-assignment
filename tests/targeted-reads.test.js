@@ -40,9 +40,9 @@ test('User Management uses the lightweight faculty index',()=>{
  assert.doesNotMatch(source,/db\.collection\('faculty'\)\.get\(\)/);
 });
 
-test('Faculty Dashboard subscribes to assigned faculty and HICC group courses only',()=>{
- const source=read('faculty-dashboard.js');
+test('Timetable faculty self-service subscribes to assigned faculty only',()=>{
+ const source=read('timetable.js');
  assert.match(source,/where\('facultyIds','array-contains',facultyId\)/);
- assert.match(source,/where\('course','in',courseChunk\)/);
  assert.doesNotMatch(source,/db\.collection\('sessions'\)\.onSnapshot/);
+ assert.match(source,/ensureSessionsForRange/);
 });

@@ -24,7 +24,7 @@ test('the main timetable shares visible snapshots and the profile read with the 
 });
 
 test('authenticated pages reuse the profile read when starting the role watcher', () => {
-  for (const name of ['faculty-dashboard.js', 'user-management.js']) {
+  for (const name of ['user-management.js']) {
     const source = read(name);
     const reads = source.match(/db\.doc\(`users\/\$\{u\.uid\}`\)\.get\(\)/g) || [];
     assert.equal(reads.length, 1, `${name} should fetch the signed-in profile once`);
