@@ -3,6 +3,7 @@
   "afc-actions.js",
   "afc-form-values.js",
   "afc-pdf-browser.js",
+  "afc-timetable-panel.js",
   "afc-workflow.js",
   "approval-workflow.js",
   "asset-loader.js",

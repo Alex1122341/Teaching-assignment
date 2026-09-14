@@ -71,9 +71,79 @@ test('AFC timetable mount subscribes once and renders teaching sessions as sorte
   assert.ok(output.indexOf('Later') < output.indexOf('Zebra'));
 });
 
+function submissionHarness(ensureSessionsForRange, initialSessions = []) {
+  let sessions = initialSessions;
+  const form = { values: {
+    startDate: '2026-10-07', endDate: '2026-10-07', reason: 'vacation',
+    purposeDestination: '', coverage: '', contactAddress: '2500 University Drive NW', contactPhone: '403-555-1212'
+  } };
+  const context = {
+    console,
+    setTimeout,
+    clearTimeout,
+    Blob,
+    URL,
+    Uint8Array,
+    FormData: class { constructor(target) { this.values = target.values; } get(name) { return this.values[name] || ''; } },
+    document: { getElementById: () => null, createElement: () => ({}) },
+    addEventListener() {},
+    firebase: {
+      auth: () => ({ currentUser: { uid: 'faculty-user', email: 'faculty@ucalgary.ca' } }),
+      firestore: { FieldValue: { serverTimestamp: () => 'timestamp' } }
+    },
+    UCVM: {
+      esc: value => String(value),
+      init: () => ({ db: {} }),
+      role: value => value
+    }
+  };
+  context.window = context;
+  context.window.UCVM_PAGE_DATA = {
+    profile: () => ({ role: 'faculty', facultyId: 'f1', name: 'Faculty One' }),
+    faculty: () => ({ id: 'f1', ucid: 'f1', preferredFullName: 'Faculty One' }),
+    sessions: () => sessions,
+    ensureSessionsForRange: async (start, end) => {
+      const loaded = await ensureSessionsForRange(start, end);
+      if (loaded) sessions = loaded;
+      return loaded;
+    },
+    subscribe: () => () => {}
+  };
+  vm.runInNewContext(read('afc-workflow.js'), context);
+  context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
+  return { api: context.window.UCVM_AFC, form };
+}
+
+test('AFC submission waits for the submitted range before enforcing teaching coverage', async () => {
+  let resolveRange;
+  let requestedRange;
+  const delayed = new Promise(resolve => { resolveRange = resolve; });
+  const { api, form } = submissionHarness((start, end) => {
+    requestedRange = [start, end];
+    return delayed;
+  });
+
+  const submission = api.submit(form);
+  let settled = false;
+  submission.then(() => { settled = true; }, () => { settled = true; });
+  await Promise.resolve();
+  assert.equal(settled, false, 'submission remains pending while the exact range loads');
+  assert.deepEqual(requestedRange, ['2026-10-07', '2026-10-07']);
+
+  resolveRange([{ id: 's1', date: '2026-10-07', start: '08:30', end: '09:30', course: 'VETM 204', topic: 'Passports 1', assignments: [{ ucid: 'f1' }] }]);
+  await assert.rejects(submission, /Coverage is required because teaching assignments were found/);
+});
+
+test('AFC submission reports a rejected timetable range read and does not use stale sessions', async () => {
+  const stale = [{ id: 'stale', date: '2026-10-07', start: '08:30', end: '09:30', course: 'VETM 204', topic: 'Old result', assignments: [{ ucid: 'f1' }] }];
+  const { api, form } = submissionHarness(async () => { throw new Error('Range unavailable'); }, stale);
+  await assert.rejects(api.submit(form), /Teaching assignments could not be loaded: Range unavailable/);
+});
+
 test('timetable AFC panel opens requests, shows self-filtered history, and restores teaching', () => {
   const events = [];
   const elements = new Map();
+  let documentRef;
   const element = id => {
     const value = {
       id,
@@ -81,17 +151,30 @@ test('timetable AFC panel opens requests, shows self-filtered history, and resto
       attributes: {},
       classList: { toggle() {} },
       setAttribute(name, setting) { this.attributes[name] = setting; },
-      focus() { this.focused = true; }
+      focus() { this.focused = true; documentRef.activeElement = this; }
     };
     elements.set(id, value);
     return value;
   };
   for (const id of ['my-teaching-btn', 'afc-request-btn', 'my-change-history-btn', 'afc-panel', 'afc-panel-content', 'afc-panel-title', 'afc-panel-close']) element(id);
+  const formField = element('afc-start-date');
+  const submitButton = element('afc-submit');
+  const background = { inert: false };
+  const alreadyInert = { inert: true };
+  elements.get('afc-panel').querySelectorAll = () => [elements.get('afc-panel-close'), formField, submitButton];
+  elements.get('afc-panel').contains = target => [elements.get('afc-panel-close'), formField, submitButton].includes(target);
   let mounts = 0;
   let historyOptions = null;
+  let keydown;
+  documentRef = {
+    getElementById: id => elements.get(id) || null,
+    activeElement: elements.get('afc-request-btn'),
+    body: { children: [background, elements.get('afc-panel'), alreadyInert] },
+    addEventListener: (name, callback) => { if (name === 'keydown') keydown = callback; }
+  };
   const context = {
     window: null,
-    document: { getElementById: id => elements.get(id) || null, activeElement: elements.get('afc-request-btn') },
+    document: documentRef,
     Event: class { constructor(type) { this.type = type; } },
     dispatchEvent: event => events.push(event),
     addEventListener() {},
@@ -108,8 +191,21 @@ test('timetable AFC panel opens requests, shows self-filtered history, and resto
 
   elements.get('afc-request-btn').onclick();
   assert.equal(elements.get('afc-panel').hidden, false);
+  assert.equal(background.inert, true);
+  assert.equal(alreadyInert.inert, true);
   assert.ok(events.some(event => event.type === 'ucvm:afc-open'));
   assert.equal(events.find(event => event.type === 'ucvm:afc-open').ucvmForce, true);
+
+  documentRef.activeElement = submitButton;
+  const forwardTab = { key: 'Tab', shiftKey: false, preventDefault() { this.prevented = true; } };
+  keydown(forwardTab);
+  assert.equal(forwardTab.prevented, true);
+  assert.equal(documentRef.activeElement, elements.get('afc-panel-close'));
+
+  const reverseTab = { key: 'Tab', shiftKey: true, preventDefault() { this.prevented = true; } };
+  keydown(reverseTab);
+  assert.equal(reverseTab.prevented, true);
+  assert.equal(documentRef.activeElement, submitButton);
 
   elements.get('my-change-history-btn').onclick();
   assert.equal(historyOptions.includeFaculty, true);
@@ -118,5 +214,8 @@ test('timetable AFC panel opens requests, shows self-filtered history, and resto
 
   elements.get('my-teaching-btn').onclick();
   assert.equal(elements.get('afc-panel').hidden, true);
+  assert.equal(background.inert, false);
+  assert.equal(alreadyInert.inert, true);
+  assert.equal(documentRef.activeElement, elements.get('afc-request-btn'));
   assert.ok(events.some(event => event.type === 'ucvm:show-teaching'));
 });

@@ -9,6 +9,7 @@
   const requestButton = $('afc-request-btn');
   const historyButton = $('my-change-history-btn');
   let previousFocus = null;
+  let backgroundState = [];
 
   if (!panel || !content || !closeButton || !teachingButton || !requestButton || !historyButton || !window.UCVM_AFC) return;
 
@@ -19,8 +20,27 @@
     historyButton.classList.toggle('active', view === 'history');
   }
 
+  function containBackground() {
+    backgroundState = [...(document.body?.children || [])]
+      .filter(element => element !== panel)
+      .map(element => ({ element, inert: element.inert }));
+    for (const state of backgroundState) state.element.inert = true;
+  }
+
+  function restoreBackground() {
+    for (const state of backgroundState) state.element.inert = state.inert;
+    backgroundState = [];
+  }
+
+  function focusableElements() {
+    return [...panel.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')];
+  }
+
   function showPanel(view) {
-    previousFocus = document.activeElement;
+    if (panel.hidden) {
+      previousFocus = document.activeElement;
+      containBackground();
+    }
     panel.hidden = false;
     panel.setAttribute('aria-hidden', 'false');
     setActive(view);
@@ -38,10 +58,14 @@
   }
 
   function close() {
+    if (panel.hidden) return;
     panel.hidden = true;
     panel.setAttribute('aria-hidden', 'true');
     setActive('');
-    if (previousFocus?.focus) previousFocus.focus();
+    restoreBackground();
+    const returnFocus = previousFocus;
+    previousFocus = null;
+    if (returnFocus?.focus) returnFocus.focus();
   }
 
   function showTeaching() {
@@ -54,7 +78,14 @@
   historyButton.onclick = () => showPanel('history');
   closeButton.onclick = close;
   if (document.addEventListener) document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && !panel.hidden) close();
+    if (panel.hidden) return;
+    if (event.key === 'Escape') { close(); return; }
+    if (event.key !== 'Tab') return;
+    const focusable = focusableElements();
+    if (!focusable.length) { event.preventDefault(); closeButton.focus(); return; }
+    const first = focusable[0], last = focusable[focusable.length - 1], active = document.activeElement;
+    if (event.shiftKey && (active === first || !panel.contains(active))) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && (active === last || !panel.contains(active))) { event.preventDefault(); first.focus(); }
   });
 
   window.UCVM_AFC_TIMETABLE_PANEL = {

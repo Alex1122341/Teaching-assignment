@@ -10,7 +10,7 @@ test('runtime pages omit the undeployed Functions SDK',()=>{
 
 test('Spark AFC client and its PDF template remain deployable',()=>{
  const manifest=JSON.parse(read('tools/static-assets.json'));
- for(const name of ['afc-actions.js','afc-pdf-browser.js','absence-from-campus-app.pdf'])assert.ok(manifest.includes(name),name);
+ for(const name of ['afc-actions.js','afc-pdf-browser.js','afc-timetable-panel.js','absence-from-campus-app.pdf'])assert.ok(manifest.includes(name),name);
 });
 
 test('undeployed callable implementation and completed migration are removed',()=>{
