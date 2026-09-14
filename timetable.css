@@ -100,7 +100,7 @@ body.ui-editing .cal-card{outline:2px dashed rgba(100,116,139,.35);outline-offse
 @media(max-width:900px){.main-view{grid-template-columns:1fr}.ui-editor-panel{top:46px;right:10px;bottom:54px;width:min(360px,calc(100vw - 20px))}}
 @media(max-width:768px){body.ui-banner-hidden .filter-bar-wrap{top:0}}
 
-  
+
 /* V9.5 Firestore-only + AFC + timetable conflict availability in admin assignment tools */
 .availability-pill{display:inline-block;padding:2px 6px;border-radius:999px;font-size:9.5px;font-weight:850;border:1px solid var(--border);white-space:nowrap}.availability-ok{background:#ecfdf3;color:#166534;border-color:#a7d7b5}.availability-no{background:#fff1f2;color:#b91c1c;border-color:#f3b4ba}.availability-none{background:var(--surface-2);color:var(--text-3)}.availability-detail{font-size:9.5px;line-height:1.35;margin-top:3px}.availability-detail.no{color:#b91c1c;font-weight:700}.availability-detail.ok{color:#166534}.swap-unavailable td{background:#fff9f9}.dark .swap-unavailable td{background:#2a1719}.instructor-availability{font-size:9.5px;line-height:1.35;margin-top:3px}.instructor-availability.no{color:#b91c1c;font-weight:750}.instructor-availability.ok{color:#166534}.instructor-select option{font-weight:400}
 
