@@ -219,3 +219,69 @@ test('timetable AFC panel opens requests, shows self-filtered history, and resto
   assert.equal(documentRef.activeElement, elements.get('afc-request-btn'));
   assert.ok(events.some(event => event.type === 'ucvm:show-teaching'));
 });
+
+test('AFC focus trap cycles only through visible controls when the request details are collapsed', () => {
+  let documentRef;
+  let keydown;
+  const makeElement = (id, { tagName = 'BUTTON', visible = true, hiddenByDetails = false } = {}) => ({
+    id,
+    tagName,
+    hidden: id === 'afc-panel',
+    inert: false,
+    tabIndex: 0,
+    classList: { toggle() {} },
+    setAttribute() {},
+    getClientRects: () => visible ? [{}] : [],
+    closest: selector => selector === 'details:not([open])' && hiddenByDetails ? {} : null,
+    focus() { documentRef.activeElement = this; }
+  });
+  const elements = new Map();
+  const add = (id, options) => { const item = makeElement(id, options); elements.set(id, item); return item; };
+  const teaching = add('my-teaching-btn');
+  const request = add('afc-request-btn');
+  const history = add('my-change-history-btn');
+  const panel = add('afc-panel');
+  add('afc-panel-content');
+  add('afc-panel-title');
+  const close = add('afc-panel-close');
+  const summary = add('afc-summary', { tagName: 'SUMMARY' });
+  const hiddenInput = add('afc-start-date', { tagName: 'INPUT', visible: false, hiddenByDetails: true });
+  const hiddenSubmit = add('afc-submit', { visible: false, hiddenByDetails: true });
+  panel.querySelectorAll = selector => [close, ...(selector.includes('summary') ? [summary] : []), hiddenInput, hiddenSubmit];
+  panel.contains = target => [close, summary, hiddenInput, hiddenSubmit].includes(target);
+  documentRef = {
+    getElementById: id => elements.get(id) || null,
+    activeElement: request,
+    body: { children: [panel] },
+    addEventListener: (name, callback) => { if (name === 'keydown') keydown = callback; }
+  };
+  const context = {
+    window: null,
+    document: documentRef,
+    Event: class { constructor(type) { this.type = type; } },
+    dispatchEvent() {},
+    addEventListener() {},
+    UCVM: { logs() {} }
+  };
+  context.window = context;
+  context.window.UCVM_PAGE_DATA = { profile: () => ({ role: 'faculty' }) };
+  context.window.UCVM_AFC = { mount() {} };
+  vm.runInNewContext(read('afc-timetable-panel.js'), context);
+
+  request.onclick();
+  documentRef.activeElement = summary;
+  const forward = { key: 'Tab', shiftKey: false, preventDefault() { this.prevented = true; } };
+  keydown(forward);
+  assert.equal(forward.prevented, true);
+  assert.equal(documentRef.activeElement, close);
+
+  const reverse = { key: 'Tab', shiftKey: true, preventDefault() { this.prevented = true; } };
+  keydown(reverse);
+  assert.equal(reverse.prevented, true);
+  assert.equal(documentRef.activeElement, summary);
+
+  teaching.onclick();
+  assert.equal(panel.hidden, true);
+  assert.equal(documentRef.activeElement, request);
+  assert.equal(history.inert, false);
+});

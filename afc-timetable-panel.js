@@ -33,7 +33,16 @@
   }
 
   function focusableElements() {
-    return [...panel.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')];
+    const selector = 'a[href],button,input,select,textarea,summary,[tabindex],[contenteditable="true"]';
+    return [...panel.querySelectorAll(selector)].filter(element => {
+      if (element.disabled || element.hidden || element.inert || element.getAttribute?.('aria-hidden') === 'true') return false;
+      if (typeof element.tabIndex === 'number' && element.tabIndex < 0) return false;
+      if (element.closest?.('[hidden],[inert],[aria-hidden="true"]')) return false;
+      if (element.closest?.('details:not([open])') && String(element.tagName).toUpperCase() !== 'SUMMARY') return false;
+      const style = window.getComputedStyle?.(element);
+      if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+      return typeof element.getClientRects !== 'function' || element.getClientRects().length > 0;
+    });
   }
 
   function showPanel(view) {
