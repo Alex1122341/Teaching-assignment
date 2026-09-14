@@ -12,7 +12,14 @@ test('Faculty Dashboard retains administrative tabs and redirects faculty to tim
  assert.match(source,/p\.active!==true\|\|!UCVM\.admin\(p\)/);
  assert.match(source,/\$\('user-management-link'\)\.classList\.toggle\('hidden',!UCVM\.general\(p\)\)/);
  assert.match(source,/Open Timetable for your sessions and change history/);
- assert.match(enhancements,/document\.title='Faculty Dashboard'/);
+ const rename=enhancements.match(/ function renameDashboard\(\)\{[\s\S]*?\n \}/)?.[0];
+ assert.ok(rename,'renameDashboard should remain independently executable');
+ const nodes=new Map(),document={title:'Old title',documentElement:{dataset:{}},querySelector(selector){if(!nodes.has(selector))nodes.set(selector,{});return nodes.get(selector)}};
+ require('node:vm').runInNewContext(`${rename}\nrenameDashboard();`,{document});
+ assert.equal(document.title,'Faculty Dashboard');
+ assert.equal(nodes.get('.brand-title').textContent,'Faculty Dashboard');
+ assert.equal(nodes.get('.gate-title').textContent,'Faculty Dashboard');
+ assert.match(nodes.get('.gate-copy').innerHTML,/href="index\.html">Timetable<\/a>/);
 });
 
 test('only administrators see and can navigate the timetable Faculty Dashboard button',()=>{
