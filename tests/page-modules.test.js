@@ -4,7 +4,7 @@ test('large pages keep structure while loading cacheable modules',()=>{const mai
 test('AFC PDF dependencies load only when an approval needs them',()=>{const html=read('index.html');assert.match(html,/asset-loader\.js/);assert.doesNotMatch(html,/pdf-lib\.min\.js|afc-pdf-browser\.js/);const loader=read('asset-loader.js'),actions=read('afc-actions.js');assert.match(loader,/function loadScriptOnce/);assert.match(loader,/ensureAfcPdf/);assert.match(actions,/await UCVM_ASSETS\.ensureAfcPdf\(\)/)});
 
 test('Faculty Dashboard retains administrative tabs and redirects faculty to timetable self-service',()=>{
- const html=read('faculty-admin.html'),source=read('faculty-admin.js');
+ const html=read('faculty-admin.html'),source=read('faculty-admin.js'),enhancements=read('faculty-admin-enhancements.js');
  for(const pattern of [/<title>Faculty Dashboard<\/title>/,/class="gate-title">Faculty Dashboard</,/class="brand-title">Faculty Dashboard</,/<h1>Faculty Dashboard<\/h1>/])assert.match(html,pattern);
  for(const label of ['Lookup','Teaching Summary','Roles & Appointments','Sessional / Other','Faculty Database','Change History','AFC Requests','User Management','Change password'])assert.ok(html.includes('>'+label+'<'),label);
  assert.match(html,/href="index\.html">Timetable<\/a>/);
@@ -12,6 +12,7 @@ test('Faculty Dashboard retains administrative tabs and redirects faculty to tim
  assert.match(source,/p\.active!==true\|\|!UCVM\.admin\(p\)/);
  assert.match(source,/\$\('user-management-link'\)\.classList\.toggle\('hidden',!UCVM\.general\(p\)\)/);
  assert.match(source,/Open Timetable for your sessions and change history/);
+ assert.match(enhancements,/document\.title='Faculty Dashboard'/);
 });
 
 test('only administrators see and can navigate the timetable Faculty Dashboard button',()=>{
