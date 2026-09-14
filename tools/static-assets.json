@@ -1,6 +1,7 @@
 [
   "absence-from-campus-app.pdf",
   "afc-actions.js",
+  "afc-form-values.js",
   "afc-pdf-browser.js",
   "afc-workflow.js",
   "approval-workflow.js",

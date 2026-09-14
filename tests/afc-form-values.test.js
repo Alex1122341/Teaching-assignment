@@ -22,3 +22,12 @@ test('AFC form values normalize allowlisted dropdown values and contact details'
   assert.equal(contact.address, '2500 University Dr');
   assert.equal(contact.phone, '403-555-1212');
 });
+
+test('AFC PDF loader loads canonical form values before the renderer', () => {
+  const loader = fs.readFileSync(path.join(root, 'asset-loader.js'), 'utf8');
+  const valuesPosition = loader.indexOf("loadScriptOnce('afc-form-values.js'");
+  const rendererPosition = loader.indexOf("loadScriptOnce('afc-pdf-browser.js'");
+  assert.ok(valuesPosition >= 0, 'loader includes canonical AFC form values');
+  assert.ok(rendererPosition > valuesPosition, 'canonical values load before PDF renderer');
+  assert.ok(JSON.parse(fs.readFileSync(path.join(root, 'tools/static-assets.json'), 'utf8')).includes('afc-form-values.js'));
+});
