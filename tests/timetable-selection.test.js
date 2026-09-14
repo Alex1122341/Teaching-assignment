@@ -56,3 +56,20 @@ test('change planner returns errors without update or audit entries',()=>{
  assert.ok(plan.errors.some(error=>error.includes('Row 1')));
  assert.equal(plan.updates.length,0);assert.equal(plan.logs.length,0);
 });
+
+test('selected rows ignore normal filters, preserve selection order, and exclude CCC records',()=>{
+ const api=load(),selection=api.create();selection.toggle('future-hidden');selection.toggle('visible');selection.toggle('ccc-row');
+ const rows=api.selectedRows([{id:'visible'},{id:'ccc-row',isCcc:true},{id:'future-hidden'}],selection.ids());
+ assert.deepEqual(plain(rows.map(row=>row.id)),['future-hidden','visible']);
+});
+
+test('atomic save performs two paired operations per changed session and none for invalid plans',async()=>{
+ const api=load(),operations=[],batch={update:(ref,data)=>operations.push(['update',ref,data]),set:(ref,data)=>operations.push(['set',ref,data]),commit:async()=>operations.push(['commit'])};
+ let afterCommit=0;
+ const store={batch:()=>batch,sessionRef:id=>`sessions/${id}`,logRef:()=>`logs/${operations.length}`,afterCommit:async()=>{afterCommit++}};
+ const invalid=await api.commitPlan({updates:[],logs:[],errors:['Row 1: invalid']},store);
+ assert.equal(invalid.committed,false);assert.equal(operations.length,0);
+ const plan={errors:[],updates:[],logs:[]};for(let i=0;i<200;i++){plan.updates.push({id:`s${i}`,data:{topic:`T${i}`}});plan.logs.push({sessionId:`s${i}`,action:'batch_update'})}
+ const result=await api.commitPlan(plan,store);
+ assert.equal(result.committed,true);assert.equal(result.operations,400);assert.equal(operations.filter(x=>x[0]==='update').length,200);assert.equal(operations.filter(x=>x[0]==='set').length,200);assert.equal(operations.at(-1)[0],'commit');assert.equal(afterCommit,1);
+});

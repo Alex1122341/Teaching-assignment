@@ -13,7 +13,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
    const id=facultyId(assignment)||ids[index]||'';
    return{...assignment,ucid:id||null,facultyId:id||null,name:text(assignment.name),role:text(assignment.role||row?.type)};
   });
-  return{date:text(row?.date),year:Number(row?.year),course:text(row?.course),type:text(row?.type),start:text(row?.start),end:text(row?.end),topic:text(row?.topic),room:text(row?.room),assignments,facultyIds:ids,instructor:assignments.map(item=>item.name).filter(Boolean).join('; ')};
+  return{date:text(row?.date),week:Number(row?.week),semester:text(row?.semester),year:Number(row?.year),course:text(row?.course),courseName:text(row?.courseName),type:text(row?.type),start:text(row?.start),end:text(row?.end),topic:text(row?.topic),room:text(row?.room),timeUnknown:Boolean(row?.timeUnknown),assignments,facultyIds:ids,instructor:assignments.map(item=>item.name).filter(Boolean).join('; '),labDetails:Array.isArray(row?.labDetails)?clone(row.labDetails):[]};
  }
  function create(max=200){
   const selected=new Set();
@@ -35,11 +35,14 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   if(!ids.length||ids.some(id=>!known(id)))errors.push(prefix+'assigned faculty must contain at least one valid faculty record.');
   return errors;
  }
- function planChanges(originals,rows,actor,timestamp){
+ function selectedRows(source,ids){
+  const byId=new Map((source||[]).filter(row=>!row?.isCcc).map(row=>[text(row.id),row]));
+  return(ids||[]).map(id=>byId.get(text(id))).filter(Boolean);
+ }
+ function planChanges(originals,rows,actor,timestamp,facultyById){
   const originalById=new Map((originals||[]).map(row=>[text(row.id),row])),errors=[];
   (rows||[]).forEach((row,index)=>{
-   const ids=facultyIds(row),known=new Map(ids.map(id=>[id,true]));
-   errors.push(...validateRow(row,index+1,known));
+   errors.push(...validateRow(row,index+1,facultyById||new Map(facultyIds(row).map(id=>[id,true]))));
    if(!text(row.id)||!originalById.has(text(row.id)))errors.push(`Row ${index+1}: session does not exist.`);
   });
   if(errors.length)return{updates:[],logs:[],errors};
@@ -52,5 +55,15 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   }
   return{updates,logs,errors:[]};
  }
- return{create,validateRow,planChanges};
+ async function commitPlan(plan,store){
+  if(plan.errors?.length||!plan.updates?.length)return{committed:false,operations:0,errors:[...(plan.errors||[])]};
+  if(plan.updates.length!==plan.logs?.length)throw Error('Each session update must have one audit log.');
+  const batch=store.batch();
+  for(const update of plan.updates)batch.update(store.sessionRef(update.id),update.data);
+  for(const log of plan.logs)batch.set(store.logRef(),log);
+  await batch.commit();
+  try{await store.afterCommit()}catch(error){error.committed=true;throw error}
+  return{committed:true,operations:plan.updates.length+plan.logs.length,errors:[]};
+ }
+ return{create,validateRow,selectedRows,planChanges,commitPlan};
 })();

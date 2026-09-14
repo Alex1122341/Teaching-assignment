@@ -51,8 +51,8 @@ service cloud.firestore {
   }
   match /sessions/{id} {
    allow read: if ready();
-   allow create: if admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general());
-   allow update: if admin() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && (!bulkSessionImportChange() || general());
+   allow create: if admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general());
+   allow update: if admin() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general());
    allow delete: if admin();
   }
   match /faculty/{id} {

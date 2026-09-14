@@ -53,7 +53,7 @@ test('Azure stages its redirect after the static builder and preserves exactly t
  const config=JSON.parse(fs.readFileSync(path.join(output,'staticwebapp.config.json'),'utf8'));
  assert.deepEqual(config.routes,[{route:'/faculty-dashboard.html',redirect:'/index.html',statusCode:301}]);
  const manifest=JSON.parse(read('tools/static-assets.json'));
- assert.equal(manifest.length,27);
+ assert.equal(manifest.length,28);
  assert.deepEqual(fs.readdirSync(output).filter(name=>name!=='staticwebapp.config.json').sort(),[...manifest].sort());
  for(const name of manifest)assert.deepEqual(fs.readFileSync(path.join(output,name)),fs.readFileSync(path.join(root,name)));
  assert.equal(fs.existsSync(path.join(output,'faculty-dashboard.html')),false);

@@ -23,6 +23,7 @@
   "session-guard.js",
   "signature-capture.js",
   "timetable.css",
+  "timetable-selection.js",
   "timetable.js",
   "user-management.html",
   "user-management.js"
