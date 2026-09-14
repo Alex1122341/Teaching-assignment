@@ -12,6 +12,7 @@
  let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleUnsub=null,renderQueued=false;
  let approvalFaculty=[],approvalFacultyById=new Map(),approvalFacultyLoaded=false;
  let approvalSessionsComplete=false,approvalSessionDatesLoaded=new Set(),openApprovalFromHash=location.hash==='#approvals';
+ let requestsReady=false,afcRequestsReady=false;
 
  const css=document.createElement('style');
  css.id='ucvm-approval-workflow-style';
@@ -147,13 +148,13 @@
   if(!isApprover())q=q.where('requesterUid','==',user.uid);
   requestUnsub=q.onSnapshot(s=>{
     requests=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>((b.requestedAt?.toMillis?.()||0)-(a.requestedAt?.toMillis?.()||0)));
-    injectButtons();queueDecorate();
-  },e=>console.warn('[workflow requests]',e));
+    requestsReady=true;injectButtons();queueDecorate();
+  },e=>{requestsReady=true;console.warn('[workflow requests]',e);injectButtons()});
  }
  function listenAfcRequests(){
   if(afcUnsub){afcUnsub();afcUnsub=null}
-  afcRequests=[];if(!user||!isApprover())return;
-  afcUnsub=db.collection('afc_requests').where('status','in',['pending_report_to','pending_admin']).limit(100).onSnapshot(s=>{afcRequests=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.submittedAt?.toMillis?.()||0)-(a.submittedAt?.toMillis?.()||0));injectButtons()},e=>console.warn('[workflow AFC requests]',e));
+  afcRequests=[];if(!user||!isApprover()){afcRequestsReady=true;injectButtons();return}
+  afcUnsub=db.collection('afc_requests').where('status','in',['pending_report_to','pending_admin']).limit(100).onSnapshot(s=>{afcRequests=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.submittedAt?.toMillis?.()||0)-(a.submittedAt?.toMillis?.()||0));afcRequestsReady=true;injectButtons()},e=>{afcRequestsReady=true;console.warn('[workflow AFC requests]',e);injectButtons()});
  }
 
  function groupTokens(g){
@@ -183,6 +184,10 @@
 
  function toolbar(){return document.querySelector('.cal-toolbar-right')}
  function mkButton(id,label){let b=$(id);if(b)return b;b=document.createElement('button');b.id=id;b.className='workflow-btn';b.type='button';b.textContent=label;return b}
+ function maybeOpenApprovalFromHash(){
+  if(!openApprovalFromHash||!isApprover()||!requestsReady||!afcRequestsReady)return;
+  openApprovalFromHash=false;setTimeout(()=>openApprovalQueue(),0);
+ }
  function injectButtons(){
   const bar=toolbar();if(!bar||!user)return;
   if(role==='hicc'){
@@ -201,7 +206,7 @@
     const pending=requests.filter(r=>r.status==='pending').length+afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length,b=mkButton('approval-queue-btn','Approvals');
     b.innerHTML=`Approvals${pending?` <span class="workflow-count">${pending}</span>`:''}`;
     if(!b.isConnected)bar.insertBefore(b,bar.firstChild);b.onclick=()=>openApprovalQueue();
-    if(openApprovalFromHash){openApprovalFromHash=false;setTimeout(()=>openApprovalQueue(),0)}
+    maybeOpenApprovalFromHash();
   }else $('approval-queue-btn')?.remove();
  }
 
@@ -359,7 +364,7 @@ async function hydrateApprovalImpacts(){
  }
 
  auth.onAuthStateChanged(async u=>{
-  user=u;me=null;role='';hiccMode=false;sessions.clear();requests=[];afcRequests=[];approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;approvalSessionDatesLoaded=new Set();if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}if(peopleUnsub){peopleUnsub();peopleUnsub=null}
+  user=u;me=null;role='';hiccMode=false;sessions.clear();requests=[];afcRequests=[];requestsReady=false;afcRequestsReady=false;approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;approvalSessionDatesLoaded=new Set();if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}if(peopleUnsub){peopleUnsub();peopleUnsub=null}
   if(!u){injectButtons();queueDecorate();return}
   try{const d=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(u.uid):await db.doc(`users/${u.uid}`).get();me=d.data()||{};await UCVM.ready(u,me);role=UCVM.role(me.role);listenPeople();listenGroups();listenSessions();listenRequests();listenAfcRequests();injectButtons()}catch(e){console.warn('[approval workflow init]',e)}
  });
