@@ -19,3 +19,12 @@ test('AFC UI collects dates, conditional details, coverage, and electronic signa
   for (const field of ['startDate','endDate','reason','purposeDestination','coverage','applicantSignature','UCVM_SIGNATURE']) assert.match(source, new RegExp(field));
   assert.match(fs.readFileSync(path.join(root, 'afc-actions.js'), 'utf8'), /pdf_chunks/);
 });
+
+test('AFC UI requires contact details for each new request', () => {
+  const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
+  assert.match(source, /name="contactAddress"[^>]*required[^>]*maxlength="500"/);
+  assert.match(source, /name="contactPhone"[^>]*required[^>]*maxlength="50"/);
+  assert.match(source, /contactAddress=String\(d\.get\('contactAddress'\)\|\|''\)\.trim\(\)/);
+  assert.match(source, /contactPhone=String\(d\.get\('contactPhone'\)\|\|''\)\.trim\(\)/);
+  assert.match(source, /coverage,contactAddress,contactPhone,workDays/);
+});

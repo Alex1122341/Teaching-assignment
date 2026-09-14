@@ -14,6 +14,10 @@ function validateDraft(d){
  if(!['vacation','business_other'].includes(d.reason))throw Error('Select Vacation or Business / Other.');
  if(d.reason==='business_other'&&!String(d.purposeDestination||'').trim())throw Error('Please provide the purpose and destination for Business / Other.');
  if((d.teachingSessions||[]).length&&!String(d.coverage||'').trim())throw Error('Coverage details are required because teaching assignments occur during this absence.');
+ if(!String(d.contactAddress||'').trim())throw Error('A mailing address is required.');
+ if(String(d.contactAddress||'').trim().length>500)throw Error('A mailing address cannot exceed 500 characters.');
+ if(!String(d.contactPhone||'').trim())throw Error('A phone number is required.');
+ if(String(d.contactPhone||'').trim().length>50)throw Error('A phone number cannot exceed 50 characters.');
  if(!String(d.signatureName||'').trim()||d.attested!==true)throw Error('Type your name and accept the electronic signature statement.');
  return days;
 }

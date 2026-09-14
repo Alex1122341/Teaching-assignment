@@ -22,3 +22,12 @@ test('AFC workflow requires report-to recommendation before final approval unles
   assert.equal(nextStatus('recommend', {status:'pending_report_to'}), 'pending_admin');
   assert.equal(nextStatus('approve', {status:'pending_admin'}), 'approved');
 });
+
+test('new AFC drafts require bounded contact details', () => {
+  const valid = {startDate:'2026-10-01',endDate:'2026-10-02',reason:'vacation',signatureName:'Alex Zhu',attested:true,teachingSessions:[],contactAddress:'2500 University Drive NW',contactPhone:'403-555-1212'};
+  assert.equal(validateDraft(valid), 2);
+  assert.throws(() => validateDraft({...valid, contactAddress:' '}), /address/i);
+  assert.throws(() => validateDraft({...valid, contactAddress:'a'.repeat(501)}), /address/i);
+  assert.throws(() => validateDraft({...valid, contactPhone:' '}), /phone/i);
+  assert.throws(() => validateDraft({...valid, contactPhone:'1'.repeat(51)}), /phone/i);
+});
