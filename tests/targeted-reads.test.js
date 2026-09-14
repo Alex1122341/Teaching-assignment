@@ -28,6 +28,8 @@ test('approval workflow fetches only sessions referenced by requests',()=>{
  assert.match(source,/db\.doc\(`\$\{SESSIONS\}\/\$\{id\}`\)\.get\(\)/);
  assert.match(source,/where\('date','==',date\)\.get\(\)/);
  assert.doesNotMatch(source,/where\('facultyIds','array-contains',id\)\.get\(\)/);
+ assert.match(source,/approvalSessionDatesLoaded=new Set\(\)/);
+ assert.doesNotMatch(source,/approvalSessionFacultyLoaded/);
  assert.doesNotMatch(source,/db\.collection\(SESSIONS\)\.get\(\)/);
  assert.doesNotMatch(source,/UCVM_PAGE_DATA\?\.allSessions/);
 });

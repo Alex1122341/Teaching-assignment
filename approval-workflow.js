@@ -359,7 +359,7 @@ async function hydrateApprovalImpacts(){
  }
 
  auth.onAuthStateChanged(async u=>{
-  user=u;me=null;role='';hiccMode=false;sessions.clear();requests=[];afcRequests=[];approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;approvalSessionFacultyLoaded=new Set();if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}if(peopleUnsub){peopleUnsub();peopleUnsub=null}
+  user=u;me=null;role='';hiccMode=false;sessions.clear();requests=[];afcRequests=[];approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;approvalSessionDatesLoaded=new Set();if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}if(peopleUnsub){peopleUnsub();peopleUnsub=null}
   if(!u){injectButtons();queueDecorate();return}
   try{const d=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(u.uid):await db.doc(`users/${u.uid}`).get();me=d.data()||{};await UCVM.ready(u,me);role=UCVM.role(me.role);listenPeople();listenGroups();listenSessions();listenRequests();listenAfcRequests();injectButtons()}catch(e){console.warn('[approval workflow init]',e)}
  });
