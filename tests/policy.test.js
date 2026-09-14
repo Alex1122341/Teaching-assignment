@@ -1,5 +1,5 @@
 'use strict';
-const {test}=require('node:test');const assert=require('node:assert/strict');const {normalizeRole,isAdmin,isGeneral,isFaculty,changes}=require('../functions/policy');
+const {test}=require('node:test');const assert=require('node:assert/strict');const {normalizeRole,isAdmin,isGeneral,isFaculty,changes}=require('../test-support/policy');
 test('legacy administrator retains operations without gaining user management',()=>{assert.equal(normalizeRole('admin'),'adfa_regular');assert.equal(isAdmin({role:'admin'}),true);assert.equal(isGeneral({role:'admin'}),false)});
 test('ADFA Regular has no user management and faculty roles have no administrative writes',()=>{assert.equal(isGeneral({role:'adfa_regular'}),false);for(const role of ['hicc','visc','faculty','editor','viewer'])assert.equal(isAdmin({role}),false);assert.equal(isGeneral({role:'adfa_general'}),true)});
 test('groups contain faculty roles only',()=>{for(const role of ['hicc','visc','faculty'])assert.ok(isFaculty({role}));assert.equal(isFaculty({role:'adfa_general'}),false)});

@@ -12,7 +12,7 @@ test('Firestore persistence is enabled through the shared initializer', () => {
 });
 
 test('the main timetable shares visible snapshots and the profile read with the approval workflow', () => {
-  const page = read('index.html');
+  const page = read('timetable.js');
   const workflow = read('approval-workflow.js');
   assert.match(page, /UCVM_PAGE_DATA/);
   assert.match(page, /ucvm:sessions-updated/);
@@ -31,22 +31,23 @@ test('authenticated pages reuse the profile read when starting the role watcher'
   }
 });
 
-test('the large auxiliary settings document is loaded only when the roles tab is opened', () => {
-  const source = read('faculty-admin.html');
+test('the large auxiliary settings document is loaded only when the sessional tab is opened', () => {
+  const source = read('faculty-admin.js');
   assert.match(source, /function loadAuxOnce/);
-  assert.match(source, /tab==='roles'.*loadAuxOnce\(\)/);
+  assert.match(source, /tab==='sessional'.*loadAuxOnce\(\)/);
   assert.doesNotMatch(source, /subscribeAux\(\);subscribeSessions\(\)/);
 });
 
 test('the timetable subscribes only to the visible date range', () => {
-  const source = read('index.html');
+  const source = read('timetable.js');
   assert.match(source, /where\('date','>=',range\.start\)/);
   assert.match(source, /where\('date','<=',range\.end\)/);
+  assert.match(source, /where\('facultyIds','array-contains',facultyId\)/);
   assert.doesNotMatch(source, /db\.collection\(SESSION_COLLECTION\)\.onSnapshot/);
 });
 
 test('the timetable loads the faculty directory only when an admin tool needs it', () => {
-  const source = read('index.html');
+  const source = read('timetable.js');
   assert.match(source, /function ensureFacultyDirectory/);
   assert.doesNotMatch(source, /if \(UCVM\.admin\(profile\)\) subscribeFacultyDirectory\(\)/);
 });

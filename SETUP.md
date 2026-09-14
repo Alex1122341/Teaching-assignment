@@ -19,7 +19,7 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
 - HICC/VISC direct instructor replacement is view-only. ADFA administrators perform live timetable changes.
 - Audit logs are written by the dashboard together with the edit. Direct Firebase Console edits are not automatically audited.
 - `mustChangePassword` is a dashboard workflow control rather than a server-verified password-change claim.
-- The `functions/` folder is retained only as a future Blaze implementation reference. It is not listed in `firebase.json` and is not deployed in Spark Basic Mode.
+- No Cloud Functions runtime is included or deployed. The repository contains only the Spark client and local test tooling.
 
 ## Activation order
 
@@ -33,12 +33,12 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
    Do this before relying on the new User Management page. Legacy `admin` still retains timetable/faculty-directory access but is not ADFA General.
 5. From the repository root deploy **rules only**:
    ```bash
-   functions/node_modules/.bin/firebase.cmd deploy --project tester-teaching --only firestore:rules
+   npx firebase deploy --project tester-teaching --only firestore:rules,firestore:indexes
    ```
    If the local Firebase CLI dependency is unavailable later, any Firebase CLI installation can deploy these rules; Cloud Functions are not required.
 6. Publish the frontend files with Firebase Hosting:
    ```bash
-   functions/node_modules/.bin/firebase.cmd deploy --project tester-teaching --only hosting
+   npx firebase deploy --project tester-teaching --only hosting
    ```
    The production URL is `https://tester-teaching.web.app/`. This keeps the source repository private and does not require GitHub Pages.
 7. Sign in as ADFA General and open User Management.
@@ -61,6 +61,6 @@ The existing timetable and faculty-directory pages create `session_change_log` /
 
 Older log records remain visible but may show `Legacy entry; detailed before/after values were not recorded.` because earlier versions did not store those fields.
 
-## Future Blaze upgrade
+## Development checks
 
-The existing `functions/` implementation can later be reintroduced for server-controlled account creation, stronger audit guarantees, token revocation and HICC/VISC server-validated instructor replacement. Do not deploy it while the project remains on Spark.
+Install the root development dependencies with `npm ci`. Run static tests with `npm test`; run the Firestore rule suite with `npm run test:emulator`. The `test-support/` modules are pure policy fixtures used by those tests and are excluded from both hosting packages.

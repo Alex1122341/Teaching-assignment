@@ -9,7 +9,8 @@ const html = fs.readFileSync(path.join(root, 'faculty-dashboard.html'), 'utf8');
 test('faculty dashboard exposes the AFC request and review tab', () => {
   assert.match(html, /id="afc-tab"/);
   assert.match(html, /id="afc-panel"/);
-  assert.match(html, /pdf-lib/);
+  assert.match(html, /asset-loader\.js/);
+  assert.doesNotMatch(html, /pdf-lib/);
   assert.match(html, /afc-workflow\.js/);
 });
 

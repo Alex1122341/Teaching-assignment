@@ -7,7 +7,7 @@ const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 
 test('only ADFA administrators can see everyone history', () => {
-  const {historyAll} = require('../functions/policy');
+  const {historyAll} = require('../test-support/policy');
   assert.equal(historyAll({role:'adfa_general'}), true);
   assert.equal(historyAll({role:'adfa_regular'}), true);
   assert.equal(historyAll({role:'owner'}), true);

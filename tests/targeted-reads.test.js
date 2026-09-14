@@ -6,7 +6,7 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('Faculty Admin starts from settings indexes and loads selected detail only',()=>{
- const source=read('faculty-admin.html');
+ const source=read('faculty-admin.js');
  assert.match(source,/doc\('faculty_index'\)/);
  assert.match(source,/doc\('schedule_stats'\)/);
  assert.match(source,/function loadFacultyDetail\(id\)/);
@@ -17,7 +17,7 @@ test('Faculty Admin starts from settings indexes and loads selected detail only'
 });
 
 test('full Faculty Admin datasets are loaded only for full-data operations',()=>{
- const source=read('faculty-admin.html');
+ const source=read('faculty-admin.js');
  assert.match(source,/function ensureAdminDataset/);
  assert.match(source,/\['summary','roles','database'\]\.includes\(tab\)/);
 });
@@ -34,4 +34,11 @@ test('User Management uses the lightweight faculty index',()=>{
  const source=read('user-management.js');
  assert.match(source,/doc\('faculty_index'\)\.get\(\)/);
  assert.doesNotMatch(source,/db\.collection\('faculty'\)\.get\(\)/);
+});
+
+test('Faculty Dashboard subscribes to assigned faculty and HICC group courses only',()=>{
+ const source=read('faculty-dashboard.js');
+ assert.match(source,/where\('facultyIds','array-contains',facultyId\)/);
+ assert.match(source,/where\('course','in',courseChunk\)/);
+ assert.doesNotMatch(source,/db\.collection\('sessions'\)\.onSnapshot/);
 });

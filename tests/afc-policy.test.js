@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {workDays, validateDraft, nextStatus, HOLIDAYS} = require('../functions/afc-policy');
+const {workDays, validateDraft, nextStatus, HOLIDAYS} = require('../test-support/afc-policy');
 
 test('workdays exclude weekends and official UCalgary closures', () => {
   assert.equal(HOLIDAYS.has('2026-09-30'), true);

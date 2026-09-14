@@ -8,6 +8,7 @@ window.UCVM=(()=>{
  const historyAll=p=>['adfa_general','adfa_regular'].includes(role(p?.role));
  const label=r=>({owner:'Owner',adfa_general:'Owner',administrator:'Administrator',adfa_regular:'Administrator',admin:'Administrator',other_office:'Other Office',hicc:'HICC',visc:'VISC',faculty:'Faculty',editor:'Faculty',viewer:'Faculty'}[rawRole(r)]||rawRole(r));
  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const number=v=>{if(v===undefined||v===null||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null};
  function installWeekTimeAlignmentFix(){if(document.getElementById('ucvm-week-time-alignment-fix'))return;const style=document.createElement('style');style.id='ucvm-week-time-alignment-fix';style.textContent='.tg-track{top:0!important;bottom:0!important}.tg-block{position:absolute!important}';document.head.appendChild(style)}
  installWeekTimeAlignmentFix();
  function installStableWeekLanes(){
@@ -105,7 +106,7 @@ window.UCVM=(()=>{
  document.addEventListener('submit',ev=>{const form=ev.target,s=snapshots.get(form);if(!s)return;const after=s.kind==='session'?sessionState(form,false):facultyState(form,false),detail=changes(s.before,after,s.creating,false);if(!detail.length&&!s.creating)return;waitClosed(form,s.kind,async()=>{const {auth,db}=init(),user=auth.currentUser;if(!user)return;const name=await actorName(db,user);if(s.kind==='session'){const action=s.creating?'create':'update',v=k=>after[k]?.value||'';await patchRecent('session_change_log',x=>x.action===action&&String(x.course||'')===String(v('course'))&&String(x.date||'')===String(v('date'))&&String(x.topic||'')===String(v('topic')),{changes:detail,changedByName:name})}else{const action=s.creating?'create':'update',id=after.ucid?.value||s.before.ucid?.value||'';await patchRecent('faculty_change_log',x=>x.action===action&&String(x.facultyId||'')===String(id),{changes:detail,facultyName:after.preferredFullName?.value||after.hrFullName?.value||id,changedByName:name})}})},true);
  document.addEventListener('click',ev=>{const b=ev.target.closest?.('#delete-session');if(!b)return;const form=document.getElementById('session-form'),s=form&&snapshots.get(form);if(!form||!s)return;const detail=changes(s.before,s.before,false,true);waitClosed(form,'session',async()=>{const v=k=>s.before[k]?.value||'';await patchRecent('session_change_log',x=>x.action==='delete'&&String(x.course||'')===String(v('course'))&&String(x.date||'')===String(v('date'))&&String(x.topic||'')===String(v('topic')),{changes:detail})})},true);
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',watchForms,{once:true});else watchForms();
- return {config,role,admin,general,historyAll,label,esc,init,ready,watch,logs};
+ return {config,role,admin,general,historyAll,label,esc,number,init,ready,watch,logs};
 })();
 
 (()=>{

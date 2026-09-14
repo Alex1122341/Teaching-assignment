@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const root=path.join(__dirname,'..');
-const timetable=fs.readFileSync(path.join(root,'index.html'),'utf8');
+const timetable=['index.html','timetable.js'].map(name=>fs.readFileSync(path.join(root,name),'utf8')).join('\n');
 const dashboardHtml=fs.readFileSync(path.join(root,'faculty-dashboard.html'),'utf8');
 const dashboardJs=fs.readFileSync(path.join(root,'faculty-dashboard.js'),'utf8');
 

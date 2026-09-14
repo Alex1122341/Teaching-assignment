@@ -7,3 +7,4 @@ output/
 .faculty-admin-inline.js
 .worktrees/
 .deploy-static/
+__pycache__/

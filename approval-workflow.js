@@ -54,7 +54,7 @@
  const assignedArray=s=>Array.isArray(s?.assignments)&&s.assignments.length?s.assignments.map(a=>({...a})):(String(s?.instructor||'').split(';').map(x=>x.trim()).filter(Boolean).map(name=>({name,ucid:'',role:s?.type||''})));
  const sameVal=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
  const ymd=v=>String(v||'').slice(0,10);
- const num=v=>{if(v===undefined||v===null||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null};
+ const num=UCVM.number;
  const fmtDoe=v=>v===null||v===undefined?'—':`${Number(v).toFixed(2)}%`;
 
  function facultyName(f){return String(f?.preferredFullName||f?.hrFirstLast||f?.hrFullName||f?.teachingAssignmentName||f?.facultySummary2026_27?.displayName||f?.__id||'Unknown faculty')}

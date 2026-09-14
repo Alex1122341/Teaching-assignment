@@ -15,14 +15,14 @@ test('maintenance helpers replace and remove sessions without losing faculty IDs
 });
 
 test('session writes add derived faculty IDs',()=>{
- const index=read('index.html'),admin=read('faculty-admin.html'),approval=read('approval-workflow.js');
+ const index=read('timetable.js'),admin=read('faculty-admin.js'),approval=read('approval-workflow.js');
  assert.match(index,/UCVM_INDEX_MAINTENANCE\.sessionForWrite\(s\)/);
  assert.match(admin,/UCVM_INDEX_MAINTENANCE\.sessionForWrite\(rec\)/);
  assert.match(approval,/patch\.facultyIds=UCVM_DATA_INDEX\.sessionFacultyIds/);
 });
 
 test('session and faculty mutations refresh derived settings',()=>{
- const index=read('index.html'),admin=read('faculty-admin.html'),maintenance=read('index-maintenance.js');
+ const index=read('timetable.js'),admin=read('faculty-admin.js'),maintenance=read('index-maintenance.js');
  assert.match(index,/refreshDerivedIndexes/);
  assert.match(admin,/writeDerivedIndexes/);
  assert.match(maintenance,/faculty_index/);

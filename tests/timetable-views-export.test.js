@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const root=path.resolve(__dirname,'..');
-const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
+const html=['index.html','timetable.js'].map(name=>fs.readFileSync(path.join(root,name),'utf8')).join('\n');
 
 test('course filter supports selecting several courses',()=>{
  assert.match(html,/id="filter-course-options"/);
@@ -27,7 +27,7 @@ test('CCC records are opt-in and sourced from the sanitized public schedule docu
  assert.match(html,/showCcc\s*=\s*false/);
  const rules=fs.readFileSync(path.join(root,'firestore.rules'),'utf8');
  assert.match(rules,/match \/public_schedule\/\{id\}/);
- const admin=fs.readFileSync(path.join(root,'faculty-admin.html'),'utf8');
+ const admin=fs.readFileSync(path.join(root,'faculty-admin.js'),'utf8');
  assert.match(admin,/function syncCccPublicSchedule/);
  assert.match(admin,/await syncCccPublicSchedule\(p\)/);
 });
