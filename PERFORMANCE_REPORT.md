@@ -35,9 +35,9 @@ Decoded faculty payload fell from 1,814,009 to 1,744,116 bytes (3.85%). Decoded 
 
 The rollback exports are outside the repository:
 
-- Before: `C:\Users\xinyu\Documents\Codex\2026-08-31\firebase-export-private\tester-teaching-before-optimization-20260913.json`
+- Before: `tester-teaching-before-optimization-20260913.json` (stored outside the repository)
   - SHA-256: `ae1c2cd905cc72d2097cb005578f29aea9dd7255e6259449e39a2d5e586af2f0`
-- After: `C:\Users\xinyu\Documents\Codex\2026-08-31\firebase-export-private\tester-teaching-after-optimization-20260913.json`
+- After: `tester-teaching-after-optimization-20260913.json` (stored outside the repository)
   - SHA-256: `085074d4bac5e08281c469839ad5c92c06053789c8e871d5d1e240abc777fd14`
 
 ## Code and delivery cleanup
