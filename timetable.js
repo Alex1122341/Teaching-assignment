@@ -356,14 +356,50 @@
   let sessionUnsubscribe = null;
   let facultyUnsubscribe = null;
   let facultyDirectory = [];
+  let currentFacultyRecord = null;
+  let currentFacultyLoading = null;
   let facultyLoading = null;
   let sessionRangeKey = '';
+  const sessionCache = new Map();
+  const sessionCacheRanges = [];
+  const sessionRangeLoads = new Map();
+  const pageDataSubscribers = new Set();
   let allSessionsCache = null;
   let allSessionsLoading = null;
   const profileSnapshots=new Map();
+  function pageProfile(){return currentUser?{...currentUser.profile,name:currentUser.name,email:currentUser.email,role:currentUser.role,facultyId:currentUser.profile?.facultyId||''}:null}
+  function pageSessions(){return[...sessionCache.values()]}
+  function publishPageData(){for(const callback of pageDataSubscribers){try{callback()}catch(error){console.error('[page data subscriber]',error)}}}
+  function cacheSessionRange(range,rows){
+    for(const [id,row] of sessionCache)if(row.date>=range.start&&row.date<=range.end)sessionCache.delete(id);
+    for(const row of rows)sessionCache.set(row.id,row);
+    if(!sessionCacheRanges.some(item=>item.start===range.start&&item.end===range.end))sessionCacheRanges.push({...range});
+  }
+  function sessionQueryForRange(range){
+    let query=db.collection(SESSION_COLLECTION).where('date','>=',range.start).where('date','<=',range.end);
+    const facultyId=roleIsFaculty(currentUser)?String(currentUser.profile?.facultyId||'').trim():'';
+    if(facultyId)query=query.where('facultyIds','array-contains',facultyId);
+    return query;
+  }
+  async function ensureSessionsForRange(start,end){
+    const range={start:String(start||'').slice(0,10),end:String(end||'').slice(0,10)};
+    if(!db||!currentUser||!range.start||!range.end||range.start>range.end)return[];
+    const covered=sessionCacheRanges.some(item=>item.start<=range.start&&item.end>=range.end);
+    if(covered)return pageSessions().filter(row=>row.date>=range.start&&row.date<=range.end);
+    const key=`${range.start}:${range.end}`;
+    if(!sessionRangeLoads.has(key))sessionRangeLoads.set(key,sessionQueryForRange(range).get().then(snapshot=>{
+      const rows=snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));
+      cacheSessionRange(range,rows);publishPageData();return rows.slice();
+    }).finally(()=>sessionRangeLoads.delete(key)));
+    return sessionRangeLoads.get(key);
+  }
   window.UCVM_PAGE_DATA={
-    sessions:()=>sessions.slice(),
-    faculty:()=>facultyDirectory.slice(),
+    profile:()=>pageProfile(),
+    faculty:()=>currentFacultyRecord,
+    sessions:()=>pageSessions(),
+    ensureSessionsForRange,
+    subscribe:callback=>{pageDataSubscribers.add(callback);return()=>pageDataSubscribers.delete(callback)},
+    facultyDirectory:()=>facultyDirectory.slice(),
     allSessions:()=>ensureAllSessions(),
     refreshDerivedIndexes:()=>refreshDerivedIndexes(),
     profileSnapshot:uid=>{
@@ -377,6 +413,7 @@
   let selectedYear = 'all';
   let selectedSemester = 'fall';
   let viewMode = 'week';
+  let lastFacultyTeachingView = 'day';
   let selectedDayIndex = 0;
   let selectedCourses = new Set();
   let courseFilterActive = false;
@@ -487,13 +524,10 @@
     if(sessionUnsubscribe&&sessionRangeKey===key)return;
     if (sessionUnsubscribe) { try { sessionUnsubscribe(); } catch (_) {} }
     sessionRangeKey=key;
-    let query = db.collection(SESSION_COLLECTION)
-      .where('date','>=',range.start)
-      .where('date','<=',range.end);
-    const facultyId=roleIsFaculty(currentUser)?String(currentUser.profile?.facultyId||'').trim():'';
-    if(facultyId)query=query.where('facultyIds','array-contains',facultyId);
-    sessionUnsubscribe = query.onSnapshot(snapshot => {
+    sessionUnsubscribe = sessionQueryForRange(range).onSnapshot(snapshot => {
       sessions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      cacheSessionRange(range,sessions);
+      publishPageData();
       window.dispatchEvent(new Event('ucvm:sessions-updated'));
       scheduleSource = sessions.length ? 'firestore' : 'firestore-empty';
       populateCourseFilter();
@@ -601,6 +635,18 @@
   }
 
   function unsubscribeFacultyDirectory(){ if(facultyUnsubscribe){try{facultyUnsubscribe()}catch(_){ } facultyUnsubscribe=null;} facultyDirectory=[];facultyLoading=null; }
+  function clearCurrentFaculty(){currentFacultyRecord=null;currentFacultyLoading=null;publishPageData()}
+  function ensureCurrentFaculty(){
+    const id=String(currentUser?.profile?.facultyId||'').trim();
+    if(!db||!currentUser||!id){clearCurrentFaculty();return Promise.resolve(null)}
+    if(currentFacultyRecord&&String(currentFacultyRecord.id)===id)return Promise.resolve(currentFacultyRecord);
+    if(currentFacultyLoading)return currentFacultyLoading;
+    currentFacultyLoading=db.collection('faculty').doc(id).get().then(doc=>{
+      currentFacultyRecord=doc.exists?{id:doc.id,...doc.data()}:null;
+      publishPageData();return currentFacultyRecord;
+    }).catch(error=>{console.error('[current faculty load]',error);currentFacultyRecord=null;publishPageData();return null}).finally(()=>{currentFacultyLoading=null});
+    return currentFacultyLoading;
+  }
   function ensureFacultyDirectory(){
     if(!db||!UCVM.admin(currentUser))return Promise.resolve([]);
     if(facultyDirectory.length)return Promise.resolve(facultyDirectory.slice());
@@ -836,10 +882,10 @@
     $('cal-prev').addEventListener('click', () => moveCalendar(-1));
     $('cal-next').addEventListener('click', () => moveCalendar(1));
     $('cal-today').addEventListener('click', () => { setInitialAcademicPeriod(); $('filter-month').value='all'; renderWeekControls(); syncWeekUI(); refreshSessionScope(); toast('Moved to the current academic week.'); });
-    $('cal-day-btn').addEventListener('click', () => { viewMode = 'day'; setViewButtons(); refreshSessionScope(); });
+    $('cal-day-btn').addEventListener('click', () => { viewMode = 'day'; if(roleIsFaculty(currentUser))lastFacultyTeachingView='day'; setViewButtons(); refreshSessionScope(); });
     $('cal-week-btn').addEventListener('click', () => { viewMode = 'week'; setViewButtons(); refreshSessionScope(); });
     $('cal-month-btn').addEventListener('click', () => { viewMode = 'month'; setViewButtons(); refreshSessionScope(); });
-    $('cal-list-btn').addEventListener('click', () => { viewMode = 'list'; setViewButtons(); refreshSessionScope(); });
+    $('cal-list-btn').addEventListener('click', () => { viewMode = 'list'; if(roleIsFaculty(currentUser))lastFacultyTeachingView='list'; setViewButtons(); refreshSessionScope(); });
     $('show-ccc').addEventListener('change', async e=>{showCcc=e.target.checked;if(showCcc){try{await loadCccEvents()}catch{e.target.checked=false;showCcc=false}}populateCourseFilter();render()});
     $('color-toggle').addEventListener('click', () => { colorsOn = !colorsOn; $('color-toggle').textContent = `Colors: ${colorsOn ? 'On' : 'Off'}`; render(); });
     $('dark-toggle').addEventListener('click', () => { document.documentElement.classList.toggle('dark'); $('dark-toggle').textContent = document.documentElement.classList.contains('dark') ? 'Light' : 'Moon'; applyUISettings(uiEditDraft || uiSettings); });
@@ -859,6 +905,11 @@
     $('outlook-invite-btn').addEventListener('click', openOutlookInviteDialog);
     $('reset-test-data').addEventListener('click', resetTestData);
     $('publish-firestore-schedule').addEventListener('click', initializeLiveSchedule);
+    addEventListener('ucvm:show-teaching',()=>{
+      if(!currentUser)return;
+      if(roleIsFaculty(currentUser)){viewMode=lastFacultyTeachingView;myTimetableOnly=true}
+      setViewButtons();refreshSessionScope();
+    });
   }
 
   function resetFilters() {
@@ -1305,7 +1356,9 @@
           myTimetableOnly = false;
           if (sessionUnsubscribe) { try { sessionUnsubscribe(); } catch (_) {} sessionUnsubscribe = null; }
           sessionRangeKey='';
+          sessionCache.clear();sessionCacheRanges.length=0;sessionRangeLoads.clear();
           allSessionsCache=null;
+          clearCurrentFaculty();
           unsubscribeFacultyDirectory();
           scheduleSource = 'signed-out';
           sessions = [];
@@ -1361,6 +1414,9 @@
             provider,
             profile
           };
+          sessionCache.clear();sessionCacheRanges.length=0;sessionRangeLoads.clear();
+          await ensureCurrentFaculty();
+          publishPageData();
           viewMode = roleIsFaculty(currentUser) ? 'day' : 'week';
           setViewButtons();
           myTimetableOnly = roleIsFaculty(currentUser);
@@ -1603,6 +1659,7 @@
     $('outlook-invite-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
     $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || currentUser?.role === 'hicc'));
     $('faculty-dashboard-btn').classList.toggle('hidden', !currentUser);
+    for(const id of ['my-teaching-btn','afc-request-btn','my-change-history-btn'])$(id).classList.toggle('hidden',!currentUser);
     $('publish-firestore-schedule').classList.toggle('hidden', !UCVM.admin(currentUser));
     updateScheduleSourceUI();
     $('ui-edit-mode-btn').classList.toggle('hidden', !UCVM.admin(currentUser));

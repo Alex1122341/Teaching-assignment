@@ -1,0 +1,122 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+const root = path.resolve(__dirname, '..');
+const read = name => fs.readFileSync(path.join(root, name), 'utf8');
+
+test('timetable exposes AFC navigation and loads its scripts in dependency order', () => {
+  const html = read('index.html');
+  for (const id of ['my-teaching-btn', 'afc-request-btn', 'my-change-history-btn', 'afc-panel']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  const actions = html.indexOf('afc-actions.js');
+  const workflow = html.indexOf('afc-workflow.js');
+  const panel = html.indexOf('afc-timetable-panel.js');
+  assert.ok(actions >= 0 && actions < workflow, 'AFC actions load before the workflow');
+  assert.ok(workflow < panel, 'AFC workflow loads before the timetable panel');
+
+  const loader = read('asset-loader.js');
+  assert.ok(loader.indexOf("loadScriptOnce('afc-form-values.js'") < loader.indexOf("loadScriptOnce('afc-pdf-browser.js'"));
+});
+
+test('AFC timetable mount subscribes once and renders teaching sessions as sorted rows', () => {
+  let subscriptions = 0;
+  const listeners = new Map();
+  const context = {
+    console,
+    setTimeout,
+    clearTimeout,
+    Blob,
+    URL,
+    Uint8Array,
+    FormData: class {},
+    document: { getElementById: () => null, createElement: () => ({}) },
+    addEventListener: (name, callback) => listeners.set(name, callback),
+    firebase: {
+      auth: () => ({ currentUser: null }),
+      firestore: { FieldValue: { serverTimestamp: () => 'timestamp' } }
+    },
+    UCVM: {
+      esc: value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;'),
+      init: () => ({ db: {} }),
+      role: value => value
+    }
+  };
+  context.window = context;
+  context.window.UCVM_PAGE_DATA = {
+    profile: () => ({ role: 'faculty' }),
+    faculty: () => ({ id: 'f1' }),
+    sessions: () => [],
+    ensureSessionsForRange: async () => [],
+    subscribe: () => { subscriptions += 1; return () => {}; }
+  };
+
+  vm.runInNewContext(read('afc-workflow.js'), context);
+  context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
+  context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
+  assert.equal(subscriptions, 1, 'mounting the AFC view must not create a second page-data subscription');
+
+  const output = context.window.UCVM_AFC.teachingListHtml([
+    { date: '2026-10-08', start: '09:30', end: '10:30', course: 'VETM 305', topic: 'Zebra' },
+    { date: '2026-10-07', start: '10:30', end: '11:30', course: 'VETM 204', topic: 'Later' },
+    { date: '2026-10-07', start: '08:30', end: '09:30', course: 'VETM 204', topic: 'Passports 1' }
+  ]);
+  assert.match(output, /^<ul class="afc-teaching-list">/);
+  assert.equal((output.match(/<li>/g) || []).length, 3);
+  assert.match(output, /<li><time>2026-10-07<\/time><span>08:30-09:30<\/span><strong>VETM 204<\/strong><span>Passports 1<\/span><\/li>/);
+  assert.ok(output.indexOf('Passports 1') < output.indexOf('Later'));
+  assert.ok(output.indexOf('Later') < output.indexOf('Zebra'));
+});
+
+test('timetable AFC panel opens requests, shows self-filtered history, and restores teaching', () => {
+  const events = [];
+  const elements = new Map();
+  const element = id => {
+    const value = {
+      id,
+      hidden: id === 'afc-panel',
+      attributes: {},
+      classList: { toggle() {} },
+      setAttribute(name, setting) { this.attributes[name] = setting; },
+      focus() { this.focused = true; }
+    };
+    elements.set(id, value);
+    return value;
+  };
+  for (const id of ['my-teaching-btn', 'afc-request-btn', 'my-change-history-btn', 'afc-panel', 'afc-panel-content', 'afc-panel-title', 'afc-panel-close']) element(id);
+  let mounts = 0;
+  let historyOptions = null;
+  const context = {
+    window: null,
+    document: { getElementById: id => elements.get(id) || null, activeElement: elements.get('afc-request-btn') },
+    Event: class { constructor(type) { this.type = type; } },
+    dispatchEvent: event => events.push(event),
+    addEventListener() {},
+    UCVM: { logs: (_target, options) => { historyOptions = options; } }
+  };
+  context.window = context;
+  context.window.UCVM_PAGE_DATA = { profile: () => ({ uid: 'faculty-1', role: 'faculty' }) };
+  context.window.UCVM_AFC = { mount: options => { mounts += 1; context.mountOptions = options; } };
+
+  vm.runInNewContext(read('afc-timetable-panel.js'), context);
+  assert.equal(mounts, 1);
+  assert.equal(context.mountOptions.panelId, 'afc-panel-content');
+  assert.equal(context.mountOptions.mode, 'timetable');
+
+  elements.get('afc-request-btn').onclick();
+  assert.equal(elements.get('afc-panel').hidden, false);
+  assert.ok(events.some(event => event.type === 'ucvm:afc-open'));
+  assert.equal(events.find(event => event.type === 'ucvm:afc-open').ucvmForce, true);
+
+  elements.get('my-change-history-btn').onclick();
+  assert.equal(historyOptions.includeFaculty, true);
+  assert.equal(historyOptions.profile.uid, 'faculty-1');
+  assert.equal(historyOptions.profile.role, 'faculty');
+
+  elements.get('my-teaching-btn').onclick();
+  assert.equal(elements.get('afc-panel').hidden, true);
+  assert.ok(events.some(event => event.type === 'ucvm:show-teaching'));
+});

@@ -28,3 +28,13 @@ test('AFC UI requires contact details for each new request', () => {
   assert.match(source, /contactPhone=String\(d\.get\('contactPhone'\)\|\|''\)\.trim\(\)/);
   assert.match(source, /coverage,contactAddress,contactPhone,workDays/);
 });
+
+test('AFC teaching matches render as a vertical sorted list', () => {
+  const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
+  assert.match(source, /class="afc-teaching-list"/);
+  assert.match(source, /String\(a\.date\|\|''\)\.localeCompare\(String\(b\.date\|\|''\)\)/);
+  assert.match(source, /String\(a\.start\|\|''\)\.localeCompare\(String\(b\.start\|\|''\)\)/);
+  assert.match(source, /String\(a\.course\|\|''\)\.localeCompare\(String\(b\.course\|\|''\)\)/);
+  assert.match(source, /String\(a\.topic\|\|a\.type\|\|''\)\.localeCompare\(String\(b\.topic\|\|b\.type\|\|''\)\)/);
+  assert.doesNotMatch(source, /teaching assignment\(s\) found:.*\.join/);
+});
