@@ -42,11 +42,14 @@ The rollback exports are outside the repository:
 
 ## Code and delivery cleanup
 
-- Firebase and Azure publish the same 27-file allowlist instead of the repository root.
+- Firebase and Azure publish the same 28-file allowlist instead of the repository root.
 - Removed the undeployed Cloud Functions implementation, duplicate function dependencies/PDF, completed Assigned AD migration script, and browser Functions SDK.
 - Moved test-only policy modules to `test-support/` and consolidated development dependencies at the repository root.
 - Split the timetable and Faculty Admin pages into cacheable HTML, CSS, and JavaScript assets. The timetable HTML shell is 91.92% smaller and the Faculty Admin HTML shell is 89.82% smaller.
 - PDF-lib, the AFC PDF renderer, and the one-megabyte PDF template load only when an AFC approval actually creates a PDF.
 - Moved Sessional / Other workbook assignments into their own lazy-loaded tab.
+- Consolidated faculty self-service into Timetable and renamed the administrative faculty page to Faculty Dashboard; the retired page redirects to Timetable on both hosts.
+- Added cross-view selection for up to 200 sessions. Review and validation use in-memory session data; entering selection mode reads the faculty directory once for assignment choices. A successful batch edit refreshes the derived indexes, which intentionally performs a full faculty/session read (about 1,977 current source documents) and writes two settings documents.
+- AFC request contact address and phone fields are required for new submissions. PDF code and the PDF template remain lazy-loaded only during final approval.
 
 Full-data reads remain behind explicit actions: full JSON/CSV export, bulk replacement/synchronization, the full-data Summary/Roles/Database tabs, and an academic-year availability lookup.
