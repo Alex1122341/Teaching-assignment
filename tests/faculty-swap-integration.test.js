@@ -35,6 +35,20 @@ test('faculty replacement button hands off to the safe picker before the legacy 
  assert.match(src,/openSelfReplacement\(session\)/);
 });
 
+test('legacy self-swap directly delegates assigned faculty to the safe picker before loading account candidates',()=>{
+ const src=read('approval-workflow.js');
+ const start=src.indexOf('async function openSelfSwap(s)');
+ const end=src.indexOf('function statusLabel',start);
+ assert.ok(start>=0&&end>start,'openSelfSwap must exist');
+ const fn=src.slice(start,end);
+ const delegate=fn.indexOf('window.UCVM_SAFE_SWAP?.openSelfReplacement');
+ const legacyLoad=fn.indexOf('ensureReplacementPeople');
+ assert.ok(delegate>=0,'openSelfSwap must directly delegate to UCVM_SAFE_SWAP');
+ assert.ok(legacyLoad>=0&&delegate<legacyLoad,'safe delegation must happen before loading legacy account candidates');
+ assert.match(fn,/selfAssignmentIndexes\(s\)\.length/);
+ assert.match(fn,/return window\.UCVM_SAFE_SWAP\.openSelfReplacement\(s\)/);
+});
+
 test('approval resolves opaque candidate keys through admin-only mapping and supports special categories',()=>{
  const src=read('faculty-swap-safe.js');
  assert.match(src,/faculty_swap_map/);
