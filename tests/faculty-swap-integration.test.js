@@ -25,9 +25,14 @@ test('faculty self swap uses sanitized directory with availability and special t
  assert.doesNotMatch(src,/Search name, specialty, teaching area, UCID/i);
 });
 
-test('legacy faculty replacement flow delegates directly to the safe picker when the user is already assigned',()=>{
- const src=read('approval-workflow.js');
- assert.match(src,/if\(own\.length&&window\.UCVM_SAFE_SWAP\?\.openSelfReplacement\)return window\.UCVM_SAFE_SWAP\.openSelfReplacement\(s\);/);
+test('faculty replacement button hands off to the safe picker before the legacy onclick runs',()=>{
+ const handoffPath=path.join(root,'faculty-swap-handoff.js');
+ assert.equal(fs.existsSync(handoffPath),true,'faculty-swap-handoff.js must exist');
+ const src=fs.readFileSync(handoffPath,'utf8');
+ assert.match(src,/#workflow-self-swap/);
+ assert.match(src,/stopImmediatePropagation/);
+ assert.match(src,/UCVM_SAFE_SWAP\?\.openSelfReplacement/);
+ assert.match(src,/openSelfReplacement\(session\)/);
 });
 
 test('approval resolves opaque candidate keys through admin-only mapping and supports special categories',()=>{
@@ -60,10 +65,12 @@ test('AFC approval refreshes the sanitized availability projection through index
 test('shared static build includes safe swap and loads it for timetable and admin initialization',()=>{
  const manifest=JSON.parse(read('tools/static-assets.json')),loader=read('asset-loader.js'),admin=read('faculty-admin.html'),safeSrc=read('faculty-swap-safe.js');
  assert.ok(manifest.includes('faculty-swap-safe.js'));
+ assert.ok(manifest.includes('faculty-swap-handoff.js'));
  assert.ok(manifest.includes('approval-workflow.js'));
  const safe=loader.indexOf("loadScriptOnce('faculty-swap-safe.js'");
+ const handoff=loader.indexOf("loadScriptOnce('faculty-swap-handoff.js'");
  const legacy=loader.indexOf("loadScriptOnce('approval-workflow.js'");
- assert.ok(safe>=0&&legacy>safe,'safe swap module must load before approval-workflow.js');
+ assert.ok(safe>=0&&handoff>safe&&legacy>handoff,'safe swap handoff must load before approval-workflow.js');
  assert.match(loader,/ensureApprovalWorkflow/);
  assert.match(admin,/src="faculty-swap-safe\.js"/);
  assert.match(safeSrc,/faculty-admin\.html/);
