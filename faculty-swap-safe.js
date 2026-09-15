@@ -3,7 +3,7 @@
  'use strict';
  if(!window.UCVM||typeof firebase==='undefined')return;
  const page=(location.pathname.split('/').pop()||'index.html').toLowerCase();
- if(page!=='index.html')return;
+ if(!['index.html','faculty-admin.html'].includes(page))return;
 
  const {auth,db}=UCVM.init();
  const REQUESTS='change_requests',SESSIONS='sessions',SWAP_INDEX='faculty_swap_index',SWAP_MAP='faculty_swap_map';
@@ -144,8 +144,11 @@
  }
  function bindModalOverrides(){bindSelfSwapButton();bindApprovalButtons()}
 
- document.addEventListener('click',event=>{const block=event.target.closest?.('[data-session-id]');if(block?.dataset?.sessionId)lastSessionId=String(block.dataset.sessionId)},true);
- new MutationObserver(bindModalOverrides).observe(document.documentElement,{childList:true,subtree:true});
+ if(page==='index.html'){
+  document.addEventListener('click',event=>{const block=event.target.closest?.('[data-session-id]');if(block?.dataset?.sessionId)lastSessionId=String(block.dataset.sessionId)},true);
+  new MutationObserver(bindModalOverrides).observe(document.documentElement,{childList:true,subtree:true});
+ }
+ if(page==='faculty-admin.html')window.addEventListener('ucvm:admin-ready',()=>{profile=window.UCVM_ADMIN_DATA?.profile?.()||profile;user=auth.currentUser;maybeInitializeSwapDirectory()});
  auth.onAuthStateChanged(async current=>{
   user=current;profile=null;if(!current)return;
   try{const snap=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(current.uid):await db.collection('users').doc(current.uid).get();profile=snap.exists?snap.data():null;if(profile&&UCVM.admin(profile))maybeInitializeSwapDirectory()}catch(error){console.warn('[faculty swap auth]',error)}
