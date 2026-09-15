@@ -40,3 +40,26 @@ test('Pages workflow leaves the independent Test workflow in place',()=>{
   assert.match(workflow,/pull_request:/);
   assert.match(workflow,/push:\s*\n\s+branches:\s*\n\s+- main/);
 });
+
+test('setup docs define the fixed Pages test site and shared live backend',()=>{
+  const setup=read('SETUP.md');
+  assert.match(setup,/https:\/\/alex1122341\.github\.io\/Teaching-assignment\//);
+  assert.match(setup,/GitHub Pages/i);
+  assert.match(setup,/tester-teaching/);
+  assert.match(setup,/live Firebase backend|shared Firebase backend/i);
+  assert.match(setup,/alex1122341\.github\.io/);
+  assert.match(setup,/Authorized domains/i);
+  assert.match(setup,/latest successful.*pull request|latest successful.*PR/i);
+  assert.match(setup,/TEST SITE|Not Production/i);
+});
+
+test('setup docs require manual production approval after merge',()=>{
+  const setup=read('SETUP.md');
+  assert.match(setup,/production.*Environment|Environment.*production/i);
+  assert.match(setup,/required reviewer/i);
+  assert.match(setup,/Prevent self-review/i);
+  assert.match(setup,/Approve and deploy/i);
+  assert.match(setup,/main/);
+  assert.match(setup,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
+  assert.match(setup,/environment secret/i);
+});
