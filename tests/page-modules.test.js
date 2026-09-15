@@ -3,15 +3,16 @@ const root=path.resolve(__dirname,'..'),read=n=>fs.readFileSync(path.join(root,n
 test('large pages keep structure while loading cacheable modules',()=>{const main=read('index.html'),admin=read('faculty-admin.html');assert.match(main,/timetable\.css/);assert.match(main,/timetable\.js/);assert.match(admin,/faculty-admin\.css/);assert.match(admin,/faculty-admin\.js/);assert.ok(main.length<50000,`index ${main.length}`);assert.ok(admin.length<40000,`admin ${admin.length}`)});
 test('AFC PDF dependencies load only when an approval needs them',()=>{const html=read('index.html');assert.match(html,/asset-loader\.js/);assert.doesNotMatch(html,/pdf-lib\.min\.js|afc-pdf-browser\.js/);const loader=read('asset-loader.js'),actions=read('afc-actions.js');assert.match(loader,/function loadScriptOnce/);assert.match(loader,/ensureAfcPdf/);assert.match(actions,/await UCVM_ASSETS\.ensureAfcPdf\(\)/)});
 
-test('Faculty Dashboard retains administrative tabs and redirects faculty to timetable self-service',()=>{
+test('Faculty Dashboard keeps administrative tabs while supporting linked faculty self-service',()=>{
  const html=read('faculty-admin.html'),source=read('faculty-admin.js'),enhancements=read('faculty-admin-enhancements.js');
  for(const pattern of [/<title>Faculty Dashboard<\/title>/,/class="gate-title">Faculty Dashboard</,/class="brand-title">Faculty Dashboard</,/<h1>Faculty Dashboard<\/h1>/])assert.match(html,pattern);
  for(const label of ['Lookup','Teaching Summary','Roles & Appointments','Sessional / Other','Faculty Database','Change History','AFC Requests','User Management','Change password'])assert.ok(html.includes('>'+label+'<'),label);
  assert.match(html,/href="index\.html">Timetable<\/a>/);
  assert.doesNotMatch(html,/Faculty Admin Dashboard|Faculty Directory|Faculty Administration/);
- assert.match(source,/p\.active!==true\|\|!UCVM\.admin\(p\)/);
+ assert.match(source,/function isSelfServiceProfile\(p\)/);
+ assert.match(source,/if\(isSelfServiceProfile\(p\)\)\{await enterSelfMode\(user,p\);return\}/);
+ assert.match(source,/if\(UCVM\.admin\(p\)\)\{enterAdminMode\(user,p\);return\}/);
  assert.match(source,/\$\('user-management-link'\)\.classList\.toggle\('hidden',!UCVM\.general\(p\)\)/);
- assert.match(source,/Open Timetable for your sessions and change history/);
  const rename=enhancements.match(/ function renameDashboard\(\)\{[\s\S]*?\n \}/)?.[0];
  assert.ok(rename,'renameDashboard should remain independently executable');
  const nodes=new Map(),document={title:'Old title',documentElement:{dataset:{}},querySelector(selector){if(!nodes.has(selector))nodes.set(selector,{});return nodes.get(selector)}};
@@ -22,8 +23,8 @@ test('Faculty Dashboard retains administrative tabs and redirects faculty to tim
  assert.match(nodes.get('.gate-copy').innerHTML,/href="index\.html">Timetable<\/a>/);
 });
 
-test('only administrators see and can navigate the timetable Faculty Dashboard button',()=>{
- const vm=require('node:vm'),source=read('timetable.js');
+test('timetable Faculty Dashboard button supports administrators and faculty self-service',()=>{
+ const vm=require('node:vm'),source=read('timetable.js'),loader=read('asset-loader.js');
  const ui=source.match(/  function updateAuthUI\(\) \{[\s\S]*?\n  \}/)[0];
  const binding=source.split('\n').find(line=>line.includes("$('faculty-dashboard-btn').addEventListener"));
  for(const role of [null,'faculty','hicc','visc','adfa_general','adfa_regular','other_office']){
@@ -37,6 +38,9 @@ test('only administrators see and can navigate the timetable Faculty Dashboard b
   button.click();
   assert.equal(context.window.location.href,admin(currentUser)?'faculty-admin.html':'',String(role));
  }
+ assert.match(loader,/\['faculty','hicc','visc'\]\.includes\(UCVM\.role\(profile\?\.role\)\)/);
+ assert.match(loader,/button\.classList\.remove\('hidden'\)/);
+ assert.match(loader,/window\.location\.href='faculty-admin\.html'/);
 });
 
 test('change history uses the full-width Faculty Dashboard panel theme',()=>{
