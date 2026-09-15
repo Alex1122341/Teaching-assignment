@@ -35,7 +35,11 @@
   const value=[match?.appliedDOE,match?.operationalDOE,match?.proratedDOE,match?.rawDOE,match?.doeCredit].map(number).find(item=>item!==null);
   return value===undefined?0:Math.abs(value);
  }
- function sourceRoles(faculty){return Array.isArray(faculty?.facultySummary2026_27?.roles)?faculty.facultySummary2026_27.roles:[]}
+ function sourceRoles(faculty){
+  if(Array.isArray(faculty?.facultySummary2026_27?.roles))return faculty.facultySummary2026_27.roles;
+  const indexed=Array.isArray(faculty?.roleTypes)?faculty.roleTypes:(Array.isArray(faculty?.__indexRoleTypes)?faculty.__indexRoleTypes:[]);
+  return indexed.map(type=>({type}));
+ }
  function normalizedManagedRoles(faculty){
   const existing=Array.isArray(faculty?.managedRoles2026_27)?faculty.managedRoles2026_27.map(role=>({...role})):[];
   const seen=new Set(existing.map(roleKey)),output=existing.slice();
@@ -53,10 +57,11 @@
  function primaryRole(roles){const set=new Set(Array.isArray(roles)?roles:[]);return set.has('hicc')?'hicc':set.has('visc')?'visc':'faculty'}
  function accountRecord(faculty){const roles=facultyRoles(faculty);return{facultyId:facultyId(faculty),name:facultyName(faculty),email:email(faculty?.email),role:primaryRole(roles),facultyRoles:roles,active:true,mustChangePassword:true}}
  function plan(facultyRows,userRows,authEmails){
-  const result={create:[],update:[],existing:[],protected:[],missingEmail:[],duplicateEmail:[],inactive:[],orphanedAuth:[]},faculty=Array.isArray(facultyRows)?facultyRows:[],users=Array.isArray(userRows)?userRows:[],authSet=new Set([...(authEmails||[])].map(email));
+  const result={create:[],update:[],existing:[],protected:[],missingEmail:[],duplicateEmail:[],inactive:[],orphanedAuth:[],roleUpdates:[]},faculty=Array.isArray(facultyRows)?facultyRows:[],users=Array.isArray(userRows)?userRows:[],authSet=new Set([...(authEmails||[])].map(email));
   const active=faculty.filter(row=>{if(row?.active===false){result.inactive.push(row);return false}return true});
   const counts=new Map();for(const row of active){const value=email(row?.email);if(value)counts.set(value,(counts.get(value)||0)+1)}
   for(const row of active){
+   const before=Array.isArray(row?.managedRoles2026_27)?row.managedRoles2026_27:[],after=normalizedManagedRoles(row);if(JSON.stringify(before)!==JSON.stringify(after))result.roleUpdates.push({facultyId:facultyId(row),name:facultyName(row),before,after});
    const record=accountRecord(row);if(!validEmail(record.email)){result.missingEmail.push(row);continue}if((counts.get(record.email)||0)>1){result.duplicateEmail.push(row);continue}
    const existing=users.find(user=>text(user?.facultyId)===record.facultyId||email(user?.email)===record.email);
    if(existing){const item={...record,uid:text(existing.uid||existing.__id),existing};if(PRIVILEGED.has(normalize(existing.role))){result.protected.push(item);continue}const changed=normalize(existing.role)!==record.role||JSON.stringify(existing.facultyRoles||[])!==JSON.stringify(record.facultyRoles)||text(existing.facultyId)!==record.facultyId||email(existing.email)!==record.email||text(existing.name)!==record.name;if(changed)result.update.push(item);else result.existing.push(item);continue}

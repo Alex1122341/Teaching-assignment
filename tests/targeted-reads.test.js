@@ -34,10 +34,13 @@ test('approval workflow fetches only sessions referenced by requests',()=>{
  assert.doesNotMatch(source,/UCVM_PAGE_DATA\?\.allSessions/);
 });
 
-test('User Management uses the lightweight faculty index',()=>{
+test('User Management uses the lightweight faculty index until an Owner requests bulk provisioning',()=>{
  const source=read('user-management.js');
  assert.match(source,/doc\('faculty_index'\)\.get\(\)/);
- assert.doesNotMatch(source,/db\.collection\('faculty'\)\.get\(\)/);
+ const initialLoad=source.match(/async function load\(\)\{[\s\S]*?\n \}/)?.[0]||'';
+ assert.doesNotMatch(initialLoad,/db\.collection\('faculty'\)\.get\(\)/);
+ assert.match(source,/async function fullFaculty\(\)\{const snapshot=await db\.collection\('faculty'\)\.get\(\)/);
+ assert.match(source,/async function previewProvision\(\)[\s\S]*await fullFaculty\(\)/);
 });
 
 test('Timetable faculty self-service subscribes to assigned faculty only',()=>{

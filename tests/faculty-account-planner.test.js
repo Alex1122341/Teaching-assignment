@@ -32,6 +32,11 @@ test('HICC is primary while every faculty-facing role is preserved',()=>{
  assert.equal(planner.primaryRole(['visc','faculty']),'visc');
 });
 
+test('indexed faculty role types drive account access planning',()=>{
+ const faculty={__id:'f1',active:true,preferredFullName:'Alpha',email:'alpha@ucalgary.ca',roleTypes:['VISC','HICC']};
+ assert.deepEqual(planner.facultyRoles(faculty),['hicc','visc','faculty']);
+});
+
 test('provision plan creates valid active faculty and protects privileged accounts',()=>{
  const faculty=[
   {__id:'f1',active:true,preferredFullName:'Alpha, A',email:'alpha@ucalgary.ca',facultySummary2026_27:{roles:[{type:'HICC'}]}},
@@ -57,4 +62,12 @@ test('provision plan updates existing faculty profiles without replacing UID',()
  assert.equal(result.update[0].uid,'auth-123');
  assert.equal(result.update[0].role,'visc');
  assert.deepEqual(result.update[0].facultyRoles,['visc','faculty']);
+});
+
+test('provision plan includes idempotent faculty role cleanup writes',()=>{
+ const faculty=[{__id:'f1',active:true,preferredFullName:'Alpha',email:'alpha@ucalgary.ca',facultySummary2026_27:{roles:[{type:'HICC',assignment:'501'}]}}];
+ const first=planner.plan(faculty,[],new Set());
+ assert.equal(first.roleUpdates.length,1);
+ const cleaned={...faculty[0],managedRoles2026_27:first.roleUpdates[0].after};
+ assert.equal(planner.plan([cleaned],[],new Set()).roleUpdates.length,0);
 });

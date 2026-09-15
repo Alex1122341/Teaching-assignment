@@ -6,7 +6,7 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
 
 - Email/password sign-in through Firebase Authentication.
 - ADFA General, ADFA Regular, HICC, VISC and Faculty profiles.
-- ADFA General user-profile/role management after an Authentication user is created manually in Firebase Console.
+- ADFA General profile-first account creation and reviewed bulk provisioning from faculty records.
 - HICC group ownership, course scope and membership. HICCs can change members in their own groups.
 - Faculty self-service in Timetable, including Day/List teaching views and AFC requests.
 - ADFA timetable/session editing and faculty records in Faculty Dashboard.
@@ -15,7 +15,7 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
 
 ## Intentional Basic Mode limits
 
-- The dashboard does **not** create Firebase Authentication users. Create each login first in Firebase Console > Authentication > Users, then copy its UID into User Management.
+- Account creation uses Firebase Authentication's client API from a temporary secondary session, so the signed-in Owner session stays active. Existing Authentication users that are not linked to a dashboard profile still require individual review.
 - HICC/VISC direct instructor replacement is view-only. ADFA administrators perform live timetable changes.
 - Audit logs are written by the dashboard together with the edit. Direct Firebase Console edits are not automatically audited.
 - `mustChangePassword` is a dashboard workflow control rather than a server-verified password-change claim.
@@ -42,16 +42,15 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
    ```
    The production URL is `https://tester-teaching.web.app/`. This keeps the source repository private and does not require GitHub Pages.
 7. Sign in as ADFA General and open User Management.
-8. To add a person:
-   - Firebase Console > Authentication > Users > Add user.
-   - Copy the new user's UID.
-   - User Management > New account > paste UID, name, email, role, faculty record and Active status.
-9. Create HICC groups, assign an HICC owner, course numbers and members.
-10. Test with one ADFA Regular, one HICC and one Faculty account before broader rollout.
+8. To add one person, choose their faculty profile in **New account**. The profile supplies the name and email; choose the access role and enter a temporary password. Firebase supplies the Authentication UID after creation.
+9. To prepare all faculty accounts, choose **Preview changes** under **Create missing faculty accounts**. Review the proposed creates, access updates, excluded records, and source-role cleanup before entering the temporary password and selecting **Apply reviewed changes**.
+10. Keep **Require password change on next dashboard sign-in** selected for new accounts. The temporary password is sent only to Firebase Authentication and is not stored in Firestore, source code, or audit logs.
+11. Create HICC groups, assign an HICC owner, course numbers and members.
+12. Test with one Administrator, one HICC and one Faculty account before broader rollout.
 
 ## Passwords
 
-Administrators no longer set or see another user's password in the dashboard. `Send password reset` uses Firebase Authentication's standard reset-email flow. A signed-in user can change their own password on `password.html`.
+The account creation form accepts a temporary password only while creating the Authentication login. It clears that value after the operation and never stores it in the dashboard database. `Send password reset` uses Firebase Authentication's standard reset-email flow. A signed-in user can change their own password on `password.html`.
 
 If you manually create a user with a temporary password and want the dashboard to prompt for a change, check `Require password change on next dashboard sign-in` on that user's profile.
 
