@@ -41,6 +41,10 @@ function facultyEntry(id,faculty,sessionStats={}){
   const courseCounts={};for(const course of [...counts.keys()].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})))courseCounts[course]=counts.get(course);
   return{sessionCount:rows.length,assignedFacultyCount:facultyIds.size,courseCounts};
  }
+ function dateChunks(values,limit=30){
+  const dates=uniqueSorted(values).filter(value=>/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(`${value}T00:00:00`)));
+  const out=[];for(let i=0;i<dates.length;i+=limit)out.push(dates.slice(i,i+limit));return out;
+ }
  function buildFacultyIndex(facultyRows,sessions){
   const stats=new Map();
   for(const session of Array.isArray(sessions)?sessions:[])for(const assignment of Array.isArray(session?.assignments)?session.assignments:[]){const id=text(assignment?.ucid||assignment?.facultyId);if(!id)continue;const row=stats.get(id)||{count:0,assignedDOE:0};row.count++;row.assignedDOE+=number(assignment?.doeCredit)||0;stats.set(id,row)}
@@ -48,5 +52,5 @@ function facultyEntry(id,faculty,sessionStats={}){
   for(const entry of entries)if(entry.assignedTeachingDOE!==null)entry.assignedTeachingDOE=Number(entry.assignedTeachingDOE.toFixed(6));
   return{schemaVersion:'ucvm-faculty-index-v1',entries};
  }
- return{facultyEntry,facultySearchText,sessionFacultyIds,buildFacultyIndex,scheduleStats};
+ return{facultyEntry,facultySearchText,sessionFacultyIds,buildFacultyIndex,scheduleStats,dateChunks};
 });

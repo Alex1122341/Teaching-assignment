@@ -51,3 +51,13 @@ test('index functions tolerate missing optional data',()=>{
  assert.equal(entry.contractTeachingDOE,null);
  assert.equal(entry.overrideDOE,null);
 });
+
+test('date query chunks normalize, sort, deduplicate and stay within Firestore limits',()=>{
+ const api=require(modulePath);
+ assert.deepEqual(api.dateChunks(['2026-09-03','bad','2026-09-01','2026-09-03'],2),[['2026-09-01','2026-09-03']]);
+ const dates=Array.from({length:35},(_,i)=>`2026-10-${String(i+1).padStart(2,'0')}`);
+ const chunks=api.dateChunks(dates,30);
+ assert.equal(chunks.length,2);
+ assert.equal(chunks[0].length,30);
+ assert.equal(chunks[1].length,1);
+});

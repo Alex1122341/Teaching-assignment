@@ -49,3 +49,18 @@ test('Timetable faculty self-service subscribes to assigned faculty only',()=>{
  assert.doesNotMatch(source,/db\.collection\('sessions'\)\.onSnapshot/);
  assert.match(source,/ensureSessionsForRange/);
 });
+
+test('Timetable editing reads only affected dates and scoped exports avoid full reads',()=>{
+ const source=read('timetable.js');
+ assert.match(source,/function ensureSessionsForDates/);
+ assert.match(source,/where\('date','in',dateChunk\)/);
+ for(const name of ['openSwapModal','startSessionSelection','openBulkSessionForm','openSessionForm']){
+  const start=source.indexOf(`function ${name}`);
+  const next=source.indexOf('\n  function ',start+1);
+  const body=source.slice(start,next<0?source.length:next);
+  assert.doesNotMatch(body,/ensureAllSessions/,`${name} should not load every session`);
+ }
+ const submit=source.match(/\$\('export-form'\)\.onsubmit=[\s\S]*?\n\s*};/)?.[0]||'';
+ assert.match(submit,/scope==='all'.*ensureAllSessions/s);
+ assert.match(submit,/scope==='date'.*ensureSessionsForRange/s);
+});

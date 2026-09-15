@@ -168,6 +168,8 @@
   const sessionCache = new Map();
   const sessionCacheRanges = [];
   const sessionRangeLoads = new Map();
+  const sessionCacheDates = new Set();
+  const sessionDateLoads = new Map();
   const pageDataSubscribers = new Set();
   let allSessionsCache = null;
   let allSessionsLoading = null;
@@ -197,6 +199,19 @@
       cacheSessionRange(range,rows);publishPageData();return rows.slice();
     }).finally(()=>sessionRangeLoads.delete(key)));
     return sessionRangeLoads.get(key);
+  }
+  async function ensureSessionsForDates(values){
+    const dates=UCVM_DATA_INDEX.dateChunks(values).flat(),missing=dates.filter(date=>!sessionCacheDates.has(date)&&!sessionCacheRanges.some(range=>range.start<=date&&date<=range.end));
+    await Promise.all(UCVM_DATA_INDEX.dateChunks(missing).map(dateChunk=>{
+      const key=dateChunk.join('|');
+      if(!sessionDateLoads.has(key))sessionDateLoads.set(key,db.collection(SESSION_COLLECTION).where('date','in',dateChunk).get().then(snapshot=>{
+        for(const [id,row] of sessionCache)if(dateChunk.includes(String(row.date||'').slice(0,10)))sessionCache.delete(id);
+        for(const doc of snapshot.docs)sessionCache.set(doc.id,{id:doc.id,...doc.data()});
+        dateChunk.forEach(date=>sessionCacheDates.add(date));publishPageData();
+      }).finally(()=>sessionDateLoads.delete(key)));
+      return sessionDateLoads.get(key);
+    }));
+    return pageSessions().filter(row=>dates.includes(String(row.date||'').slice(0,10)));
   }
   window.UCVM_PAGE_DATA={
     profile:()=>pageProfile(),
@@ -383,7 +398,7 @@
     }).finally(()=>{allSessionsLoading=null});
     return allSessionsLoading;
   }
-  function invalidateAllSessions(){allSessionsCache=null}
+  function invalidateAllSessions(){allSessionsCache=null;sessionCacheRanges.length=0;sessionCacheDates.clear()}
   function swapNumeric(v){ if(v===undefined||v===null||v==='') return null; const n=Number(v); return Number.isFinite(n)?n:null; }
   function swapNameKey(v){ return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' '); }
   function swapFacultyName(f){ return String(f?.preferredFullName||f?.hrFirstLast||f?.hrFullName||f?.facultySummary2026_27?.displayName||f?.__id||''); }
@@ -422,7 +437,7 @@
   function timetableAvailability(f,dateYmd,start,end,excludeSessionId=''){
     const d=String(dateYmd||'').slice(0,10),targetStart=availabilityTimeMinutes(start),targetEnd=availabilityTimeMinutes(end);
     if(!d)return{available:null,conflicts:[],possibleConflicts:[],reason:'date'};
-    const sameDay=sessions.filter(sess=>String(sess?.id||'')!==String(excludeSessionId||'')&&String(sess?.date||'').slice(0,10)===d&&sessionHasFaculty(sess,f));
+    const sameDay=pageSessions().filter(sess=>String(sess?.id||'')!==String(excludeSessionId||'')&&String(sess?.date||'').slice(0,10)===d&&sessionHasFaculty(sess,f));
     if(targetStart===null||targetEnd===null||targetEnd<=targetStart)return{available:null,conflicts:[],possibleConflicts:sameDay,reason:'target-time'};
     const conflicts=[],possibleConflicts=[];
     for(const sess of sameDay){
@@ -481,8 +496,9 @@
     if(!db||!UCVM.admin(currentUser))return Promise.resolve([]);
     if(facultyDirectory.length)return Promise.resolve(facultyDirectory.slice());
     if(facultyLoading)return facultyLoading;
-    facultyLoading=db.collection('faculty').get().then(snapshot=>{
-      facultyDirectory=snapshot.docs.map(d=>({__id:d.id,...d.data()})).filter(f=>f.active!==false).sort((a,b)=>swapFacultyName(a).localeCompare(swapFacultyName(b)));
+    facultyLoading=Promise.all([db.collection('faculty').get(),db.collection('settings').doc('faculty_index').get()]).then(([snapshot,indexDoc])=>{
+      const indexById=new Map((indexDoc.data()?.entries||[]).map(entry=>[String(entry.id),entry]));
+      facultyDirectory=snapshot.docs.map(d=>({__indexAssignedTeachingDOE:indexById.get(d.id)?.assignedTeachingDOE,__id:d.id,...d.data()})).filter(f=>f.active!==false).sort((a,b)=>swapFacultyName(a).localeCompare(swapFacultyName(b)));
       window.dispatchEvent(new Event('ucvm:faculty-updated'));
       return facultyDirectory.slice();
     }).catch(err=>{console.error('[faculty load for admin tools]',err);facultyDirectory=[];toast('Faculty list could not be loaded. Check admin faculty read rules.',true);return[]}).finally(()=>{facultyLoading=null});
@@ -490,19 +506,11 @@
   }
 
   function buildSwapDoeState(){
-    const state=new Map(), aliases=new Map();
+    const state=new Map();
     for(const f of facultyDirectory){
-      const id=String(f.__id); const summary=swapSummary(f); const fixed=swapNumeric(summary?.sourceNonTimetableTeachingDOE); const sourceAssigned=swapNumeric(summary?.assignedTeachingDOE);
-      state.set(id,{faculty:f,scheduled:0,fixed,sourceAssigned,target:swapEffectiveTarget(f)});
-      for(const a of swapFacultyAliases(f)) if(!aliases.has(a)) aliases.set(a,id);
+      const summary=swapSummary(f),indexed=swapNumeric(f.__indexAssignedTeachingDOE),source=swapNumeric(summary?.assignedTeachingDOE);
+      state.set(String(f.__id),{faculty:f,current:indexed??source,target:swapEffectiveTarget(f)});
     }
-    for(const sess of (allSessionsCache||sessions)){
-      for(const a of (Array.isArray(sess.assignments)?sess.assignments:[])){
-        let id=String(a?.ucid||'').trim(); if(!id) id=aliases.get(swapNameKey(a?.name))||'';
-        const row=state.get(id); if(!row)continue; const c=swapAssignmentCredit(a); if(c!==null)row.scheduled+=c;
-      }
-    }
-    for(const row of state.values()) row.current = row.fixed!==null ? row.fixed+row.scheduled : (row.sourceAssigned!==null ? row.sourceAssigned : null);
     return state;
   }
 
@@ -528,7 +536,7 @@
     if(!UCVM.admin(currentUser)){toast('Admin permission is required to swap faculty.',true);return;}
     if(scheduleSource!=='firestore'){toast('The synchronized live timetable must be loaded first.',true);return;}
     const s=sessions.find(x=>x.id===sessionId); if(!s)return;
-    await Promise.all([ensureFacultyDirectory(),ensureAllSessions()]);
+    await Promise.all([ensureFacultyDirectory(),ensureSessionsForDates([s.date])]);
     const assignments=sessionAssignmentsForSwap(s); if(!assignments.length){toast('This course block has no faculty assignment to swap.',true);return;}
     if(!facultyDirectory.length){toast('Faculty directory could not be loaded.',true);return;}
     let selected=Math.min(Math.max(0,Number(initialAssignmentIndex)||0),assignments.length-1);
@@ -951,7 +959,7 @@
 
   async function startSessionSelection(){
     if(!canEdit())return;
-    await Promise.all([ensureFacultyDirectory(),ensureAllSessions()]);
+    await ensureFacultyDirectory();
     selectionViewFlow.begin(viewMode);
     selectionMode=true;reviewingSelection=false;document.body.classList.add('session-selection-mode');updateSelectionControls();render();
   }
@@ -1016,6 +1024,7 @@
   async function saveSelectedChanges(){
     if(!canEdit()){toast('Admin permission is required.',true);return}
     const button=$('selection-save-btn'),errorBox=$('selection-errors'),originals=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids()),rows=readSelectionRows(),facultyById=new Map(facultyDirectory.map(f=>[String(f.__id),f])),timestamp=firebase.firestore.FieldValue.serverTimestamp();
+    await ensureSessionsForDates(rows.map(row=>row.date));
     const plan=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById);
     if(plan.errors.length){errorBox.innerHTML=plan.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
     if(!plan.updates.length){toast('No selected session values changed.');return}
@@ -1122,6 +1131,7 @@
     return {errors,warnings,sessions:prepared};
   }
   async function saveBulkSessions(rows){
+    await ensureSessionsForDates(rows.map(row=>row.date));
     const result=validateBulkRows(rows),errorBox=$('bulk-errors');
     if(result.errors.length){errorBox.textContent=result.errors.join('\n');errorBox.classList.remove('hidden');document.querySelectorAll('[data-bulk-row]').forEach((tr,index)=>tr.classList.toggle('bulk-row-error',result.errors.some(message=>message.startsWith(`Row ${index+1}:`))));return false}
     if(result.warnings.length&&!confirm(`Faculty availability warnings:\n\n${result.warnings.slice(0,20).join('\n')}${result.warnings.length>20?`\n…and ${result.warnings.length-20} more`:''}\n\nSave all ${result.sessions.length} sessions anyway?`))return false;
@@ -1138,7 +1148,7 @@
   async function openBulkSessionForm(){
     if(!UCVM.admin(currentUser)){toast('ADFA permission is required.',true);return}
     if(scheduleSource!=='firestore'){toast('The live Firestore timetable is unavailable.',true);return}
-    await Promise.all([ensureFacultyDirectory(),ensureAllSessions()]);bulkRows=[blankBulkRow()];
+    await ensureFacultyDirectory();bulkRows=[blankBulkRow()];
     const facultyOptions=facultyDirectory.map(f=>`<option value="${escapeHtml(swapFacultyName(f))}">${escapeHtml([f.email,f.ucid||f.__id].filter(Boolean).join(' · '))}</option>`).join('');
     showModal(`<div class="modal-header"><div class="modal-title">Add Multiple Live Sessions</div><div class="modal-subtitle">Edit rows like a spreadsheet or paste tab-separated rows copied from Excel. Every row is validated before one atomic save.</div></div><form id="bulk-session-form"><div class="modal-body">
       <div class="bulk-toolbar"><button type="button" class="btn btn-secondary" id="bulk-add-row">+ Add row</button><button type="button" class="btn btn-secondary" id="bulk-duplicate-row">Duplicate last row</button><button type="button" class="btn btn-secondary" id="bulk-paste-rows">Paste Excel rows</button><span class="bulk-count" id="bulk-row-count"></span></div>
@@ -1156,7 +1166,7 @@
   async function openSessionForm(existing = null) {
     if (!canEdit()) { toast('Editor permission is required to change sessions.', true); return; }
     if (scheduleSource !== 'firestore') { toast('The live Firestore timetable is unavailable. Sync it from Faculty Dashboard first.', true); return; }
-    if(UCVM.admin(currentUser))await Promise.all([ensureFacultyDirectory(),ensureAllSessions()]);
+    if(UCVM.admin(currentUser))await ensureFacultyDirectory();
     const s = existing || {
       id: '', date: ymd(weekStart(selectedWeek, selectedSemester)), week: selectedWeek, semester:selectedSemester, year:1,
       course:'200', type:'LEC', topic:'New Session', instructor:'', room:'', start:'09:00', end:'10:00', assignments:[]
@@ -1215,6 +1225,7 @@
     $('session-form').onsubmit = async e => {
       e.preventDefault();
       const form = new FormData(e.target); const date = parseYmd(form.get('date'));
+      await ensureSessionsForDates([form.get('date')]);
       const pos = academicPositionForDate(date);
       const topic=form.get('topic'), type=form.get('type'), start=form.get('start'), end=form.get('end');
       const assignments=finalizeInstructorAssignments(editorAssignments,type,start,end,topic);
@@ -1289,7 +1300,7 @@
           myTimetableOnly = false;
           if (sessionUnsubscribe) { try { sessionUnsubscribe(); } catch (_) {} sessionUnsubscribe = null; }
           sessionRangeKey='';
-          sessionCache.clear();sessionCacheRanges.length=0;sessionRangeLoads.clear();
+          sessionCache.clear();sessionCacheRanges.length=0;sessionRangeLoads.clear();sessionCacheDates.clear();sessionDateLoads.clear();
           allSessionsCache=null;
           clearCurrentFaculty();
           unsubscribeFacultyDirectory();
@@ -1347,7 +1358,7 @@
             provider,
             profile
           };
-          sessionCache.clear();sessionCacheRanges.length=0;sessionRangeLoads.clear();
+          sessionCache.clear();sessionCacheRanges.length=0;sessionRangeLoads.clear();sessionCacheDates.clear();sessionDateLoads.clear();
           await ensureCurrentFaculty();
           publishPageData();
           viewMode = roleIsFaculty(currentUser) ? 'day' : 'week';
@@ -1628,7 +1639,10 @@
     $('export-form').onsubmit=async e=>{
       e.preventDefault();const button=e.submitter;button.disabled=true;button.textContent='Preparing...';
       try{
-        const scope=new FormData(e.currentTarget).get('scope'), all=await ensureAllSessions();
+        const scope=new FormData(e.currentTarget).get('scope');let all;
+        if(scope==='all')all=await ensureAllSessions();
+        else if(scope==='date')all=await ensureSessionsForRange($('export-start').value,$('export-end').value);
+        else {const semester=$('export-semester').value,week=$('export-week').value,start=weekStart(week==='all'?1:Number(week),semester),end=addDays(weekStart(week==='all'?WEEK_COUNT:Number(week),semester),4);all=await ensureSessionsForRange(ymd(start),ymd(end))}
         if(showCcc)await loadCccEvents();
         const rows=exportFilteredRows(all,{scope,start:$('export-start').value,end:$('export-end').value,semester:$('export-semester').value,week:$('export-week').value,year:$('export-year').value});
         if(!rows.length){toast('No records match these export settings.',true);button.disabled=false;button.textContent='Export';return}
