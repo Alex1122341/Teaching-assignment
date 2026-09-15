@@ -60,13 +60,15 @@ test('Azure deployment is main-only and deploys the verified pre-approval artifa
   assert.doesNotMatch(deployJob,/node tools\/build-static\.js/);
 });
 
-test('setup docs describe GitHub-to-Azure as the routine web deployment path',()=>{
+test('setup docs describe Pages testing followed by gated Azure production',()=>{
   const setup=read('SETUP.md');
   assert.match(setup,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
   assert.match(setup,/pull request/i);
-  assert.match(setup,/preview/i);
-  assert.match(setup,/push to `main`|merge.*`main`/i);
+  assert.match(setup,/GitHub Pages/i);
+  assert.match(setup,/merge.*`main`|merge.*main/i);
+  assert.match(setup,/Approve and deploy/i);
   assert.match(setup,/firestore:rules/);
   assert.match(setup,/manual fallback|emergency\/manual fallback/i);
-  assert.doesNotMatch(setup,/Publish the frontend to Firebase Hosting/);
+  assert.match(setup,/Firebase Hosting is not used|Firebase Hosting stays out/i);
+  assert.doesNotMatch(setup,/Azure PR preview|temporary Azure PR preview/i);
 });
