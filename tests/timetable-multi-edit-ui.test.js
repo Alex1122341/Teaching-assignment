@@ -18,7 +18,7 @@ test('selection mode routes every rendered session through stable IDs and blocks
  assert.match(js,/function bindSessionBlocks[\s\S]*sessionSelection\.toggle/);
  assert.match(js,/if\s*\(s\?\.isCcc\)[\s\S]*return/);
  assert.match(js,/selectedRows\([\s\S]*selection.*ids\(\)/);
- assert.match(js,/viewMode\s*=\s*'list'/);
+ assert.match(js,/selectionViewFlow\.review\(\)/);
 });
 
 test('spreadsheet editor validates before one atomic commit and refreshes indexes afterward',()=>{

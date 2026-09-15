@@ -18,10 +18,10 @@ test('retired faculty assets are absent from disk, manifest and all runtime link
  assert.doesNotMatch(runtime,/faculty-dashboard\.(?:html|js)/);
 });
 
-test('production manifest contains the complete 28-file dependency graph and no stale visible names',()=>{
+test('production manifest contains the complete 31-file dependency graph and no stale visible names',()=>{
  const manifest=JSON.parse(read('tools/static-assets.json'));
- assert.equal(manifest.length,28);
- for(const name of ['afc-form-values.js','afc-timetable-panel.js','timetable-selection.js'])assert.ok(manifest.includes(name),name);
+ assert.equal(manifest.length,31);
+ for(const name of ['afc-form-values.js','afc-form-state.js','afc-timetable-panel.js','audit-details.js','timetable-selection.js','user-management.css'])assert.ok(manifest.includes(name),name);
  const runtime=manifest.filter(name=>/\.(html|js)$/.test(name)).map(read).join('\n');
  assert.doesNotMatch(runtime,/Faculty Directory|Faculty Admin Dashboard|Open Faculty Dashboard/);
  for(const page of manifest.filter(name=>name.endsWith('.html'))){

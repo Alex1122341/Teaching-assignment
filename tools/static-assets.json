@@ -1,6 +1,7 @@
 [
   "absence-from-campus-app.pdf",
   "afc-actions.js",
+  "afc-form-state.js",
   "afc-form-values.js",
   "afc-pdf-browser.js",
   "afc-timetable-panel.js",
@@ -8,6 +9,7 @@
   "approval-workflow.js",
   "asset-loader.js",
   "availability-lookup.js",
+  "audit-details.js",
   "data-index.js",
   "index-maintenance.js",
   "faculty-access.css",
@@ -26,5 +28,6 @@
   "timetable-selection.js",
   "timetable.js",
   "user-management.html",
+  "user-management.css",
   "user-management.js"
 ]

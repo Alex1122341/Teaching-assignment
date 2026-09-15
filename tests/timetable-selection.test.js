@@ -48,6 +48,18 @@ test('change planner suppresses unchanged rows and pairs each update with one au
  assert.equal(plan.logs[0].changedBy,'admin-1');
  assert.equal(plan.logs[0].before.topic,'Passports');
  assert.equal(plan.logs[0].after.topic,'Updated topic');
+ assert.deepEqual(plan.logs[0].changes.map(change=>change.field),['topic','room','assignments']);
+ assert.deepEqual(plan.logs[0].changes.find(change=>change.field==='topic'),{field:'topic',label:'Topic',before:'Passports',after:'Updated topic'});
+ assert.deepEqual(plan.logs[0].changes.find(change=>change.field==='assignments'),{field:'assignments',label:'Faculty',before:['Alex Faculty'],after:['Blair Faculty']});
+});
+
+test('batch selection restores the view that was active when selection began',()=>{
+ const flow=load().createViewFlow();
+ assert.equal(flow.begin('week'),'week');
+ assert.equal(flow.review(),'list');
+ assert.equal(flow.finish(),'week');
+ assert.equal(flow.begin('month'),'month');
+ assert.equal(flow.finish(),'month');
 });
 
 test('change planner returns errors without update or audit entries',()=>{

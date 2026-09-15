@@ -232,9 +232,11 @@
   const MAX_BULK_SESSION_ROWS = 200;
   let bulkRows = [];
   const sessionSelection = window.UCVM_TIMETABLE_SELECTION.create(200);
+  const selectionViewFlow = window.UCVM_TIMETABLE_SELECTION.createViewFlow();
   const selectedSessionOriginals = new Map();
   let selectionMode = false;
   let reviewingSelection = false;
+  let selectionDoeState = new Map();
 
   const $ = (id) => document.getElementById(id);
   const memoryStore = {};
@@ -710,10 +712,10 @@
     $('cal-prev').addEventListener('click', () => moveCalendar(-1));
     $('cal-next').addEventListener('click', () => moveCalendar(1));
     $('cal-today').addEventListener('click', () => { setInitialAcademicPeriod(); $('filter-month').value='all'; renderWeekControls(); syncWeekUI(); refreshSessionScope(); toast('Moved to the current academic week.'); });
-    $('cal-day-btn').addEventListener('click', () => { viewMode = 'day'; if(roleIsFaculty(currentUser))lastFacultyTeachingView='day'; setViewButtons(); refreshSessionScope(); });
-    $('cal-week-btn').addEventListener('click', () => { viewMode = 'week'; setViewButtons(); refreshSessionScope(); });
-    $('cal-month-btn').addEventListener('click', () => { viewMode = 'month'; setViewButtons(); refreshSessionScope(); });
-    $('cal-list-btn').addEventListener('click', () => { viewMode = 'list'; if(roleIsFaculty(currentUser))lastFacultyTeachingView='list'; setViewButtons(); refreshSessionScope(); });
+    $('cal-day-btn').addEventListener('click', () => switchCalendarView('day'));
+    $('cal-week-btn').addEventListener('click', () => switchCalendarView('week'));
+    $('cal-month-btn').addEventListener('click', () => switchCalendarView('month'));
+    $('cal-list-btn').addEventListener('click', () => switchCalendarView('list'));
     $('show-ccc').addEventListener('change', async e=>{showCcc=e.target.checked;if(showCcc){try{await loadCccEvents()}catch{e.target.checked=false;showCcc=false}}populateCourseFilter();render()});
     $('color-toggle').addEventListener('click', () => { colorsOn = !colorsOn; $('color-toggle').textContent = `Colors: ${colorsOn ? 'On' : 'Off'}`; render(); });
     $('dark-toggle').addEventListener('click', () => { document.documentElement.classList.toggle('dark'); $('dark-toggle').textContent = document.documentElement.classList.contains('dark') ? 'Light' : 'Moon'; });
@@ -941,13 +943,21 @@
     });
   }
 
+  function switchCalendarView(next){
+    viewMode=next;
+    if(selectionMode&&reviewingSelection)reviewingSelection=false;
+    if(roleIsFaculty(currentUser)&&(next==='day'||next==='list'))lastFacultyTeachingView=next;
+    setViewButtons();refreshSessionScope();
+  }
+
   async function startSessionSelection(){
     if(!canEdit())return;
-    await ensureFacultyDirectory();
+    await Promise.all([ensureFacultyDirectory(),ensureAllSessions()]);
+    selectionViewFlow.begin(viewMode);
     selectionMode=true;reviewingSelection=false;document.body.classList.add('session-selection-mode');updateSelectionControls();render();
   }
   function cancelSessionSelection(){
-    selectionMode=false;reviewingSelection=false;sessionSelection.clear();selectedSessionOriginals.clear();document.body.classList.remove('session-selection-mode');updateSelectionControls();render();
+    viewMode=selectionViewFlow.finish();selectionMode=false;reviewingSelection=false;sessionSelection.clear();selectedSessionOriginals.clear();document.body.classList.remove('session-selection-mode');updateSelectionControls();setViewButtons();refreshSessionScope();
   }
   function updateSelectionControls(){
     const active=$('selection-active-actions');
@@ -959,18 +969,24 @@
   async function reviewSelectedSessions(){
     if(!selectionMode||!sessionSelection.size)return;
     await ensureFacultyDirectory();
-    reviewingSelection=true;viewMode='list';setViewButtons();render();
+    reviewingSelection=true;viewMode=selectionViewFlow.review();setViewButtons();render();
   }
 
-  function selectionFacultyOptions(session){
+  function selectionFacultyOptions(session,doeState){
     const selected=new Set([...(session.facultyIds||[]),...(session.assignments||[]).map(a=>a.ucid||a.facultyId)].filter(Boolean).map(String));
-    return facultyDirectory.map(f=>`<option value="${escapeHtml(f.__id)}" ${selected.has(String(f.__id))?'selected':''}>${escapeHtml(swapFacultyName(f))}</option>`).join('');
+    return facultyDirectory.map(f=>{const state=doeState.get(String(f.__id))||{},current=state.current===null||state.current===undefined?'Unavailable':swapPct(state.current),contract=state.contract===null||state.contract===undefined?'Unavailable':swapPct(state.contract);return `<label class="selection-faculty-option"><input type="checkbox" data-selection-faculty-option value="${escapeHtml(f.__id)}" ${selected.has(String(f.__id))?'checked':''}><span><strong>${escapeHtml(swapFacultyName(f))}</strong><small>Assigned DOE ${current} · Contract DOE ${contract}</small></span></label>`}).join('');
+  }
+  function updateSelectionFacultyPicker(picker){
+    const checked=[...picker.querySelectorAll('[data-selection-faculty-option]:checked')],summary=picker.querySelector('summary'),chips=picker.querySelector('.selection-faculty-chips');
+    summary.textContent=checked.length?`${checked.length} faculty selected`:'Choose faculty';
+    chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value)),state=selectionDoeState.get(String(input.value))||{},current=state.current===null||state.current===undefined?'DOE unavailable':`Assigned ${swapPct(state.current)}`;return `<span>${escapeHtml(swapFacultyName(f))}<small>${current}</small></span>`}).join('');
   }
   function renderSelectionEditor(){
     if($('calendar-body').querySelector('[data-selection-row]'))return;
     const data=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids());
     renderedSessions=data;
     $('cal-label').textContent=`Review ${data.length} selected session${data.length===1?'':'s'}`;
+    const doeState=buildSwapDoeState();selectionDoeState=doeState;
     const rows=data.map(s=>`<tr data-selection-row data-session-edit-id="${escapeHtml(s.id)}">
       <td><input type="date" data-selection-field="date" value="${escapeHtml(s.date)}"></td>
       <td><select data-selection-field="year">${[1,2,3,4].map(year=>`<option ${Number(s.year)===year?'selected':''}>${year}</option>`).join('')}</select></td>
@@ -980,17 +996,18 @@
       <td><input type="time" data-selection-field="end" value="${escapeHtml(s.end)}"></td>
       <td><input data-selection-field="topic" value="${escapeHtml(s.topic)}"></td>
       <td><input data-selection-field="room" value="${escapeHtml(s.room)}"></td>
-      <td><select multiple data-selection-field="faculty" aria-label="Assigned faculty">${selectionFacultyOptions(s)}</select></td>
+      <td><details class="selection-faculty-picker" data-selection-field="faculty"><summary>Choose faculty</summary><div class="selection-faculty-menu"><div class="selection-faculty-options">${selectionFacultyOptions(s,doeState)}</div></div></details><div class="selection-faculty-chips"></div></td>
     </tr>`).join('');
-    $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div><div class="selection-save-bar"><span>Ctrl/Cmd-click to assign more than one faculty member.</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
-    $('selection-back-btn').onclick=()=>{reviewingSelection=false;render()};
+    $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div><div class="selection-save-bar"><span>Open Faculty to choose one or more people and review their DOE.</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
+    document.querySelectorAll('.selection-faculty-picker').forEach(picker=>{picker.querySelectorAll('[data-selection-faculty-option]').forEach(input=>input.onchange=()=>updateSelectionFacultyPicker(picker));updateSelectionFacultyPicker(picker)});
+    $('selection-back-btn').onclick=()=>{reviewingSelection=false;viewMode=selectionViewFlow.finish();setViewButtons();refreshSessionScope()};
     $('selection-save-btn').onclick=saveSelectedChanges;
   }
   function readSelectionRows(){
     const originals=new Map([...selectedSessionOriginals].map(([id,row])=>[String(id),row]));
     return [...document.querySelectorAll('[data-selection-row]')].map(tr=>{
       const id=String(tr.dataset.sessionEditId),original=originals.get(id),value=field=>tr.querySelector(`[data-selection-field="${field}"]`).value;
-      const ids=[...tr.querySelector('[data-selection-field="faculty"]').selectedOptions].map(option=>String(option.value));
+      const ids=[...tr.querySelectorAll('[data-selection-faculty-option]:checked')].map(option=>String(option.value));
       const type=value('type'),start=value('start'),end=value('end'),topic=value('topic'),date=value('date'),position=academicPositionForDate(parseYmd(date)),originalIds=[...(original.facultyIds||[]),...(original.assignments||[]).map(a=>a.ucid||a.facultyId)].filter(Boolean).map(String),assignmentChanged=ids.join('|')!==[...new Set(originalIds)].join('|')||type!==String(original.type||'')||start!==String(original.start||'')||end!==String(original.end||'')||topic!==String(original.topic||'');
       const assignments=assignmentChanged?ids.map(facultyId=>{const faculty=facultyDirectory.find(f=>String(f.__id)===facultyId),previous=(original.assignments||[]).find(a=>String(a.ucid||a.facultyId||'')===facultyId)||{},role=previous.role||defaultTeachingRole(type),hours=blockHours(start,end),rate=doeRateForRole(role);return{...previous,ucid:facultyId,facultyId,name:swapFacultyName(faculty),role,topic,creditedHours:hours,doeRate:rate,doeCredit:rate===null?null:Number((hours*rate).toFixed(6)),source:'Multi-session timetable edit'}}):original.assignments;
       const course=value('course');
@@ -1007,7 +1024,7 @@
     button.disabled=true;button.textContent='Saving...';
     try{
       const result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),afterCommit:async()=>{invalidateAllSessions();await refreshDerivedIndexes({rethrow:true})}});
-      const count=result.operations/2;cancelSessionSelection();refreshSessionScope();toast(`${count} session${count===1?'':'s'} updated with audit history.`);
+      const count=result.operations/2;cancelSessionSelection();toast(`${count} session${count===1?'':'s'} updated with audit history.`);
     }catch(error){console.error('[multi-session save]',error);errorBox.textContent=error.committed?'Sessions were saved, but the derived lookup index could not be refreshed. Keep this review open and ask an administrator to refresh the indexes.':'Nothing was saved. Check your connection and permissions, then try again.';errorBox.classList.remove('hidden');button.disabled=false;button.textContent='Save selected changes'}
   }
 
@@ -1568,6 +1585,7 @@
 
   function updateAuthUI() {
     const b = $('account-toggle');
+    const showAdminTools=canEdit()||UCVM.general(currentUser)||currentUser?.role==='hicc';
     b.textContent = currentUser ? `${currentUser.name} - ${currentUser.role}` : 'Sign in';
     b.classList.toggle('is-admin', canEdit());
     $('add-session-btn').classList.toggle('hidden', !canEdit());
@@ -1576,6 +1594,7 @@
     $('outlook-invite-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
     $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || currentUser?.role === 'hicc'));
     $('faculty-dashboard-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
+    $('cal-admin-menu').classList.toggle('hidden',!showAdminTools);
     for(const id of ['my-teaching-btn','afc-request-btn','my-change-history-btn'])$(id).classList.toggle('hidden',!currentUser);
     $('publish-firestore-schedule').classList.toggle('hidden', !UCVM.admin(currentUser));
     updateScheduleSourceUI();

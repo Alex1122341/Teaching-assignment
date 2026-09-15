@@ -8,6 +8,23 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
  const clone=value=>JSON.parse(JSON.stringify(value??null));
  const canonical=value=>{if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])]));return value};
  const equal=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
+ const AUDIT_FIELDS={date:'Date',year:'Year',course:'Course',type:'Type',start:'Start time',end:'End time',topic:'Topic',room:'Room'};
+ const assignmentNames=row=>(row?.assignments||[]).map(item=>text(item?.name)||facultyId(item)).filter(Boolean);
+ function auditChanges(before,after){
+  const out=[];
+  for(const [field,label] of Object.entries(AUDIT_FIELDS))if(!equal(before?.[field],after?.[field]))out.push({field,label,before:before?.[field]??null,after:after?.[field]??null});
+  const beforeFaculty=assignmentNames(before),afterFaculty=assignmentNames(after);
+  if(!equal(beforeFaculty,afterFaculty))out.push({field:'assignments',label:'Faculty',before:beforeFaculty,after:afterFaculty});
+  return out;
+ }
+ function createViewFlow(){
+  let origin='week';
+  return{
+   begin(view){origin=text(view)||'week';return origin},
+   review(){return'list'},
+   finish(){return origin}
+  };
+ }
  function editable(row){
   const ids=facultyIds(row),assignments=clone(Array.isArray(row?.assignments)?row.assignments:[]).map((assignment,index)=>{
    const id=facultyId(assignment)||ids[index]||'';
@@ -51,7 +68,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
    const original=originalById.get(text(row.id)),before=editable(original),after=editable(row);
    if(equal(before,after))continue;
    updates.push({id:text(row.id),data:after});
-   logs.push({sessionId:text(row.id),action:'batch_update',changedBy:text(actor?.uid),changedByEmail:text(actor?.email),changedByName:text(actor?.name),changedAt:timestamp,before,after,course:after.course,date:after.date,topic:after.topic,rowNumber:index+1});
+   logs.push({sessionId:text(row.id),action:'batch_update',changedBy:text(actor?.uid),changedByEmail:text(actor?.email),changedByName:text(actor?.name),changedAt:timestamp,before,after,changes:auditChanges(before,after),course:after.course,date:after.date,topic:after.topic,rowNumber:index+1});
   }
   return{updates,logs,errors:[]};
  }
@@ -65,5 +82,5 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   try{await store.afterCommit()}catch(error){error.committed=true;throw error}
   return{committed:true,operations:plan.updates.length+plan.logs.length,errors:[]};
  }
- return{create,validateRow,selectedRows,planChanges,commitPlan};
+ return{create,createViewFlow,validateRow,selectedRows,planChanges,commitPlan};
 })();

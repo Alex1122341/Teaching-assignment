@@ -14,7 +14,7 @@
         <div class="ucalgary-wordmark">UNIVERSITY OF CALGARY</div>
         <div class="ucalgary-faculty">Faculty of Veterinary Medicine</div>
       </div>
-      <div class="ucalgary-product">Teaching Assignment &amp; Academic Scheduling</div>
+      <div class="timetable-top-actions"><button class="masthead-link hidden" id="faculty-dashboard-btn">Faculty Dashboard</button><div class="ucalgary-product">Teaching Assignment &amp; Academic Scheduling</div></div>
     </div>
     <div class="ucalgary-gold-rule"></div>
   </header>
@@ -158,23 +158,27 @@
               <button class="fbar-reset hidden" id="my-change-history-btn">My Change History</button>
             </div>
             <button class="fbar-reset hidden" id="my-timetable-btn">My Timetable</button>
-            <button class="fbar-reset hidden" id="manage-users-btn">Manage Users</button>
-            <button class="fbar-reset hidden" id="faculty-dashboard-btn">Faculty Dashboard</button>
-            <button class="fbar-reset hidden" id="bulk-add-session-btn">+ Add Sessions</button>
-            <button class="fbar-reset hidden" id="add-session-btn">+ Add One</button>
-            <div class="session-selection-controls hidden" id="selection-controls">
-              <button class="fbar-reset" id="select-sessions-btn">Select Sessions</button>
-              <span class="selection-active-actions hidden" id="selection-active-actions">
-                <strong id="selection-count" aria-live="polite">0 selected</strong>
-                <button class="fbar-reset" id="selection-cancel-btn">Cancel</button>
-                <button class="fbar-reset" id="review-selected-btn" disabled>Review selected</button>
-              </span>
-            </div>
+            <details class="cal-admin-menu hidden" id="cal-admin-menu">
+              <summary>Admin tools</summary>
+              <div class="cal-admin-menu-panel">
+                <button class="fbar-reset hidden" id="manage-users-btn">Manage Users</button>
+                <button class="fbar-reset hidden" id="bulk-add-session-btn">+ Add Sessions</button>
+                <button class="fbar-reset hidden" id="add-session-btn">+ Add One</button>
+                <div class="session-selection-controls hidden" id="selection-controls">
+                  <button class="fbar-reset" id="select-sessions-btn">Select Sessions</button>
+                  <span class="selection-active-actions hidden" id="selection-active-actions">
+                    <strong id="selection-count" aria-live="polite">0 selected</strong>
+                    <button class="fbar-reset" id="selection-cancel-btn">Cancel</button>
+                    <button class="fbar-reset" id="review-selected-btn" disabled>Review selected</button>
+                  </span>
+                </div>
+              </div>
+            </details>
             <button class="fbar-reset" id="color-toggle">Colors: On</button>
             <div class="cal-view-toggle">
               <button class="cal-view-btn" id="cal-day-btn">Day</button>
-              <button class="cal-view-btn" id="cal-month-btn">Month</button>
               <button class="cal-view-btn active" id="cal-week-btn">Week</button>
+              <button class="cal-view-btn" id="cal-month-btn">Month</button>
               <button class="cal-view-btn" id="cal-list-btn">List</button>
             </div>
           </div>
@@ -229,7 +233,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="session-guard.js"></script><script src="data-index.js"></script><script src="index-maintenance.js"></script><script src="faculty-access.js"></script><script src="asset-loader.js"></script><script src="signature-capture.js"></script><script src="afc-actions.js"></script><script src="information-center.js"></script><script src="availability-lookup.js"></script><script src="timetable-selection.js"></script>
+<script src="session-guard.js"></script><script src="data-index.js"></script><script src="index-maintenance.js"></script><script src="audit-details.js"></script><script src="faculty-access.js"></script><script src="asset-loader.js"></script><script src="signature-capture.js"></script><script src="afc-form-state.js"></script><script src="afc-actions.js"></script><script src="information-center.js"></script><script src="availability-lookup.js"></script><script src="timetable-selection.js"></script>
   <script src="timetable.js"></script>
   <script src="afc-workflow.js"></script>
   <script src="afc-timetable-panel.js"></script>
