@@ -25,25 +25,25 @@ test('faculty self swap uses sanitized directory with availability and special t
  assert.doesNotMatch(src,/Search name, specialty, teaching area, UCID/i);
 });
 
-test('faculty replacement button hands off to the safe picker before the legacy onclick runs',()=>{
- const handoffPath=path.join(root,'faculty-swap-handoff.js');
- assert.equal(fs.existsSync(handoffPath),true,'faculty-swap-handoff.js must exist');
- const src=fs.readFileSync(handoffPath,'utf8');
- assert.match(src,/#workflow-self-swap/);
- assert.match(src,/stopImmediatePropagation/);
- assert.match(src,/const openSafe=window\.UCVM_SAFE_SWAP\?\.openSelfReplacement/);
- assert.match(src,/openSafe\(session\)/);
+test('faculty session modal routes assigned replacements directly to the privacy-safe picker',()=>{
+ const src=read('approval-workflow.js');
+ const start=src.indexOf('function openFacultySession(s)');
+ const end=src.indexOf('\n }\n\n async function createRequest',start);
+ assert.ok(start>=0&&end>start,'openFacultySession must exist');
+ const body=src.slice(start,end);
+ assert.match(body,/const openSelfReplacement=window\.UCVM_SAFE_SWAP\?\.openSelfReplacement/);
+ assert.match(body,/if\(own\.length&&typeof openSelfReplacement==='function'\)return openSelfReplacement\(s\)/);
+ assert.match(body,/return openSelfSwap\(s\)/);
 });
 
-test('safe handoff blocks the legacy picker before resolving the session and falls back to Firestore',()=>{
- const src=read('faculty-swap-handoff.js');
- const buttonCheck=src.indexOf("const button=event.target.closest?.('#workflow-self-swap')");
- const stop=src.indexOf('event.stopImmediatePropagation()',buttonCheck);
- const cachedLookup=src.indexOf('let session=lastSession||sessionById(lastSessionId)',buttonCheck);
- assert.ok(buttonCheck>=0&&stop>buttonCheck,'handoff must stop the matching button click');
- assert.ok(cachedLookup>=0&&stop<cachedLookup,'legacy propagation must be stopped before replacement session resolution');
- assert.match(src,/db\.collection\(SESSIONS\)\.doc\(lastSessionId\)\.get\(\)/);
- assert.match(src,/openSafe\(session\)/);
+test('legacy faculty swap handoff remains a non-intercepting compatibility asset',()=>{
+ const handoffPath=path.join(root,'faculty-swap-handoff.js');
+ assert.equal(fs.existsSync(handoffPath),true,'faculty-swap-handoff.js must remain deployable');
+ const src=fs.readFileSync(handoffPath,'utf8');
+ assert.match(src,/UCVM_SAFE_SWAP_HANDOFF=\{mode:'direct-session-modal'\}/);
+ assert.doesNotMatch(src,/#workflow-self-swap/);
+ assert.doesNotMatch(src,/stopImmediatePropagation/);
+ assert.doesNotMatch(src,/db\.collection\(SESSIONS\)/);
 });
 
 test('approval resolves opaque candidate keys through admin-only mapping and supports special categories',()=>{
@@ -81,7 +81,7 @@ test('shared static build includes safe swap and loads it for timetable and admi
  const safe=loader.indexOf("loadScriptOnce('faculty-swap-safe.js'");
  const handoff=loader.indexOf("loadScriptOnce('faculty-swap-handoff.js'");
  const legacy=loader.indexOf("loadScriptOnce('approval-workflow.js'");
- assert.ok(safe>=0&&handoff>safe&&legacy>handoff,'safe swap handoff must load before approval-workflow.js');
+ assert.ok(safe>=0&&handoff>safe&&legacy>handoff,'safe swap compatibility asset must load after safe picker and before approval-workflow.js');
  assert.match(loader,/ensureApprovalWorkflow/);
  assert.match(admin,/src="faculty-swap-safe\.js"/);
  assert.match(safeSrc,/faculty-admin\.html/);
