@@ -38,10 +38,10 @@ test('faculty replacement button hands off to the safe picker before the legacy 
 test('safe handoff blocks the legacy picker before resolving the session and falls back to Firestore',()=>{
  const src=read('faculty-swap-handoff.js');
  const buttonCheck=src.indexOf("const button=event.target.closest?.('#workflow-self-swap')");
- const stop=src.indexOf('event.stopImmediatePropagation()');
- const cachedLookup=src.indexOf('sessionById(lastSessionId)');
+ const stop=src.indexOf('event.stopImmediatePropagation()',buttonCheck);
+ const cachedLookup=src.indexOf('let session=lastSession||sessionById(lastSessionId)',buttonCheck);
  assert.ok(buttonCheck>=0&&stop>buttonCheck,'handoff must stop the matching button click');
- assert.ok(cachedLookup>=0&&stop<cachedLookup,'legacy propagation must be stopped before cached session resolution');
+ assert.ok(cachedLookup>=0&&stop<cachedLookup,'legacy propagation must be stopped before replacement session resolution');
  assert.match(src,/db\.collection\(SESSIONS\)\.doc\(lastSessionId\)\.get\(\)/);
  assert.match(src,/openSafe\(session\)/);
 });
