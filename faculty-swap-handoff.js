@@ -5,7 +5,7 @@
  const page=(location.pathname.split('/').pop()||'index.html').toLowerCase();
  if(page!=='index.html')return;
  const {db}=UCVM.init(),SESSIONS='sessions';
- let lastSessionId='';
+ let lastSessionId='',lastSession=null;
  const sessionById=id=>window.UCVM_PAGE_DATA?.sessions?.().find(s=>String(s.id)===String(id))||null;
  function handoffError(message,error){
   if(error)console.error('[faculty swap handoff]',error);
@@ -15,7 +15,11 @@
  }
  document.addEventListener('click',async event=>{
   const sessionBlock=event.target.closest?.('[data-session-id]');
-  if(sessionBlock?.dataset?.sessionId){lastSessionId=String(sessionBlock.dataset.sessionId);return}
+  if(sessionBlock?.dataset?.sessionId){
+   lastSessionId=String(sessionBlock.dataset.sessionId);
+   lastSession=sessionById(lastSessionId);
+   return;
+  }
   const button=event.target.closest?.('#workflow-self-swap');
   if(!button)return;
   if(!String(button.textContent||'').toLowerCase().includes('replacement for me'))return;
@@ -25,10 +29,10 @@
   event.stopImmediatePropagation();
   event.stopPropagation();
   try{
-   let session=sessionById(lastSessionId);
+   let session=lastSession||sessionById(lastSessionId);
    if(!session&&lastSessionId){
     const snap=await db.collection(SESSIONS).doc(lastSessionId).get();
-    if(snap.exists)session={id:snap.id,...snap.data()};
+    if(snap.exists){session={id:snap.id,...snap.data()};lastSession=session}
    }
    if(!session)return handoffError('Could not resolve this session for the replacement request. Close the window and open the session again.');
    openSafe(session);
