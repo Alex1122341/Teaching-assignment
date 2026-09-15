@@ -18,8 +18,12 @@ test('Faculty Admin starts from settings indexes and loads selected detail only'
 
 test('full Faculty Admin datasets are loaded only for full-data operations',()=>{
  const source=read('faculty-admin.js');
- assert.match(source,/function ensureAdminDataset/);
- assert.match(source,/\['summary','roles','database'\]\.includes\(tab\)/);
+ assert.match(source,/function ensureFullFaculty/);
+ assert.match(source,/function ensureFullSessions/);
+ const setTab=source.match(/async function setTab\(tab\)[\s\S]*?\nfunction subscribeFaculty/)?.[0]||'';
+ assert.match(setTab,/tab==='summary'.*ensureAdminDataset/s);
+ assert.match(setTab,/\['roles','database'\]\.includes\(tab\).*ensureFullFaculty/s);
+ assert.doesNotMatch(setTab,/\['roles','database'\][\s\S]*?ensureFullSessions/);
 });
 
 test('approval workflow fetches only sessions referenced by requests',()=>{
