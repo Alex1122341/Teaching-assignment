@@ -18,31 +18,46 @@ test('index maintenance exposes swap-index writers and safe AFC range patching',
 });
 
 test('faculty self swap uses sanitized directory with availability and special targets',()=>{
- const src=read('approval-workflow.js');
+ const src=read('faculty-swap-safe.js');
  for(const token of ['faculty_swap_index','candidateKey','Sessional','Other','assessSwapCandidate','swapCandidateDisplay'])assert.match(src,new RegExp(token));
- assert.match(src,/Reason \/ note[^\n]*required|reason[^\n]*required/i);
+ assert.match(src,/Reason \/ note is required for Sessional or Other/);
+ assert.match(src,/reason\.required=special/);
  assert.doesNotMatch(src,/Search name, specialty, teaching area, UCID/i);
 });
 
-test('approval flow resolves opaque candidate keys through admin-only mapping and supports special category',()=>{
- const src=read('approval-workflow.js');
+test('approval resolves opaque candidate keys through admin-only mapping and supports special categories',()=>{
+ const src=read('faculty-swap-safe.js');
  assert.match(src,/faculty_swap_map/);
  assert.match(src,/candidateKey/);
- assert.match(src,/specialReplacement|isSpecialReplacement/);
- assert.match(src,/category[^\n]*(Sessional|Other)/);
+ assert.match(src,/specialReplacement/);
+ assert.match(src,/category:resolved\.special\?specialLabel/);
+ assert.match(src,/liveIncomingWarnings/);
 });
 
 test('Firestore rules expose only sanitized swap index and require notes for special targets',()=>{
  const rules=read('firestore.rules');
- assert.match(rules,/faculty_swap_index/);
- assert.match(rules,/allow read: if ready\(\)/);
+ assert.match(rules,/id == 'faculty_swap_index'/);
+ assert.match(rules,/allow read: if ready\(\) && id == 'faculty_swap_index'/);
  assert.match(rules,/faculty_swap_map/);
- assert.match(rules,/specialReplacement|specialSwap/);
- assert.match(rules,/reason[^\n]*size\(\) > 0/);
+ assert.match(rules,/specialReplacement/);
+ assert.match(rules,/reason\.size\(\) > 0/);
 });
 
-test('AFC approval refreshes the sanitized availability projection',()=>{
- const src=read('afc-actions.js');
- assert.match(src,/faculty_swap_index|addFacultySwapUnavailableRange/);
- assert.match(src,/faculty_swap_map/);
+test('AFC approval refreshes the sanitized availability projection through index maintenance',()=>{
+ const actions=read('afc-actions.js'),maintenanceSrc=read('index-maintenance.js');
+ assert.match(actions,/prepareFacultySwapAfcUpdate/);
+ assert.match(actions,/swapIndexUpdate/);
+ assert.match(maintenanceSrc,/faculty_swap_index/);
+ assert.match(maintenanceSrc,/faculty_swap_map/);
+ assert.match(maintenanceSrc,/addFacultySwapUnavailableRange/);
+});
+
+test('shared static build includes safe swap and lazy-loads it before the legacy approval workflow',()=>{
+ const manifest=JSON.parse(read('tools/static-assets.json')),loader=read('asset-loader.js');
+ assert.ok(manifest.includes('faculty-swap-safe.js'));
+ assert.ok(manifest.includes('approval-workflow.js'));
+ const safe=loader.indexOf("loadScriptOnce('faculty-swap-safe.js'");
+ const legacy=loader.indexOf("loadScriptOnce('approval-workflow.js'");
+ assert.ok(safe>=0&&legacy>safe,'safe swap module must load before approval-workflow.js');
+ assert.match(loader,/ensureApprovalWorkflow/);
 });
