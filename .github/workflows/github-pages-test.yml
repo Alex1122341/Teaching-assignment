@@ -1,0 +1,72 @@
+name: GitHub Pages Test Site
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages-test
+  cancel-in-progress: true
+
+jobs:
+  verify_build_and_deploy:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up Java for Firebase emulators
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run static and unit tests
+        run: npm test
+
+      - name: Run Firestore and Auth emulator tests
+        run: npm run test:emulator
+
+      - name: Build static site
+        run: node tools/build-static.js
+
+      - name: Stage GitHub Pages test site
+        run: >-
+          node tools/stage-github-pages.js
+          --directory .deploy-static
+          --pr "${{ github.event.pull_request.number }}"
+          --head-sha "${{ github.event.pull_request.head.sha }}"
+          --build-sha "${{ github.sha }}"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: .deploy-static
+          include-hidden-files: true
+
+      - name: Deploy GitHub Pages test site
+        id: deployment
+        uses: actions/deploy-pages@v5
