@@ -49,12 +49,11 @@ $builder = Join-Path $SitePath 'tools\build-static.js'
 & node $builder --output $stagingPath
 if ($LASTEXITCODE -ne 0) { throw "Static asset builder exited with code $LASTEXITCODE." }
 
-$azureConfig = @{
-    routes = @(
-        @{ route = '/faculty-dashboard.html'; redirect = '/index.html'; statusCode = 301 }
-    )
+$azureConfigSource = Join-Path $SitePath 'staticwebapp.config.json'
+if (-not (Test-Path -LiteralPath $azureConfigSource -PathType Leaf)) {
+    throw 'staticwebapp.config.json is missing from the repository root.'
 }
-$azureConfig | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stagingPath 'staticwebapp.config.json') -Encoding utf8
+Copy-Item -LiteralPath $azureConfigSource -Destination (Join-Path $stagingPath 'staticwebapp.config.json') -Force
 if ($BuildOnly) { return }
 
 $armToken = Get-ArmAccessToken

@@ -1,0 +1,9 @@
+{
+  "routes": [
+    {
+      "route": "/faculty-dashboard.html",
+      "redirect": "/index.html",
+      "statusCode": 301
+    }
+  ]
+}

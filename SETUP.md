@@ -31,28 +31,64 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
    - `active`: `true`
    - `mustChangePassword`: `false` (unless you intentionally want the password-change page first)
    Do this before relying on the new User Management page. Legacy `admin` still retains timetable and Faculty Dashboard access but is not ADFA General.
-5. From the repository root deploy **rules and indexes**:
+5. From the repository root deploy **rules and indexes** for initial activation:
    ```bash
    npx firebase deploy --project tester-teaching --only firestore:rules,firestore:indexes
    ```
    If the local Firebase CLI dependency is unavailable later, any Firebase CLI installation can deploy these rules; Cloud Functions are not required.
-6. Publish the frontend to Firebase Hosting. Firebase and Azure both consume the exact allowlist in `tools/static-assets.json` through `tools/build-static.js`:
-   ```bash
-   npx firebase deploy --project tester-teaching --only hosting
-   ```
-   The Firebase production URL is `https://tester-teaching.web.app/`.
-7. Publish the same static bundle to Microsoft Azure Static Web Apps:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File tools/deploy_azure_static_web.ps1
-   ```
-   Do not copy a separate set of frontend files for Azure. The deployment script rebuilds `.deploy-static` from the same allowlist used by Firebase.
-8. Sign in once as Owner / ADFA General or another administrator and open **Faculty Dashboard**. If the privacy-safe faculty replacement directory does not exist yet, the dashboard creates `settings/faculty_swap_index` and the admin-only `settings/faculty_swap_map` from the current Faculty Database.
-9. Open User Management.
-10. To add one person, choose their faculty profile in **New account**. The profile supplies the name and email; choose the access role and enter a temporary password. Firebase supplies the Authentication UID after creation.
-11. To prepare all faculty accounts, choose **Preview changes** under **Create missing faculty accounts**. Review the proposed creates, access updates, excluded records, and source-role cleanup before entering the temporary password and selecting **Apply reviewed changes**.
-12. Keep **Require password change on next dashboard sign-in** selected for new accounts. The temporary password is sent only to Firebase Authentication and is not stored in Firestore, source code, or audit logs.
-13. Create HICC groups, assign an HICC owner, course numbers and members.
-14. Test with one Administrator, one HICC and one Faculty account before broader rollout.
+6. Complete the one-time GitHub/Azure setup in **Web deployment** below, then use a pull request to publish and validate the frontend through Azure Static Web Apps.
+7. Sign in once as Owner / ADFA General or another administrator and open **Faculty Dashboard**. If the privacy-safe faculty replacement directory does not exist yet, the dashboard creates `settings/faculty_swap_index` and the admin-only `settings/faculty_swap_map` from the current Faculty Database.
+8. Open User Management.
+9. To add one person, choose their faculty profile in **New account**. The profile supplies the name and email; choose the access role and enter a temporary password. Firebase supplies the Authentication UID after creation.
+10. To prepare all faculty accounts, choose **Preview changes** under **Create missing faculty accounts**. Review the proposed creates, access updates, excluded records, and source-role cleanup before entering the temporary password and selecting **Apply reviewed changes**.
+11. Keep **Require password change on next dashboard sign-in** selected for new accounts. The temporary password is sent only to Firebase Authentication and is not stored in Firestore, source code, or audit logs.
+12. Create HICC groups, assign an HICC owner, course numbers and members.
+13. Test with one Administrator, one HICC and one Faculty account before broader rollout.
+
+## Web deployment
+
+Azure Static Web Apps is the routine web host. Firebase remains the Authentication, Firestore, and Firestore Security Rules backend; Firebase Hosting is not used for normal preview or production releases.
+
+### One-time GitHub setup
+
+Create the GitHub Actions repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN` with the deployment token for the existing Azure Static Web App `ucvm-teaching-lab-web`. Never commit the deployment token, an ARM token, or an Azure access token to the repository.
+
+The dedicated `.github/workflows/azure-static-web-apps.yml` workflow uses the repository secret only for same-repository pull requests and pushes to `main`. Forked pull requests do not receive the deployment secret and do not create Azure previews.
+
+### Routine pull-request flow
+
+1. Create a feature branch and open a same-repository pull request targeting `main`.
+2. The existing **Test** workflow runs static/unit tests and the Firestore/Auth emulator suite.
+3. The **Azure Static Web Apps** workflow independently runs the same verification, builds `.deploy-static` with `node tools/build-static.js`, stages `staticwebapp.config.json`, and deploys a temporary Azure PR preview environment.
+4. Open the Azure Preview URL from the deployment result and validate the timetable, Faculty Dashboard, sign-in, and any changed workflow. Preview and production currently use the same Firebase project, `tester-teaching`, so test any data-changing actions deliberately.
+5. Additional commits to the same pull request update the same PR preview environment.
+6. Merge the validated pull request. The resulting push to `main` runs verification again and automatically deploys the existing Azure production Static Web App.
+7. Closing or merging the pull request triggers cleanup of its temporary Azure preview environment.
+
+The preview URL is externally reachable; it is not a security boundary. Firebase Authentication and Firestore Security Rules continue to protect application data.
+
+### Firestore rule changes
+
+GitHub Actions does not deploy Firestore rules in this workflow. When a pull request changes `firestore.rules`, deploy the rules manually after review:
+
+```bash
+npx firebase deploy --project tester-teaching --only firestore:rules
+```
+
+Deploy indexes separately when a reviewed change actually modifies `firestore.indexes.json`.
+
+### Emergency/manual fallback
+
+`tools/deploy_azure_static_web.ps1` remains an emergency/manual fallback. It uses the same `tools/build-static.js` allowlist and the committed root `staticwebapp.config.json` as GitHub Actions.
+
+On Windows, if the downloaded script is blocked, unblock it without weakening the machine execution policy:
+
+```powershell
+powershell -NoProfile -Command "Unblock-File -LiteralPath '.\tools\deploy_azure_static_web.ps1'"
+powershell -File .\tools\deploy_azure_static_web.ps1
+```
+
+Routine releases should use the GitHub pull-request preview and `main` production deployment instead of this local fallback.
 
 ## Faculty replacement requests
 
@@ -84,6 +120,6 @@ New AFC requests require both the off-campus contact address and telephone numbe
 
 ## Development checks
 
-Install the root development dependencies with `npm ci`. Run static tests with `npm test`; run the Firestore rule suite with `npm run test:emulator`. The `test-support/` modules are pure policy fixtures used by those tests and are excluded from both hosting packages.
+Install the root development dependencies with `npm ci`. Run static tests with `npm test`; run the Firestore rule suite with `npm run test:emulator`. The `test-support/` modules are pure policy fixtures used by those tests and are excluded from the web deployment bundle.
 
-Build the shared Firebase/Azure publishing directory with `node tools/build-static.js`. Current query counts, migration hashes, rollback exports, and the 50,000-read estimate are recorded in `PERFORMANCE_REPORT.md`.
+Build the Azure publishing directory with `node tools/build-static.js`. The application bundle comes from the exact allowlist in `tools/static-assets.json`; Azure deployment metadata is staged afterward. Current query counts, migration hashes, rollback exports, and the 50,000-read estimate are recorded in `PERFORMANCE_REPORT.md`.
