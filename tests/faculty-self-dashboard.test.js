@@ -6,9 +6,12 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('faculty, HICC, and VISC can open Faculty Dashboard from the timetable',()=>{
- const src=read('timetable.js');
- assert.match(src,/\$\('faculty-dashboard-btn'\)\.addEventListener\('click',\s*\(\)\s*=>\s*\{\s*if\s*\(UCVM\.admin\(currentUser\)\s*\|\|\s*roleIsFaculty\(currentUser\)\)\s*window\.location\.href\s*=\s*'faculty-admin\.html'/);
- assert.match(src,/\$\('faculty-dashboard-btn'\)\.classList\.toggle\('hidden',\s*!\(UCVM\.admin\(currentUser\)\s*\|\|\s*roleIsFaculty\(currentUser\)\)\)/);
+ const src=read('asset-loader.js');
+ assert.match(src,/function enableFacultyDashboardLink\(\)/);
+ assert.match(src,/\['faculty','hicc','visc'\]\.includes\(UCVM\.role\(profile\?\.role\)\)/);
+ assert.match(src,/button\.classList\.remove\('hidden'\)/);
+ assert.match(src,/window\.location\.href='faculty-admin\.html'/);
+ assert.match(src,/ucvm:sessions-updated/);
 });
 
 test('faculty dashboard has a linked self-profile mode that does not subscribe to the faculty index',()=>{
@@ -19,17 +22,24 @@ test('faculty dashboard has a linked self-profile mode that does not subscribe t
  assert.match(src,/listenFacultySessions\(facultyId\)/);
  assert.match(src,/if\(isSelfServiceProfile\(p\)\)\{await enterSelfMode\(user,p\);return\}/);
  assert.match(src,/if\(UCVM\.admin\(p\)\)\{enterAdminMode\(user,p\);return\}/);
+ const start=src.indexOf('async function enterSelfMode(user,p)');
+ const end=src.indexOf('\nfunction enterAdminMode',start);
+ assert.ok(start>=0&&end>start,'enterSelfMode must exist');
+ const body=src.slice(start,end);
+ assert.doesNotMatch(body,/subscribeFaculty\(/);
+ assert.doesNotMatch(body,/subscribeSessions\(/);
+ assert.doesNotMatch(body,/faculty_index/);
 });
 
 test('faculty self mode is full-width and removes admin navigation and editing',()=>{
- const js=read('faculty-admin.js'),css=read('faculty-admin.css');
- assert.match(js,/document\.body\.classList\.add\('faculty-self-mode'\)/);
- assert.match(js,/const editButton=selfMode\?'':/);
- assert.match(css,/body\.faculty-self-mode \.tabs/);
- assert.match(css,/body\.faculty-self-mode \.kpis/);
- assert.match(css,/body\.faculty-self-mode #lookup-view > \.toolbar/);
- assert.match(css,/body\.faculty-self-mode \.result-pane/);
- assert.match(css,/body\.faculty-self-mode \.lookup-grid\{display:block/);
+ const src=read('faculty-admin.js');
+ assert.match(src,/document\.body\.classList\.add\('faculty-self-mode'\)/);
+ assert.match(src,/const editButton=selfMode\?'':/);
+ assert.match(src,/body\.faculty-self-mode \.tabs/);
+ assert.match(src,/body\.faculty-self-mode \.kpis/);
+ assert.match(src,/body\.faculty-self-mode #lookup-view > \.toolbar/);
+ assert.match(src,/body\.faculty-self-mode \.result-pane/);
+ assert.match(src,/body\.faculty-self-mode \.lookup-grid\{display:block/);
 });
 
 test('faculty record rules use the linked facultyId for get and keep list admin-only',()=>{
@@ -38,8 +48,11 @@ test('faculty record rules use the linked facultyId for get and keep list admin-
  assert.match(rules,/match \/faculty\/\{id\} \{\s*allow get: if admin\(\) \|\| ownFacultyId\(id\);\s*allow list: if admin\(\);/s);
 });
 
-test('admin-only dashboard enhancements start only after an administrator profile is confirmed',()=>{
+test('admin-only enhancements keep their data subscription behind the administrator check',()=>{
  const src=read('faculty-admin-enhancements.js');
- assert.doesNotMatch(src,/installStyles\(\);watchDom\(\);/);
- assert.match(src,/const startFromPage=\(\)=>\{[^}]*UCVM\.admin\(sharedProfile\)[\s\S]*watchDom\(\)/);
+ const start=src.indexOf('const startFromPage=()=>');
+ assert.ok(start>=0,'admin enhancement gate must exist');
+ const body=src.slice(start,start+500);
+ assert.match(body,/UCVM\.admin\(sharedProfile\)/);
+ assert.match(body,/subscribe\(\)/);
 });
