@@ -9,7 +9,17 @@ window.UCVM_ASSETS=(()=>{
  }
  async function ensureAfcPdf(){await loadScriptOnce('https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js','PDFLib');await loadScriptOnce('afc-form-values.js','UCVM_AFC_FORM_VALUES');await loadScriptOnce('afc-pdf-browser.js','UCVM_AFC_PDF');return window.UCVM_AFC_PDF}
  async function ensureApprovalWorkflow(){await loadScriptOnce('faculty-swap-safe.js','UCVM_SAFE_SWAP');await loadScriptOnce('faculty-swap-handoff.js');await loadScriptOnce('approval-workflow.js');return true}
- function loadApprovalWorkflowAfterPage(){ensureApprovalWorkflow().catch(error=>console.error('[approval workflow loader]',error))}
+ function enableFacultyDashboardLink(){
+  const button=document.getElementById('faculty-dashboard-btn'),profile=window.UCVM_PAGE_DATA?.profile?.();
+  if(!button||!profile||!['faculty','hicc','visc'].includes(UCVM.role(profile?.role)))return;
+  button.classList.remove('hidden');
+  if(button.dataset.facultySelfDashboard==='1')return;
+  button.dataset.facultySelfDashboard='1';
+  button.addEventListener('click',()=>{window.location.href='faculty-admin.html'});
+ }
+ function scheduleFacultyDashboardLink(){setTimeout(enableFacultyDashboardLink,0)}
+ function loadApprovalWorkflowAfterPage(){ensureApprovalWorkflow().catch(error=>console.error('[approval workflow loader]',error));scheduleFacultyDashboardLink()}
+ window.addEventListener('ucvm:sessions-updated',scheduleFacultyDashboardLink);
  if(document.readyState==='complete')setTimeout(loadApprovalWorkflowAfterPage,0);else window.addEventListener('load',loadApprovalWorkflowAfterPage,{once:true});
  return{loadScriptOnce,ensureAfcPdf,ensureApprovalWorkflow};
 })();
