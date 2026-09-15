@@ -8,7 +8,7 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
 - ADFA General, ADFA Regular, HICC, VISC and Faculty profiles.
 - ADFA General profile-first account creation and reviewed bulk provisioning from faculty records.
 - HICC group ownership, course scope and membership. HICCs can change members in their own groups.
-- Faculty self-service in Timetable, including Day/List teaching views and AFC requests.
+- Faculty self-service in Timetable, including Day/List teaching views, AFC requests, and privacy-safe replacement requests.
 - ADFA timetable/session editing and faculty records in Faculty Dashboard.
 - Dashboard-originated history in `session_change_log` and `faculty_change_log`, including before/after details for new edits.
 - Self-service password change and Firebase password-reset email.
@@ -31,22 +31,38 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
    - `active`: `true`
    - `mustChangePassword`: `false` (unless you intentionally want the password-change page first)
    Do this before relying on the new User Management page. Legacy `admin` still retains timetable and Faculty Dashboard access but is not ADFA General.
-5. From the repository root deploy **rules only**:
+5. From the repository root deploy **rules and indexes**:
    ```bash
    npx firebase deploy --project tester-teaching --only firestore:rules,firestore:indexes
    ```
    If the local Firebase CLI dependency is unavailable later, any Firebase CLI installation can deploy these rules; Cloud Functions are not required.
-6. Publish the frontend files with Firebase Hosting:
+6. Publish the frontend to Firebase Hosting. Firebase and Azure both consume the exact allowlist in `tools/static-assets.json` through `tools/build-static.js`:
    ```bash
    npx firebase deploy --project tester-teaching --only hosting
    ```
-   The production URL is `https://tester-teaching.web.app/`. This keeps the source repository private and does not require GitHub Pages.
-7. Sign in as ADFA General and open User Management.
-8. To add one person, choose their faculty profile in **New account**. The profile supplies the name and email; choose the access role and enter a temporary password. Firebase supplies the Authentication UID after creation.
-9. To prepare all faculty accounts, choose **Preview changes** under **Create missing faculty accounts**. Review the proposed creates, access updates, excluded records, and source-role cleanup before entering the temporary password and selecting **Apply reviewed changes**.
-10. Keep **Require password change on next dashboard sign-in** selected for new accounts. The temporary password is sent only to Firebase Authentication and is not stored in Firestore, source code, or audit logs.
-11. Create HICC groups, assign an HICC owner, course numbers and members.
-12. Test with one Administrator, one HICC and one Faculty account before broader rollout.
+   The Firebase production URL is `https://tester-teaching.web.app/`.
+7. Publish the same static bundle to Microsoft Azure Static Web Apps:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File tools/deploy_azure_static_web.ps1
+   ```
+   Do not copy a separate set of frontend files for Azure. The deployment script rebuilds `.deploy-static` from the same allowlist used by Firebase.
+8. Sign in once as Owner / ADFA General or another administrator and open **Faculty Dashboard**. If the privacy-safe faculty replacement directory does not exist yet, the dashboard creates `settings/faculty_swap_index` and the admin-only `settings/faculty_swap_map` from the current Faculty Database.
+9. Open User Management.
+10. To add one person, choose their faculty profile in **New account**. The profile supplies the name and email; choose the access role and enter a temporary password. Firebase supplies the Authentication UID after creation.
+11. To prepare all faculty accounts, choose **Preview changes** under **Create missing faculty accounts**. Review the proposed creates, access updates, excluded records, and source-role cleanup before entering the temporary password and selecting **Apply reviewed changes**.
+12. Keep **Require password change on next dashboard sign-in** selected for new accounts. The temporary password is sent only to Firebase Authentication and is not stored in Firestore, source code, or audit logs.
+13. Create HICC groups, assign an HICC owner, course numbers and members.
+14. Test with one Administrator, one HICC and one Faculty account before broader rollout.
+
+## Faculty replacement requests
+
+For **Request replacement for me**, the faculty-facing picker is sourced from the complete active Faculty Database through a sanitized derived directory rather than from dashboard login accounts. The browser receives a display name, opaque candidate key, aliases needed for timetable matching, and binary away-from-campus availability dates. It does not receive another faculty member's UCID, email, DOE, AFC purpose/reason, or other Faculty Database fields.
+
+The picker shows **Available** when clear. An AFC conflict shows only **Unavailable**. A timetable overlap may show the conflicting course and time because the timetable is already visible to authorized timetable users. `Sessional` and `Other` are also available; either choice requires a non-blank Reason / Note.
+
+Normal faculty requests store only the opaque candidate key and display name. During approval, ADFA resolves that key using the admin-only mapping, reloads the live faculty and timetable data, rechecks AFC and timetable conflicts, and then applies the replacement. Approved `Sessional` / `Other` requests write that literal category/name with no Faculty UCID.
+
+The sanitized directory is rebuilt whenever the full Faculty Dashboard derived indexes are rebuilt, and approved AFC dates are added to its binary availability projection in the same approval batch.
 
 ## Passwords
 
