@@ -114,6 +114,8 @@ github-pages
 
 Repository setup must set **Settings -> Pages -> Build and deployment -> Source** to **GitHub Actions**.
 
+The `github-pages` environment is the automatically deployed test target, not a manual approval gate. It must not be restricted to `main` only, because same-repository PR branches need to publish the fixed test site. Do not add required reviewers to this environment. Safety comes from the workflow's same-repository PR condition plus successful automated verification before the deploy job.
+
 ## Fixed-Site Concurrency
 
 Because only one GitHub Pages test site exists, use one fixed concurrency group for Pages testing, with superseded runs cancelled.
