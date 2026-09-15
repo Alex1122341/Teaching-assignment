@@ -65,3 +65,10 @@ test('faculty admin enhancements reuse the page snapshots', () => {
   assert.doesNotMatch(source, /collection\('sessions'\)\.onSnapshot/);
   assert.doesNotMatch(source, /db\.doc\(`users\/\$\{u\.uid\}`\)\.get\(\)/);
 });
+
+test('audit details are written directly without scanning recent logs after save',()=>{
+ const access=read('faculty-access.js'),timetable=read('timetable.js'),admin=read('faculty-admin.js');
+ assert.doesNotMatch(access,/patchRecent|waitClosed|new MutationObserver\(inspect\)/);
+ assert.match(timetable,/UCVM_AUDIT_DETAILS\.diff/);
+ assert.match(admin,/UCVM_AUDIT_DETAILS\.diff/);
+});

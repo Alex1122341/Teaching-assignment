@@ -28,3 +28,25 @@ test('change groups show three details until expanded',()=>{
  assert.deepEqual(plain(details.group(changes,false)),{visible:[{field:'1'},{field:'2'},{field:'3'}],remaining:2});
  assert.deepEqual(plain(details.group(changes,true)),{visible:changes,remaining:0});
 });
+
+test('session audit diff records changed fields and normalized faculty names',()=>{
+ const details=load(),before={date:'2026-09-17',course:'204',topic:'Old',assignments:[{ucid:'1',name:'Alex'}]},after={...before,topic:'New',assignments:[{ucid:'2',name:'Blair'}]};
+ assert.deepEqual(plain(details.diff(before,after,'session')), [
+  {field:'topic',label:'Topic',before:'Old',after:'New'},
+  {field:'assignments',label:'Faculty',before:['Alex'],after:['Blair']}
+ ]);
+});
+
+test('faculty audit diff supports create and delete without logging empty fields',()=>{
+ const details=load(),faculty={ucid:'100',preferredFullName:'Doe, Jane',email:'jane@example.ca',office:''};
+ assert.deepEqual(plain(details.diff(null,faculty,'faculty')), [
+  {field:'ucid',label:'UCID',before:null,after:'100'},
+  {field:'preferredFullName',label:'Preferred name',before:null,after:'Doe, Jane'},
+  {field:'email',label:'Email',before:null,after:'jane@example.ca'}
+ ]);
+ assert.deepEqual(plain(details.diff(faculty,null,'faculty')), [
+  {field:'ucid',label:'UCID',before:'100',after:null},
+  {field:'preferredFullName',label:'Preferred name',before:'Doe, Jane',after:null},
+  {field:'email',label:'Email',before:'jane@example.ca',after:null}
+ ]);
+});
