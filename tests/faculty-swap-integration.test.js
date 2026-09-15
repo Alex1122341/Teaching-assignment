@@ -35,18 +35,15 @@ test('faculty replacement button hands off to the safe picker before the legacy 
  assert.match(src,/openSelfReplacement\(session\)/);
 });
 
-test('legacy self-swap directly delegates assigned faculty to the safe picker before loading account candidates',()=>{
- const src=read('approval-workflow.js');
- const start=src.indexOf('async function openSelfSwap(s)');
- const end=src.indexOf('function statusLabel',start);
- assert.ok(start>=0&&end>start,'openSelfSwap must exist');
- const fn=src.slice(start,end);
- const delegate=fn.indexOf('window.UCVM_SAFE_SWAP?.openSelfReplacement');
- const legacyLoad=fn.indexOf('ensureReplacementPeople');
- assert.ok(delegate>=0,'openSelfSwap must directly delegate to UCVM_SAFE_SWAP');
- assert.ok(legacyLoad>=0&&delegate<legacyLoad,'safe delegation must happen before loading legacy account candidates');
- assert.match(fn,/selfAssignmentIndexes\(s\)\.length/);
- assert.match(fn,/return window\.UCVM_SAFE_SWAP\.openSelfReplacement\(s\)/);
+test('safe handoff blocks the legacy picker before resolving the session and falls back to Firestore',()=>{
+ const src=read('faculty-swap-handoff.js');
+ const buttonCheck=src.indexOf("const button=event.target.closest?.('#workflow-self-swap')");
+ const stop=src.indexOf('event.stopImmediatePropagation()');
+ const cachedLookup=src.indexOf('sessionById(lastSessionId)');
+ assert.ok(buttonCheck>=0&&stop>buttonCheck,'handoff must stop the matching button click');
+ assert.ok(cachedLookup>=0&&stop<cachedLookup,'legacy propagation must be stopped before cached session resolution');
+ assert.match(src,/db\.collection\(SESSIONS\)\.doc\(lastSessionId\)\.get\(\)/);
+ assert.match(src,/openSelfReplacement\(session\)/);
 });
 
 test('approval resolves opaque candidate keys through admin-only mapping and supports special categories',()=>{
