@@ -9,7 +9,7 @@
  const $=id=>document.getElementById(id), esc=UCVM.esc;
  const REQUESTS='change_requests', SESSIONS='sessions', LOGS='session_change_log';
  let me=null,user=null,role='',sessions=new Map(),people=[],peopleByUid=new Map(),groups=[],myGroups=[],hiccScope=new Set();
- let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleUnsub=null,renderQueued=false;
+ let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleLoading=null,renderQueued=false;
  let approvalFaculty=[],approvalFacultyById=new Map(),approvalFacultyLoaded=false;
  let approvalSessionsComplete=false,approvalSessionDatesLoaded=new Set(),openApprovalFromHash=location.hash==='#approvals';
  let requestsReady=false,afcRequestsReady=false;
@@ -114,32 +114,29 @@
   const t=$('toast'); if(!t){alert(msg);return} t.textContent=msg;t.classList.toggle('error',error);t.classList.add('show');setTimeout(()=>t.classList.remove('show'),error?6000:3200);
  }
 
- function listenPeople(){
-  if(peopleUnsub){peopleUnsub();peopleUnsub=null}
-  if(!roleIsFaculty(role))return;
-  peopleUnsub=db.collection('users').where('role','in',['faculty','hicc','visc']).onSnapshot(q=>{
+ async function ensureReplacementPeople(){
+  if(people.length)return people;
+  if(peopleLoading)return peopleLoading;
+  peopleLoading=db.collection('users').where('role','in',['faculty','hicc','visc']).get().then(q=>{
     people=q.docs.map(d=>({uid:d.id,...d.data(),role:UCVM.role(d.data().role)})).filter(p=>p.active===true);
     peopleByUid=new Map(people.map(p=>[p.uid,p]));
-    rebuildHiccScope();
-  },e=>console.warn('[workflow people]',e));
+    rebuildHiccScope();queueDecorate();return people;
+  }).catch(e=>{console.warn('[workflow people]',e);return[]}).finally(()=>{peopleLoading=null});
+  return peopleLoading;
  }
  function listenGroups(){
   if(groupUnsub){groupUnsub();groupUnsub=null}
   if(role!=='hicc'){groups=[];myGroups=[];hiccScope.clear();return}
   groupUnsub=db.collection('faculty_groups').where('ownerUid','==',user.uid).onSnapshot(q=>{
-    groups=q.docs.map(d=>({id:d.id,...d.data()}));myGroups=groups;rebuildHiccScope();injectButtons();
+    groups=q.docs.map(d=>({id:d.id,...d.data()}));myGroups=groups;rebuildHiccScope();injectButtons();ensureReplacementPeople().then(()=>{rebuildHiccScope();queueDecorate()});
   },e=>console.warn('[workflow groups]',e));
  }
  function listenSessions(){
   if(sessionUnsub){sessionUnsub();sessionUnsub=null}
   if(!user)return;
-  if(window.UCVM_PAGE_DATA?.sessions){
-   const sync=()=>{const rows=window.UCVM_PAGE_DATA.sessions();for(const s of rows)sessions.set(s.id,s);approvalSessionsComplete=false;rebuildHiccScope();queueDecorate()};
-   window.addEventListener('ucvm:sessions-updated',sync);sync();sessionUnsub=()=>window.removeEventListener('ucvm:sessions-updated',sync);return;
-  }
-  sessionUnsub=db.collection(SESSIONS).onSnapshot(q=>{
-    sessions=new Map(q.docs.map(d=>[d.id,{id:d.id,...d.data()}]));rebuildHiccScope();queueDecorate();
-  },e=>console.warn('[workflow sessions]',e));
+  if(!window.UCVM_PAGE_DATA?.sessions)return;
+  const sync=()=>{const rows=window.UCVM_PAGE_DATA.sessions();for(const s of rows)sessions.set(s.id,s);approvalSessionsComplete=false;rebuildHiccScope();queueDecorate()};
+  window.addEventListener('ucvm:sessions-updated',sync);sync();sessionUnsub=()=>window.removeEventListener('ucvm:sessions-updated',sync);
  }
  function listenRequests(){
   if(requestUnsub){requestUnsub();requestUnsub=null}
@@ -271,14 +268,16 @@
   $('workflow-edit-form').onsubmit=async ev=>{ev.preventDefault();const f=new FormData(ev.currentTarget),patch={date:f.get('date'),start:f.get('start'),end:f.get('end'),topic:String(f.get('topic')||'').trim(),type:String(f.get('type')||'').trim(),room:String(f.get('room')||'').trim()},before=baseSnapshot(s),changes=[];for(const k of Object.keys(patch))if(!sameVal(before[k],patch[k]))changes.push({field:k,before:before[k],after:patch[k]});if(!changes.length)return toast('No changes were entered.',true);try{await createRequest({requestType:'session_edit',scope:'hicc',groupId:g.id,groupName:g.name||'',sessionId:s.id,course:s.course||'',date:ymd(s.date),topic:s.topic||'',base:before,patch,changes,reason:String(f.get('reason')||'').trim()})}catch(e){toast(e.message,true)}};
  }
 
- function openHiccSwap(s,g){
+ async function openHiccSwap(s,g){
+  await ensureReplacementPeople();
   const arr=assignedArray(s),members=(g.memberUids||[]).map(uid=>peopleByUid.get(uid)).filter(p=>p?.active&&p.facultyId),existing=new Set(arr.map(a=>String(a.ucid||'')).filter(Boolean));
   if(!arr.length)return toast('This session has no assigned faculty to swap.',true);
   showModal(`<div class="modal-header"><div class="modal-title">Request HICC faculty swap</div><div class="modal-subtitle">${esc(g.name)} · group-member replacement · ADFA approval required</div></div><form id="workflow-hicc-swap-form"><div class="modal-body">${sessionSummary(s)}<label class="form-field"><span class="form-label">Replace current instructor</span><select class="form-select" name="out">${arr.map((a,i)=>`<option value="${i}">${esc(a.name||'Unknown')}</option>`).join('')}</select></label><label class="form-field"><span class="form-label">With HICC group member</span><select class="form-select" name="to">${optionPeople(members,existing)}</select></label><label class="form-field"><span class="form-label">Reason / note</span><input class="form-input" name="reason" placeholder="Optional"></label><div class="workflow-note">Only active dashboard accounts that are members of this HICC group are shown as HICC replacement candidates.</div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-workflow-close>Cancel</button><button class="btn btn-primary" type="submit">Submit for approval</button></div></form>`);
   $('workflow-hicc-swap-form').onsubmit=async ev=>{ev.preventDefault();const f=new FormData(ev.currentTarget),idx=Number(f.get('out')),incoming=peopleByUid.get(String(f.get('to')||'')),out=arr[idx];if(!out||!incoming)return toast('Select both faculty members.',true);try{await createSwapRequest(s,out,idx,incoming,'hicc',g,String(f.get('reason')||''))}catch(e){toast(e.message,true)}};
  }
 
- function openSelfSwap(s){
+ async function openSelfSwap(s){
+  await ensureReplacementPeople();
   const arr=assignedArray(s),own=selfAssignmentIndexes(s),myPerson=people.find(p=>p.uid===user.uid)||{uid:user.uid,name:me?.name||me?.instructor||user.email,facultyId:ownFacultyId(),active:true};
   if(!myPerson.facultyId)return toast('Your account needs a linked faculty record before you can request a swap.',true);
   if(own.length){
@@ -364,8 +363,8 @@ async function hydrateApprovalImpacts(){
  }
 
  auth.onAuthStateChanged(async u=>{
-  user=u;me=null;role='';hiccMode=false;sessions.clear();requests=[];afcRequests=[];requestsReady=false;afcRequestsReady=false;approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;approvalSessionDatesLoaded=new Set();if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}if(peopleUnsub){peopleUnsub();peopleUnsub=null}
+  user=u;me=null;role='';hiccMode=false;sessions.clear();people=[];peopleByUid=new Map();peopleLoading=null;requests=[];afcRequests=[];requestsReady=false;afcRequestsReady=false;approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;approvalSessionDatesLoaded=new Set();if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}
   if(!u){injectButtons();queueDecorate();return}
-  try{const d=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(u.uid):await db.doc(`users/${u.uid}`).get();me=d.data()||{};await UCVM.ready(u,me);role=UCVM.role(me.role);listenPeople();listenGroups();listenSessions();listenRequests();listenAfcRequests();injectButtons()}catch(e){console.warn('[approval workflow init]',e)}
+  try{const d=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(u.uid):await db.doc(`users/${u.uid}`).get();me=d.data()||{};await UCVM.ready(u,me);role=UCVM.role(me.role);listenGroups();listenSessions();listenRequests();listenAfcRequests();injectButtons()}catch(e){console.warn('[approval workflow init]',e)}
  });
 })();

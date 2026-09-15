@@ -36,6 +36,16 @@ test('approval workflow fetches only sessions referenced by requests',()=>{
  assert.doesNotMatch(source,/approvalSessionFacultyLoaded/);
  assert.doesNotMatch(source,/db\.collection\(SESSIONS\)\.get\(\)/);
  assert.doesNotMatch(source,/UCVM_PAGE_DATA\?\.allSessions/);
+ assert.doesNotMatch(source,/db\.collection\(SESSIONS\)\.onSnapshot/);
+});
+
+test('replacement accounts and change-history pages load only when requested',()=>{
+ const workflow=read('approval-workflow.js'),access=read('faculty-access.js');
+ assert.match(workflow,/function ensureReplacementPeople/);
+ assert.match(workflow,/where\('role','in',\['faculty','hicc','visc'\]\)\.get\(\)/);
+ assert.doesNotMatch(workflow,/listenPeople\(\)/);
+ assert.match(access,/const PAGE_SIZE=20/);
+ assert.match(access,/\.limit\(PAGE_SIZE\)/);
 });
 
 test('User Management uses the lightweight faculty index until an Owner requests bulk provisioning',()=>{
