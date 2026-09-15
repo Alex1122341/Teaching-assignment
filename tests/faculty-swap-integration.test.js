@@ -25,6 +25,11 @@ test('faculty self swap uses sanitized directory with availability and special t
  assert.doesNotMatch(src,/Search name, specialty, teaching area, UCID/i);
 });
 
+test('legacy faculty replacement flow delegates directly to the safe picker when the user is already assigned',()=>{
+ const src=read('approval-workflow.js');
+ assert.match(src,/if\(own\.length&&window\.UCVM_SAFE_SWAP\?\.openSelfReplacement\)return window\.UCVM_SAFE_SWAP\.openSelfReplacement\(s\);/);
+});
+
 test('approval resolves opaque candidate keys through admin-only mapping and supports special categories',()=>{
  const src=read('faculty-swap-safe.js');
  assert.match(src,/faculty_swap_map/);
