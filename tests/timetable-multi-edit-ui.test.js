@@ -29,12 +29,13 @@ test('selection mode routes every rendered session through stable IDs and blocks
  assert.match(js,/selectionViewFlow\.review\(\)/);
 });
 
-test('spreadsheet editor validates before one atomic commit and refreshes indexes afterward',()=>{
+test('spreadsheet editor validates before one atomic commit and applies exact index deltas afterward',()=>{
  const js=read('timetable.js');
  for(const field of ['date','year','course','type','start','end','topic','room','faculty'])assert.match(js,new RegExp(`data-selection-field=["']${field}["']`));
  assert.match(js,/planChanges\(/);
  assert.match(js,/firestoreSafeSession\(update\.data\)/);
  assert.match(js,/updatedBy:currentUser\.uid[\s\S]*updatedAt:timestamp/);
  assert.match(js,/commitPlan\(/);
- assert.match(js,/invalidateAllSessions\(\)[\s\S]*refreshDerivedIndexes\(\{rethrow:true\}\)/);
+ assert.match(js,/plan\.logs\.map\(log=>\(\{before:log\.before,after:log\.after\}\)\)/);
+ assert.match(js,/invalidateAllSessions\(\);await updateDerivedIndexes\(changes,\{rethrow:true\}\)/);
 });

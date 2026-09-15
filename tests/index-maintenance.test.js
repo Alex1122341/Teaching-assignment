@@ -21,9 +21,12 @@ test('session writes add derived faculty IDs',()=>{
  assert.match(approval,/patch\.facultyIds=UCVM_DATA_INDEX\.sessionFacultyIds/);
 });
 
-test('session and faculty mutations refresh derived settings',()=>{
- const index=read('timetable.js'),admin=read('faculty-admin.js'),maintenance=read('index-maintenance.js');
- assert.match(index,/refreshDerivedIndexes/);
+test('session mutations update derived settings from exact before and after records',()=>{
+ const index=read('timetable.js'),approval=read('approval-workflow.js'),admin=read('faculty-admin.js'),maintenance=read('index-maintenance.js');
+ assert.match(index,/UCVM_INDEX_MAINTENANCE\.updateDerivedIndexes\(db,changes/);
+ assert.match(index,/\{before:existing\|\|null,after:next\}/);
+ assert.match(index,/\{before:s,after:null\}/);
+ assert.match(approval,/updateDerivedIndexes\?\.\(\[\{before:current,after/);
  assert.match(admin,/writeDerivedIndexes/);
  assert.match(maintenance,/faculty_index/);
  assert.match(maintenance,/schedule_stats/);
@@ -32,4 +35,34 @@ test('session and faculty mutations refresh derived settings',()=>{
 test('derived settings writes are limited to administrators',()=>{
  const rules=read('firestore.rules');
  assert.match(rules,/id in \['faculty_index','schedule_stats'\].*admin\(\)/s);
+});
+
+test('session deltas update totals, courses, faculty counts, and assigned DOE',()=>{
+ const api=require(path.join(root,'index-maintenance.js'));
+ const facultyIndex={entries:[
+  {id:'1001',name:'Alex',sessionCount:1,assignedTeachingDOE:5},
+  {id:'1002',name:'Blair',sessionCount:0,assignedTeachingDOE:10}
+ ]};
+ const stats={sessionCount:1,assignedFacultyCount:1,courseCounts:{200:1}};
+ const before={id:'s1',course:'200',assignments:[{ucid:'1001',doeCredit:5}]};
+ const after={id:'s1',course:'204',assignments:[{ucid:'1002',doeCredit:2.5}]};
+ const result=api.applySessionChanges(facultyIndex,stats,[{before,after}]);
+ assert.deepEqual(result.scheduleStats,{sessionCount:1,assignedFacultyCount:1,courseCounts:{204:1}});
+ assert.deepEqual(result.facultyIndex.entries,[
+  {id:'1001',name:'Alex',sessionCount:0,assignedTeachingDOE:0},
+  {id:'1002',name:'Blair',sessionCount:1,assignedTeachingDOE:12.5}
+ ]);
+ assert.deepEqual(facultyIndex.entries[0],{id:'1001',name:'Alex',sessionCount:1,assignedTeachingDOE:5});
+});
+
+test('create and delete session deltas are reversible and empty changes are idempotent',()=>{
+ const api=require(path.join(root,'index-maintenance.js'));
+ const index={entries:[{id:'1001',sessionCount:0,assignedTeachingDOE:7}]},stats={sessionCount:0,assignedFacultyCount:0,courseCounts:{}};
+ const session={id:'s1',course:'300',assignments:[{facultyId:'1001',doeCredit:1.25}]};
+ const added=api.applySessionChanges(index,stats,[{before:null,after:session}]);
+ assert.deepEqual(added.scheduleStats,{sessionCount:1,assignedFacultyCount:1,courseCounts:{300:1}});
+ assert.deepEqual(added.facultyIndex.entries,[{id:'1001',sessionCount:1,assignedTeachingDOE:8.25}]);
+ const removed=api.applySessionChanges(added.facultyIndex,added.scheduleStats,[{before:session,after:null}]);
+ assert.deepEqual(removed,{facultyIndex:index,scheduleStats:stats});
+ assert.deepEqual(api.applySessionChanges(index,stats,[]),{facultyIndex:index,scheduleStats:stats});
 });
