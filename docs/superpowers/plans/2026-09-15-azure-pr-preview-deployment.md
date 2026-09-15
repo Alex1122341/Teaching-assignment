@@ -63,7 +63,7 @@ test('Azure Static Web Apps routing config is committed at repository root',()=>
 test('manual Azure fallback copies the canonical config instead of generating a second copy',()=>{
   const script=read('tools/deploy_azure_static_web.ps1');
   assert.match(script,/Join-Path \$SitePath 'staticwebapp\.config\.json'/);
-  assert.match(script,/Copy-Item .*staticwebapp\.config\.json/);
+  assert.match(script,/Copy-Item -LiteralPath \$azureConfigSource -Destination/);
   assert.doesNotMatch(script,/\$azureConfig\s*=\s*@\{/);
 });
 ```
@@ -169,8 +169,8 @@ Append to `tests/azure-deployment.test.js`:
 test('Azure deployment workflow gates uploads and separates PR preview from production',()=>{
   const workflow=read('.github/workflows/azure-static-web-apps.yml');
 
-  assert.match(workflow,/push:\s*[\s\S]*branches:\s*\[?main\]?/);
-  assert.match(workflow,/pull_request:\s*[\s\S]*opened[\s\S]*synchronize[\s\S]*reopened[\s\S]*closed/);
+  assert.match(workflow,/push:\s*\n\s+branches:\s*\[main\]/);
+  assert.match(workflow,/pull_request:\s*\n\s+types:\s*\[opened, synchronize, reopened, closed\]\s*\n\s+branches:\s*\[main\]/);
   assert.doesNotMatch(workflow,/pull_request_target/);
 
   assert.match(workflow,/npm ci/);
@@ -190,7 +190,8 @@ test('Azure deployment workflow gates uploads and separates PR preview from prod
   assert.match(workflow,/action:\s*['"]?upload['"]?/);
   assert.match(workflow,/action:\s*['"]?close['"]?/);
 
-  assert.match(workflow,/github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
+  const sameRepoGuard=/github\.event\.pull_request\.head\.repo\.full_name == github\.repository/g;
+  assert.equal((workflow.match(sameRepoGuard)||[]).length,2);
   assert.match(workflow,/cancel-in-progress:\s*\$\{\{ github\.event_name == 'pull_request' \}\}/);
   assert.match(workflow,/static_web_app_url/);
 });
@@ -389,6 +390,8 @@ Create the Actions repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN` with the 
 
 Forked pull requests do not receive the Azure deployment secret and are not preview-deployed.
 
+If verification or Azure upload fails, treat the deployment workflow as failed and do not merge. The previous Azure production deployment remains the rollback reference until a new production deployment succeeds.
+
 ### Firestore rule changes
 
 If a pull request changes `firestore.rules`, deploy the rules separately after review:
@@ -481,11 +484,11 @@ Expected: `tools/build-static.js` reports a successful build from `tools/static-
 Run:
 
 ```bash
-git grep -n -E 'AZURE_STATIC_WEB_APPS_API_TOKEN[^}]|DEPLOYMENT_TOKEN=|Bearer [A-Za-z0-9._-]+' -- ':!docs/superpowers/*' || true
+git grep -n -E 'azure_static_web_apps_api_token:[[:space:]]*[^$[:space:]]|DEPLOYMENT_TOKEN[[:space:]]*=[[:space:]]*[^$[:space:]]|Bearer [A-Za-z0-9._-]{20,}' -- . ':!docs/superpowers/*' || true
 git grep -n 'firebase deploy.*hosting' .github tools SETUP.md || true
 ```
 
-Expected: no literal Azure secret/token value is present; no GitHub workflow invokes Firebase Hosting. A historical/manual reference is acceptable only if clearly documented as non-routine fallback, not as the normal path.
+Expected: no literal Azure secret/token value is present; no GitHub workflow invokes Firebase Hosting. Historical/manual Firebase Hosting text is acceptable only if it is explicitly labelled non-routine fallback rather than the normal path.
 
 - [ ] **Step 5: Review the branch diff against the spec**
 
@@ -562,13 +565,24 @@ Because preview and production use `tester-teaching`, avoid test actions that in
 
 - [ ] **Step 5: Prove synchronize updates the same PR environment**
 
-Make one harmless documentation-only commit on the same PR (for example, a wording correction that is genuinely needed; do not create meaningless production churn solely for this check) or use a required code correction if one exists.
+Make one harmless documentation-only commit on the same PR only if a genuine wording/code correction is already needed.
 
 Expected: the PR `synchronize` event reruns verification and updates the same PR-number preview environment rather than creating a permanent branch environment.
 
 If no legitimate follow-up commit exists, document this check as deferred rather than adding noise solely to force an event.
 
-- [ ] **Step 6: Merge only after the user approves the preview**
+- [ ] **Step 6: Validate the modified manual fallback on Windows without deploying production**
+
+From a Windows checkout of the PR branch, run:
+
+```cmd
+powershell -NoProfile -Command "Unblock-File -LiteralPath '.\tools\deploy_azure_static_web.ps1'"
+powershell -File .\tools\deploy_azure_static_web.ps1 -BuildOnly
+```
+
+Expected: `.deploy-static` is rebuilt successfully and contains `staticwebapp.config.json`. Do **not** run the full fallback upload merely to test it, because that would bypass the PR gate and deploy unmerged code to production; the upload/authentication portion is intentionally unchanged from the previously verified fallback.
+
+- [ ] **Step 7: Merge only after the user approves the preview**
 
 Expected after merge:
 
@@ -577,11 +591,11 @@ Expected after merge:
 - production URL remains the existing Azure Static Web Apps URL;
 - Firebase Hosting is not invoked.
 
-- [ ] **Step 7: Verify preview cleanup**
+- [ ] **Step 8: Verify preview cleanup**
 
 Expected: the pull-request `closed` event runs `close_pull_request`, Azure removes the PR preview environment, and the production environment remains available.
 
-- [ ] **Step 8: Record final deployment evidence in the PR**
+- [ ] **Step 9: Record final deployment evidence in the PR**
 
 Add a concise PR comment containing only non-secret evidence:
 
