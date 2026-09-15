@@ -52,5 +52,67 @@ function facultyEntry(id,faculty,sessionStats={}){
   for(const entry of entries)if(entry.assignedTeachingDOE!==null)entry.assignedTeachingDOE=Number(entry.assignedTeachingDOE.toFixed(6));
   return{schemaVersion:'ucvm-faculty-index-v1',entries};
  }
- return{facultyEntry,facultySearchText,sessionFacultyIds,buildFacultyIndex,scheduleStats,dateChunks};
+ function swapAliases(f){
+  const summary=f?.facultySummary2026_27||{};
+  const values=[f?.preferredFullName,f?.hrFirstLast,f?.hrFullName,f?.teachingAssignmentName,summary?.displayName];
+  if(f?.firstName&&f?.lastName)values.push(`${f.firstName} ${f.lastName}`);
+  return uniqueSorted(values);
+ }
+ function safeUnavailableRanges(f){
+  const seen=new Set(),out=[];
+  for(const record of Array.isArray(f?.awayFromCampusRecords)?f.awayFromCampusRecords:[]){
+   const startDate=text(record?.startDate).slice(0,10),endDate=text(record?.endDate).slice(0,10);
+   if(!/^\d{4}-\d{2}-\d{2}$/.test(startDate)||!/^\d{4}-\d{2}-\d{2}$/.test(endDate)||startDate>endDate)continue;
+   const key=`${startDate}|${endDate}`;if(seen.has(key))continue;seen.add(key);out.push({startDate,endDate});
+  }
+  return out.sort((a,b)=>a.startDate.localeCompare(b.startDate)||a.endDate.localeCompare(b.endDate));
+ }
+ function buildFacultySwapIndexes(facultyRows,previousMap={},keyFactory){
+  if(typeof keyFactory!=='function')throw Error('A swap candidate key factory is required.');
+  const previous=new Map((Array.isArray(previousMap?.entries)?previousMap.entries:[]).map(row=>[text(row?.facultyId),text(row?.key)]).filter(([id,key])=>id&&key));
+  const used=new Set(previous.values()),publicEntries=[],privateEntries=[];
+  const rows=(Array.isArray(facultyRows)?facultyRows:[]).filter(f=>f&&f.active!==false).map(f=>({f,id:text(f.__id||f.id||f.ucid)})).filter(x=>x.id);
+  for(const {f,id} of rows){
+   let key=previous.get(id)||'';
+   if(!key){for(let i=0;i<20&&!key;i++){const candidate=text(keyFactory());if(candidate&&!used.has(candidate))key=candidate}if(!key)throw Error(`Could not allocate an opaque swap key for ${id}.`)}
+   used.add(key);
+   const aliases=swapAliases(f),name=text(f.preferredFullName||f.hrFirstLast||f.hrFullName||f.teachingAssignmentName||aliases[0]||'Faculty');
+   publicEntries.push({key,name,aliases,unavailableRanges:safeUnavailableRanges(f)});
+   privateEntries.push({key,facultyId:id});
+  }
+  publicEntries.sort((a,b)=>a.name.localeCompare(b.name)||a.key.localeCompare(b.key));
+  const order=new Map(publicEntries.map((row,i)=>[row.key,i]));privateEntries.sort((a,b)=>(order.get(a.key)??0)-(order.get(b.key)??0));
+  return{publicIndex:{schemaVersion:'ucvm-faculty-swap-index-v1',entries:publicEntries},privateMap:{schemaVersion:'ucvm-faculty-swap-map-v1',entries:privateEntries}};
+ }
+ function swapNorm(v){return text(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ')}
+ function timeMinutes(v){const m=text(v).match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i);if(!m)return null;let h=Number(m[1]),min=Number(m[2]);if(m[3]){const ap=m[3].toUpperCase();if(h===12)h=0;if(ap==='PM')h+=12}return h<=23&&min<=59?h*60+min:null}
+ function timesOverlap(aStart,aEnd,bStart,bEnd){const as=timeMinutes(aStart),ae=timeMinutes(aEnd),bs=timeMinutes(bStart),be=timeMinutes(bEnd);return ![as,ae,bs,be].some(v=>v===null)&&ae>as&&be>bs&&as<be&&bs<ae}
+ function sessionNames(session){
+  const names=[];for(const a of Array.isArray(session?.assignments)?session.assignments:[])if(a?.name)names.push(a.name);
+  if(!names.length)for(const name of text(session?.instructor).split(';').map(x=>x.trim()).filter(Boolean))names.push(name);
+  return names;
+ }
+ function assessSwapCandidate(candidate,sessions,targetSession){
+  const date=text(targetSession?.date).slice(0,10),targetId=text(targetSession?.id),aliases=new Set((Array.isArray(candidate?.aliases)?candidate.aliases:[]).concat(candidate?.name||'').map(swapNorm).filter(Boolean));
+  const afcUnavailable=(Array.isArray(candidate?.unavailableRanges)?candidate.unavailableRanges:[]).some(r=>text(r?.startDate)<=date&&date<=text(r?.endDate));
+  const conflicts=[],possible=[];
+  for(const session of Array.isArray(sessions)?sessions:[]){
+   if(text(session?.id)===targetId||text(session?.date).slice(0,10)!==date)continue;
+   if(!sessionNames(session).some(name=>aliases.has(swapNorm(name))))continue;
+   const safe={course:text(session?.course)||'Course',start:text(session?.start),end:text(session?.end)};
+   const validTarget=timeMinutes(targetSession?.start)!==null&&timeMinutes(targetSession?.end)!==null&&!targetSession?.timeUnknown;
+   const validOther=timeMinutes(session?.start)!==null&&timeMinutes(session?.end)!==null&&!session?.timeUnknown;
+   if(!validTarget||!validOther)possible.push(safe);else if(timesOverlap(targetSession.start,targetSession.end,session.start,session.end))conflicts.push(safe);
+  }
+  return{available:(afcUnavailable||conflicts.length)?false:(possible.length?null:true),afcUnavailable,conflicts,possible};
+ }
+ function conflictText(row){const time=row.start&&row.end?` ${row.start}-${row.end}`:'';return `${row.course||'Course'}${time}`}
+ function swapCandidateDisplay(assessment){
+  const a=assessment||{};
+  if(Array.isArray(a.conflicts)&&a.conflicts.length)return{label:'Unavailable',detail:`Conflict: ${a.conflicts.map(conflictText).join('; ')}`};
+  if(a.afcUnavailable)return{label:'Unavailable',detail:''};
+  if(Array.isArray(a.possible)&&a.possible.length)return{label:'Check needed',detail:`Possible conflict: ${a.possible.map(conflictText).join('; ')}`};
+  return{label:'Available',detail:''};
+ }
+ return{facultyEntry,facultySearchText,sessionFacultyIds,buildFacultyIndex,scheduleStats,dateChunks,buildFacultySwapIndexes,assessSwapCandidate,swapCandidateDisplay};
 });

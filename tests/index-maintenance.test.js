@@ -34,7 +34,7 @@ test('session mutations update derived settings from exact before and after reco
 
 test('derived settings writes are limited to administrators',()=>{
  const rules=read('firestore.rules');
- assert.match(rules,/id in \['faculty_index','schedule_stats'\].*admin\(\)/s);
+ assert.match(rules,/id in \['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map'\].*admin\(\)/s);
 });
 
 test('session deltas update totals, courses, faculty counts, and assigned DOE',()=>{

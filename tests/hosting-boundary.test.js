@@ -15,7 +15,7 @@ test('Firebase and Azure use one allowlisted static build',()=>{
  assert.match(JSON.stringify(firebase.hosting.predeploy),/build-static\.js/);
  assert.match(azure,/build-static\.js/);
  assert.match(azure,/\.deploy-static/);
- for(const file of ['index.html','faculty-admin.html','approval-workflow.js','absence-from-campus-app.pdf'])assert.ok(manifest.includes(file),`${file} is required`);
+ for(const file of ['index.html','faculty-admin.html','approval-workflow.js','faculty-swap-safe.js','absence-from-campus-app.pdf'])assert.ok(manifest.includes(file),`${file} is required`);
 });
 
 test('static manifest excludes repository and development files',()=>{
@@ -53,7 +53,7 @@ test('Azure stages its redirect after the static builder and preserves exactly t
  const config=JSON.parse(fs.readFileSync(path.join(output,'staticwebapp.config.json'),'utf8'));
  assert.deepEqual(config.routes,[{route:'/faculty-dashboard.html',redirect:'/index.html',statusCode:301}]);
  const manifest=JSON.parse(read('tools/static-assets.json'));
- assert.equal(manifest.length,33);
+ assert.equal(manifest.length,34);
  assert.deepEqual(fs.readdirSync(output).filter(name=>name!=='staticwebapp.config.json').sort(),[...manifest].sort());
  for(const name of manifest)assert.deepEqual(fs.readFileSync(path.join(output,name)),fs.readFileSync(path.join(root,name)));
  assert.equal(fs.existsSync(path.join(output,'faculty-dashboard.html')),false);
