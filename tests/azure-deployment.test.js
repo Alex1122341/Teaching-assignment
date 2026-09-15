@@ -52,3 +52,14 @@ test('Azure deployment workflow gates uploads and separates PR preview from prod
   assert.match(workflow,/cancel-in-progress:\s*\$\{\{ github\.event_name == 'pull_request' \}\}/);
   assert.match(workflow,/static_web_app_url/);
 });
+
+test('setup docs describe GitHub-to-Azure as the routine web deployment path',()=>{
+  const setup=read('SETUP.md');
+  assert.match(setup,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
+  assert.match(setup,/pull request/i);
+  assert.match(setup,/preview/i);
+  assert.match(setup,/push to `main`|merge.*`main`/i);
+  assert.match(setup,/firestore:rules/);
+  assert.match(setup,/manual fallback|emergency\/manual fallback/i);
+  assert.doesNotMatch(setup,/Publish the frontend to Firebase Hosting/);
+});
