@@ -14,7 +14,7 @@
  const facultyName=f=>String(f?.preferredFullName||f?.hrFirstLast||f?.hrFullName||summary(f)?.displayName||f?.__id||'');
  const aliases=f=>{const s=new Set();[facultyName(f),f?.preferredFullName,f?.hrFirstLast,f?.hrFullName,f?.teachingAssignmentName,summary(f)?.displayName].forEach(v=>{const k=norm(v);if(k)s.add(k)});if(f?.firstName&&f?.lastName)s.add(norm(`${f.firstName} ${f.lastName}`));return s};
  const contractDOE=f=>[f?.doe?.teaching,f?.doeTeaching,f?.teachingDOE,f?.contractTeachingDOE].map(num).find(v=>v!==null)??null;
- const managedRoles=f=>Array.isArray(f?.managedRoles2026_27)?f.managedRoles2026_27:[];
+ const managedRoles=f=>window.UCVM_ACCOUNT_PLANNER?.normalizedManagedRoles(f)||(Array.isArray(f?.managedRoles2026_27)?f.managedRoles2026_27:[]);
  const roleEffect=r=>{const d=Math.abs(num(r?.doeCredit)||0);return String(r?.action||'add')==='remove'?-d:d};
  const managedRoleDOE=f=>managedRoles(f).reduce((n,r)=>n+roleEffect(r),0);
  const assignmentCredit=a=>{const c=num(a?.doeCredit);if(c!==null)return c;const rate=num(a?.doeRate),h=num(a?.creditedHours);return rate!==null&&h!==null?rate*h:0};
@@ -50,10 +50,10 @@
  function renameDashboard(){
   if(document.documentElement.dataset.ucvmDashboardRenamed==='1')return;
   document.documentElement.dataset.ucvmDashboardRenamed='1';
-  document.title='UCVM Faculty Dashboard - DOE & Faculty Administration';
+  document.title='Faculty Dashboard';
   const bt=document.querySelector('.brand-title');if(bt)bt.textContent='Faculty Dashboard';
   const gt=document.querySelector('.gate-title');if(gt)gt.textContent='Faculty Dashboard';
-  const gc=document.querySelector('.gate-copy');if(gc)gc.innerHTML='This dashboard is restricted to active <strong>Owner, Administrator, or Other Office</strong> accounts. Faculty can use the <a href="faculty-dashboard.html">personal Faculty Dashboard</a>.';
+  const gc=document.querySelector('.gate-copy');if(gc)gc.innerHTML='This dashboard is restricted to active <strong>Owner, Administrator, or Other Office</strong> accounts. Faculty can use the <a href="index.html">Timetable</a> for teaching, AFC requests, and personal change history.';
  }
 
  function ensureDoeView(){

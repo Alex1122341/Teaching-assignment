@@ -11,8 +11,8 @@ test('Firestore persistence is enabled through the shared initializer', () => {
   assert.match(source, /enablePersistence\(\{\s*synchronizeTabs:\s*true\s*\}\)/);
 });
 
-test('the main timetable shares its large snapshots with the approval workflow', () => {
-  const page = read('index.html');
+test('the main timetable shares visible snapshots and the profile read with the approval workflow', () => {
+  const page = read('timetable.js');
   const workflow = read('approval-workflow.js');
   assert.match(page, /UCVM_PAGE_DATA/);
   assert.match(page, /ucvm:sessions-updated/);
@@ -24,29 +24,36 @@ test('the main timetable shares its large snapshots with the approval workflow',
 });
 
 test('authenticated pages reuse the profile read when starting the role watcher', () => {
-  for (const name of ['faculty-dashboard.js', 'user-management.js']) {
+  for (const name of ['user-management.js']) {
     const source = read(name);
     const reads = source.match(/db\.doc\(`users\/\$\{u\.uid\}`\)\.get\(\)/g) || [];
     assert.equal(reads.length, 1, `${name} should fetch the signed-in profile once`);
   }
 });
 
-test('the large auxiliary settings document is loaded only when the roles tab is opened', () => {
-  const source = read('faculty-admin.html');
+test('the large auxiliary settings document is loaded only when the sessional tab is opened', () => {
+  const source = read('faculty-admin.js');
   assert.match(source, /function loadAuxOnce/);
-  assert.match(source, /tab==='roles'.*loadAuxOnce\(\)/);
+  assert.match(source, /tab==='sessional'.*loadAuxOnce\(\)/);
   assert.doesNotMatch(source, /subscribeAux\(\);subscribeSessions\(\)/);
 });
 
 test('the timetable subscribes only to the visible date range', () => {
-  const source = read('index.html');
+  const source = read('timetable.js');
   assert.match(source, /where\('date','>=',range\.start\)/);
   assert.match(source, /where\('date','<=',range\.end\)/);
+  assert.match(source, /where\('facultyIds','array-contains',facultyId\)/);
   assert.doesNotMatch(source, /db\.collection\(SESSION_COLLECTION\)\.onSnapshot/);
 });
 
+test('the first administrator landing aborts timetable readers before redirecting', () => {
+  const source = read('faculty-access.js');
+  assert.match(source, /if\(scheduleAdminLanding\(user,p\)\)return false/);
+  assert.match(source, /window\.__ucvmAdminLandingScheduled/);
+});
+
 test('the timetable loads the faculty directory only when an admin tool needs it', () => {
-  const source = read('index.html');
+  const source = read('timetable.js');
   assert.match(source, /function ensureFacultyDirectory/);
   assert.doesNotMatch(source, /if \(UCVM\.admin\(profile\)\) subscribeFacultyDirectory\(\)/);
 });
@@ -57,4 +64,11 @@ test('faculty admin enhancements reuse the page snapshots', () => {
   assert.doesNotMatch(source, /collection\('faculty'\)\.onSnapshot/);
   assert.doesNotMatch(source, /collection\('sessions'\)\.onSnapshot/);
   assert.doesNotMatch(source, /db\.doc\(`users\/\$\{u\.uid\}`\)\.get\(\)/);
+});
+
+test('audit details are written directly without scanning recent logs after save',()=>{
+ const access=read('faculty-access.js'),timetable=read('timetable.js'),admin=read('faculty-admin.js');
+ assert.doesNotMatch(access,/patchRecent|waitClosed|new MutationObserver\(inspect\)/);
+ assert.match(timetable,/UCVM_AUDIT_DETAILS\.diff/);
+ assert.match(admin,/UCVM_AUDIT_DETAILS\.diff/);
 });

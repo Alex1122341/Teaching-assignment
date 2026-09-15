@@ -21,6 +21,27 @@ This raw mirror does not switch the live website to Azure. A production Azure ve
 
 The current static site can also be published to the Azure Static Web App practice resource at `https://red-cliff-04871ca0f.5.azurestaticapps.net`. This only changes the web host; the copied site continues using Firebase Authentication and Firestore until an Azure API is implemented. The Azure hostname must remain listed under Firebase Authentication authorized domains for phone authentication and reCAPTCHA.
 
+Both hosting targets are built from the exact allowlist in `tools/static-assets.json`. Build it locally before deployment with:
+
+```powershell
+node tools/build-static.js
+```
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/deploy_azure_static_web.ps1
+```
+
+## Firestore performance cleanup
+
+Create a fresh typed backup, then preview the exact aggregate changes without contacting Firestore:
+
+```powershell
+python tools/export_firestore_rest.py --project tester-teaching --output ..\firebase-export-private\tester-teaching-before-optimization.json
+python tools/optimize_firestore_data.py --project tester-teaching --backup ..\firebase-export-private\tester-teaching-before-optimization.json --dry-run --report ..\firebase-export-private\tester-teaching-optimization-dry-run.json
+```
+
+Apply mode requires the audit actor. It rechecks the backup SHA-256, limits commits to 300 writes, records one aggregate `account_audit` entry, creates `settings/faculty_index` and `settings/schedule_stats`, backfills session `facultyIds`, and removes only the allowlisted duplicate metadata described in the dry-run report.
+
+```powershell
+python tools/optimize_firestore_data.py --project tester-teaching --backup ..\firebase-export-private\tester-teaching-before-optimization.json --apply --actor-uid FIREBASE_UID --actor-name "Administrator name" --report ..\firebase-export-private\tester-teaching-optimization-applied.json
 ```

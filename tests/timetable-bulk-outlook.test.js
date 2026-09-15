@@ -4,9 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const root=path.join(__dirname,'..');
-const timetable=fs.readFileSync(path.join(root,'index.html'),'utf8');
-const dashboardHtml=fs.readFileSync(path.join(root,'faculty-dashboard.html'),'utf8');
-const dashboardJs=fs.readFileSync(path.join(root,'faculty-dashboard.js'),'utf8');
+const timetable=['index.html','timetable.js','afc-timetable-panel.js'].map(name=>fs.readFileSync(path.join(root,name),'utf8')).join('\n');
 
 test('faculty accounts land on their own teaching in day view',()=>{
  assert.match(timetable,/viewMode\s*=\s*roleIsFaculty\(currentUser\)\s*\?\s*'day'\s*:\s*'week'/);
@@ -14,13 +12,10 @@ test('faculty accounts land on their own teaching in day view',()=>{
  assert.match(timetable,/currentUser\.profile\?\.facultyId|currentUser\.profile\.facultyId/);
 });
 
-test('faculty dashboard keeps list history and AFC without a duplicate calendar',()=>{
- assert.doesNotMatch(dashboardHtml,/id="calendar-tab"|id="calendar-view"|id="week-grid"/);
- assert.match(dashboardHtml,/id="list-tab"/);
- assert.match(dashboardHtml,/id="history-tab"/);
- assert.match(dashboardHtml,/id="afc-tab"/);
- assert.doesNotMatch(dashboardJs,/renderCalendar|week-prev|week-next|week-current/);
- assert.match(dashboardJs,/currentView\s*=\s*location\.hash===['"]#afc['"]\?['"]afc['"]:['"]list['"]/);
+test('timetable contains faculty list, history and AFC self-service without a second calendar',()=>{
+ for(const id of ['cal-list-btn','my-change-history-btn','afc-request-btn','afc-panel'])assert.match(timetable,new RegExp(`id=["']${id}["']`));
+ assert.match(timetable,/UCVM_AFC_TIMETABLE_PANEL/);
+ assert.match(timetable,/UCVM_PAGE_DATA/);
 });
 
 test('latest updates is removed and exports use a compact bottom bar',()=>{

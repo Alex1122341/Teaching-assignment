@@ -1,0 +1,13 @@
+{
+  "name": "ucvm-teaching-assignment",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "test:emulator": "firebase emulators:exec --only firestore,auth --project demo-ucvm-access \"node --test tests/*.test.js\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.18.0",
+    "firebase-tools": "^14.12.0"
+  }
+}

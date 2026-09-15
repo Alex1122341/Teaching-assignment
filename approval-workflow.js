@@ -9,9 +9,10 @@
  const $=id=>document.getElementById(id), esc=UCVM.esc;
  const REQUESTS='change_requests', SESSIONS='sessions', LOGS='session_change_log';
  let me=null,user=null,role='',sessions=new Map(),people=[],peopleByUid=new Map(),groups=[],myGroups=[],hiccScope=new Set();
- let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleUnsub=null,renderQueued=false;
+ let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleLoading=null,renderQueued=false;
  let approvalFaculty=[],approvalFacultyById=new Map(),approvalFacultyLoaded=false;
- let approvalSessionsComplete=false;
+ let approvalSessionsComplete=false,approvalSessionDatesLoaded=new Set(),openApprovalFromHash=location.hash==='#approvals';
+ let requestsReady=false,afcRequestsReady=false;
 
  const css=document.createElement('style');
  css.id='ucvm-approval-workflow-style';
@@ -54,7 +55,7 @@
  const assignedArray=s=>Array.isArray(s?.assignments)&&s.assignments.length?s.assignments.map(a=>({...a})):(String(s?.instructor||'').split(';').map(x=>x.trim()).filter(Boolean).map(name=>({name,ucid:'',role:s?.type||''})));
  const sameVal=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
  const ymd=v=>String(v||'').slice(0,10);
- const num=v=>{if(v===undefined||v===null||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null};
+ const num=UCVM.number;
  const fmtDoe=v=>v===null||v===undefined?'—':`${Number(v).toFixed(2)}%`;
 
  function facultyName(f){return String(f?.preferredFullName||f?.hrFirstLast||f?.hrFullName||f?.teachingAssignmentName||f?.facultySummary2026_27?.displayName||f?.__id||'Unknown faculty')}
@@ -63,22 +64,27 @@
  function contractTeachingDoe(f){return [f?.doe?.teaching,f?.doeTeaching,f?.teachingDOE,f?.contractTeachingDOE].map(num).find(v=>v!==null)??null}
  function assignmentCredit(a){const c=num(a?.doeCredit);if(c!==null)return c;const r=num(a?.doeRate),h=num(a?.creditedHours);return r!==null&&h!==null?Number((r*h).toFixed(6)):null}
  function resolveFaculty(ref){const id=String(ref?.facultyId||ref?.ucid||'').trim();if(id&&approvalFacultyById.has(id))return approvalFacultyById.get(id);const key=norm(ref?.name||'');if(!key)return null;return approvalFaculty.find(f=>facultyAliases(f).has(key))||null}
- async function ensureApprovalFaculty(){
-  if(!isApprover()||approvalFacultyLoaded)return;
-  const shared=window.UCVM_PAGE_DATA?.faculty?.()||[];
-  if(shared.length){approvalFaculty=shared;approvalFacultyById=new Map(shared.map(f=>[String(f.__id),f]));approvalFacultyLoaded=true;return}
-  const q=await db.collection('faculty').get();approvalFaculty=q.docs.map(d=>({__id:d.id,...d.data()}));approvalFacultyById=new Map(approvalFaculty.map(f=>[String(f.__id),f]));approvalFacultyLoaded=true;
+ function indexFaculty(e){return{__id:String(e.id),preferredFullName:e.name||e.id,hrFullName:e.hrName||'',email:e.email||'',rank:e.rank||'',campus:e.campus||'',teachingArea:e.specialty||'',reportsTo:e.reportsTo||'',doe:e.contractTeachingDOE===null?{}:{teaching:e.contractTeachingDOE},facultySummary2026_27:e.assignedTeachingDOE===null?null:{assignedTeachingDOE:e.assignedTeachingDOE},__indexAssignedTeachingDOE:e.assignedTeachingDOE,__index:true}}
+ function requestFacultyIds(requestRows){const ids=new Set();for(const r of requestRows||[]){for(const ref of [r.fromFaculty,r.toFaculty]){const id=String(ref?.facultyId||ref?.ucid||'').trim();if(id)ids.add(id)}const current=sessions.get(r.sessionId);for(const a of assignedArray(current)){const id=String(a?.ucid||a?.facultyId||'').trim();if(id)ids.add(id)}}return[...ids]}
+ async function ensureApprovalFaculty(requestRows=requests){
+  if(!isApprover())return;
+  if(!approvalFacultyLoaded){const snap=await db.collection('settings').doc('faculty_index').get();approvalFaculty=snap.exists?(snap.data().entries||[]).map(indexFaculty):[];approvalFacultyById=new Map(approvalFaculty.map(f=>[String(f.__id),f]));approvalFacultyLoaded=true}
+  const ids=requestFacultyIds(requestRows),missing=ids.filter(id=>approvalFacultyById.get(id)?.__index);
+  const details=await Promise.all(missing.map(id=>db.collection('faculty').doc(id).get()));for(const snap of details)if(snap.exists){const old=approvalFacultyById.get(snap.id),row={__id:snap.id,...snap.data(),__indexAssignedTeachingDOE:old?.__indexAssignedTeachingDOE},at=approvalFaculty.indexOf(old);if(at>=0)approvalFaculty[at]=row;else approvalFaculty.push(row);approvalFacultyById.set(snap.id,row)}
  }
- async function ensureApprovalSessions(){
-  if(approvalSessionsComplete)return;
-  if(window.UCVM_PAGE_DATA?.allSessions){const rows=await window.UCVM_PAGE_DATA.allSessions();sessions=new Map(rows.map(s=>[s.id,s]));approvalSessionsComplete=true;return}
-  const q=await db.collection(SESSIONS).get();sessions=new Map(q.docs.map(d=>[d.id,{id:d.id,...d.data()}]));approvalSessionsComplete=true;
+ async function ensureRequestSessions(requestRows){
+  const ids=[...new Set((requestRows||[]).map(r=>String(r.sessionId||'')).filter(Boolean))],missing=ids.filter(id=>!sessions.has(id));
+  const docs=await Promise.all(missing.map(id=>db.doc(`${SESSIONS}/${id}`).get()));for(const snap of docs)if(snap.exists)sessions.set(snap.id,{id:snap.id,...snap.data()});approvalSessionsComplete=true;
+ }
+ async function ensureFacultySessionContext(requestRows){
+  const dates=[...new Set((requestRows||[]).flatMap(r=>[sessions.get(String(r.sessionId||''))?.date,r.patch?.date]).map(ymd).filter(Boolean))].filter(date=>!approvalSessionDatesLoaded.has(date));
+  const sets=await Promise.all(dates.map(date=>db.collection(SESSIONS).where('date','==',date).get()));for(let i=0;i<sets.length;i++){for(const d of sets[i].docs)sessions.set(d.id,{id:d.id,...d.data()});approvalSessionDatesLoaded.add(dates[i])}
  }
  function buildDoeState(){
   const state=new Map(),aliases=new Map();
-  for(const f of approvalFaculty){const s=facultySummary(f),fixed=num(s?.sourceNonTimetableTeachingDOE),sourceAssigned=num(s?.assignedTeachingDOE);state.set(String(f.__id),{faculty:f,scheduled:0,fixed,sourceAssigned,contract:contractTeachingDoe(f)});for(const a of facultyAliases(f))if(!aliases.has(a))aliases.set(a,String(f.__id))}
+  for(const f of approvalFaculty){const s=facultySummary(f),fixed=num(s?.sourceNonTimetableTeachingDOE),sourceAssigned=num(s?.assignedTeachingDOE),indexedCurrent=num(f.__indexAssignedTeachingDOE);state.set(String(f.__id),{faculty:f,scheduled:0,fixed,sourceAssigned,indexedCurrent,contract:contractTeachingDoe(f)});for(const a of facultyAliases(f))if(!aliases.has(a))aliases.set(a,String(f.__id))}
   for(const sess of sessions.values())for(const a of assignedArray(sess)){let id=String(a?.ucid||'').trim();if(!id)id=aliases.get(norm(a?.name))||'';const row=state.get(id),credit=assignmentCredit(a);if(row&&credit!==null)row.scheduled+=credit}
-  for(const row of state.values())row.current=row.fixed!==null?row.fixed+row.scheduled:(row.sourceAssigned!==null?row.sourceAssigned:null);
+  for(const row of state.values())row.current=row.indexedCurrent!==null?row.indexedCurrent:(row.fixed!==null?row.fixed+row.scheduled:(row.sourceAssigned!==null?row.sourceAssigned:null));
   return state;
  }
  function timeMinutes(v){const s=String(v||'').trim();if(!s)return null;let m=s.match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i);if(!m)return null;let h=Number(m[1]),min=Number(m[2]);if(m[3]){const ap=m[3].toUpperCase();if(h===12)h=0;if(ap==='PM')h+=12}if(h>23||min>59)return null;return h*60+min}
@@ -108,32 +114,29 @@
   const t=$('toast'); if(!t){alert(msg);return} t.textContent=msg;t.classList.toggle('error',error);t.classList.add('show');setTimeout(()=>t.classList.remove('show'),error?6000:3200);
  }
 
- function listenPeople(){
-  if(peopleUnsub){peopleUnsub();peopleUnsub=null}
-  if(!roleIsFaculty(role))return;
-  peopleUnsub=db.collection('users').where('role','in',['faculty','hicc','visc']).onSnapshot(q=>{
+ async function ensureReplacementPeople(){
+  if(people.length)return people;
+  if(peopleLoading)return peopleLoading;
+  peopleLoading=db.collection('users').where('role','in',['faculty','hicc','visc']).get().then(q=>{
     people=q.docs.map(d=>({uid:d.id,...d.data(),role:UCVM.role(d.data().role)})).filter(p=>p.active===true);
     peopleByUid=new Map(people.map(p=>[p.uid,p]));
-    rebuildHiccScope();
-  },e=>console.warn('[workflow people]',e));
+    rebuildHiccScope();queueDecorate();return people;
+  }).catch(e=>{console.warn('[workflow people]',e);return[]}).finally(()=>{peopleLoading=null});
+  return peopleLoading;
  }
  function listenGroups(){
   if(groupUnsub){groupUnsub();groupUnsub=null}
   if(role!=='hicc'){groups=[];myGroups=[];hiccScope.clear();return}
   groupUnsub=db.collection('faculty_groups').where('ownerUid','==',user.uid).onSnapshot(q=>{
-    groups=q.docs.map(d=>({id:d.id,...d.data()}));myGroups=groups;rebuildHiccScope();injectButtons();
+    groups=q.docs.map(d=>({id:d.id,...d.data()}));myGroups=groups;rebuildHiccScope();injectButtons();ensureReplacementPeople().then(()=>{rebuildHiccScope();queueDecorate()});
   },e=>console.warn('[workflow groups]',e));
  }
  function listenSessions(){
   if(sessionUnsub){sessionUnsub();sessionUnsub=null}
   if(!user)return;
-  if(window.UCVM_PAGE_DATA?.sessions){
-   const sync=()=>{const rows=window.UCVM_PAGE_DATA.sessions();sessions=new Map(rows.map(s=>[s.id,s]));approvalSessionsComplete=false;rebuildHiccScope();queueDecorate()};
-   window.addEventListener('ucvm:sessions-updated',sync);sync();sessionUnsub=()=>window.removeEventListener('ucvm:sessions-updated',sync);return;
-  }
-  sessionUnsub=db.collection(SESSIONS).onSnapshot(q=>{
-    sessions=new Map(q.docs.map(d=>[d.id,{id:d.id,...d.data()}]));rebuildHiccScope();queueDecorate();
-  },e=>console.warn('[workflow sessions]',e));
+  if(!window.UCVM_PAGE_DATA?.sessions)return;
+  const sync=()=>{const rows=window.UCVM_PAGE_DATA.sessions();for(const s of rows)sessions.set(s.id,s);approvalSessionsComplete=false;rebuildHiccScope();queueDecorate()};
+  window.addEventListener('ucvm:sessions-updated',sync);sync();sessionUnsub=()=>window.removeEventListener('ucvm:sessions-updated',sync);
  }
  function listenRequests(){
   if(requestUnsub){requestUnsub();requestUnsub=null}
@@ -142,13 +145,13 @@
   if(!isApprover())q=q.where('requesterUid','==',user.uid);
   requestUnsub=q.onSnapshot(s=>{
     requests=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>((b.requestedAt?.toMillis?.()||0)-(a.requestedAt?.toMillis?.()||0)));
-    injectButtons();queueDecorate();
-  },e=>console.warn('[workflow requests]',e));
+    requestsReady=true;injectButtons();queueDecorate();
+  },e=>{requestsReady=true;console.warn('[workflow requests]',e);injectButtons()});
  }
  function listenAfcRequests(){
   if(afcUnsub){afcUnsub();afcUnsub=null}
-  afcRequests=[];if(!user||!isApprover())return;
-  afcUnsub=db.collection('afc_requests').where('status','in',['pending_report_to','pending_admin']).limit(100).onSnapshot(s=>{afcRequests=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.submittedAt?.toMillis?.()||0)-(a.submittedAt?.toMillis?.()||0));injectButtons()},e=>console.warn('[workflow AFC requests]',e));
+  afcRequests=[];if(!user||!isApprover()){afcRequestsReady=true;injectButtons();return}
+  afcUnsub=db.collection('afc_requests').where('status','in',['pending_report_to','pending_admin']).limit(100).onSnapshot(s=>{afcRequests=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.submittedAt?.toMillis?.()||0)-(a.submittedAt?.toMillis?.()||0));afcRequestsReady=true;injectButtons()},e=>{afcRequestsReady=true;console.warn('[workflow AFC requests]',e);injectButtons()});
  }
 
  function groupTokens(g){
@@ -178,6 +181,10 @@
 
  function toolbar(){return document.querySelector('.cal-toolbar-right')}
  function mkButton(id,label){let b=$(id);if(b)return b;b=document.createElement('button');b.id=id;b.className='workflow-btn';b.type='button';b.textContent=label;return b}
+ function maybeOpenApprovalFromHash(){
+  if(!openApprovalFromHash||!isApprover()||!requestsReady||!afcRequestsReady)return;
+  openApprovalFromHash=false;setTimeout(()=>openApprovalQueue(),0);
+ }
  function injectButtons(){
   const bar=toolbar();if(!bar||!user)return;
   if(role==='hicc'){
@@ -196,6 +203,7 @@
     const pending=requests.filter(r=>r.status==='pending').length+afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length,b=mkButton('approval-queue-btn','Approvals');
     b.innerHTML=`Approvals${pending?` <span class="workflow-count">${pending}</span>`:''}`;
     if(!b.isConnected)bar.insertBefore(b,bar.firstChild);b.onclick=()=>openApprovalQueue();
+    maybeOpenApprovalFromHash();
   }else $('approval-queue-btn')?.remove();
  }
 
@@ -260,14 +268,16 @@
   $('workflow-edit-form').onsubmit=async ev=>{ev.preventDefault();const f=new FormData(ev.currentTarget),patch={date:f.get('date'),start:f.get('start'),end:f.get('end'),topic:String(f.get('topic')||'').trim(),type:String(f.get('type')||'').trim(),room:String(f.get('room')||'').trim()},before=baseSnapshot(s),changes=[];for(const k of Object.keys(patch))if(!sameVal(before[k],patch[k]))changes.push({field:k,before:before[k],after:patch[k]});if(!changes.length)return toast('No changes were entered.',true);try{await createRequest({requestType:'session_edit',scope:'hicc',groupId:g.id,groupName:g.name||'',sessionId:s.id,course:s.course||'',date:ymd(s.date),topic:s.topic||'',base:before,patch,changes,reason:String(f.get('reason')||'').trim()})}catch(e){toast(e.message,true)}};
  }
 
- function openHiccSwap(s,g){
+ async function openHiccSwap(s,g){
+  await ensureReplacementPeople();
   const arr=assignedArray(s),members=(g.memberUids||[]).map(uid=>peopleByUid.get(uid)).filter(p=>p?.active&&p.facultyId),existing=new Set(arr.map(a=>String(a.ucid||'')).filter(Boolean));
   if(!arr.length)return toast('This session has no assigned faculty to swap.',true);
   showModal(`<div class="modal-header"><div class="modal-title">Request HICC faculty swap</div><div class="modal-subtitle">${esc(g.name)} · group-member replacement · ADFA approval required</div></div><form id="workflow-hicc-swap-form"><div class="modal-body">${sessionSummary(s)}<label class="form-field"><span class="form-label">Replace current instructor</span><select class="form-select" name="out">${arr.map((a,i)=>`<option value="${i}">${esc(a.name||'Unknown')}</option>`).join('')}</select></label><label class="form-field"><span class="form-label">With HICC group member</span><select class="form-select" name="to">${optionPeople(members,existing)}</select></label><label class="form-field"><span class="form-label">Reason / note</span><input class="form-input" name="reason" placeholder="Optional"></label><div class="workflow-note">Only active dashboard accounts that are members of this HICC group are shown as HICC replacement candidates.</div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-workflow-close>Cancel</button><button class="btn btn-primary" type="submit">Submit for approval</button></div></form>`);
   $('workflow-hicc-swap-form').onsubmit=async ev=>{ev.preventDefault();const f=new FormData(ev.currentTarget),idx=Number(f.get('out')),incoming=peopleByUid.get(String(f.get('to')||'')),out=arr[idx];if(!out||!incoming)return toast('Select both faculty members.',true);try{await createSwapRequest(s,out,idx,incoming,'hicc',g,String(f.get('reason')||''))}catch(e){toast(e.message,true)}};
  }
 
- function openSelfSwap(s){
+ async function openSelfSwap(s){
+  await ensureReplacementPeople();
   const arr=assignedArray(s),own=selfAssignmentIndexes(s),myPerson=people.find(p=>p.uid===user.uid)||{uid:user.uid,name:me?.name||me?.instructor||user.email,facultyId:ownFacultyId(),active:true};
   if(!myPerson.facultyId)return toast('Your account needs a linked faculty record before you can request a swap.',true);
   if(own.length){
@@ -305,8 +315,8 @@
   const date=r.patch?.date||current.date,start=r.patch?.start||current.start,end=r.patch?.end||current.end,state=buildDoeState(),rows=assignedArray(current).map(a=>{const f=resolveFaculty({facultyId:a.ucid,name:a.name}),st=f?state.get(String(f.__id)):null,av=availabilityFor(f,date,start,end,current.id),credit=assignmentCredit(a);return `<div class="workflow-person"><div class="workflow-person-name">${esc(a.name||facultyName(f))}</div><div class="workflow-metric">Session DOE: <strong>${credit===null?'Unrated':fmtDoe(credit)}</strong> · Current assigned DOE: <strong>${fmtDoe(st?.current??null)}</strong> · DOE is unchanged by this date/time/topic edit.</div>${availabilityHtml(av,start,end)}</div>`}).join('');
   return `<div class="workflow-impact-title">DOE & proposed-time conflict checks</div><div class="workflow-credit">Proposed session: ${esc(ymd(date))} ${esc(start||'—')}–${esc(end||'—')}. All currently assigned faculty are checked against their other live timetable sessions.</div><div class="workflow-edit-impact">${rows||'<div class="workflow-check unknown">No assigned faculty were found to check.</div>'}</div>`;
  }
- async function hydrateApprovalImpacts(){
-  await Promise.all([ensureApprovalFaculty(),ensureApprovalSessions()]);
+async function hydrateApprovalImpacts(){
+  await ensureRequestSessions(requests);await ensureApprovalFaculty(requests);await ensureFacultySessionContext(requests);
   for(const el of document.querySelectorAll('[data-approval-impact]')){const r=requests.find(x=>x.id===el.dataset.approvalImpact),current=r?sessions.get(r.sessionId):null;if(!r||!current){el.innerHTML='<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check warn">The live session could not be found. Do not approve until reviewed manually.</div>';continue}try{el.innerHTML=r.requestType==='faculty_swap'?swapImpactHtml(r,current):editImpactHtml(r,current)}catch(e){console.error('[approval impact]',e);el.innerHTML=`<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check unknown">Unable to calculate checks: ${esc(e.message)}</div>`}}
  }
  async function openApprovalQueue(){
@@ -330,7 +340,7 @@
  }
  async function approveRequest(id){
   if(!isApprover())return;const r=requests.find(x=>x.id===id);if(!r||r.status!=='pending')return;
-  await Promise.all([ensureApprovalFaculty(),ensureApprovalSessions()]);
+  await ensureRequestSessions([r]);await ensureApprovalFaculty([r]);await ensureFacultySessionContext([r]);
   const ref=db.doc(`${SESSIONS}/${r.sessionId}`),snap=await ref.get();if(!snap.exists)return toast('The session no longer exists. Reject or review this request manually.',true);const current={id:snap.id,...snap.data()};
   let patch={},log={};
   if(r.requestType==='session_edit'){
@@ -341,10 +351,11 @@
     const arr=assignedArray(current),fromId=String(r.fromFaculty?.facultyId||''),fromName=norm(r.fromFaculty?.name),idx=arr.findIndex(a=>(fromId&&String(a.ucid||'')===fromId)||(fromName&&norm(a.name)===fromName));if(idx<0)return toast('The outgoing instructor is no longer assigned. Approval is blocked.',true);
     const incoming={...(arr[idx]||{}),ucid:String(r.toFaculty?.facultyId||''),name:r.toFaculty?.name||'',category:'Faculty',source:'Approved swap request',swappedFrom:{ucid:String(arr[idx]?.ucid||''),name:arr[idx]?.name||''},swappedAt:new Date().toISOString()};arr[idx]=incoming;patch={assignments:arr,instructor:arr.map(a=>a.name).filter(Boolean).join('; ')};log={action:'swap_faculty',fromFaculty:r.fromFaculty||{},toFaculty:r.toFaculty||{},role:incoming.role||current.type||''};
   }else return;
+  if(patch.assignments)patch.facultyIds=UCVM_DATA_INDEX.sessionFacultyIds({...current,...patch});
   const warnings=approvalWarnings(r,current),warningText=warnings.length?`\n\nWARNING — availability/conflict checks:\n- ${warnings.join('\n- ')}\n\nYou may override as ADFA, but review these conflicts first.`:'';
   if(!confirm(`Approve and apply this ${r.requestType==='faculty_swap'?'faculty swap':'session change'} to the live timetable?${warningText}`))return;
   try{
-    const batch=db.batch(),reqRef=db.doc(`${REQUESTS}/${id}`),logRef=db.collection(LOGS).doc();batch.set(ref,{...patch,updatedBy:user.uid,updatedByName:me?.name||user.email||'',updatedAt:stamp()},{merge:true});batch.set(logRef,{...log,requestId:id,sessionId:r.sessionId,course:current.course||r.course||'',date:ymd(patch.date||current.date),topic:patch.topic||current.topic||'',changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:me?.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});await batch.commit();toast('Approved and applied to the live timetable.');closeModal();
+    const after={...current,...patch},batch=db.batch(),reqRef=db.doc(`${REQUESTS}/${id}`),logRef=db.collection(LOGS).doc();batch.set(ref,{...patch,updatedBy:user.uid,updatedByName:me?.name||user.email||'',updatedAt:stamp()},{merge:true});batch.set(logRef,{...log,requestId:id,sessionId:r.sessionId,course:current.course||r.course||'',date:ymd(patch.date||current.date),topic:patch.topic||current.topic||'',changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:me?.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after}]);toast('Approved and applied to the live timetable.');closeModal();
   }catch(e){console.error(e);toast(e.message,true)}
  }
  async function rejectRequest(id){
@@ -352,8 +363,8 @@
  }
 
  auth.onAuthStateChanged(async u=>{
-  user=u;me=null;role='';hiccMode=false;sessions.clear();requests=[];afcRequests=[];approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}if(peopleUnsub){peopleUnsub();peopleUnsub=null}
+  user=u;me=null;role='';hiccMode=false;sessions.clear();people=[];peopleByUid=new Map();peopleLoading=null;requests=[];afcRequests=[];requestsReady=false;afcRequestsReady=false;approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;approvalSessionDatesLoaded=new Set();if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}
   if(!u){injectButtons();queueDecorate();return}
-  try{const d=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(u.uid):await db.doc(`users/${u.uid}`).get();me=d.data()||{};await UCVM.ready(u,me);role=UCVM.role(me.role);listenPeople();listenGroups();listenSessions();listenRequests();listenAfcRequests();injectButtons()}catch(e){console.warn('[approval workflow init]',e)}
+  try{const d=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(u.uid):await db.doc(`users/${u.uid}`).get();me=d.data()||{};await UCVM.ready(u,me);role=UCVM.role(me.role);listenGroups();listenSessions();listenRequests();listenAfcRequests();injectButtons()}catch(e){console.warn('[approval workflow init]',e)}
  });
 })();

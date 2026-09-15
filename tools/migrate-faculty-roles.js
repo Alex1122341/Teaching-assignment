@@ -1,0 +1,12 @@
+'use strict';
+const fs=require('node:fs');
+const planner=require('../faculty-account-planner.js');
+const [inputPath,outputPath]=process.argv.slice(2);
+if(!inputPath||!outputPath)throw new Error('Usage: node tools/migrate-faculty-roles.js input.json output.json');
+const source=JSON.parse(fs.readFileSync(inputPath,'utf8'));
+const rows=Array.isArray(source)?source:source.faculty;
+if(!Array.isArray(rows))throw new Error('Input must be a faculty array or contain faculty[].');
+let changed=0,imported=0;
+const faculty=rows.map(row=>{const before=Array.isArray(row.managedRoles2026_27)?row.managedRoles2026_27:[],after=planner.normalizedManagedRoles(row);if(JSON.stringify(before)!==JSON.stringify(after)){changed++;imported+=Math.max(0,after.length-before.length)}return{...row,managedRoles2026_27:after,roleMigration2026_27:{schemaVersion:'ucvm-managed-roles-v1'}}});
+fs.writeFileSync(outputPath,JSON.stringify({schemaVersion:'ucvm-managed-roles-v1',faculty,summary:{records:faculty.length,changed,imported}},null,2));
+process.stdout.write(JSON.stringify({records:faculty.length,changed,imported}));

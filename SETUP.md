@@ -1,4 +1,4 @@
-# Faculty dashboard - Spark Basic Mode
+# Faculty Dashboard - Spark Basic Mode
 
 This branch runs the UCVM faculty role/group/history features on the Firebase Spark plan without deploying Cloud Functions. Firebase project: `tester-teaching`.
 
@@ -6,20 +6,20 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
 
 - Email/password sign-in through Firebase Authentication.
 - ADFA General, ADFA Regular, HICC, VISC and Faculty profiles.
-- ADFA General user-profile/role management after an Authentication user is created manually in Firebase Console.
+- ADFA General profile-first account creation and reviewed bulk provisioning from faculty records.
 - HICC group ownership, course scope and membership. HICCs can change members in their own groups.
-- Faculty Dashboard session views.
-- ADFA timetable/session editing and faculty directory editing.
+- Faculty self-service in Timetable, including Day/List teaching views and AFC requests.
+- ADFA timetable/session editing and faculty records in Faculty Dashboard.
 - Dashboard-originated history in `session_change_log` and `faculty_change_log`, including before/after details for new edits.
 - Self-service password change and Firebase password-reset email.
 
 ## Intentional Basic Mode limits
 
-- The dashboard does **not** create Firebase Authentication users. Create each login first in Firebase Console > Authentication > Users, then copy its UID into User Management.
+- Account creation uses Firebase Authentication's client API from a temporary secondary session, so the signed-in Owner session stays active. Existing Authentication users that are not linked to a dashboard profile still require individual review.
 - HICC/VISC direct instructor replacement is view-only. ADFA administrators perform live timetable changes.
 - Audit logs are written by the dashboard together with the edit. Direct Firebase Console edits are not automatically audited.
 - `mustChangePassword` is a dashboard workflow control rather than a server-verified password-change claim.
-- The `functions/` folder is retained only as a future Blaze implementation reference. It is not listed in `firebase.json` and is not deployed in Spark Basic Mode.
+- No Cloud Functions runtime is included or deployed. The repository contains only the Spark client and local test tooling.
 
 ## Activation order
 
@@ -30,37 +30,44 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
    - `role`: `adfa_general`
    - `active`: `true`
    - `mustChangePassword`: `false` (unless you intentionally want the password-change page first)
-   Do this before relying on the new User Management page. Legacy `admin` still retains timetable/faculty-directory access but is not ADFA General.
+   Do this before relying on the new User Management page. Legacy `admin` still retains timetable and Faculty Dashboard access but is not ADFA General.
 5. From the repository root deploy **rules only**:
    ```bash
-   functions/node_modules/.bin/firebase.cmd deploy --project tester-teaching --only firestore:rules
+   npx firebase deploy --project tester-teaching --only firestore:rules,firestore:indexes
    ```
    If the local Firebase CLI dependency is unavailable later, any Firebase CLI installation can deploy these rules; Cloud Functions are not required.
 6. Publish the frontend files with Firebase Hosting:
    ```bash
-   functions/node_modules/.bin/firebase.cmd deploy --project tester-teaching --only hosting
+   npx firebase deploy --project tester-teaching --only hosting
    ```
    The production URL is `https://tester-teaching.web.app/`. This keeps the source repository private and does not require GitHub Pages.
 7. Sign in as ADFA General and open User Management.
-8. To add a person:
-   - Firebase Console > Authentication > Users > Add user.
-   - Copy the new user's UID.
-   - User Management > New account > paste UID, name, email, role, faculty record and Active status.
-9. Create HICC groups, assign an HICC owner, course numbers and members.
-10. Test with one ADFA Regular, one HICC and one Faculty account before broader rollout.
+8. To add one person, choose their faculty profile in **New account**. The profile supplies the name and email; choose the access role and enter a temporary password. Firebase supplies the Authentication UID after creation.
+9. To prepare all faculty accounts, choose **Preview changes** under **Create missing faculty accounts**. Review the proposed creates, access updates, excluded records, and source-role cleanup before entering the temporary password and selecting **Apply reviewed changes**.
+10. Keep **Require password change on next dashboard sign-in** selected for new accounts. The temporary password is sent only to Firebase Authentication and is not stored in Firestore, source code, or audit logs.
+11. Create HICC groups, assign an HICC owner, course numbers and members.
+12. Test with one Administrator, one HICC and one Faculty account before broader rollout.
 
 ## Passwords
 
-Administrators no longer set or see another user's password in the dashboard. `Send password reset` uses Firebase Authentication's standard reset-email flow. A signed-in user can change their own password on `password.html`.
+The account creation form accepts a temporary password only while creating the Authentication login. It clears that value after the operation and never stores it in the dashboard database. `Send password reset` uses Firebase Authentication's standard reset-email flow. A signed-in user can change their own password on `password.html`.
 
 If you manually create a user with a temporary password and want the dashboard to prompt for a change, check `Require password change on next dashboard sign-in` on that user's profile.
 
 ## History
 
-The existing timetable and faculty-directory pages create `session_change_log` / `faculty_change_log` records as part of their normal save workflow. `faculty-access.js` captures the form's starting values and, after a successful save closes the editor, enriches the newest matching actor log with before/after details. The History tab merges these logs where appropriate and shows Calgary time, actor, action and before/after values when available. The base log still exists even if the enrichment step is interrupted.
+The Timetable and Faculty Dashboard create `session_change_log` / `faculty_change_log` records as part of their normal save workflow. `faculty-access.js` captures the form's starting values and, after a successful save closes the editor, enriches the newest matching actor log with before/after details. The History tab merges these logs where appropriate and shows Calgary time, actor, action and before/after values when available. The base log still exists even if the enrichment step is interrupted.
 
 Older log records remain visible but may show `Legacy entry; detailed before/after values were not recorded.` because earlier versions did not store those fields.
 
-## Future Blaze upgrade
+## Timetable editing and AFC requests
 
-The existing `functions/` implementation can later be reintroduced for server-controlled account creation, stronger audit guarantees, token revocation and HICC/VISC server-validated instructor replacement. Do not deploy it while the project remains on Spark.
+Use **Faculty Dashboard > Teaching Summary** for the highest-permission workbook replacement and synchronization tools. Timetable administrators can choose **Select Sessions**, select up to 200 writable sessions across Day, Week, Month, or List views, and review them in one spreadsheet-style editor. Saving validates every row before creating one atomic batch containing one session update and one `session_change_log` record per changed session. CCC entries remain read-only.
+
+New AFC requests require both the off-campus contact address and telephone number from the official form. Applicant, Reports To, and administrator signatures, approval state, immutable PDF chunks, and audit records remain in Firestore. Existing approved legacy requests without these newer contact fields stay readable and approvable.
+
+## Development checks
+
+Install the root development dependencies with `npm ci`. Run static tests with `npm test`; run the Firestore rule suite with `npm run test:emulator`. The `test-support/` modules are pure policy fixtures used by those tests and are excluded from both hosting packages.
+
+Build the shared Firebase/Azure publishing directory with `node tools/build-static.js`. Current query counts, migration hashes, rollback exports, and the 50,000-read estimate are recorded in `PERFORMANCE_REPORT.md`.
