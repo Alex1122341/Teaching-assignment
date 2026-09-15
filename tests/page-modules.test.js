@@ -38,3 +38,13 @@ test('only administrators see and can navigate the timetable Faculty Dashboard b
   assert.equal(context.window.location.href,admin(currentUser)?'faculty-admin.html':'',String(role));
  }
 });
+
+test('change history uses the full-width Faculty Dashboard panel theme',()=>{
+ const html=read('faculty-admin.html'),css=read('faculty-admin.css'),access=read('faculty-access.js');
+ assert.match(html,/id="history-view" class="panel history-panel hidden"/);
+ assert.match(html,/class="history-heading"/);
+ assert.match(css,/\.history-panel\s*\{[^}]*width:\s*100%/s);
+ assert.match(css,/#faculty-audit table\{[^}]*table-layout:fixed/s);
+ assert.match(css,/#faculty-audit th:nth-child\(5\)/);
+ assert.match(access,/class="audit-table"/);
+});
