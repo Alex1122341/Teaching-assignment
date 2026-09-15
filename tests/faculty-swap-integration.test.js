@@ -31,8 +31,19 @@ test('faculty replacement button hands off to the safe picker before the legacy 
  const src=fs.readFileSync(handoffPath,'utf8');
  assert.match(src,/#workflow-self-swap/);
  assert.match(src,/stopImmediatePropagation/);
- assert.match(src,/UCVM_SAFE_SWAP\?\.openSelfReplacement/);
- assert.match(src,/openSelfReplacement\(session\)/);
+ assert.match(src,/const openSafe=window\.UCVM_SAFE_SWAP\?\.openSelfReplacement/);
+ assert.match(src,/openSafe\(session\)/);
+});
+
+test('safe handoff blocks the legacy picker before resolving the session and falls back to Firestore',()=>{
+ const src=read('faculty-swap-handoff.js');
+ const buttonCheck=src.indexOf("const button=event.target.closest?.('#workflow-self-swap')");
+ const stop=src.indexOf('event.stopImmediatePropagation()');
+ const cachedLookup=src.indexOf('sessionById(lastSessionId)');
+ assert.ok(buttonCheck>=0&&stop>buttonCheck,'handoff must stop the matching button click');
+ assert.ok(cachedLookup>=0&&stop<cachedLookup,'legacy propagation must be stopped before cached session resolution');
+ assert.match(src,/db\.collection\(SESSIONS\)\.doc\(lastSessionId\)\.get\(\)/);
+ assert.match(src,/openSafe\(session\)/);
 });
 
 test('approval resolves opaque candidate keys through admin-only mapping and supports special categories',()=>{
