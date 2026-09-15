@@ -4,7 +4,7 @@
 
 **Goal:** Replace Azure PR previews with one fixed GitHub Pages test site, then require an explicit GitHub `production` environment approval before a verified `main` artifact is deployed to Azure Static Web Apps.
 
-**Architecture:** Pull requests keep the existing independent `Test` CI and gain a self-gating GitHub Pages workflow that verifies the exact PR integration revision, builds `.deploy-static`, stages Pages-only test identity/routing compatibility, and publishes one fixed site at `https://alex1122341.github.io/Teaching-assignment/`. Pushes to `main` run a production-only Azure workflow with two jobs: validate/build/upload an immutable artifact first, then a `production` environment-gated job downloads those exact bytes and deploys them to Azure after manual approval.
+**Architecture:** Pull requests keep the existing independent `Test` CI and gain a self-gating GitHub Pages workflow that verifies the exact PR integration revision, builds `.deploy-static`, stages Pages-only identity/routing compatibility, and publishes one fixed site at `https://alex1122341.github.io/Teaching-assignment/`. Pushes to `main` run a production-only Azure workflow with two jobs: validate/build/upload an immutable artifact first, then a `production` environment-gated job downloads those exact bytes and deploys them to Azure after manual approval.
 
 **Tech Stack:** GitHub Actions, GitHub Pages, Azure Static Web Apps, Node.js 22, Java 21, Firebase Auth/Firestore emulators, vanilla HTML/CSS/JavaScript, Node's built-in `node:test`.
 
@@ -34,14 +34,14 @@
 
 ## File Structure
 
-- Create `tools/stage-github-pages.js`: deterministic Pages-only post-build staging helper. It injects the test banner into staged HTML, creates `faculty-dashboard.html`, writes `.nojekyll`, and writes non-secret build identity metadata.
-- Create `tests/github-pages-staging.test.js`: unit/integration coverage for Pages staging, visible identity, relative redirect behavior, and subpath-safe static navigation.
+- Create `tools/stage-github-pages.js`: deterministic Pages-only post-build staging helper.
+- Create `tests/github-pages-staging.test.js`: unit/integration coverage for banner identity, relative redirect behavior, and subpath-safe navigation.
 - Create `.github/workflows/github-pages-test.yml`: same-repository PR verification/build/Pages deployment workflow.
-- Create `tests/github-pages-deployment.test.js`: regression coverage for Pages workflow triggers, permissions, same-repo guard, concurrency, test gates, official Pages actions, and setup documentation.
-- Modify `.github/workflows/azure-static-web-apps.yml`: make it `main`-only, split validation/build from gated production deployment, and hand off an Actions artifact.
-- Modify `tests/azure-deployment.test.js`: replace Azure PR-preview assertions with production-only approval/artifact assertions while preserving canonical Azure config and fallback coverage.
-- Modify `SETUP.md`: document one-time Pages, Firebase Authorized Domain, `production` Environment, environment-secret migration, routine test/merge/approval flow, and emergency/manual fallback.
-- Retain `.github/workflows/test.yml`, `tools/build-static.js`, `tools/static-assets.json`, `staticwebapp.config.json`, `tools/deploy_azure_static_web.ps1`, `firebase.json`, and `firestore.rules` unless a test reveals a narrowly scoped compatibility defect.
+- Create `tests/github-pages-deployment.test.js`: regression coverage for the Pages workflow and documented one-time setup.
+- Modify `.github/workflows/azure-static-web-apps.yml`: make it `main`-only and split verified artifact creation from approval-gated deployment.
+- Modify `tests/azure-deployment.test.js`: replace Azure PR-preview assertions with production-only approval/artifact assertions while preserving canonical config/fallback coverage.
+- Modify `SETUP.md`: document Pages testing, Firebase Authorized Domain, production Environment approval, environment-secret migration, and the routine release flow.
+- Retain `.github/workflows/test.yml`, `tools/build-static.js`, `tools/static-assets.json`, `staticwebapp.config.json`, `tools/deploy_azure_static_web.ps1`, `firebase.json`, and `firestore.rules` unchanged unless the Task 1 subpath regression exposes an existing application link that must be changed from root-absolute to relative.
 
 ---
 
@@ -50,17 +50,17 @@
 **Files:**
 - Create: `tools/stage-github-pages.js`
 - Create: `tests/github-pages-staging.test.js`
-- Read only: `tools/static-assets.json`
+- Read: `tools/static-assets.json`
 
 **Interfaces:**
-- Consumes: a completed static build directory such as `.deploy-static`; identity `{ prNumber, headSha, buildSha }`.
-- Produces: `stagePagesDirectory(directory, identity)`, `injectTestBanner(html, identity)`, `buildFacultyDashboardRedirect(identity)`, and a CLI:
-  `node tools/stage-github-pages.js --directory .deploy-static --pr <number> --head-sha <40-hex> --build-sha <40-hex>`.
+- Consumes: a completed static build directory and identity `{ prNumber, headSha, buildSha }`.
+- Produces: `stagePagesDirectory(directory, identity)`, `injectTestBanner(html, identity)`, `buildFacultyDashboardRedirect(identity)`.
+- CLI example used by the workflow: `node tools/stage-github-pages.js --directory .deploy-static --pr 23 --head-sha 1111111111111111111111111111111111111111 --build-sha 2222222222222222222222222222222222222222`.
 - Produces artifact-only files: `.nojekyll`, `faculty-dashboard.html`, `github-pages-build.json`.
 
 - [ ] **Step 1: Write the failing staging tests**
 
-Create `tests/github-pages-staging.test.js` with concrete coverage equivalent to:
+Create `tests/github-pages-staging.test.js`:
 
 ```js
 'use strict';
@@ -101,13 +101,12 @@ test('faculty dashboard Pages shim redirects within the project subpath',()=>{
   assert.match(html,/github-pages-test-site-banner/);
 });
 
-test('Pages staging mutates only the supplied build directory',()=>{
+test('Pages staging changes only the supplied build directory',()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ucvm-pages-'));
   fs.writeFileSync(path.join(dir,'index.html'),'<!doctype html><html><body>Index</body></html>');
   fs.writeFileSync(path.join(dir,'faculty-admin.html'),'<!doctype html><html><body>Faculty</body></html>');
 
   const result=stagePagesDirectory(dir,identity);
-
   assert.equal(result.htmlFiles,2);
   assert.match(fs.readFileSync(path.join(dir,'index.html'),'utf8'),/TEST SITE - GitHub Pages/);
   assert.match(fs.readFileSync(path.join(dir,'faculty-admin.html'),'utf8'),/Live Firebase Backend/);
@@ -121,22 +120,17 @@ test('Pages staging mutates only the supplied build directory',()=>{
     headSha:identity.headSha,
     buildSha:identity.buildSha
   });
-
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
-test('tracked web entry points use relative internal asset/navigation URLs for Pages project subpath',()=>{
+test('tracked web entry points use relative internal URLs for the Pages project subpath',()=>{
   const assets=JSON.parse(fs.readFileSync(path.join(root,'tools/static-assets.json'),'utf8'));
-  const htmlFiles=assets.filter(name=>name.endsWith('.html'));
-  const jsFiles=assets.filter(name=>name.endsWith('.js'));
-
-  for(const name of htmlFiles){
+  for(const name of assets.filter(value=>value.endsWith('.html'))){
     const source=fs.readFileSync(path.join(root,name),'utf8');
     assert.doesNotMatch(source,/(?:href|src)=["']\/(?!\/)/i,`${name} has a root-absolute internal URL`);
   }
-
   const rootNavigation=/(?:window\.)?location(?:\.href)?\s*=\s*["']\/(?!\/)|(?:window\.)?location\.(?:assign|replace)\(\s*["']\/(?!\/)/i;
-  for(const name of jsFiles){
+  for(const name of assets.filter(value=>value.endsWith('.js'))){
     const source=fs.readFileSync(path.join(root,name),'utf8');
     assert.doesNotMatch(source,rootNavigation,`${name} has root-absolute browser navigation`);
   }
@@ -144,8 +138,6 @@ test('tracked web entry points use relative internal asset/navigation URLs for P
 ```
 
 - [ ] **Step 2: Run the focused test and confirm RED**
-
-Run:
 
 ```bash
 node --test tests/github-pages-staging.test.js
@@ -155,13 +147,12 @@ Expected: FAIL because `../tools/stage-github-pages` does not exist.
 
 - [ ] **Step 3: Implement the minimal Pages staging helper**
 
-Create `tools/stage-github-pages.js` with these behaviors:
+Create `tools/stage-github-pages.js`:
 
 ```js
 'use strict';
 const fs=require('node:fs');
 const path=require('node:path');
-
 const BANNER_ID='github-pages-test-site-banner';
 
 function normalizeIdentity(input={}){
@@ -187,7 +178,8 @@ function injectTestBanner(html,identity){
 }
 
 function buildFacultyDashboardRedirect(identity){
-  return injectTestBanner(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=./index.html"><title>Redirecting…</title></head><body><p>Redirecting to <a href="./index.html">UCVM Timetable</a>…</p><script>window.location.replace('./index.html');</script></body></html>`,identity);
+  const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=./index.html"><title>Redirecting…</title></head><body><p>Redirecting to <a href="./index.html">UCVM Timetable</a>…</p><script>window.location.replace('./index.html');</script></body></html>`;
+  return injectTestBanner(html,identity);
 }
 
 function listHtmlFiles(directory){
@@ -216,10 +208,7 @@ function stagePagesDirectory(directory,identity){
 
 function parseArgs(argv){
   const value=name=>{const index=argv.indexOf(name);return index>=0?argv[index+1]:undefined};
-  return{
-    directory:value('--directory'),
-    identity:{prNumber:value('--pr'),headSha:value('--head-sha'),buildSha:value('--build-sha')}
-  };
+  return{directory:value('--directory'),identity:{prNumber:value('--pr'),headSha:value('--head-sha'),buildSha:value('--build-sha')}};
 }
 
 if(require.main===module){
@@ -231,24 +220,22 @@ if(require.main===module){
 module.exports={normalizeIdentity,injectTestBanner,buildFacultyDashboardRedirect,stagePagesDirectory};
 ```
 
-Do not add this helper or the generated banner/shim files to `tools/static-assets.json`; they are Pages-only post-build staging.
+Do not add this helper or generated Pages-only files to `tools/static-assets.json`.
 
 - [ ] **Step 4: Run focused and full static tests**
-
-Run:
 
 ```bash
 node --test tests/github-pages-staging.test.js
 npm test
 ```
 
-Expected: PASS. If the relative-URL regression finds a real root-absolute application navigation, change only that application link to the equivalent relative URL and keep the regression test.
+Expected: PASS. If the new regression identifies an existing root-absolute internal application link, change only that link to its equivalent relative URL and rerun the same tests.
 
 - [ ] **Step 5: Commit Task 1**
 
 ```bash
 git add tools/stage-github-pages.js tests/github-pages-staging.test.js
-git commit -m "test: stage GitHub Pages test builds"
+git commit -m "build: stage GitHub Pages test site"
 ```
 
 ---
@@ -262,8 +249,8 @@ git commit -m "test: stage GitHub Pages test builds"
 
 **Interfaces:**
 - Consumes: same-repository `pull_request` events targeting `main` for `opened`, `synchronize`, and `reopened`.
-- Produces: fixed `github-pages` deployment after verification and `steps.deployment.outputs.page_url` as the GitHub environment URL.
-- Uses current official Pages action majors verified for 2026-09-15: `actions/configure-pages@v6`, `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`.
+- Produces: a deployment to the standard `github-pages` environment and exposes `steps.deployment.outputs.page_url` as its URL.
+- Use current official Pages action majors verified on 2026-09-15: `actions/configure-pages@v6`, `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`.
 
 - [ ] **Step 1: Write the failing workflow regression test**
 
@@ -275,24 +262,20 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-
 const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 
-test('Pages test workflow deploys only verified same-repository PRs to one fixed environment',()=>{
+test('Pages workflow deploys only verified same-repository PRs to one fixed environment',()=>{
   const workflow=read('.github/workflows/github-pages-test.yml');
-
   assert.match(workflow,/pull_request:\s*\n\s+types:\s*\[opened, synchronize, reopened\]\s*\n\s+branches:\s*\[main\]/);
   assert.doesNotMatch(workflow,/pull_request_target/);
   assert.doesNotMatch(workflow,/push:/);
   assert.match(workflow,/github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
   assert.match(workflow,/group:\s*github-pages-test/);
   assert.match(workflow,/cancel-in-progress:\s*true/);
-
   assert.match(workflow,/contents:\s*read/);
   assert.match(workflow,/pages:\s*write/);
   assert.match(workflow,/id-token:\s*write/);
-
   assert.match(workflow,/npm ci/);
   assert.match(workflow,/npm test/);
   assert.match(workflow,/npm run test:emulator/);
@@ -300,7 +283,6 @@ test('Pages test workflow deploys only verified same-repository PRs to one fixed
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
   assert.match(workflow,/github\.event\.pull_request\.number/);
   assert.match(workflow,/github\.event\.pull_request\.head\.sha/);
-
   assert.match(workflow,/actions\/configure-pages@v6/);
   assert.match(workflow,/actions\/upload-pages-artifact@v5/);
   assert.match(workflow,/include-hidden-files:\s*true/);
@@ -313,8 +295,6 @@ test('Pages test workflow deploys only verified same-repository PRs to one fixed
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
-Run:
-
 ```bash
 node --test tests/github-pages-deployment.test.js
 ```
@@ -323,7 +303,7 @@ Expected: FAIL because `.github/workflows/github-pages-test.yml` does not exist.
 
 - [ ] **Step 3: Create the Pages workflow**
 
-Create `.github/workflows/github-pages-test.yml` with this structure:
+Create `.github/workflows/github-pages-test.yml`:
 
 ```yaml
 name: GitHub Pages Test Site
@@ -352,31 +332,24 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-
       - name: Set up Java for Firebase emulators
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-
       - name: Install dependencies
         run: npm ci
-
       - name: Run static and unit tests
         run: npm test
-
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator
-
       - name: Build static site
         run: node tools/build-static.js
-
       - name: Stage GitHub Pages test site
         run: >-
           node tools/stage-github-pages.js
@@ -384,10 +357,8 @@ jobs:
           --pr "${{ github.event.pull_request.number }}"
           --head-sha "${{ github.event.pull_request.head.sha }}"
           --build-sha "${{ github.sha }}"
-
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
-
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
@@ -409,9 +380,7 @@ jobs:
 
 Do not add Azure credentials, Azure actions, `workflow_run`, or `pull_request_target` to this workflow.
 
-- [ ] **Step 4: Run the workflow regressions and full static tests**
-
-Run:
+- [ ] **Step 4: Run Pages workflow/staging tests and the full static suite**
 
 ```bash
 node --test tests/github-pages-deployment.test.js tests/github-pages-staging.test.js
@@ -439,25 +408,23 @@ git commit -m "ci: publish verified PRs to GitHub Pages"
 
 **Interfaces:**
 - Consumes: `push` to `main` only.
-- Job `validate_and_build` produces Actions artifact `azure-production-${{ github.sha }}` containing the verified `.deploy-static` tree plus `staticwebapp.config.json`.
-- Job `deploy_production` consumes that exact artifact, waits on GitHub environment `production`, then invokes the already-reviewed pinned `Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1` action.
-- Uses `actions/upload-artifact@v7` and `actions/download-artifact@v8` for the production handoff.
+- `validate_and_build` produces Actions artifact `azure-production-${{ github.sha }}` containing the verified `.deploy-static` tree plus `staticwebapp.config.json`.
+- `deploy_production` consumes that artifact, waits on environment `production`, then uses the existing pinned `Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1`.
+- Use `actions/upload-artifact@v7` and `actions/download-artifact@v8` for the handoff.
 
-- [ ] **Step 1: Rewrite the Azure regression test first**
+- [ ] **Step 1: Replace only the old Azure workflow behavior test**
 
-Keep the first two existing tests in `tests/azure-deployment.test.js` that verify the canonical routing config and manual fallback. Replace the old PR-preview workflow test with assertions equivalent to:
+Keep the existing tests that verify the canonical root `staticwebapp.config.json`, PowerShell fallback, and current deployment documentation. Replace the old test named `Azure deployment workflow gates uploads and separates PR preview from production` with:
 
 ```js
 test('Azure workflow verifies main, waits for production approval, then deploys the exact artifact',()=>{
   const workflow=read('.github/workflows/azure-static-web-apps.yml');
-
   assert.match(workflow,/push:\s*\n\s+branches:\s*\[main\]/);
   assert.doesNotMatch(workflow,/pull_request:/);
   assert.doesNotMatch(workflow,/pull_request_target/);
   assert.doesNotMatch(workflow,/action:\s*['"]?close['"]?/);
   assert.match(workflow,/group:\s*azure-production-main/);
   assert.match(workflow,/cancel-in-progress:\s*true/);
-
   assert.match(workflow,/validate_and_build:/);
   assert.match(workflow,/npm ci/);
   assert.match(workflow,/npm test/);
@@ -466,12 +433,10 @@ test('Azure workflow verifies main, waits for production approval, then deploys 
   assert.match(workflow,/cp staticwebapp\.config\.json \.deploy-static\/staticwebapp\.config\.json/);
   assert.match(workflow,/actions\/upload-artifact@v7/);
   assert.match(workflow,/name:\s*azure-production-\$\{\{ github\.sha \}\}/);
-
   assert.match(workflow,/deploy_production:/);
   assert.match(workflow,/needs:\s*validate_and_build/);
   assert.match(workflow,/environment:\s*\n\s+name:\s*production/);
   assert.match(workflow,/actions\/download-artifact@v8/);
-  assert.match(workflow,/Azure\/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1/);
   assert.equal((workflow.match(/Azure\/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1/g)||[]).length,1);
   assert.match(workflow,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
   assert.match(workflow,/app_location:\s*['"]?\.deploy-static['"]?/);
@@ -482,28 +447,15 @@ test('Azure workflow verifies main, waits for production approval, then deploys 
 });
 ```
 
-Also update the existing setup-doc test in this file so it expects GitHub Pages testing plus approval-gated Azure production and rejects the old Azure-preview wording:
+Do not change the documentation test yet; that remains green against the still-unmodified `SETUP.md` until Task 4.
 
-```js
-assert.match(setup,/GitHub Pages/i);
-assert.match(setup,/Review deployments|Approve and deploy/i);
-assert.match(setup,/production environment/i);
-assert.match(setup,/firestore:rules/);
-assert.match(setup,/manual fallback|emergency\/manual fallback/i);
-assert.doesNotMatch(setup,/temporary Azure PR preview|Azure Preview URL/i);
-```
-
-The docs assertions are expected to remain RED until Task 4; when running Task 3 focused tests, use the test-name pattern for the workflow/config tests or accept that only the documentation test remains red until Task 4.
-
-- [ ] **Step 2: Run the Azure workflow test and confirm RED**
-
-Run:
+- [ ] **Step 2: Run the focused workflow test and confirm RED**
 
 ```bash
-node --test --test-name-pattern="Azure Static Web Apps routing|manual Azure fallback|Azure workflow verifies" tests/azure-deployment.test.js
+node --test --test-name-pattern="Azure workflow verifies" tests/azure-deployment.test.js
 ```
 
-Expected: FAIL on the new production-workflow assertions because the current workflow still handles PR previews.
+Expected: FAIL because the current Azure workflow still handles PR previews.
 
 - [ ] **Step 3: Replace the Azure workflow with two production jobs**
 
@@ -532,34 +484,26 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-
       - name: Set up Java for Firebase emulators
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-
       - name: Install dependencies
         run: npm ci
-
       - name: Run static and unit tests
         run: npm test
-
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator
-
       - name: Build static site
         run: node tools/build-static.js
-
       - name: Stage Azure configuration
         run: cp staticwebapp.config.json .deploy-static/staticwebapp.config.json
-
       - name: Upload verified production artifact
         uses: actions/upload-artifact@v7
         with:
@@ -582,12 +526,10 @@ jobs:
         with:
           name: azure-production-${{ github.sha }}
           path: .deploy-static
-
       - name: Verify production artifact handoff
         run: |
           test -f .deploy-static/index.html
           test -f .deploy-static/staticwebapp.config.json
-
       - name: Deploy approved artifact to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1
         with:
@@ -601,17 +543,15 @@ jobs:
           production_branch: main
 ```
 
-Do not put `environment: production` on `validate_and_build`; the approval must appear only after verification/build succeeds.
+Do not put `environment: production` on `validate_and_build`; the approval must appear only after validation/build succeeds.
 
-- [ ] **Step 4: Run focused Azure workflow/config tests**
-
-Run:
+- [ ] **Step 4: Run the full static suite**
 
 ```bash
-node --test --test-name-pattern="Azure Static Web Apps routing|manual Azure fallback|Azure workflow verifies" tests/azure-deployment.test.js
+npm test
 ```
 
-Expected: PASS.
+Expected: PASS. At this point `SETUP.md` still describes the old runtime flow, so its existing test remains unchanged until Task 4.
 
 - [ ] **Step 5: Commit Task 3**
 
@@ -622,31 +562,30 @@ git commit -m "ci: gate Azure production deployments"
 
 ---
 
-### Task 4: Rewrite deployment documentation and lock the rollout contract in tests
+### Task 4: Rewrite deployment documentation and test the operator contract
 
 **Files:**
 - Modify: `SETUP.md`
 - Modify: `tests/github-pages-deployment.test.js`
-- Modify if needed: `tests/azure-deployment.test.js`
+- Modify: `tests/azure-deployment.test.js`
 
 **Interfaces:**
-- Produces the operator contract for fixed Pages test hosting, live shared Firebase backend, manual PR validation, merge, post-merge production approval, environment-secret migration, and manual Firestore rules.
+- Produces the operator contract for fixed Pages testing, live shared Firebase backend, manual PR validation, merge, post-merge approval, environment-secret migration, and manual Firestore rules.
 
-- [ ] **Step 1: Extend documentation assertions before editing docs**
+- [ ] **Step 1: Change documentation tests first**
 
-Append this setup test to `tests/github-pages-deployment.test.js`:
+Add to `tests/github-pages-deployment.test.js`:
 
 ```js
 test('setup docs describe Pages test hosting and one-time production approval setup',()=>{
   const setup=read('SETUP.md');
   assert.match(setup,/https:\/\/alex1122341\.github\.io\/Teaching-assignment\//);
   assert.match(setup,/Settings.*Pages.*GitHub Actions/is);
-  assert.match(setup,/alex1122341\.github\.io/);
   assert.match(setup,/Firebase.*Authorized domains/is);
+  assert.match(setup,/alex1122341\.github\.io/);
   assert.match(setup,/environment.*production/is);
   assert.match(setup,/Required reviewer/i);
   assert.match(setup,/Prevent self-review/i);
-  assert.match(setup,/main.*deploy/is);
   assert.match(setup,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
   assert.match(setup,/environment secret/i);
   assert.match(setup,/Review deployments|Approve and deploy/i);
@@ -655,9 +594,21 @@ test('setup docs describe Pages test hosting and one-time production approval se
 });
 ```
 
-- [ ] **Step 2: Run the documentation tests and confirm RED**
+Replace the old setup-doc test in `tests/azure-deployment.test.js` with:
 
-Run:
+```js
+test('setup docs describe Pages testing and gated Azure production as the routine web deployment path',()=>{
+  const setup=read('SETUP.md');
+  assert.match(setup,/GitHub Pages/i);
+  assert.match(setup,/production environment/i);
+  assert.match(setup,/Review deployments|Approve and deploy/i);
+  assert.match(setup,/firestore:rules/);
+  assert.match(setup,/manual fallback|emergency\/manual fallback/i);
+  assert.doesNotMatch(setup,/temporary Azure PR preview|Azure Preview URL/i);
+});
+```
+
+- [ ] **Step 2: Run the two deployment test files and confirm RED**
 
 ```bash
 node --test tests/github-pages-deployment.test.js tests/azure-deployment.test.js
@@ -665,11 +616,11 @@ node --test tests/github-pages-deployment.test.js tests/azure-deployment.test.js
 
 Expected: workflow tests PASS; setup-documentation assertions FAIL because `SETUP.md` still describes Azure PR previews.
 
-- [ ] **Step 3: Rewrite only the Web deployment/activation deployment wording in `SETUP.md`**
+- [ ] **Step 3: Rewrite the Web deployment section in `SETUP.md`**
 
 Update Activation order step 6 to say the frontend is validated on GitHub Pages, then production is approved and deployed to Azure.
 
-Replace the existing `## Web deployment` section through `### Emergency/manual fallback` with content that contains all of the following exact operational facts:
+Replace the current `## Web deployment` section through the existing `### Emergency/manual fallback` subsection with operational instructions containing these exact endpoints:
 
 ```text
 Test site: https://alex1122341.github.io/Teaching-assignment/
@@ -679,65 +630,52 @@ Firebase backend: tester-teaching
 
 Document one-time setup in this order:
 
-1. GitHub repository -> **Settings -> Pages -> Build and deployment -> Source -> GitHub Actions**.
-2. GitHub repository -> **Settings -> Environments -> github-pages**: no required reviewers and no `main`-only deployment restriction, because same-repository PRs must update the fixed test site.
-3. Firebase Console -> `tester-teaching` -> Authentication -> Settings -> Authorized domains -> add exactly `alex1122341.github.io` (not the `/Teaching-assignment/` path).
-4. GitHub repository -> **Settings -> Environments -> New environment -> production**.
+1. GitHub -> **Settings -> Pages -> Build and deployment -> Source -> GitHub Actions**.
+2. GitHub -> **Settings -> Environments -> github-pages**: no required reviewers and no `main`-only deployment restriction.
+3. Firebase Console -> `tester-teaching` -> Authentication -> Settings -> Authorized domains -> add `alex1122341.github.io` exactly.
+4. GitHub -> **Settings -> Environments -> New environment -> production**.
 5. `production` -> Required reviewers -> `Alex1122341`.
 6. `production` -> deployment branches/tags -> allow `main` only.
-7. Leave **Prevent self-review** disabled so `Alex1122341` can merge and then approve the production deployment.
-8. Azure Portal -> Static Web App `ucvm-teaching-lab-web` -> Manage deployment token -> copy token.
-9. GitHub `production` environment -> Environment secrets -> add `AZURE_STATIC_WEB_APPS_API_TOKEN` with that token.
-10. Keep the existing repository-level token until the first environment-gated production deployment succeeds; after verification, delete the duplicate repository-level secret so the token is available only through `production`.
+7. Leave **Prevent self-review** disabled.
+8. Azure Portal -> Static Web App `ucvm-teaching-lab-web` -> Manage deployment token -> copy the token.
+9. GitHub `production` environment -> Environment secrets -> add `AZURE_STATIC_WEB_APPS_API_TOKEN`; paste the token directly in GitHub's secret-value field.
+10. Keep the existing repository-level secret until the first gated production deployment succeeds, then delete the duplicate repository-level copy.
 
-Document routine PR/release flow:
+Document routine flow exactly as:
 
 ```text
 feature branch
 -> PR
 -> Test workflow + GitHub Pages Test Site workflow
--> fixed Pages test URL updates only after all automated tests pass
--> verify banner PR/SHA and test browser behavior
+-> fixed Pages URL updates only after automated tests pass
+-> verify test banner PR/SHA and browser behavior
 -> merge to main
--> Azure Production validate/build job runs
--> deployment waits for production environment approval
--> Actions -> Review deployments -> production -> Approve and deploy
--> exact pre-approved artifact deploys to Azure
+-> Azure Production validate_and_build
+-> deploy_production waits for production environment approval
+-> Review deployments -> production -> Approve and deploy
+-> exact verified artifact deploys to Azure
 ```
 
-State clearly that the Pages site is public and points to the live/shared `tester-teaching` Firebase backend, so data-changing manual tests must be deliberate.
+State that the Pages test frontend is public and points to the live/shared `tester-teaching` Firebase backend, so data-changing tests must be deliberate.
 
-Retain the manual Firestore rules command exactly:
+Retain this manual Firestore rules command:
 
 ```bash
 npx firebase deploy --project tester-teaching --only firestore:rules
 ```
 
-Retain the existing PowerShell unblock/run emergency fallback instructions.
+Retain the current PowerShell unblock/run emergency fallback instructions. Remove wording saying PRs create Azure Preview URLs or that merge automatically updates Azure without approval.
 
-Remove instructions saying PRs create Azure Preview URLs or that merging automatically deploys production without approval.
-
-- [ ] **Step 4: Run all static tests**
-
-Run:
+- [ ] **Step 4: Run all static and emulator tests**
 
 ```bash
 npm test
-```
-
-Expected: PASS, including staging, Pages workflow, Azure workflow, and setup-doc regressions.
-
-- [ ] **Step 5: Run emulator tests**
-
-Run:
-
-```bash
 npm run test:emulator
 ```
 
-Expected: PASS. No rules behavior should have changed; this is a full regression gate because both deployment workflows promise to run this suite.
+Expected: PASS. No Firestore rule behavior changes are part of this task; the emulator suite is a full regression gate because both deployment workflows promise to run it.
 
-- [ ] **Step 6: Commit Task 4**
+- [ ] **Step 5: Commit Task 4**
 
 ```bash
 git add SETUP.md tests/github-pages-deployment.test.js tests/azure-deployment.test.js
@@ -746,20 +684,20 @@ git commit -m "docs: document gated Pages to Azure releases"
 
 ---
 
-### Task 5: Configure repository/Firebase controls and verify the end-to-end rollout
+### Task 5: Configure external controls and verify the end-to-end rollout
 
 **Files:**
-- No tracked application files required.
-- GitHub repository settings, GitHub Environments, Firebase Authentication settings, and Azure deployment token are external configuration.
+- No tracked application files.
+- External configuration: GitHub Pages, GitHub Environments, Firebase Authentication Authorized Domains, Azure deployment token.
 
 **Interfaces:**
-- Produces working Pages source configuration, Firebase Auth origin authorization, `github-pages` deployment environment without manual approval, and `production` deployment environment with reviewer approval and environment-scoped Azure token.
+- Produces: `github-pages` environment without manual approval; `production` environment with `Alex1122341` approval and `main` restriction; environment-scoped Azure token; authorized Pages Firebase origin.
 
-- [ ] **Step 1: Create the implementation PR before changing production**
+- [ ] **Step 1: Open the implementation PR**
 
-Use a feature branch containing Tasks 1-4 and open a PR to `main`. Confirm existing `Test` checks are green before relying on the new deployment behavior.
+Use a feature branch containing Tasks 1-4 and open a same-repository PR to `main`. Confirm the existing `Test` workflow is green before relying on new deployment behavior.
 
-- [ ] **Step 2: Configure GitHub Pages for Actions**
+- [ ] **Step 2: Configure Pages**
 
 In GitHub:
 
@@ -771,20 +709,14 @@ Alex1122341/Teaching-assignment
 -> Source: GitHub Actions
 ```
 
-Then open:
-
-```text
-Settings -> Environments -> github-pages
-```
-
-Required state:
+Then set `Settings -> Environments -> github-pages` to:
 
 ```text
 Required reviewers: none
 Deployment branches/tags: no main-only restriction
 ```
 
-If GitHub creates `github-pages` only after the first Pages workflow attempt, set these values immediately after it appears and rerun the failed Pages workflow.
+If `github-pages` appears only after the first Pages workflow attempt, set these values immediately after it appears and rerun the Pages workflow.
 
 - [ ] **Step 3: Authorize the GitHub Pages Firebase origin**
 
@@ -795,13 +727,12 @@ Project: tester-teaching
 -> Authentication
 -> Settings
 -> Authorized domains
--> Add domain
-alex1122341.github.io
+-> Add domain: alex1122341.github.io
 ```
 
 Do not enter `https://`, a trailing slash, or `/Teaching-assignment/`.
 
-- [ ] **Step 4: Configure the gated production environment**
+- [ ] **Step 4: Configure the production approval gate**
 
 In GitHub:
 
@@ -809,7 +740,7 @@ In GitHub:
 Settings -> Environments -> New environment -> production
 ```
 
-Configure:
+Required state:
 
 ```text
 Required reviewer: Alex1122341
@@ -817,31 +748,26 @@ Prevent self-review: OFF
 Deployment branches/tags: Selected branches -> main
 ```
 
-Do not add required reviewers to `github-pages`.
+- [ ] **Step 5: Add the Azure token as a production environment secret**
 
-- [ ] **Step 5: Move the Azure token into the production environment**
-
-Retrieve the deployment token from:
+Retrieve it from:
 
 ```text
-Azure Portal
--> Static Web App: ucvm-teaching-lab-web
--> Manage deployment token
+Azure Portal -> Static Web App: ucvm-teaching-lab-web -> Manage deployment token
 ```
 
-Add it in:
+Then add it at:
 
 ```text
 GitHub -> Settings -> Environments -> production -> Environment secrets
 Name: AZURE_STATIC_WEB_APPS_API_TOKEN
-Value: <paste the Azure deployment token directly in GitHub; do not put it in chat, logs, or source>
 ```
 
-Leave the existing repository-level secret temporarily so rollback is easy during first rollout. The environment secret takes precedence for the `production` job.
+Paste the Azure token directly into GitHub's value field. Do not put the token in chat, logs, source files, or PR comments. Keep the existing repository-level copy until the first gated production release is verified.
 
-- [ ] **Step 6: Verify the fixed Pages test deployment from a same-repository PR**
+- [ ] **Step 6: Verify the fixed Pages test site**
 
-Expected workflow sequence:
+If GitHub runs the newly added Pages workflow on the implementation PR, expected checks are:
 
 ```text
 Test -> PASS
@@ -849,52 +775,48 @@ GitHub Pages Test Site / verify_and_package -> PASS
 GitHub Pages Test Site / deploy -> PASS
 ```
 
-Open:
-
-```text
-https://alex1122341.github.io/Teaching-assignment/
-```
-
-Verify all of the following manually:
+Open `https://alex1122341.github.io/Teaching-assignment/` and verify:
 
 ```text
 - Banner says TEST SITE - GitHub Pages.
 - Banner says Not Production - Live Firebase Backend.
-- Banner PR number matches the PR being tested.
+- Banner PR number matches the PR.
 - Banner short SHA matches the PR head SHA.
 - Sign-in succeeds.
 - Timetable loads.
 - Faculty Dashboard opens.
-- Faculty self-dashboard behavior still limits a faculty account to its own profile.
+- Faculty self-dashboard still shows only the signed-in faculty profile.
 - Admin still sees the full dashboard.
-- /Teaching-assignment/faculty-dashboard.html redirects to ./index.html behavior.
-- Browser network/console shows no 404 caused by root-absolute local assets.
+- /Teaching-assignment/faculty-dashboard.html reaches index.html through the Pages shim.
+- Browser network/console shows no local-asset 404 caused by the project subpath.
 ```
 
-If the newly added workflow does not run on the workflow-introducing PR because GitHub requires the workflow to exist on the default branch first, finish code review without claiming Pages verification, merge only this deployment-only change, and create a small same-repository docs-only verification PR immediately afterward. Use that PR to complete this Pages verification before using the pipeline for application feature releases.
+If GitHub does not run a workflow newly introduced by the same PR, do not claim Pages verification. Merge only this deployment-pipeline change after code/static review, leave its production deployment waiting for approval, then open a same-repository documentation-only verification PR. Use that PR to perform the Pages checks above before approving the already-waiting production deployment.
 
-- [ ] **Step 7: Verify a second PR update replaces the fixed test site**
+- [ ] **Step 7: Verify the fixed URL updates on PR synchronize**
 
-Push one harmless documentation-only commit to the open verification PR. Confirm the Pages workflow runs again, the fixed URL remains the same, and the banner SHA updates to the new PR head SHA.
+Push one harmless documentation-only commit to the open verification PR (or to the implementation PR if its Pages workflow is active). Confirm the same Pages URL remains in use and the banner short SHA changes to the new PR head SHA.
 
-Do not intentionally introduce a failing commit solely to test failure retention. The automated workflow regression plus normal future CI failures are sufficient unless a controlled failure is specifically desired later.
+Do not deliberately introduce a broken commit solely to test failure retention; the regression tests plus future natural CI failures are enough for this rollout.
 
-- [ ] **Step 8: Merge and verify Azure stops for approval**
+- [ ] **Step 8: Merge, or use the already-merged fallback path, and confirm production waits**
 
-Merge the validated deployment PR (or the pipeline PR after the post-merge Pages verification path above).
+Normal path: merge the Pages-validated implementation PR.
 
-Expected Azure workflow state:
+Fallback path from Step 6: the pipeline PR is already merged, so do not merge it again; keep its existing Azure Production run pending while the documentation-only Pages verification PR remains unmerged.
+
+In either path, expected Azure state is:
 
 ```text
 Azure Production / validate_and_build -> PASS
 Azure Production / deploy_production -> Waiting for review
 ```
 
-At this point confirm the Azure production site has not changed because approval has not yet been granted.
+Confirm Azure has not deployed the candidate yet.
 
-- [ ] **Step 9: Approve production in GitHub and verify Azure**
+- [ ] **Step 9: Approve production and verify Azure**
 
-In GitHub Actions open the waiting run and use:
+In the waiting GitHub Actions run:
 
 ```text
 Review deployments
@@ -909,11 +831,11 @@ Azure Production / deploy_production -> PASS
 https://red-cliff-04871ca0f.5.azurestaticapps.net -> serves the approved main build
 ```
 
-Verify sign-in, timetable, Faculty Dashboard, and `/faculty-dashboard.html` Azure redirect after deployment.
+Verify sign-in, timetable, Faculty Dashboard, and the Azure `/faculty-dashboard.html` redirect.
 
-- [ ] **Step 10: Remove the duplicate repository-level Azure secret after success**
+- [ ] **Step 10: Remove the duplicate repository-level token only after success**
 
-Only after the first environment-gated Azure deployment succeeds:
+After the first environment-gated Azure deployment succeeds:
 
 ```text
 GitHub -> Settings -> Secrets and variables -> Actions
@@ -921,7 +843,7 @@ GitHub -> Settings -> Secrets and variables -> Actions
 -> delete repository-level copy
 ```
 
-Keep the `production` environment secret with the same name.
+Keep the `production` environment secret with that name.
 
 - [ ] **Step 11: Final verification before completion claim**
 
@@ -941,7 +863,7 @@ Confirm current GitHub Actions evidence shows:
 - Azure Production validate_and_build PASS on main.
 - Azure deploy_production visibly waited for production approval.
 - Azure deploy_production PASS only after approval.
-- No Azure PR preview workflow/job remains.
+- No Azure PR preview job remains.
 ```
 
-Document the final Pages test URL and Azure production URL in the implementation PR conversation, along with whether the workflow-introducing PR or a follow-up verification PR was used for live Pages validation.
+Record the final Pages test URL, Azure production URL, implementation PR number, and whether a follow-up verification PR was required in the implementation PR conversation.
