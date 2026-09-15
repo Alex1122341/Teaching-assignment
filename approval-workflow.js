@@ -253,7 +253,11 @@
  function openFacultySession(s){
   const g=role==='hicc'?groupForSession(s):null,own=selfAssignmentIndexes(s),canHicc=!!g;
   showModal(`<div class="modal-header"><div class="modal-title">${esc(s.course||'')} · ${esc(s.topic||'')}</div><div class="modal-subtitle">Requests do not change the live timetable until ADFA approves them.</div></div><div class="modal-body">${sessionSummary(s)}${canHicc?`<div class="workflow-note">HICC scope: <strong>${esc(g.name||'')}</strong>. This session is included because its course/tag matches the group or a group member is assigned.</div>`:''}<div class="workflow-actions">${canHicc?'<button class="btn btn-primary" id="workflow-hicc-edit">Request session change</button><button class="btn btn-primary" id="workflow-hicc-swap">Request HICC faculty swap</button>':''}<button class="btn btn-secondary" id="workflow-self-swap">${own.length?'Request replacement for me':'Request to take this session'}</button></div></div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`);
-  $('workflow-self-swap').onclick=()=>openSelfSwap(s);
+  $('workflow-self-swap').onclick=()=>{
+   const openSelfReplacement=window.UCVM_SAFE_SWAP?.openSelfReplacement;
+   if(own.length&&typeof openSelfReplacement==='function')return openSelfReplacement(s);
+   return openSelfSwap(s);
+  };
   if(canHicc){$('workflow-hicc-edit').onclick=()=>openHiccEdit(s,g);$('workflow-hicc-swap').onclick=()=>openHiccSwap(s,g)}
  }
 
