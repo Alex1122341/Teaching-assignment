@@ -52,12 +52,15 @@ test('AFC approval refreshes the sanitized availability projection through index
  assert.match(maintenanceSrc,/addFacultySwapUnavailableRange/);
 });
 
-test('shared static build includes safe swap and lazy-loads it before the legacy approval workflow',()=>{
- const manifest=JSON.parse(read('tools/static-assets.json')),loader=read('asset-loader.js');
+test('shared static build includes safe swap and loads it for timetable and admin initialization',()=>{
+ const manifest=JSON.parse(read('tools/static-assets.json')),loader=read('asset-loader.js'),admin=read('faculty-admin.html'),safeSrc=read('faculty-swap-safe.js');
  assert.ok(manifest.includes('faculty-swap-safe.js'));
  assert.ok(manifest.includes('approval-workflow.js'));
  const safe=loader.indexOf("loadScriptOnce('faculty-swap-safe.js'");
  const legacy=loader.indexOf("loadScriptOnce('approval-workflow.js'");
  assert.ok(safe>=0&&legacy>safe,'safe swap module must load before approval-workflow.js');
  assert.match(loader,/ensureApprovalWorkflow/);
+ assert.match(admin,/src="faculty-swap-safe\.js"/);
+ assert.match(safeSrc,/faculty-admin\.html/);
+ assert.match(safeSrc,/maybeInitializeSwapDirectory/);
 });
