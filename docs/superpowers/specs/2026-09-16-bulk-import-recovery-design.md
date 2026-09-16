@@ -3,7 +3,7 @@
 Date: 2026-09-16
 Repository: `Alex1122341/Teaching-assignment`
 Workstream: 3 - Safe bulk import
-Status: Approved design, pending implementation planning
+Status: Design approved in chat; written spec pending final user review
 
 ## 1. Purpose
 
@@ -46,6 +46,7 @@ Workstream 3 does not implement the full derived-index verifier. Workstream 4 re
 - Firestore rules remain the security boundary; rules must not be weakened for convenience.
 - Only Owner / ADFA General may start, resume, restore, or take over a bulk teaching-data import.
 - GitHub Pages uses the shared live Firebase backend, so destructive failure testing must use the Firebase Emulator, not Pages.
+- Recovery backups contain operational teaching data and must be treated as confidential administrative files. They must never be committed to the repository or included in test fixtures containing real data.
 
 ## 4. High-Level Import Flow
 
@@ -127,7 +128,9 @@ When triggered, the user must type `IMPORT` before continuing.
 
 ## 6. Source Fingerprint
 
-Each import file receives a deterministic SHA-256 fingerprint derived from its source content.
+Each selected import file receives a deterministic SHA-256 fingerprint over the **raw uploaded file bytes** before JSON parsing or reserialization.
+
+This avoids differences caused by object-key ordering or formatting and guarantees that Resume requires the same source bytes, not merely a semantically similar JSON object or matching filename.
 
 The fingerprint is used to:
 
@@ -181,6 +184,20 @@ Include the current `settings/faculty_summary_2026_27` document and enough impor
 
 Derived index documents may be included for diagnosis, but restore correctness is based on canonical source collections followed by index rebuild/verification, not on trusting stale index backups.
 
+### 7.1 Firestore value serialization
+
+The recovery file must preserve Firestore value types needed for a lossless restore. Timestamp values must not silently become ordinary strings.
+
+The backup serializer recursively supports the value types actually present in the backed-up documents, including primitives, arrays, maps, and Firestore Timestamps. Timestamps should use an explicit typed representation containing seconds/nanoseconds (or an equivalent lossless tagged representation).
+
+If an unsupported Firestore value type is encountered, backup generation fails before the maintenance lock is acquired. The implementation must not silently stringify or discard an unsupported value.
+
+The restore decoder reverses the tagged representation before writing Firestore documents.
+
+### 7.2 Backup fingerprint
+
+The backup fingerprint is SHA-256 over a deterministic serialization of the backup payload **excluding the fingerprint field itself**. The serializer must use stable key ordering so validation does not depend on runtime object insertion order.
+
 ### Backup confirmation
 
 The system can verify that it generated the JSON, computed the fingerprint, and triggered a browser download. It cannot prove where the user saved the file.
@@ -212,9 +229,13 @@ lastCompletedImportId
 lastCompletedImportAt
 ```
 
+For backwards-safe rollout, if `settings/system_state` does not yet exist, normal teaching writes are treated as open. Once created, its explicit lock state applies.
+
 ### 8.2 `bulk_import_jobs/{importId}`
 
 The import job stores detailed lifecycle and checkpoint state.
+
+`importId` should be a cryptographically strong client-generated identifier, such as `crypto.randomUUID()` where available.
 
 Representative fields:
 
@@ -259,7 +280,21 @@ If the stale-session ID list is too large for a safe single document, persist it
 
 `bulk_import_jobs/{importId}/stale_batches/{batchId}`.
 
-## 9. Maintenance Lock
+## 9. Atomic Lock Acquisition
+
+Two administrators must not be able to start separate imports at the same time.
+
+Acquiring maintenance ownership and creating the initial job must therefore be transactionally guarded:
+
+1. Read `settings/system_state`.
+2. Confirm there is no active/incomplete maintenance operation.
+3. Create/initialize `bulk_import_jobs/{importId}`.
+4. Set `teachingDataWriteLocked = true`, `maintenanceMode = bulk_import`, `activeImportId = importId`, and maintenance owner fields.
+5. Commit these state changes atomically before the first faculty/session data write.
+
+If the transaction detects an active job, the second start attempt fails cleanly.
+
+## 10. Maintenance Lock
 
 The maintenance lock is acquired before the first faculty/session write.
 
@@ -284,6 +319,8 @@ During maintenance, reads remain available. Teaching-data writes are temporarily
 - conflicting faculty teaching-data mutations;
 - manual derived-index rebuild from normal UI paths.
 
+Creating or rejecting a change request may remain available if it does not mutate the protected teaching dataset; applying an approved request that changes a session is blocked until maintenance ends. Existing stale-request protection remains in force afterward.
+
 The UI displays a common message such as:
 
 > Teaching Data Maintenance in Progress. Teaching and faculty-data editing is temporarily unavailable. Viewing remains available.
@@ -302,26 +339,34 @@ Because the import itself runs in an authenticated browser client, rules cannot 
 
 The design must not claim server-trusted import identity where none exists.
 
-## 10. Batch Checkpoints and Idempotency
+## 11. Batch Checkpoints and Idempotency
 
 Each mutating stage is designed to be safely repeatable.
 
 ### Faculty phase
 
-- Continue using bounded Firestore batches (existing scale is approximately 350 records per batch).
-- After each successful batch, persist `facultyBatchCompleted`.
-- Re-running the same batch must produce the same target state and no duplicate records.
+- Continue using bounded Firestore batches (existing scale is approximately 350 faculty writes per batch).
+- Include the corresponding job checkpoint update in the **same Firestore batch commit** as the data writes.
+- This keeps `facultyBatchCompleted` atomic with that batch's mutations.
+- Re-running an incomplete batch must produce the same target state and no duplicate records.
 
 ### Session phase
 
-- Continue using bounded Firestore batches (existing scale is approximately 300 records per batch).
+- Continue using bounded Firestore batches (existing scale is approximately 300 session writes per batch).
 - Sessions use stable document IDs.
-- After each successful batch, persist `sessionBatchCompleted`.
-- Re-running a completed batch is harmless because the same document ID is overwritten with the same intended content.
+- Include `sessionBatchCompleted` in the same Firestore batch commit as the session writes.
+- Re-running an incomplete batch is safe because stable document IDs prevent duplicates.
+
+### Stale deletion phase
+
+- Include `staleBatchCompleted` in the same batch as each group of deletions.
+- Deleting a document that is already absent is treated as already complete.
+
+Keeping data mutation and checkpoint in one batch avoids ambiguous states where data committed but the checkpoint did not, or vice versa.
 
 Progress must never exist only in JavaScript memory.
 
-## 11. Resume Behavior
+## 12. Resume Behavior
 
 When the dashboard sees a non-terminal import state, it must show an incomplete-import recovery panel rather than allowing a new import.
 
@@ -340,9 +385,9 @@ To resume, the administrator selects the original source JSON again. The new fil
 
 If it differs, resume is blocked.
 
-The controller resumes from the first incomplete safe checkpoint. Re-running an already completed idempotent batch is acceptable when that simplifies correctness.
+The controller resumes from the first incomplete safe checkpoint. Because checkpoints are committed atomically with their data batches, a batch recorded as complete does not need to be guessed or inferred from browser memory.
 
-## 12. Verification Before Stale Deletion
+## 13. Verification Before Stale Deletion
 
 Stale deletion is forbidden until all incoming faculty/session writes have completed and source verification passes.
 
@@ -355,17 +400,15 @@ At minimum, verify:
 
 Only after this verification passes may the stale-session set be finalized.
 
-## 13. Stale Session Deletion
+## 14. Stale Session Deletion
 
 The stale set is computed once for the job and persisted/frozen before deletion begins.
 
-Deletion is batched and checkpointed with `staleBatchCompleted`.
-
-Deleting a document that is already absent is treated as already complete rather than a fatal condition.
+Deletion is batched and checkpointed with `staleBatchCompleted` in the same batch as the corresponding deletes.
 
 An interruption during deletion remains resumable.
 
-## 14. Final Source Verification
+## 15. Final Source Verification
 
 After stale deletion, compare the final Firestore session ID set against the incoming source session ID set.
 
@@ -380,7 +423,7 @@ unexpectedOldIds = 0
 
 Additional field-level verification may be added for critical session import metadata.
 
-## 15. Derived Index Completion Gate
+## 16. Derived Index Completion Gate
 
 After canonical source data verifies:
 
@@ -391,17 +434,19 @@ REBUILDING_INDEXES
 
 Workstream 3 establishes the lifecycle hook. Workstream 4 provides the full canonical derived-index verification implementation.
 
-Ultimately an import may reach `COMPLETED` only after source data verifies and derived indexes rebuild/verify successfully.
+The Workstream 3 implementation must still provide a minimal reliable completion check around the existing index rebuild path (for example, successful rebuild plus basic expected document existence/count/source assertions). It must not mark an import `COMPLETED` merely because a rebuild function was invoked.
 
-Until Workstream 4 is implemented, the interface and job phases should be designed so the verifier can be connected without restructuring the import lifecycle.
+Workstream 4 will replace/strengthen that provisional check with canonical build/diff verification without changing the import lifecycle interface.
 
-## 16. Recovery Takeover
+If a reliable provisional check cannot be implemented without duplicating Workstream 4, the new bulk-import execution path must remain disabled in production until Workstream 4 is connected; the system must not silently weaken the completion gate.
+
+## 17. Recovery Takeover
 
 An incomplete job must not permanently depend on the administrator who originally started it.
 
 Another Owner / ADFA General may use `Take Over Recovery`.
 
-Takeover records:
+Takeover is transactionally guarded and records:
 
 - previous maintenance owner;
 - new maintenance owner;
@@ -413,7 +458,7 @@ It emits an import-level audit event such as `BULK_IMPORT_RECOVERY_TAKEN_OVER`.
 
 Other roles may see maintenance status but cannot take over, resume, or restore.
 
-## 17. Restore Flow
+## 18. Restore Flow
 
 A restore file is validated before any mutation.
 
@@ -422,7 +467,7 @@ Required checks include:
 - supported backup schema;
 - expected Firebase project;
 - backup ID;
-- backup fingerprint validity;
+- recomputed backup fingerprint matches the embedded fingerprint;
 - backup counts;
 - `backupFingerprint` matches the interrupted job;
 - intended import fingerprint matches the job being restored.
@@ -443,7 +488,9 @@ RESTORING_FACULTY
     -> RESTORED
 ```
 
-Restore is itself resumable and checkpointed. An interrupted restore is detected on the next dashboard load and resumed; it is not restarted as an unrelated operation.
+Restore is itself resumable and checkpointed. Restore data batches use the same atomic data+checkpoint pattern as import batches.
+
+An interrupted restore is detected on the next dashboard load and resumed; it is not restarted as an unrelated operation.
 
 ### Faculty restore semantics
 
@@ -451,13 +498,13 @@ Restore only the teaching-summary fields captured by the backup. It must not ove
 
 ### Session restore semantics
 
-Restore complete session documents using their original IDs.
+Decode typed Firestore values and restore complete session documents using their original IDs.
 
 Sessions created by the interrupted import but absent from the backup are removed.
 
 Restore verification requires the final Firestore session ID set to exactly equal the backup session ID set.
 
-## 18. Lock Release Rules
+## 19. Lock Release Rules
 
 The teaching-data maintenance lock may be released only when the job reaches:
 
@@ -474,11 +521,17 @@ No `finally { unlock }` behavior is permitted.
 
 The first implementation should not provide a casual `Force Unlock` button. Recovery should proceed through Resume or Restore. Any future administrative recovery unlock must perform explicit consistency checks before releasing the lock.
 
-## 19. Audit Model
+Lock release should be transactionally coupled to the terminal job-state update so `system_state` and the active job cannot disagree about whether maintenance is complete.
+
+## 20. Audit Model
 
 Do not generate thousands of ordinary per-session history records solely because a bulk import touched thousands of documents.
 
-Create import-level events such as:
+Store import lifecycle events as immutable child records under:
+
+`bulk_import_jobs/{importId}/events/{eventId}`
+
+Representative event types:
 
 - `BULK_IMPORT_STARTED`;
 - `BULK_IMPORT_FAILED`;
@@ -491,9 +544,11 @@ Create import-level events such as:
 
 Audit payloads should include the import ID, source name, source fingerprint, relevant counts, actor, timestamps, and failure details when applicable.
 
+Event documents are append-only: authorized users may create them, but updates and deletes are denied.
+
 Imported session documents continue to carry source/import metadata such as `sourceWorkbook`, `sourceSchema`, `bulkImportedAt`, and `bulkImportedBy`.
 
-## 20. UI Behavior
+## 21. UI Behavior
 
 ### Healthy state
 
@@ -518,7 +573,7 @@ Show a prominent recovery card with:
 
 Do not allow `Start New Import` while an incomplete import/restore exists.
 
-## 21. Acceptance Test Matrix
+## 22. Acceptance Test Matrix
 
 At minimum, automated tests must cover:
 
@@ -527,11 +582,13 @@ At minimum, automated tests must cover:
 | Invalid JSON | Blocked; zero teaching-data writes |
 | Wrong schema | Blocked; zero teaching-data writes |
 | Duplicate faculty/session IDs | Blocked |
+| Unsupported backup value type | Backup blocked; zero teaching-data writes |
 | Backup not confirmed | Start Import unavailable |
+| Concurrent start attempts | Only one lock/job acquisition succeeds |
 | Start import | Lock acquired before first data write |
 | Faculty batch failure | Job `FAILED`; lock remains |
 | Resume same file | Continues successfully |
-| Resume different file | Blocked by fingerprint |
+| Resume different file | Blocked by raw-file fingerprint |
 | Session batch failure | No stale deletion |
 | Source verification failure | No stale deletion |
 | Stale deletion interruption | Resume continues safely |
@@ -541,13 +598,14 @@ At minimum, automated tests must cover:
 | Session edit during maintenance | Denied |
 | Swap/session approval mutation during maintenance | Denied/deferred |
 | Valid recovery backup | Restore allowed after preview/confirmation |
+| Tampered recovery backup | Blocked by recomputed fingerprint |
 | Wrong recovery backup | Blocked |
 | Restore faculty/session batch failure | Restore remains resumable |
 | Restore completes | Session ID set exactly equals backup |
-| Import completes | Lock released |
-| Restore completes | Lock released |
+| Import completes | Terminal job + lock release remain consistent |
+| Restore completes | Terminal job + lock release remain consistent |
 
-## 22. Failure Injection
+## 23. Failure Injection
 
 Firebase Emulator tests should deliberately fail at representative checkpoints:
 
@@ -555,7 +613,7 @@ Firebase Emulator tests should deliberately fail at representative checkpoints:
 - session batch 3;
 - source verification;
 - stale deletion;
-- derived-index rebuild hook;
+- provisional derived-index completion check;
 - restore faculty phase;
 - restore session phase;
 - restore deletion phase.
@@ -571,23 +629,28 @@ For each failure, verify:
 
 These tests must not run destructively against the GitHub Pages live Firebase project.
 
-## 23. Security Rule Requirements
+## 24. Security Rule Requirements
 
 `firestore.rules` must be updated and covered by emulator tests so that:
 
 - only Owner / ADFA General can create/control bulk import jobs and maintenance state;
 - normal protected teaching-data writes are rejected during maintenance;
 - maintenance state cannot be cleared by unauthorized users;
+- import job lifecycle/event records cannot be mutated by unauthorized users;
+- lifecycle event records are append-only;
 - other normal application reads continue according to existing permissions;
 - the existing role vocabulary and legacy aliases remain unchanged;
 - rule changes do not broaden ordinary faculty access to confidential faculty data.
 
-## 24. Implementation Boundaries
+Because the rules will depend on the new maintenance documents, rollout must be backwards safe. The missing-`system_state` case remains unlocked, allowing Firestore rules to be deployed before the new UI/controller. Production UI that relies on maintenance enforcement must not be released before the corresponding rules have been deployed and emulator-verified.
+
+## 25. Implementation Boundaries
 
 Likely files/modules to be touched or introduced during implementation include:
 
 - `faculty-admin.js` - UI integration only, not the full import state machine;
 - a dedicated bulk-import controller/module for preflight, lifecycle, checkpoints, resume and restore;
+- a small deterministic serialization/fingerprint helper if separation improves testability;
 - `faculty-admin.html` - synchronization/recovery UI;
 - `firestore.rules` - maintenance and job permissions;
 - `data-index.js` / index maintenance integration hook as needed;
@@ -595,23 +658,27 @@ Likely files/modules to be touched or introduced during implementation include:
 - `tests/security-emulator.test.js` or dedicated emulator tests for maintenance-rule behavior;
 - `SETUP.md` for operator recovery instructions.
 
-Exact file decomposition is deferred to the implementation plan after this design is approved.
+Exact file decomposition and function signatures will be fixed in the implementation plan after this written design is approved.
 
-## 25. Success Criteria
+## 26. Success Criteria
 
 Workstream 3 is complete when:
 
 1. An import cannot mutate teaching data before preflight and backup confirmation.
-2. Import progress survives browser closure and is visible on reopen.
-3. A failed import never silently presents itself as complete.
-4. Resume requires the exact same source fingerprint.
-5. Stale sessions cannot be deleted before all incoming sessions are written and verified.
-6. An interrupted stale deletion is resumable.
-7. A validated recovery backup can restore pre-import session state and faculty teaching-summary fields.
-8. Restore itself is resumable.
-9. Normal teaching-data writes are blocked during maintenance by both UI behavior and Firestore rules where enforceable.
-10. Only Owner / ADFA General can start, resume, take over, or restore.
-11. The maintenance lock is released only after `COMPLETED` or `RESTORED`.
-12. Failure injection and security emulator tests pass.
-13. `npm test` and `npm run test:emulator` pass before the implementation PR is presented for browser review.
-14. Workstream 4 can plug its canonical derived-index verifier into the prepared completion gate without redesigning the import lifecycle.
+2. Raw source bytes are fingerprinted and Resume requires the exact same source fingerprint.
+3. A lossless typed recovery backup is generated before maintenance begins, and unsupported backup values fail safely.
+4. Maintenance lock/job acquisition is transactionally guarded against concurrent starts.
+5. Import progress survives browser closure and is visible on reopen.
+6. Data batches and their checkpoints are committed atomically.
+7. A failed import never silently presents itself as complete.
+8. Stale sessions cannot be deleted before all incoming sessions are written and verified.
+9. An interrupted stale deletion is resumable.
+10. A validated, untampered recovery backup can restore pre-import session state and faculty teaching-summary fields.
+11. Restore itself is resumable and uses atomic data+checkpoint batches.
+12. Normal teaching-data writes are blocked during maintenance by both UI behavior and Firestore rules where enforceable.
+13. Only Owner / ADFA General can start, resume, take over, or restore.
+14. The maintenance lock is released only after `COMPLETED` or `RESTORED`, transactionally consistent with the job state.
+15. Import lifecycle events are append-only and auditable.
+16. Failure injection and security emulator tests pass.
+17. `npm test` and `npm run test:emulator` pass before the implementation PR is presented for browser review.
+18. Workstream 4 can replace the provisional derived-index completion check with canonical verification without redesigning the import lifecycle.
