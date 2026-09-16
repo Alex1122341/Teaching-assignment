@@ -36,7 +36,7 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
    npx firebase deploy --project tester-teaching --only firestore:rules,firestore:indexes
    ```
    If the local Firebase CLI dependency is unavailable later, any Firebase CLI installation can deploy these rules; Cloud Functions are not required.
-6. Complete the one-time GitHub/Azure setup in **Web deployment** below, then use a pull request to publish and validate the frontend through Azure Static Web Apps.
+6. Complete the one-time GitHub Pages, Firebase Authorized Domain, and gated Azure production setup in **Web deployment** below. Use a pull request to publish the frontend to the fixed GitHub Pages test site before any production approval.
 7. Sign in once as Owner / ADFA General or another administrator and open **Faculty Dashboard**. If the privacy-safe faculty replacement directory does not exist yet, the dashboard creates `settings/faculty_swap_index` and the admin-only `settings/faculty_swap_map` from the current Faculty Database.
 8. Open User Management.
 9. To add one person, choose their faculty profile in **New account**. The profile supplies the name and email; choose the access role and enter a temporary password. Firebase supplies the Authentication UID after creation.
@@ -47,25 +47,51 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
 
 ## Web deployment
 
-Azure Static Web Apps is the routine web host. Firebase remains the Authentication, Firestore, and Firestore Security Rules backend; Firebase Hosting is not used for normal preview or production releases.
+The routine release path uses two different frontend hosts for two different purposes:
 
-### One-time GitHub setup
+- **GitHub Pages test site:** `https://alex1122341.github.io/Teaching-assignment/`
+- **Azure production site:** `https://red-cliff-04871ca0f.5.azurestaticapps.net`
 
-Create the GitHub Actions repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN` with the deployment token for the existing Azure Static Web App `ucvm-teaching-lab-web`. Never commit the deployment token, an ARM token, or an Azure access token to the repository.
+Both frontends use the same live Firebase backend, project `tester-teaching`, for Authentication and Firestore. The GitHub Pages test site is therefore **Not Production**, but it is connected to the **Live Firebase Backend**. Test data-changing actions deliberately. Firebase Hosting is not used for routine web releases.
 
-The dedicated `.github/workflows/azure-static-web-apps.yml` workflow uses the repository secret only for same-repository pull requests and pushes to `main`. Forked pull requests do not receive the deployment secret and do not create Azure previews.
+### One-time GitHub Pages and Firebase setup
 
-### Routine pull-request flow
+1. In GitHub repository **Settings > Pages**, set the Pages source to **GitHub Actions**.
+2. Keep the standard `github-pages` Environment available to pull-request deployments. Do not restrict that environment to `main`, because the fixed test site is updated from same-repository pull requests.
+3. In Firebase Console, open **Authentication > Settings > Authorized domains** and add `alex1122341.github.io`. This is required so Firebase Authentication can sign users in from the GitHub Pages host.
+4. The fixed Pages URL always shows the latest successful same-repository pull request deployed by `.github/workflows/github-pages-test.yml`. A newer successful PR replaces the previous test version.
+5. The Pages build injects a visible **TEST SITE - GitHub Pages / Not Production - Live Firebase Backend** banner with the PR number and commit identifier. That banner exists only in the Pages artifact and never in the Azure production artifact.
+
+Forked pull requests do not deploy the test site. The Pages workflow uses the normal `pull_request` event and verifies that the PR head repository is the same repository before deployment.
+
+### One-time gated Azure production setup
+
+Create a GitHub Environment named `production` under **Settings > Environments** and configure it as the production release gate:
+
+1. Add a **Required reviewer** who can approve production releases.
+2. Restrict deployment branches/tags so only `main` may deploy to this environment.
+3. Keep **Prevent self-review** disabled. This allows the repository owner to approve a deployment they initiated when appropriate.
+4. Add `AZURE_STATIC_WEB_APPS_API_TOKEN` as a **production environment secret** containing the deployment token for the existing Azure Static Web App `ucvm-teaching-lab-web`.
+5. After the environment secret is confirmed working, remove the old repository-level copy of `AZURE_STATIC_WEB_APPS_API_TOKEN` so the Azure token is available only to the approval-gated production job.
+
+Never commit the deployment token, an ARM token, or an Azure access token to the repository.
+
+### Routine pull-request and release flow
 
 1. Create a feature branch and open a same-repository pull request targeting `main`.
-2. The existing **Test** workflow runs static/unit tests and the Firestore/Auth emulator suite.
-3. The **Azure Static Web Apps** workflow independently runs the same verification, builds `.deploy-static` with `node tools/build-static.js`, stages `staticwebapp.config.json`, and deploys a temporary Azure PR preview environment.
-4. Open the Azure Preview URL from the deployment result and validate the timetable, Faculty Dashboard, sign-in, and any changed workflow. Preview and production currently use the same Firebase project, `tester-teaching`, so test any data-changing actions deliberately.
-5. Additional commits to the same pull request update the same PR preview environment.
-6. Merge the validated pull request. The resulting push to `main` runs verification again and automatically deploys the existing Azure production Static Web App.
-7. Closing or merging the pull request triggers cleanup of its temporary Azure preview environment.
+2. The independent **Test** workflow runs static/unit tests and the Firestore/Auth emulator suite.
+3. The **GitHub Pages Test Site** workflow independently runs `npm ci`, `npm test`, `npm run test:emulator`, builds `.deploy-static`, applies Pages-only staging, and publishes the verified artifact to the fixed GitHub Pages test URL.
+4. Open `https://alex1122341.github.io/Teaching-assignment/` and manually validate sign-in, Timetable, Faculty Dashboard, and the changed workflow. Confirm the TEST SITE / Not Production banner is present. Because this site uses the live `tester-teaching` backend, avoid unnecessary edits to real data.
+5. Additional commits to the same or another same-repository PR update the single fixed Pages test site after their verification passes. The latest successful PR version is the version visible at the fixed URL.
+6. Only after the browser test is accepted, merge the pull request to `main`.
+7. The `main` push starts the **Azure Static Web Apps** workflow. Its `validate_and_build` job runs the full test suite again, builds `.deploy-static`, adds the canonical `staticwebapp.config.json`, and uploads an immutable `azure-production-${{ github.sha }}` Actions artifact.
+8. The production deployment then waits at the GitHub `production` Environment gate. In GitHub Actions choose **Review deployments**, select **production**, then choose **Approve and deploy**.
+9. After approval, the deployment job downloads the exact artifact built before approval and sends those bytes to Azure Static Web Apps. It does not run the build again after approval.
+10. If a newer `main` version arrives while an older production release is still waiting for approval, the `azure-production-main` concurrency group cancels the older run so only the newest candidate remains.
 
-The preview URL is externally reachable; it is not a security boundary. Firebase Authentication and Firestore Security Rules continue to protect application data.
+Azure is production-only in this flow; pull requests do not create Azure preview environments. GitHub Pages is the fixed browser-test host.
+
+The GitHub Pages URL is publicly reachable and is not a security boundary. Firebase Authentication and Firestore Security Rules continue to protect application data.
 
 ### Firestore rule changes
 
@@ -88,7 +114,7 @@ powershell -NoProfile -Command "Unblock-File -LiteralPath '.\tools\deploy_azure_
 powershell -File .\tools\deploy_azure_static_web.ps1
 ```
 
-Routine releases should use the GitHub pull-request preview and `main` production deployment instead of this local fallback.
+Routine releases should use the GitHub Pages test site, merge to `main`, GitHub production approval, and Azure deployment instead of this local fallback.
 
 ## Faculty replacement requests
 
