@@ -8,9 +8,11 @@
  const number=value=>{if(value===null||value===undefined||value==='')return null;const parsed=Number(value);return Number.isFinite(parsed)?parsed:null};
  function override(faculty){
   const raw=faculty?.doeOverride2026_27;
-  const value=number(raw&&typeof raw==='object'?raw.value:(raw??faculty?.overrideDOE));
-  const reason=text(raw&&typeof raw==='object'?raw.reason:faculty?.overrideReason);
-  return{value,reason};
+  const object=raw&&typeof raw==='object';
+  const value=number(object?raw.value:(raw??faculty?.overrideDOE));
+  const reason=text(object?raw.reason:faculty?.overrideReason);
+  const notes=text(object?raw.notes:'');
+  return{value,reason,notes};
  }
  function contract(faculty){
   return[faculty?.doe?.teaching,faculty?.doeTeaching,faculty?.teachingDOE,faculty?.contractTeachingDOE].map(number).find(value=>value!==null)??null;
@@ -26,5 +28,5 @@
   if(target.value===null)return'DOE unavailable';
   return`${target.source==='override'?'Override DOE':'Contract DOE'} ${target.value.toFixed(2)}%${target.reason?` · ${target.reason}`:''}`;
  }
- return{effectiveTarget,targetLabel};
+ return{override,contract,effectiveTarget,targetLabel};
 });
