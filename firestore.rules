@@ -40,6 +40,21 @@ service cloud.firestore {
   function clientCreatedSessionHasNoAuditMarker(){return !request.resource.data.keys().hasAny(['auditEventId']);}
   function clientKeptSessionAuditMarker(){return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['auditEventId']);}
 
+  function systemStateExists(){return exists(/databases/$(database)/documents/settings/system_state);}
+  function teachingLocked(){return systemStateExists() && get(/databases/$(database)/documents/settings/system_state).data.get('teachingDataWriteLocked',false) == true;}
+  function teachingWritesOpen(){return !teachingLocked();}
+  function maintenanceOwner(){return general() && teachingLocked() && get(/databases/$(database)/documents/settings/system_state).data.get('maintenanceOwnerUid','') == request.auth.uid && get(/databases/$(database)/documents/settings/system_state).data.get('activeImportId','') is string && get(/databases/$(database)/documents/settings/system_state).data.get('activeImportId','').size() > 0;}
+  function maintenanceOwnerFor(id){return maintenanceOwner() && get(/databases/$(database)/documents/settings/system_state).data.get('activeImportId','') == id;}
+  function maintenanceFacultyUpdate(){return maintenanceOwner() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['teachingDoeModel2026_27','assignedTeachingDOE','doeAssignedTeachingDOE','teachingSummary2026_27','facultySummary2026_27','facultySummaryStatus2026_27','facultySummarySource2026_27','facultySummaryImportedAt','facultySummaryImportedBy','updatedBy','updatedByName']);}
+  function validSystemStateCreate(){return general() && request.resource.data.keys().hasOnly(['teachingDataWriteLocked','maintenanceMode','activeImportId','maintenanceOwnerUid','maintenanceOwnerName','maintenanceStartedAt','lastCompletedImportId','lastCompletedImportAt']) && request.resource.data.teachingDataWriteLocked == true && request.resource.data.maintenanceMode in ['bulk_import','restore'] && request.resource.data.activeImportId is string && request.resource.data.activeImportId.size() > 0 && request.resource.data.maintenanceOwnerUid == request.auth.uid && request.resource.data.maintenanceStartedAt == request.time && existsAfter(/databases/$(database)/documents/bulk_import_jobs/$(request.resource.data.activeImportId)) && getAfter(/databases/$(database)/documents/bulk_import_jobs/$(request.resource.data.activeImportId)).data.startedBy == request.auth.uid && getAfter(/databases/$(database)/documents/bulk_import_jobs/$(request.resource.data.activeImportId)).data.status == 'APPLYING';}
+  function validSystemStateAcquire(){return general() && resource.data.get('teachingDataWriteLocked',false) == false && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['teachingDataWriteLocked','maintenanceMode','activeImportId','maintenanceOwnerUid','maintenanceOwnerName','maintenanceStartedAt']) && request.resource.data.teachingDataWriteLocked == true && request.resource.data.maintenanceMode in ['bulk_import','restore'] && request.resource.data.activeImportId is string && request.resource.data.activeImportId.size() > 0 && request.resource.data.maintenanceOwnerUid == request.auth.uid && request.resource.data.maintenanceStartedAt == request.time && existsAfter(/databases/$(database)/documents/bulk_import_jobs/$(request.resource.data.activeImportId)) && getAfter(/databases/$(database)/documents/bulk_import_jobs/$(request.resource.data.activeImportId)).data.startedBy == request.auth.uid && getAfter(/databases/$(database)/documents/bulk_import_jobs/$(request.resource.data.activeImportId)).data.status == 'APPLYING';}
+  function validSystemStateOwnerModeChange(){return maintenanceOwner() && request.resource.data.teachingDataWriteLocked == true && request.resource.data.activeImportId == resource.data.activeImportId && request.resource.data.maintenanceOwnerUid == resource.data.maintenanceOwnerUid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['maintenanceMode']) && request.resource.data.maintenanceMode in ['bulk_import','restore'];}
+  function validSystemStateTakeover(){return general() && resource.data.get('teachingDataWriteLocked',false) == true && request.resource.data.teachingDataWriteLocked == true && request.resource.data.activeImportId == resource.data.activeImportId && request.resource.data.maintenanceOwnerUid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['maintenanceOwnerUid','maintenanceOwnerName']) && existsAfter(/databases/$(database)/documents/bulk_import_jobs/$(resource.data.activeImportId)) && getAfter(/databases/$(database)/documents/bulk_import_jobs/$(resource.data.activeImportId)).data.get('recoveryTakenOverBy','') == request.auth.uid && getAfter(/databases/$(database)/documents/bulk_import_jobs/$(resource.data.activeImportId)).data.get('recoveryTakeoverReason','') is string && getAfter(/databases/$(database)/documents/bulk_import_jobs/$(resource.data.activeImportId)).data.get('recoveryTakeoverReason','').size() > 0;}
+  function validSystemStateUnlock(){return maintenanceOwner() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['teachingDataWriteLocked','maintenanceMode','activeImportId','maintenanceOwnerUid','maintenanceOwnerName','maintenanceStartedAt','lastCompletedImportId','lastCompletedImportAt']) && request.resource.data.teachingDataWriteLocked == false && request.resource.data.maintenanceMode == 'none' && request.resource.data.activeImportId == '' && request.resource.data.maintenanceOwnerUid == '' && existsAfter(/databases/$(database)/documents/bulk_import_jobs/$(resource.data.activeImportId)) && getAfter(/databases/$(database)/documents/bulk_import_jobs/$(resource.data.activeImportId)).data.status in ['COMPLETED','RESTORED'];}
+  function validImportJobCreate(id){return general() && request.resource.data.importId == id && request.resource.data.startedBy == request.auth.uid && request.resource.data.status == 'APPLYING' && existsAfter(/databases/$(database)/documents/settings/system_state) && getAfter(/databases/$(database)/documents/settings/system_state).data.teachingDataWriteLocked == true && getAfter(/databases/$(database)/documents/settings/system_state).data.activeImportId == id && getAfter(/databases/$(database)/documents/settings/system_state).data.maintenanceOwnerUid == request.auth.uid;}
+  function validImportJobUpdate(id){return maintenanceOwnerFor(id) && request.resource.data.get('importId','') == resource.data.get('importId','') && request.resource.data.get('sourceFingerprint','') == resource.data.get('sourceFingerprint','') && request.resource.data.get('sourceWorkbook','') == resource.data.get('sourceWorkbook','') && request.resource.data.get('schemaVersion','') == resource.data.get('schemaVersion','') && request.resource.data.get('startedBy','') == resource.data.get('startedBy','') && request.resource.data.get('startedAt',null) == resource.data.get('startedAt',null) && request.resource.data.get('backupFingerprint','') == resource.data.get('backupFingerprint','');}
+  function validImportJobTakeover(id){return general() && teachingLocked() && get(/databases/$(database)/documents/settings/system_state).data.activeImportId == id && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['previousMaintenanceOwnerUid','previousMaintenanceOwnerName','recoveryTakenOverBy','recoveryTakenOverByName','recoveryTakenOverAt','recoveryTakeoverReason','lastUpdatedAt']) && request.resource.data.recoveryTakenOverBy == request.auth.uid && request.resource.data.recoveryTakeoverReason is string && request.resource.data.recoveryTakeoverReason.size() > 0 && getAfter(/databases/$(database)/documents/settings/system_state).data.maintenanceOwnerUid == request.auth.uid;}
+
   match /users/{uid} {
    allow get: if signedIn() && (request.auth.uid == uid || general() || (facultyMember() && facultyRole(resource.data.role)));
    allow list: if general() || (facultyMember() && facultyRole(resource.data.role));
@@ -55,27 +70,54 @@ service cloud.firestore {
   }
   match /sessions/{id} {
    allow read: if ready();
-   allow create: if admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general());
-   allow update: if admin() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general());
-   allow delete: if admin();
+   allow create: if (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general())) || maintenanceOwner();
+   allow update: if (teachingWritesOpen() && admin() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general())) || maintenanceOwner();
+   allow delete: if (teachingWritesOpen() && admin()) || maintenanceOwner();
   }
   match /faculty/{id} {
    allow get: if admin() || ownFacultyId(id);
    allow list: if admin();
-   allow create: if admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportCreate() || general());
-   allow update: if admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportChange() || general());
-   allow delete: if admin();
+   allow create: if teachingWritesOpen() && admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportCreate() || general());
+   allow update: if (teachingWritesOpen() && admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportChange() || general())) || maintenanceFacultyUpdate();
+   allow delete: if teachingWritesOpen() && admin();
   }
   match /change_requests/{id} {
    allow read: if approver() || (signedIn() && resource.data.requesterUid == request.auth.uid);
-   allow create: if validRequestCreate();
-   allow update: if validRequestDecision();
+   allow create: if teachingWritesOpen() && validRequestCreate();
+   allow update: if teachingWritesOpen() && validRequestDecision();
+   allow delete: if false;
+  }
+  match /settings/system_state {
+   allow read: if ready();
+   allow create: if validSystemStateCreate();
+   allow update: if validSystemStateAcquire() || validSystemStateOwnerModeChange() || validSystemStateTakeover() || validSystemStateUnlock();
    allow delete: if false;
   }
   match /settings/{id} {
    allow read: if admin();
    allow read: if ready() && id == 'faculty_swap_index';
-   allow write: if (id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map'] && admin()) || (!(id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map']) && admin() && (id != 'faculty_summary_2026_27' || general()));
+   allow write: if id != 'system_state' && ((id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map'] && ((teachingWritesOpen() && admin()) || maintenanceOwner())) || (id == 'faculty_summary_2026_27' && ((teachingWritesOpen() && general()) || maintenanceOwner())) || (!(id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map','faculty_summary_2026_27']) && admin()));
+  }
+  match /bulk_import_jobs/{importId} {
+   allow read: if general();
+   allow create: if validImportJobCreate(importId);
+   allow update: if validImportJobUpdate(importId) || validImportJobTakeover(importId);
+   allow delete: if false;
+   match /stale_batches/{batchId} {
+    allow read: if general();
+    allow create,update: if maintenanceOwnerFor(importId);
+    allow delete: if false;
+   }
+   match /restore_delete_batches/{batchId} {
+    allow read: if general();
+    allow create,update: if maintenanceOwnerFor(importId);
+    allow delete: if false;
+   }
+   match /events/{eventId} {
+    allow read: if general();
+    allow create: if maintenanceOwnerFor(importId) && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
+    allow update,delete: if false;
+   }
   }
   match /public_info/{id} {allow read: if ready(); allow create,update: if general() && request.resource.data.messages is list && request.resource.data.messages.size() <= 10 && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time; allow delete: if false;}
   match /public_schedule/{id} {
@@ -88,14 +130,14 @@ service cloud.firestore {
   }
   match /session_change_log/{id} {
    allow read: if ready() && (historyAll() || resource.data.changedBy == request.auth.uid);
-   allow create: if admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
-   allow update: if admin() && resource.data.changedBy == request.auth.uid && request.resource.data.changedBy == resource.data.changedBy && request.resource.data.changedAt == resource.data.changedAt && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['changes','changedByEmail','changedByName']);
+   allow create: if teachingWritesOpen() && admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
+   allow update: if teachingWritesOpen() && admin() && resource.data.changedBy == request.auth.uid && request.resource.data.changedBy == resource.data.changedBy && request.resource.data.changedAt == resource.data.changedAt && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['changes','changedByEmail','changedByName']);
    allow delete: if false;
   }
   match /faculty_change_log/{id} {
    allow read: if ready() && (historyAll() || resource.data.changedBy == request.auth.uid);
-   allow create: if admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
-   allow update: if admin() && resource.data.changedBy == request.auth.uid && request.resource.data.changedBy == resource.data.changedBy && request.resource.data.changedAt == resource.data.changedAt && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['changes','facultyName','changedByEmail','changedByName']);
+   allow create: if teachingWritesOpen() && admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
+   allow update: if teachingWritesOpen() && admin() && resource.data.changedBy == request.auth.uid && request.resource.data.changedBy == resource.data.changedBy && request.resource.data.changedAt == resource.data.changedAt && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['changes','facultyName','changedByEmail','changedByName']);
    allow delete: if false;
   }
   match /account_audit/{id} {
