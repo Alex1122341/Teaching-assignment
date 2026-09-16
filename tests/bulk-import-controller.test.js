@@ -1,0 +1,171 @@
+'use strict';
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const realCore=require('../bulk-import-core.js');
+const backup=require('../bulk-import-backup.js');
+const controllerModule=require('../bulk-import-controller.js');
+
+const enc=new TextEncoder();
+const DELETE=Symbol('delete');
+const clone=value=>JSON.parse(JSON.stringify(value));
+const smallCore={...realCore,FACULTY_BATCH_SIZE:2,SESSION_BATCH_SIZE:2,STALE_BATCH_SIZE:2};
+
+function sourceObject(){
+  return{
+    schemaVersion:realCore.SOURCE_SCHEMA,
+    sourceWorkbook:'Teaching Assignments.xlsx',
+    faculty:[{ucid:'f1',displayName:'One'},{ucid:'f2',displayName:'Two'},{ucid:'f3',displayName:'Three'}],
+    sessions:[
+      {id:'s1',course:'301',date:'2026-09-08',assignments:[{ucid:'f1'}]},
+      {id:'s2',course:'302',date:'2026-09-09',assignments:[{ucid:'f2'}]},
+      {id:'s3',course:'303',date:'2026-09-10',assignments:[{ucid:'f3'}]}
+    ]
+  };
+}
+function sourceFile(source=sourceObject()){
+  const text=JSON.stringify(source);
+  return{bytes:enc.encode(text),text};
+}
+
+function memoryStore({failOnceAt}={}){
+  const state={teachingDataWriteLocked:false,maintenanceMode:'none',activeImportId:'',maintenanceOwnerUid:'',maintenanceOwnerName:''};
+  const faculty=new Map([
+    ['f1',{__id:'f1',facultySummary2026_27:{old:true}}],
+    ['f2',{__id:'f2',facultySummary2026_27:{old:true}}],
+    ['f3',{__id:'f3',facultySummary2026_27:{old:true}}]
+  ]);
+  const sessions=new Map([
+    ['s1',{id:'s1',course:'old'}],
+    ['old1',{id:'old1',course:'old'}],
+    ['old2',{id:'old2',course:'old'}],
+    ['old3',{id:'old3',course:'old'}]
+  ]);
+  const staleBatches=new Map(),events=[],deletedSessionIds=[];
+  let job=null,failedKey='';
+  const maybeFail=key=>{if(failOnceAt===key&&failedKey!==key){failedKey=key;throw Error(`Injected failure at ${key}`)}};
+  const applyPatch=(row,patch)=>{for(const [key,value]of Object.entries(patch||{})){if(value===DELETE)delete row[key];else row[key]=clone(value)}};
+  const store={
+    system:state,faculty,sessions,staleBatches,events,deletedSessionIds,
+    get job(){return job},
+    serverTimestamp:()=> 'SERVER_TIME',
+    fieldDelete:()=>DELETE,
+    failpoint:async key=>maybeFail(key),
+    loadSystemState:async()=>({...state}),
+    loadJob:async importId=>job&&job.importId===importId?{...job}:null,
+    findActiveJob:async()=>state.activeImportId?{state:{...state},job:{...job}}:null,
+    acquireImport:async({importId,job:inputJob,actor,mode})=>{
+      if(state.teachingDataWriteLocked)throw Error('Teaching data maintenance is already active.');
+      job={...clone(inputJob),importId,status:inputJob.status||'APPLYING',phase:inputJob.phase||'APPLYING_FACULTY',startedBy:actor.uid,startedByName:actor.name};
+      Object.assign(state,{teachingDataWriteLocked:true,maintenanceMode:mode||'bulk_import',activeImportId:importId,maintenanceOwnerUid:actor.uid,maintenanceOwnerName:actor.name});
+      return{...job};
+    },
+    commitFacultyBatch:async({batchIndex,total,writes})=>{
+      maybeFail(`faculty:${batchIndex}`);
+      for(const write of writes){const row=faculty.get(write.id)||{__id:write.id};applyPatch(row,write.patch);faculty.set(write.id,row)}
+      Object.assign(job,{status:'APPLYING',phase:'APPLYING_FACULTY',facultyBatchCompleted:batchIndex+1,facultyBatchTotal:total});
+    },
+    commitSessionBatch:async({batchIndex,total,writes})=>{
+      maybeFail(`session:${batchIndex}`);
+      for(const write of writes)sessions.set(write.id,{id:write.id,...clone(write.data)});
+      Object.assign(job,{status:'APPLYING',phase:'APPLYING_SESSIONS',sessionBatchCompleted:batchIndex+1,sessionBatchTotal:total});
+    },
+    freezeStaleBatches:async({batches})=>{
+      staleBatches.clear();batches.forEach((ids,index)=>staleBatches.set(index,{index,ids:[...ids],count:ids.length}));
+      Object.assign(job,{status:'APPLYING',phase:'DELETING_STALE',staleExpected:batches.flat().length,staleBatchTotal:batches.length,staleBatchCompleted:0});
+    },
+    loadStaleBatch:async(_importId,index)=>staleBatches.get(index)||null,
+    commitStaleDeleteBatch:async({batchIndex,total,ids})=>{
+      maybeFail(`stale:${batchIndex}`);
+      for(const id of ids){sessions.delete(id);deletedSessionIds.push(id)}
+      Object.assign(job,{status:'APPLYING',phase:'DELETING_STALE',staleBatchCompleted:batchIndex+1,staleBatchTotal:total});
+    },
+    patchJob:async({patch})=>{Object.assign(job,clone(patch))},
+    completeAndUnlock:async({status})=>{Object.assign(job,{status,phase:status});Object.assign(state,{teachingDataWriteLocked:false,maintenanceMode:'none',activeImportId:'',maintenanceOwnerUid:'',maintenanceOwnerName:''})},
+    appendEvent:async event=>events.push(clone(event)),
+    loadCurrentFaculty:async()=>[...faculty.values()].map(clone),
+    loadCurrentSessions:async()=>[...sessions.values()].map(clone),
+    loadSummarySettings:async()=>({exists:false})
+  };
+  return store;
+}
+
+async function createHarness(options={}){
+  const store=memoryStore(options),actor={uid:'general',name:'General'},file=sourceFile();
+  let failIndexRebuild=options.failOnceAt==='index-rebuild',failVerifyFinal=options.failOnceAt==='index-verify';
+  const controller=controllerModule.create({
+    core:smallCore,backup,store,actor,projectId:'tester-teaching',prepareSession:row=>({...row,facultyIds:(row.assignments||[]).map(a=>a.ucid).filter(Boolean)}),
+    rebuildIndexes:async()=>{if(failIndexRebuild){failIndexRebuild=false;throw Error('Injected failure at index-rebuild')}},
+    verifyIndexes:async()=>{if(failVerifyFinal){failVerifyFinal=false;return{ok:false,errors:['Injected failure at verify-final']}}return{ok:true,errors:[]}}
+  });
+  const preflight=await controller.preflight(file);
+  const recovery=await controller.createRecoveryBackup(preflight);
+  return{store,actor,file,controller,preflight,recovery,startArgs:{preflight,recoveryBackup:recovery.backup,backupConfirmed:true,typedConfirmation:'IMPORT'}};
+}
+
+async function createInterruptedHarness(options={}){
+  const h=await createHarness({failOnceAt:options.failOnceAt||'session:1'});
+  await assert.rejects(()=>h.controller.start(h.startArgs));
+  return h;
+}
+
+test('session failure keeps lock and never starts stale deletion',async()=>{
+  const h=await createHarness({failOnceAt:'session:1'});
+  await assert.rejects(()=>h.controller.start(h.startArgs),/injected failure/i);
+  assert.equal(h.store.job.status,'FAILED');
+  assert.equal(h.store.job.failedPhase,'APPLYING_SESSIONS');
+  assert.equal(h.store.deletedSessionIds.length,0);
+  assert.equal(h.store.system.teachingDataWriteLocked,true);
+});
+
+test('faculty batch failure resumes from its persisted checkpoint',async()=>{
+  const h=await createHarness({failOnceAt:'faculty:1'});
+  await assert.rejects(()=>h.controller.start(h.startArgs),/injected failure/i);
+  assert.equal(h.store.job.failedPhase,'APPLYING_FACULTY');
+  assert.equal(h.store.job.facultyBatchCompleted,1);
+  assert.equal(h.store.system.teachingDataWriteLocked,true);
+  await h.controller.resume(h.file);
+  assert.equal(h.store.job.status,'COMPLETED');
+});
+
+test('source verification failure happens before stale deletion and resumes safely',async()=>{
+  const h=await createHarness({failOnceAt:'verify-source'});
+  await assert.rejects(()=>h.controller.start(h.startArgs),/verify-source/i);
+  assert.equal(h.store.job.failedPhase,'VERIFYING_SOURCE');
+  assert.equal(h.store.deletedSessionIds.length,0);
+  assert.equal(h.store.system.teachingDataWriteLocked,true);
+  await h.controller.resume(h.file);
+  assert.equal(h.store.job.status,'COMPLETED');
+});
+
+test('index rebuild failure keeps the lock and resumes at rebuild phase',async()=>{
+  const h=await createHarness({failOnceAt:'index-rebuild'});
+  await assert.rejects(()=>h.controller.start(h.startArgs),/index-rebuild/i);
+  assert.equal(h.store.job.failedPhase,'REBUILDING_INDEXES');
+  assert.equal(h.store.system.teachingDataWriteLocked,true);
+  await h.controller.resume(h.file);
+  assert.equal(h.store.job.status,'COMPLETED');
+});
+
+test('final verification failure keeps the lock and resumes at final verification',async()=>{
+  const h=await createHarness({failOnceAt:'verify-final'});
+  await assert.rejects(()=>h.controller.start(h.startArgs),/verify-final/i);
+  assert.equal(h.store.job.failedPhase,'VERIFYING_FINAL');
+  assert.equal(h.store.system.teachingDataWriteLocked,true);
+  await h.controller.resume(h.file);
+  assert.equal(h.store.job.status,'COMPLETED');
+});
+
+test('resume rejects a different source fingerprint',async()=>{
+  const h=await createInterruptedHarness();
+  const text='{"different":true}';
+  await assert.rejects(()=>h.controller.resume({bytes:enc.encode(text),text}),/does not match/i);
+});
+
+test('stale deletion resumes and completes',async()=>{
+  const h=await createHarness({failOnceAt:'stale:1'});
+  await assert.rejects(()=>h.controller.start(h.startArgs));
+  await h.controller.resume(h.file);
+  assert.equal(h.store.job.status,'COMPLETED');
+  assert.equal(h.store.system.teachingDataWriteLocked,false);
+  assert.deepEqual([...h.store.sessions.keys()].sort(),['s1','s2','s3']);
+});
