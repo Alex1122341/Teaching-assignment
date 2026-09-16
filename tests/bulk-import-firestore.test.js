@@ -26,3 +26,15 @@ test('terminal status and unlock share one batch commit',async()=>{
   await store.completeAndUnlock({importId:'i1',status:'COMPLETED'});
   assert.deepEqual(fake.commits[0].sort(),['bulk_import_jobs/i1','settings/system_state']);
 });
+
+test('restore session data and checkpoint share one batch commit',async()=>{
+  const fake=recordingDb(),store=firestoreStore.create({db:fake.db,firebase:fakeFirebase});
+  await store.commitRestoreSessionBatch({importId:'i1',batchIndex:0,total:2,writes:[{id:'s1',data:{course:'301'}}]});
+  assert.deepEqual(fake.commits[0].sort(),['bulk_import_jobs/i1','sessions/s1']);
+});
+
+test('restore delete data and checkpoint share one batch commit',async()=>{
+  const fake=recordingDb(),store=firestoreStore.create({db:fake.db,firebase:fakeFirebase});
+  await store.commitRestoreDeleteBatch({importId:'i1',batchIndex:0,total:2,ids:['s-new']});
+  assert.deepEqual(fake.commits[0].sort(),['bulk_import_jobs/i1','sessions/s-new']);
+});
