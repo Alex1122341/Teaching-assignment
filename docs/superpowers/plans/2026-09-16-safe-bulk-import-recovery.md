@@ -903,3 +903,12 @@ Do not inject failures, start a disposable import, restore, or manually manipula
 - [ ] **Step 9: Merge only after explicit manual approval and verify production**
 
 After approval, merge through the established release flow. Verify post-merge `Test` and Azure Static Web Apps workflows complete successfully. Deploy the reviewed `firestore.rules` separately; do not claim maintenance security is live until that deployment is confirmed.
+
+---
+
+## Plan Self-Review
+
+- Spec coverage: all approved Workstream 3 requirements map to Tasks 1-10.
+- Placeholder scan: no `TODO`, `TBD`, deferred implementation placeholders, or unnamed future interfaces remain.
+- Interface consistency: controller/index boundaries use injected `rebuildIndexes` / `verifyIndexes`; browser wiring calls the existing `UCVM_INDEX_MAINTENANCE.writeDerivedIndexes(db,...)` signature and the planned `verifyDerivedIndexesProvisional(db,...)` signature.
+- Test-path check: the plan uses existing `tests/index-maintenance.test.js` and named timetable/faculty-swap test files present in the repository.
