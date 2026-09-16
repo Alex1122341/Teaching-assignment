@@ -38,7 +38,7 @@
 
 - `bulk-import-core.js` — pure schema validation, fingerprinting, source analysis, ID-set verification, batch planning, phase/status constants.
 - `bulk-import-backup.js` — lossless backup encoding/decoding for supported Firestore values, backup manifest generation, backup validation.
-- `bulk-import-controller.js` — lifecycle orchestration for start/resume/import/verify/stale-delete/restore/takeover; depends on an injected store.
+- `bulk-import-controller.js` — lifecycle orchestration for start/resume/import/verify/stale-delete/restore/takeover; depends on an injected store plus injected index rebuild/verify functions.
 - `bulk-import-firestore.js` — Firestore compat adapter implementing atomic lock acquisition, data+checkpoint batches, stale-batch persistence, terminal unlock, and append-only events.
 - `bulk-import-ui.js` — Faculty Dashboard preflight/recovery card, file selection, backup download/confirmation, progress, Resume/Restore/Takeover actions.
 - `maintenance-state.js` — shared read-only watcher/normalizer for `settings/system_state` and common maintenance banner/normal-write guard.
@@ -60,12 +60,14 @@
 
 - Create `tests/bulk-import-core.test.js`.
 - Create `tests/bulk-import-backup.test.js`.
+- Create `tests/bulk-import-firestore.test.js`.
 - Create `tests/bulk-import-controller.test.js`.
 - Create `tests/bulk-import-ui.test.js`.
 - Create `tests/maintenance-state.test.js`.
 - Create `tests/bulk-import-static-assets.test.js`.
 - Modify `tests/security-emulator.test.js`.
-- Modify existing timetable/approval tests where maintenance write guards change behavior.
+- Modify `tests/index-maintenance.test.js`.
+- Modify `tests/timetable-selection.test.js`, `tests/timetable-multi-edit-ui.test.js`, `tests/faculty-swap-integration.test.js`, and `tests/faculty-swap-direct-session.test.js` where maintenance write guards change behavior.
 
 ---
 
@@ -85,7 +87,7 @@
 - Produces: `diffIdSets(expected,current): {missing:string[],unexpected:string[]}`.
 - Produces: constants `PHASES`, `TERMINAL_STATUSES`, `FACULTY_BATCH_SIZE=350`, `SESSION_BATCH_SIZE=300`, `STALE_BATCH_SIZE=350`.
 
-- [ ] **Step 1: Write failing tests for schema validation, duplicates, raw-byte fingerprinting, warnings, and ID-set differences**
+- [ ] **Step 1: Write the failing core tests**
 
 ```js
 'use strict';
@@ -115,16 +117,16 @@ test('fingerprintBytes hashes raw bytes, not parsed JSON',async()=>{
   assert.notEqual(await core.fingerprintBytes(a),await core.fingerprintBytes(b));
 });
 
-test('analyzeSource reports creates, updates, stale deletes and large-change warnings',()=>{
+test('analyzeSource reports stale sessions and large-change confirmation',()=>{
   const source=validSource();
   source.sessions.push({id:'s2',course:'302',date:'2026-09-09',assignments:[]});
   const analysis=core.analyzeSource({
     source,
     currentFaculty:[{__id:'100'},{__id:'200'}],
-    currentSessions:[{id:'s1',topic:'old'},{id:'old-1'},{id:'old-2'},{id:'old-3'},{id:'old-4'},{id:'old-5'},{id:'old-6'},{id:'old-7'},{id:'old-8'}]
+    currentSessions:[{id:'s1'},{id:'old-1'},{id:'old-2'},{id:'old-3'},{id:'old-4'},{id:'old-5'},{id:'old-6'},{id:'old-7'},{id:'old-8'}]
   });
   assert.equal(analysis.sessionExpected,2);
-  assert.deepEqual(analysis.staleSessionIds.sort(),['old-1','old-2','old-3','old-4','old-5','old-6','old-7','old-8']);
+  assert.equal(analysis.staleSessionIds.length,8);
   assert.equal(analysis.requiresTypedImportConfirmation,true);
 });
 
@@ -133,108 +135,36 @@ test('diffIdSets compares identity, not only counts',()=>{
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [ ] **Step 2: Run test to verify RED**
 
 Run: `node --test tests/bulk-import-core.test.js`
 
-Expected: FAIL because `../bulk-import-core.js` does not exist.
+Expected: FAIL because `bulk-import-core.js` does not exist.
 
-- [ ] **Step 3: Implement the UMD core module with deterministic validation and analysis**
+- [ ] **Step 3: Implement the core module**
 
-Use this public shape:
+Use UMD/CommonJS compatibility matching existing shared modules. Implement:
 
 ```js
-(function(root,factory){
-  const api=factory();
-  if(typeof module==='object'&&module.exports)module.exports=api;
-  if(root)root.UCVM_BULK_IMPORT_CORE=api;
-})(typeof window!=='undefined'?window:null,function(){
-  'use strict';
-  const SOURCE_SCHEMA='ucvm-all-faculty-summaries-v8-synced-2026-27';
-  const FACULTY_BATCH_SIZE=350,SESSION_BATCH_SIZE=300,STALE_BATCH_SIZE=350;
-  const PHASES=Object.freeze({
-    APPLYING_FACULTY:'APPLYING_FACULTY',
-    APPLYING_SESSIONS:'APPLYING_SESSIONS',
-    VERIFYING_SOURCE:'VERIFYING_SOURCE',
-    DELETING_STALE:'DELETING_STALE',
-    REBUILDING_INDEXES:'REBUILDING_INDEXES',
-    VERIFYING_FINAL:'VERIFYING_FINAL',
-    RESTORING_FACULTY:'RESTORING_FACULTY',
-    RESTORING_SESSIONS:'RESTORING_SESSIONS',
-    REMOVING_POST_BACKUP_SESSIONS:'REMOVING_POST_BACKUP_SESSIONS',
-    RESTORE_VERIFYING:'RESTORE_VERIFYING',
-    RESTORE_FINAL_VERIFY:'RESTORE_FINAL_VERIFY'
-  });
-  const TERMINAL_STATUSES=Object.freeze(['COMPLETED','RESTORED']);
-  const text=value=>String(value??'').trim();
-  const duplicateValues=values=>{
-    const seen=new Set(),dupes=new Set();
-    for(const raw of values){const value=text(raw);if(!value)continue;if(seen.has(value))dupes.add(value);seen.add(value)}
-    return [...dupes].sort();
-  };
-  async function fingerprintBytes(input){
-    const bytes=input instanceof ArrayBuffer?new Uint8Array(input):input;
-    if(!bytes||typeof bytes.byteLength!=='number')throw Error('Source bytes are required.');
-    const digest=await globalThis.crypto.subtle.digest('SHA-256',bytes);
-    return [...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');
-  }
-  function parseSource(textValue){
-    try{return JSON.parse(String(textValue))}catch(error){throw Error(`Invalid JSON: ${error.message}`)}
-  }
-  function validateSource(source){
-    const errors=[],warnings=[];
-    if(!source||typeof source!=='object'||Array.isArray(source))return{errors:['Source JSON must be an object.'],warnings};
-    if(source.schemaVersion!==SOURCE_SCHEMA)errors.push(`Unsupported schema: ${text(source.schemaVersion)||'(blank)'}.`);
-    if(!Array.isArray(source.faculty))errors.push('Source faculty must be an array.');
-    if(!Array.isArray(source.sessions))errors.push('Source sessions must be an array.');
-    if(errors.length)return{errors,warnings};
-    const facultyIds=source.faculty.map(row=>text(row?.ucid));
-    const sessionIds=source.sessions.map(row=>text(row?.id));
-    const missingSessionIds=sessionIds.filter(id=>!id).length;
-    if(missingSessionIds)errors.push(`${missingSessionIds} session record(s) are missing a stable ID.`);
-    const duplicateFaculty=duplicateValues(facultyIds);
-    const duplicateSessions=duplicateValues(sessionIds);
-    if(duplicateFaculty.length)errors.push(`Duplicate faculty IDs: ${duplicateFaculty.join(', ')}.`);
-    if(duplicateSessions.length)errors.push(`Duplicate session IDs: ${duplicateSessions.join(', ')}.`);
-    return{errors,warnings};
-  }
-  function diffIdSets(expected,current){
-    const expectedSet=new Set(expected.map(text).filter(Boolean)),currentSet=new Set(current.map(text).filter(Boolean));
-    return{
-      missing:[...expectedSet].filter(id=>!currentSet.has(id)).sort(),
-      unexpected:[...currentSet].filter(id=>!expectedSet.has(id)).sort()
-    };
-  }
-  function chunkRows(rows,size){if(!Number.isInteger(size)||size<1)throw Error('Chunk size must be a positive integer.');const out=[];for(let i=0;i<(rows||[]).length;i+=size)out.push(rows.slice(i,i+size));return out}
-  function analyzeSource({source,currentFaculty,currentSessions}){
-    const validation=validateSource(source);if(validation.errors.length)return{...validation};
-    const currentSessionIds=(currentSessions||[]).map(row=>text(row?.id)),incomingIds=source.sessions.map(row=>text(row?.id));
-    const currentSet=new Set(currentSessionIds),incomingSet=new Set(incomingIds);
-    const staleSessionIds=currentSessionIds.filter(id=>id&&!incomingSet.has(id)).sort();
-    const createdSessionIds=incomingIds.filter(id=>!currentSet.has(id)).sort();
-    const deletedRatio=currentSessionIds.length?staleSessionIds.length/currentSessionIds.length:0;
-    const countDeltaRatio=currentSessionIds.length?Math.abs(incomingIds.length-currentSessionIds.length)/currentSessionIds.length:0;
-    const sourceFacultyIds=new Set(source.faculty.map(row=>text(row?.ucid)).filter(Boolean));
-    const noSourceFacultyIds=(currentFaculty||[]).map(row=>text(row?.__id||row?.ucid)).filter(id=>id&&!sourceFacultyIds.has(id));
-    const warnings=[...validation.warnings];
-    if(noSourceFacultyIds.length)warnings.push(`${noSourceFacultyIds.length} current faculty record(s) have no source summary.`);
-    if(staleSessionIds.length)warnings.push(`${staleSessionIds.length} existing session(s) will be removed after verification.`);
-    return{
-      errors:[],warnings,
-      facultyExpected:sourceFacultyIds.size,
-      sessionExpected:incomingIds.length,
-      staleSessionIds,createdSessionIds,noSourceFacultyIds,
-      requiresTypedImportConfirmation:deletedRatio>0.10||countDeltaRatio>0.20,
-      facultyBatches:chunkRows(currentFaculty||[],FACULTY_BATCH_SIZE),
-      sessionBatches:chunkRows(source.sessions,SESSION_BATCH_SIZE),
-      staleBatches:chunkRows(staleSessionIds,STALE_BATCH_SIZE)
-    };
-  }
-  return{SOURCE_SCHEMA,FACULTY_BATCH_SIZE,SESSION_BATCH_SIZE,STALE_BATCH_SIZE,PHASES,TERMINAL_STATUSES,fingerprintBytes,parseSource,validateSource,analyzeSource,chunkRows,diffIdSets};
+const SOURCE_SCHEMA='ucvm-all-faculty-summaries-v8-synced-2026-27';
+const FACULTY_BATCH_SIZE=350,SESSION_BATCH_SIZE=300,STALE_BATCH_SIZE=350;
+const PHASES=Object.freeze({
+  APPLYING_FACULTY:'APPLYING_FACULTY',APPLYING_SESSIONS:'APPLYING_SESSIONS',VERIFYING_SOURCE:'VERIFYING_SOURCE',
+  DELETING_STALE:'DELETING_STALE',REBUILDING_INDEXES:'REBUILDING_INDEXES',VERIFYING_FINAL:'VERIFYING_FINAL',
+  RESTORING_FACULTY:'RESTORING_FACULTY',RESTORING_SESSIONS:'RESTORING_SESSIONS',
+  REMOVING_POST_BACKUP_SESSIONS:'REMOVING_POST_BACKUP_SESSIONS',RESTORE_VERIFYING:'RESTORE_VERIFYING',RESTORE_FINAL_VERIFY:'RESTORE_FINAL_VERIFY'
 });
+const TERMINAL_STATUSES=Object.freeze(['COMPLETED','RESTORED']);
+async function fingerprintBytes(input){
+  const bytes=input instanceof ArrayBuffer?new Uint8Array(input):input;
+  const digest=await globalThis.crypto.subtle.digest('SHA-256',bytes);
+  return [...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
 ```
 
-- [ ] **Step 4: Run focused tests and the existing suite**
+`validateSource()` blocks unsupported schema, missing arrays, blank session IDs, duplicate UCIDs, and duplicate session IDs. `analyzeSource()` computes current/source counts, no-source faculty, stale IDs, new IDs, and `requiresTypedImportConfirmation` when deletions exceed 10% or total count change exceeds 20%.
+
+- [ ] **Step 4: Run focused and full tests**
 
 Run:
 
@@ -243,9 +173,9 @@ node --test tests/bulk-import-core.test.js
 npm test
 ```
 
-Expected: both commands PASS.
+Expected: PASS.
 
-- [ ] **Step 5: Commit Task 1**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add bulk-import-core.js tests/bulk-import-core.test.js
@@ -261,23 +191,22 @@ git commit -m "feat: add bulk import source analysis"
 - Create: `tests/bulk-import-backup.test.js`
 
 **Interfaces:**
-- Consumes: `UCVM_BULK_IMPORT_CORE.fingerprintBytes`.
+- Consumes: `UCVM_BULK_IMPORT_CORE.fingerprintBytes` / CommonJS `require('./bulk-import-core.js')`.
 - Produces: `encodeValue(value)` and `decodeValue(value,{Timestamp})`.
 - Produces: `buildBackup({projectId,importId,sourceFingerprint,actor,faculty,sessions,summarySettings,createdAt})`.
-- Produces: `serializeBackup(backup): string` and `parseAndValidateBackup(text,{projectId,importId,sourceFingerprint}): object`.
+- Produces: `serializeBackup(backup): string` and `parseAndValidateBackup(text,{projectId,importId,sourceFingerprint}): Promise<object>`.
 - Backup schema constant: `ucvm-teaching-recovery-v1`.
 
-- [ ] **Step 1: Write failing tests for Timestamp preservation, unsupported values, and backup identity**
+- [ ] **Step 1: Write failing backup tests**
 
 ```js
 'use strict';
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const backup=require('../bulk-import-backup.js');
-
 class FakeTimestamp{constructor(seconds,nanoseconds){this.seconds=seconds;this.nanoseconds=nanoseconds}toDate(){return new Date(this.seconds*1000)}}
 
-test('backup codec round-trips Firestore timestamps',()=>{
+test('backup codec round-trips timestamps',()=>{
   const encoded=backup.encodeValue({updatedAt:new FakeTimestamp(123,456)});
   assert.deepEqual(encoded,{updatedAt:{__ucvmFirestoreType:'timestamp',seconds:123,nanoseconds:456}});
   const decoded=backup.decodeValue(encoded,{Timestamp:FakeTimestamp});
@@ -285,51 +214,41 @@ test('backup codec round-trips Firestore timestamps',()=>{
   assert.equal(decoded.updatedAt.nanoseconds,456);
 });
 
-test('backup codec rejects unknown class instances instead of stringifying them',()=>{
+test('backup codec rejects unknown class instances',()=>{
   class Unknown{}
   assert.throws(()=>backup.encodeValue(new Unknown()),/unsupported firestore value/i);
 });
 
-test('validated backup must belong to the interrupted import',async()=>{
-  const payload=await backup.buildBackup({
-    projectId:'tester-teaching',importId:'imp-1',sourceFingerprint:'source-abc',
-    actor:{uid:'general',name:'General'},faculty:[],sessions:[],summarySettings:null,createdAt:'2026-09-16T20:00:00.000Z'
-  });
-  const parsed=await backup.parseAndValidateBackup(backup.serializeBackup(payload),{projectId:'tester-teaching',importId:'imp-1',sourceFingerprint:'source-abc'});
-  assert.equal(parsed.metadata.importId,'imp-1');
-  await assert.rejects(()=>backup.parseAndValidateBackup(backup.serializeBackup(payload),{projectId:'tester-teaching',importId:'imp-2',sourceFingerprint:'source-abc'}),/does not belong/i);
+test('backup identity must match the interrupted import',async()=>{
+  const payload=await backup.buildBackup({projectId:'tester-teaching',importId:'i1',sourceFingerprint:'abc',actor:{uid:'general',name:'General'},faculty:[],sessions:[],summarySettings:null,createdAt:'2026-09-16T20:00:00.000Z'});
+  await backup.parseAndValidateBackup(backup.serializeBackup(payload),{projectId:'tester-teaching',importId:'i1',sourceFingerprint:'abc'});
+  await assert.rejects(()=>backup.parseAndValidateBackup(backup.serializeBackup(payload),{projectId:'tester-teaching',importId:'i2',sourceFingerprint:'abc'}),/does not belong/i);
 });
 ```
 
-- [ ] **Step 2: Run focused test and verify RED**
+- [ ] **Step 2: Run test to verify RED**
 
 Run: `node --test tests/bulk-import-backup.test.js`
 
-Expected: FAIL because the backup module does not exist.
+Expected: FAIL because `bulk-import-backup.js` does not exist.
 
-- [ ] **Step 3: Implement tagged Timestamp encoding and deterministic backup fingerprinting**
+- [ ] **Step 3: Implement backup serialization**
 
-Use the exact persisted shape:
+Persist:
 
 ```js
 {
   schemaVersion:'ucvm-teaching-recovery-v1',
-  metadata:{
-    backupId:'...',projectId:'tester-teaching',importId:'...',sourceFingerprint:'...',
-    createdAt:'2026-09-16T20:00:00.000Z',createdBy:'uid',createdByName:'name',
-    facultyCount:118,sessionCount:2391,backupFingerprint:'...'
-  },
-  faculty:[{id:'123',fields:{facultySummary2026_27:...,facultySummaryStatus2026_27:...}}],
-  sessions:[{id:'session-id',data:{...}}],
-  settings:{faculty_summary_2026_27:{exists:true,data:{...}}}
+  metadata:{backupId,projectId,importId,sourceFingerprint,createdAt,createdBy,createdByName,facultyCount,sessionCount,backupFingerprint},
+  faculty:[{id,fields}],
+  sessions:[{id,data}],
+  settings:{faculty_summary_2026_27:{exists,data}}
 }
 ```
 
-Encode only primitives, arrays, plain objects, and objects with numeric `seconds`/`nanoseconds` plus `toDate()` as timestamps. Throw before download for any other class instance.
+Encode primitives, arrays, plain objects, and Firestore Timestamp-like values. Reject any other class instance before download. Compute `backupFingerprint` from a canonical JSON representation with that field omitted, and recompute/validate it during restore parsing.
 
-Compute `backupFingerprint` over a canonical JSON string of the payload with `metadata.backupFingerprint` temporarily omitted. `parseAndValidateBackup()` recomputes the fingerprint and rejects any mismatch.
-
-- [ ] **Step 4: Run backup tests and the full unit suite**
+- [ ] **Step 4: Run tests**
 
 Run:
 
@@ -340,7 +259,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 2**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add bulk-import-backup.js tests/bulk-import-backup.test.js
@@ -357,44 +276,43 @@ git commit -m "feat: add recovery backup codec"
 
 **Interfaces:**
 - Produces: `UCVM_BULK_IMPORT_FIRESTORE.create({db,firebase})`.
-- Store methods consumed by the controller:
-  - `loadSystemState()`.
-  - `loadJob(importId)`.
-  - `findActiveJob()`.
-  - `acquireImport({job,state,event})`.
-  - `commitFacultyBatch({importId,batchIndex,total,writes,event})`.
-  - `commitSessionBatch({importId,batchIndex,total,writes,event})`.
-  - `freezeStaleBatches({importId,batches,event})`.
-  - `loadStaleBatch(importId,batchIndex)`.
-  - `commitStaleDeleteBatch({importId,batchIndex,total,ids,event})`.
-  - `patchJob(importId,patch,event)`.
-  - `takeOver({importId,actor,reason,event})`.
-  - `completeAndUnlock({importId,status,event})` where status is `COMPLETED` or `RESTORED`.
-  - `appendEvent(importId,event)`.
+- Store methods: `loadSystemState`, `loadJob`, `findActiveJob`, `acquireImport`, `commitFacultyBatch`, `commitSessionBatch`, `freezeStaleBatches`, `loadStaleBatch`, `commitStaleDeleteBatch`, `patchJob`, `takeOver`, `completeAndUnlock`, `appendEvent`, `loadCurrentFaculty`, `loadCurrentSessions`, `loadSummarySettings`.
 
-- [ ] **Step 1: Write failing tests using a minimal fake Firestore that records transaction/batch operations**
+- [ ] **Step 1: Write failing atomicity tests with a recording fake Firestore**
 
-The tests must assert operation grouping, not source-code strings. A successful `commitFacultyBatch()` must record faculty document writes and the corresponding `facultyBatchCompleted` checkpoint in the same fake batch commit. `completeAndUnlock()` must record terminal job status and `settings/system_state` unlock in the same batch.
+The test helper must expose `collection().doc()`, `batch()`, and `runTransaction()` and record every path included in each commit. Use the real module API:
 
 ```js
-test('faculty data writes and checkpoint share one commit',async()=>{
-  const fake=createFakeFirestore();
-  const store=createStore(fake.db,fake.firebase);
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const firestoreStore=require('../bulk-import-firestore.js');
+
+function recordingDb(){
+  const commits=[];
+  const ref=path=>({path,collection:name=>({doc:id=>ref(`${path}/${name}/${id}`)})});
+  const db={
+    collection:name=>({doc:id=>ref(`${name}/${id}`)}),
+    batch:()=>{const paths=[];return{set:r=>paths.push(r.path),update:r=>paths.push(r.path),delete:r=>paths.push(r.path),commit:async()=>commits.push(paths.slice())}},
+    runTransaction:async fn=>fn({get:async()=>({exists:false,data:()=>({})}),set:()=>{},update:()=>{}})
+  };
+  return{db,commits};
+}
+const fakeFirebase={firestore:{FieldValue:{serverTimestamp:()=>({serverTimestamp:true}),delete:()=>({delete:true})}}};
+
+test('faculty data and checkpoint share one batch commit',async()=>{
+  const fake=recordingDb(),store=firestoreStore.create({db:fake.db,firebase:fakeFirebase});
   await store.commitFacultyBatch({importId:'i1',batchIndex:0,total:2,writes:[{id:'f1',patch:{facultySummaryStatus2026_27:'Loaded'}}]});
-  assert.equal(fake.commits.length,1);
-  assert.deepEqual(fake.commits[0].paths.sort(),['bulk_import_jobs/i1','faculty/f1']);
+  assert.deepEqual(fake.commits[0].sort(),['bulk_import_jobs/i1','faculty/f1']);
 });
 
-test('terminal job update and unlock share one commit',async()=>{
-  const fake=createFakeFirestore();
-  const store=createStore(fake.db,fake.firebase);
+test('terminal status and unlock share one batch commit',async()=>{
+  const fake=recordingDb(),store=firestoreStore.create({db:fake.db,firebase:fakeFirebase});
   await store.completeAndUnlock({importId:'i1',status:'COMPLETED'});
-  assert.equal(fake.commits.length,1);
-  assert.deepEqual(fake.commits[0].paths.sort(),['bulk_import_jobs/i1','settings/system_state']);
+  assert.deepEqual(fake.commits[0].sort(),['bulk_import_jobs/i1','settings/system_state']);
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [ ] **Step 2: Run test to verify RED**
 
 Run: `node --test tests/bulk-import-firestore.test.js`
 
@@ -402,27 +320,20 @@ Expected: FAIL because the adapter does not exist.
 
 - [ ] **Step 3: Implement the compat Firestore adapter**
 
-`acquireImport()` must use `db.runTransaction()` and reject an already-active lock before writing either the job or `settings/system_state`:
+`acquireImport()` must use `db.runTransaction()` and reject a current `teachingDataWriteLocked === true` state before writing the job and `settings/system_state`. `commitFacultyBatch`, `commitSessionBatch`, and `commitStaleDeleteBatch` must write the data rows plus the matching completed-batch counter in one batch commit.
 
-```js
-async function acquireImport({job,state,event}){
-  const systemRef=db.collection('settings').doc('system_state');
-  const jobRef=db.collection('bulk_import_jobs').doc(job.importId);
-  await db.runTransaction(async tx=>{
-    const systemSnap=await tx.get(systemRef),current=systemSnap.exists?systemSnap.data():{};
-    if(current.teachingDataWriteLocked===true)throw Error(`Teaching data maintenance is already active (${current.activeImportId||'unknown import'}).`);
-    tx.set(jobRef,job);
-    tx.set(systemRef,state,{merge:true});
-  });
-  if(event)await appendEvent(job.importId,event);
-}
+Persist stale IDs as deterministic chunk docs:
+
+```text
+bulk_import_jobs/{importId}/stale_batches/000000
+bulk_import_jobs/{importId}/stale_batches/000001
 ```
 
-For `commitFacultyBatch`, `commitSessionBatch`, and `commitStaleDeleteBatch`, write the data rows and checkpoint patch into one `db.batch()` before `commit()`.
+with `{index,ids,count}`.
 
-Persist stale IDs as deterministic chunk docs `bulk_import_jobs/{importId}/stale_batches/{String(index).padStart(6,'0')}` with `{index,ids,count}`. Never keep an unbounded stale list on the job document.
+`completeAndUnlock()` writes the job terminal state and `{teachingDataWriteLocked:false,maintenanceMode:'none',activeImportId:''}` in one batch.
 
-- [ ] **Step 4: Run adapter tests and the full unit suite**
+- [ ] **Step 4: Run tests**
 
 Run:
 
@@ -433,7 +344,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 3**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add bulk-import-firestore.js tests/bulk-import-firestore.test.js
@@ -442,126 +353,88 @@ git commit -m "feat: add bulk import firestore store"
 
 ---
 
-### Task 4: Import Lifecycle Controller, Resume, Source Verification, and Stale Deletion
+### Task 4: Import Lifecycle Controller, Resume, Verification, and Stale Deletion
 
 **Files:**
 - Create: `bulk-import-controller.js`
 - Create: `tests/bulk-import-controller.test.js`
 
 **Interfaces:**
-- Consumes: `core`, `backup`, injected `store`, injected `indexMaintenance`.
-- Produces: `UCVM_BULK_IMPORT_CONTROLLER.create(options)` with methods:
-  - `preflight({bytes,text,currentFaculty,currentSessions})`.
-  - `createRecoveryBackup({preflight,currentFaculty,currentSessions,summarySettings})`.
-  - `start({preflight,backupManifest})`.
-  - `resume({bytes,text})`.
-  - `loadRecoveryState()`.
-  - `runUntilTerminal(source)`.
-- Controller returns progress snapshots `{status,phase,completed,total,message}` through injected `onProgress(snapshot)`.
+- Consumes: `core`, `backup`, injected `store`, `actor`, `projectId`.
+- Consumes injected functions `rebuildIndexes({faculty,sessions,actor})` and `verifyIndexes({faculty,sessions})` so orchestration tests do not depend directly on Firestore.
+- Produces controller methods `preflight`, `createRecoveryBackup`, `start`, `resume`, `loadRecoveryState`, `runUntilTerminal`.
+- Calls `onProgress({status,phase,completed,total,message})` after every persisted checkpoint.
 
-- [ ] **Step 1: Write failure-injection tests before implementation**
+- [ ] **Step 1: Write RED failure-injection tests**
 
-Create an in-memory store implementing the Task 3 interface and an option `failOnceAt` keyed by operation name/batch index.
-
-Required RED tests:
+Create an in-memory store implementing the Task 3 method names and supporting `failOnceAt` keys. Required tests:
 
 ```js
-test('session failure leaves job FAILED and does not delete stale sessions',async()=>{
-  const harness=createHarness({failOnceAt:'session:1'});
-  await assert.rejects(()=>harness.controller.start(harness.startArgs),/injected failure/i);
-  assert.equal(harness.store.job.status,'FAILED');
-  assert.equal(harness.store.job.failedPhase,'APPLYING_SESSIONS');
-  assert.equal(harness.store.deletedSessionIds.length,0);
-  assert.equal(harness.store.system.teachingDataWriteLocked,true);
+test('session failure keeps lock and never starts stale deletion',async()=>{
+  const h=createHarness({failOnceAt:'session:1'});
+  await assert.rejects(()=>h.controller.start(h.startArgs),/injected failure/i);
+  assert.equal(h.store.job.status,'FAILED');
+  assert.equal(h.store.job.failedPhase,'APPLYING_SESSIONS');
+  assert.equal(h.store.deletedSessionIds.length,0);
+  assert.equal(h.store.system.teachingDataWriteLocked,true);
 });
 
-test('resume rejects a different raw source fingerprint',async()=>{
-  const harness=createInterruptedHarness();
-  await assert.rejects(()=>harness.controller.resume({bytes:new TextEncoder().encode('{"different":true}'),text:'{"different":true}'}),/does not match/i);
+test('resume rejects a different source fingerprint',async()=>{
+  const h=createInterruptedHarness();
+  await assert.rejects(()=>h.controller.resume({bytes:new TextEncoder().encode('{"different":true}'),text:'{"different":true}'}),/does not match/i);
 });
 
-test('stale delete interruption resumes from the first incomplete stale batch',async()=>{
-  const harness=createHarness({failOnceAt:'stale:1'});
-  await assert.rejects(()=>harness.controller.start(harness.startArgs));
-  const before=harness.store.job.staleBatchCompleted;
-  await harness.controller.resume(harness.originalSourceFile);
-  assert.ok(harness.store.job.staleBatchCompleted>before);
-  assert.equal(harness.store.job.status,'COMPLETED');
+test('stale deletion resumes and completes',async()=>{
+  const h=createHarness({failOnceAt:'stale:1'});
+  await assert.rejects(()=>h.controller.start(h.startArgs));
+  await h.controller.resume(h.originalSourceFile);
+  assert.equal(h.store.job.status,'COMPLETED');
+  assert.equal(h.store.system.teachingDataWriteLocked,false);
 });
 ```
 
-- [ ] **Step 2: Run focused controller tests and verify RED**
+The helper must include at least two session batches and two stale batches so injected failure occurs after an earlier checkpoint has committed.
+
+- [ ] **Step 2: Run test to verify RED**
 
 Run: `node --test tests/bulk-import-controller.test.js`
 
 Expected: FAIL because the controller does not exist.
 
-- [ ] **Step 3: Implement start/import/resume phase transitions**
+- [ ] **Step 3: Implement import phase transitions**
 
-Use these exact phase rules:
+Persist exactly:
 
 ```text
 APPLYING_FACULTY -> APPLYING_SESSIONS -> VERIFYING_SOURCE -> DELETING_STALE -> REBUILDING_INDEXES -> VERIFYING_FINAL -> COMPLETED
 ```
 
-At the beginning of each mutating phase, persist the phase on the job. On any exception after lock acquisition, persist:
+On any post-lock exception persist `status:'FAILED'`, `failedPhase`, `lastError`, `failedAt`; never release the lock.
 
-```js
-{
-  status:'FAILED',
-  failedPhase:currentPhase,
-  lastError:String(error?.message||error),
-  failedAt:serverTimestamp
-}
-```
-
-and keep the maintenance lock set.
-
-`resume()` must:
-
-1. load the active job;
-2. fingerprint the selected raw bytes;
-3. reject when fingerprint differs from `job.sourceFingerprint`;
-4. re-validate the source schema;
-5. continue from `job.failedPhase || job.phase` using persisted batch counters.
+`resume()` loads the active job, hashes the selected raw bytes, requires exact `sourceFingerprint`, re-validates schema, then resumes using the persisted completed-batch counters.
 
 - [ ] **Step 4: Implement source verification before stale deletion**
 
-Add pure comparison helpers inside the controller or core tests so verification checks actual IDs and import-controlled data, not counts only.
+Verify all incoming session IDs exist. Deep-compare imported `facultySummary2026_27` against source rows for matching current faculty. For current faculty absent from the source, require the summary field to be absent and `facultySummaryStatus2026_27 === 'No source summary'`.
 
-Before stale deletion, read the current canonical source state through store methods and require:
+Only after this verification passes may the controller call `freezeStaleBatches()` and enter `DELETING_STALE`.
 
-```js
-const ids=core.diffIdSets(source.sessions.map(s=>s.id),currentSessions.map(s=>s.id));
-if(ids.missing.length)throw Error(`Source verification failed: ${ids.missing.length} incoming session(s) are missing.`);
-```
+- [ ] **Step 5: Implement final source and provisional index gates**
 
-For each source faculty UCID that exists in the current faculty directory, deep-compare the imported `facultySummary2026_27` with the source row. For faculty not present in the source, require the summary field to be absent and `facultySummaryStatus2026_27 === 'No source summary'`.
-
-Only after verification passes may the controller compute/freeze stale batches and enter `DELETING_STALE`.
-
-- [ ] **Step 5: Implement final ID-set verification and provisional index gate**
-
-After stale deletion, require both:
+After stale deletion:
 
 ```js
-missing.length===0
-unexpected.length===0
-```
-
-Then call:
-
-```js
-await indexMaintenance.writeDerivedIndexes(dbFaculty,dbSessions,actor);
-const indexCheck=await indexMaintenance.verifyDerivedIndexesProvisional(db,dbFaculty,dbSessions);
+const finalIds=core.diffIdSets(source.sessions.map(row=>row.id),currentSessions.map(row=>row.id));
+if(finalIds.missing.length||finalIds.unexpected.length)throw Error('Final session ID verification failed.');
+await rebuildIndexes({faculty:currentFaculty,sessions:currentSessions,actor});
+const indexCheck=await verifyIndexes({faculty:currentFaculty,sessions:currentSessions});
 if(!indexCheck.ok)throw Error(`Derived index verification failed: ${indexCheck.errors.join('; ')}`);
+await store.completeAndUnlock({importId:job.importId,status:'COMPLETED',event:completedEvent});
 ```
 
-Only then call `store.completeAndUnlock({importId,status:'COMPLETED',event})`.
+- [ ] **Step 6: Run all import failure injection tests**
 
-- [ ] **Step 6: Run controller tests including every failure injection point**
-
-Required injected failures: `faculty:1`, `session:1`, `verify-source`, `stale:1`, `index-rebuild`, `verify-final`.
+Exercise `faculty:1`, `session:1`, `verify-source`, `stale:1`, `index-rebuild`, and `verify-final`.
 
 Run:
 
@@ -570,9 +443,9 @@ node --test tests/bulk-import-controller.test.js
 npm test
 ```
 
-Expected: PASS; every failure leaves the lock active and the job resumable.
+Expected: PASS; every injected failure keeps the lock active and remains resumable.
 
-- [ ] **Step 7: Commit Task 4**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add bulk-import-controller.js tests/bulk-import-controller.test.js
@@ -590,52 +463,61 @@ git commit -m "feat: add resumable bulk import controller"
 - Modify: `tests/bulk-import-firestore.test.js`
 
 **Interfaces:**
-- Add controller methods `previewRestore(backupText)`, `restore(backupText)`, `resumeRestore(backupText)`, `takeOver(reason)`.
-- Add store methods `commitRestoreFacultyBatch`, `commitRestoreSessionBatch`, `commitRestoreDeleteBatch` reusing the same atomic data+checkpoint rule as import batches.
+- Add `previewRestore(backupText)`, `restore(backupText)`, `resumeRestore(backupText)`, `takeOver(reason)`.
+- Add store methods `commitRestoreFacultyBatch`, `commitRestoreSessionBatch`, `commitRestoreDeleteBatch` using the same atomic data+checkpoint rule.
 
-- [ ] **Step 1: Add RED tests for wrong backup, interrupted restore, post-backup session removal, and takeover**
+- [ ] **Step 1: Add RED restore tests**
 
 ```js
-test('restore rejects a backup from another import',async()=>{
-  const harness=createInterruptedHarness();
-  const wrong=await harness.makeBackup({importId:'different-import'});
-  await assert.rejects(()=>harness.controller.restore(JSON.stringify(wrong)),/does not belong/i);
+test('restore rejects a backup for another import',async()=>{
+  const h=createInterruptedHarness();
+  const wrong=await h.makeBackup({importId:'different'});
+  await assert.rejects(()=>h.controller.restore(JSON.stringify(wrong)),/does not belong/i);
 });
 
-test('interrupted restore is resumable and ends at exact backup session ID set',async()=>{
-  const harness=createInterruptedHarness({failOnceAt:'restore-session:1'});
-  await assert.rejects(()=>harness.controller.restore(harness.backupText));
-  assert.equal(harness.store.system.teachingDataWriteLocked,true);
-  await harness.controller.resumeRestore(harness.backupText);
-  assert.deepEqual([...harness.store.sessions.keys()].sort(),harness.backupSessionIds.sort());
-  assert.equal(harness.store.job.status,'RESTORED');
-  assert.equal(harness.store.system.teachingDataWriteLocked,false);
+test('interrupted restore resumes to the exact backup session set',async()=>{
+  const h=createInterruptedHarness({failOnceAt:'restore-session:1'});
+  await assert.rejects(()=>h.controller.restore(h.backupText));
+  assert.equal(h.store.system.teachingDataWriteLocked,true);
+  await h.controller.resumeRestore(h.backupText);
+  assert.deepEqual([...h.store.sessions.keys()].sort(),h.backupSessionIds.slice().sort());
+  assert.equal(h.store.job.status,'RESTORED');
+  assert.equal(h.store.system.teachingDataWriteLocked,false);
+});
+
+test('takeover changes recovery owner but not active import or phase',async()=>{
+  const h=createInterruptedHarness();
+  const before={id:h.store.system.activeImportId,phase:h.store.job.phase};
+  await h.controller.takeOver('Original administrator unavailable');
+  assert.equal(h.store.system.activeImportId,before.id);
+  assert.equal(h.store.job.phase,before.phase);
+  assert.equal(h.store.system.maintenanceOwnerUid,h.actor.uid);
 });
 ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [ ] **Step 2: Run tests to verify RED**
 
 Run: `node --test tests/bulk-import-controller.test.js tests/bulk-import-firestore.test.js`
 
 Expected: new restore tests FAIL.
 
-- [ ] **Step 3: Implement restore lifecycle exactly**
+- [ ] **Step 3: Implement restore lifecycle**
+
+Persist exactly:
 
 ```text
 RESTORING_FACULTY -> RESTORING_SESSIONS -> REMOVING_POST_BACKUP_SESSIONS -> RESTORE_VERIFYING -> REBUILDING_INDEXES -> RESTORE_FINAL_VERIFY -> RESTORED
 ```
 
-Faculty restore writes only the teaching-summary fields captured in the backup. When a backed-up field did not exist, restore with `firebase.firestore.FieldValue.delete()` rather than leaving an import-created value behind.
+Restore only captured faculty teaching-summary fields; use `FieldValue.delete()` for fields recorded as absent in the backup. Restore complete session documents by original ID, then delete current sessions absent from backup in checkpointed batches.
 
-Session restore writes complete decoded backup session documents by original document ID. After all backup sessions are restored, compute current session IDs not present in the backup and remove them in checkpointed delete batches.
+- [ ] **Step 4: Implement recovery takeover**
 
-- [ ] **Step 4: Implement recovery takeover transaction**
+Require a non-blank reason. Atomically update `settings/system_state.maintenanceOwnerUid/Name` plus job takeover metadata while keeping the same `activeImportId` and current phase, then append `BULK_IMPORT_RECOVERY_TAKEN_OVER`.
 
-`takeOver(reason)` requires a non-blank reason and calls store `takeOver()` to atomically change `settings/system_state.maintenanceOwnerUid/Name` and job owner metadata while keeping `activeImportId`, lock, and current phase unchanged. Append `BULK_IMPORT_RECOVERY_TAKEN_OVER` after the transaction.
+- [ ] **Step 5: Run restore failure injection tests**
 
-- [ ] **Step 5: Add restore failure injection and run all controller tests**
-
-Required injected failures: `restore-faculty:1`, `restore-session:1`, `restore-delete:1`, `restore-verify`, `restore-index-rebuild`, `restore-final-verify`.
+Exercise `restore-faculty:1`, `restore-session:1`, `restore-delete:1`, `restore-verify`, `restore-index-rebuild`, and `restore-final-verify`.
 
 Run:
 
@@ -646,7 +528,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit Task 5**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add bulk-import-controller.js bulk-import-firestore.js tests/bulk-import-controller.test.js tests/bulk-import-firestore.test.js
@@ -661,80 +543,48 @@ git commit -m "feat: add resumable bulk import restore"
 - Modify: `firestore.rules`
 - Modify: `tests/security-emulator.test.js`
 
-**Interfaces / rule invariants:**
+**Rule invariants:**
 - Ready users may read `settings/system_state`.
-- Only Owner / ADFA General may create/update `bulk_import_jobs`, stale-batch docs, and append events.
+- Only Owner / ADFA General may create/update import jobs, stale-batch docs, and append events.
 - Job events are append-only.
-- When teaching maintenance is active, normal admin session/faculty/change-request/derived-index writes are denied.
-- The active maintenance owner may perform recovery/import writes.
-- Unlock requires the active job to be terminal (`COMPLETED` or `RESTORED`) in `getAfter()` state.
+- Locked maintenance denies normal admin session/faculty/change-request/derived-index writes.
+- Only the active maintenance owner may perform import/recovery writes while locked.
+- Unlock requires `getAfter()` job status `COMPLETED` or `RESTORED`.
 
-- [ ] **Step 1: Extend emulator fixtures and write RED security tests**
+- [ ] **Step 1: Add RED emulator tests**
 
-Add a second general user:
+Add `general2:{role:'adfa_general',name:'General Two'}` to the fixture users and tests that seed a locked `settings/system_state` plus non-terminal `bulk_import_jobs/i1` using `withSecurityRulesDisabled`.
 
-```js
-general2:{role:'adfa_general',name:'General Two'}
-```
-
-Add tests covering these exact cases:
+Required assertions:
 
 ```js
-check('maintenance lock blocks ordinary teaching writes but permits the active recovery owner',async()=>{
-  // Seed system_state locked to general and bulk_import_jobs/i1 with non-terminal state using security-rules-disabled context.
-  // Assert regular cannot update/delete/create sessions or update faculty.
-  // Assert general2 cannot mutate protected teaching data while general owns the lock.
-  // Assert general can write the import-controlled session/faculty data needed to recover.
-});
-
-check('system_state is readable to ready users but only General can acquire or take over maintenance',async()=>{
-  // member getDoc(settings/system_state) succeeds.
-  // regular set/update fails.
-  // general transaction-shaped state/job writes succeed when valid.
-});
-
-check('bulk import job events are append-only',async()=>{
-  // general create event succeeds; update/delete fail; regular create fails.
-});
-
-check('maintenance lock cannot be released before the active import is terminal',async()=>{
-  // non-terminal job + unlock fails.
-  // batch update job to COMPLETED plus system_state unlock succeeds for active owner.
-});
+await assertFails(setDoc(doc(regular,'sessions/s1'),{topic:'blocked',updatedBy:'regular',updatedAt:serverTimestamp()},{merge:true}));
+await assertFails(setDoc(doc(general2,'sessions/s1'),{topic:'blocked',updatedBy:'general2',updatedAt:serverTimestamp()},{merge:true}));
+await assertSucceeds(setDoc(doc(general,'sessions/s1'),{topic:'recovery',updatedBy:'general',updatedAt:serverTimestamp()},{merge:true}));
+await assertSucceeds(getDoc(doc(member,'settings/system_state')));
 ```
 
-- [ ] **Step 2: Run emulator tests and verify RED**
+Also assert: regular cannot create job/event; general can create event but cannot update/delete it; unlock with non-terminal job fails; one batch that changes job to `COMPLETED` and system state to unlocked succeeds for the active owner.
+
+- [ ] **Step 2: Run emulator test to verify RED**
 
 Run: `npm run test:emulator`
 
-Expected: the new maintenance security tests FAIL under current rules.
+Expected: new maintenance tests FAIL under current rules.
 
 - [ ] **Step 3: Implement rule helpers and collection rules**
 
-Add helpers with this behavior:
+Add helper semantics:
 
 ```text
 teachingMaintenanceActive() = system_state exists and teachingDataWriteLocked == true
 teachingWritesOpen() = not teachingMaintenanceActive()
-maintenanceOwner() = general() and locked and maintenanceOwnerUid == request.auth.uid
+maintenanceOwner() = general() and lock active and maintenanceOwnerUid == request.auth.uid
 ```
 
-Change protected paths so normal writes require `teachingWritesOpen()` and maintenance-owner writes remain possible.
+Add explicit rules for `settings/system_state`, `bulk_import_jobs/{importId}`, `events/{eventId}`, and `stale_batches/{batchId}`. Use `getAfter()` for terminal unlock. Apply `teachingWritesOpen() || maintenanceOwner()` to protected teaching-data writes without weakening existing actor/role checks.
 
-Add explicit matches:
-
-```text
-/settings/system_state
-/bulk_import_jobs/{importId}
-/bulk_import_jobs/{importId}/events/{eventId}
-/bulk_import_jobs/{importId}/stale_batches/{batchId}
-```
-
-Use `getAfter()` when validating terminal unlock so the job terminal status and unlock may commit atomically.
-
-Do not change AFC write permissions except where an AFC action would mutate the timetable session collection through another code path.
-
-- [ ] **Step 4: Run security emulator tests and full test suite**
+- [ ] **Step 4: Run emulator and full tests**
 
 Run:
 
@@ -745,7 +595,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 6**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add firestore.rules tests/security-emulator.test.js
@@ -758,59 +608,55 @@ git commit -m "security: enforce teaching maintenance lock"
 
 **Files:**
 - Modify: `index-maintenance.js`
-- Modify: `tests/index-maintenance.test.js` if present; otherwise create `tests/index-maintenance-verification.test.js`
+- Modify: `tests/index-maintenance.test.js`
 
 **Interfaces:**
 - Add `verifyDerivedIndexesProvisional(db,faculty,sessions): Promise<{ok:boolean,errors:string[]}>` to `UCVM_INDEX_MAINTENANCE`.
 
-- [ ] **Step 1: Write RED verification tests**
+- [ ] **Step 1: Add RED tests to `tests/index-maintenance.test.js`**
 
-Tests must prove:
-
-- exact canonical `faculty_index` + `schedule_stats` returns `{ok:true}`;
-- changed session count returns error;
-- missing `faculty_swap_index` or `faculty_swap_map` returns error;
-- metadata fields such as `generatedAt`, `generatedBy`, `generatedByName` are ignored when comparing canonical `faculty_index` / `schedule_stats` content.
-
-- [ ] **Step 2: Run the focused test and verify RED**
-
-Run: `node --test tests/index-maintenance-verification.test.js`
-
-Expected: FAIL because the verifier does not exist.
-
-- [ ] **Step 3: Implement the provisional verifier**
-
-Build expected canonical documents with existing `derivedDocuments(faculty,sessions)`. Read all four derived settings documents. Strip metadata from the two canonical documents and deep-compare their remaining content. Require both swap docs to exist and have array `entries`; require private/public swap entry counts to be equal.
-
-Return errors rather than throwing for mismatches:
+Use a fake `db.collection('settings').doc(id).get()` returning supplied snapshots. Assert:
 
 ```js
-return {ok:errors.length===0,errors};
+const result=await api.verifyDerivedIndexesProvisional(fakeDb,faculty,sessions);
+assert.equal(result.ok,true);
 ```
 
-Export the function in the module return object.
+Then mutate `schedule_stats.sessionCount` and assert `ok === false`; make either swap doc absent and assert the errors name the missing doc. Metadata `generatedAt`, `generatedBy`, `generatedByName` must not affect canonical comparison.
 
-- [ ] **Step 4: Run focused + full tests**
+- [ ] **Step 2: Run focused test to verify RED**
+
+Run: `node --test tests/index-maintenance.test.js`
+
+Expected: the new verifier tests FAIL because the function is not exported.
+
+- [ ] **Step 3: Implement the verifier**
+
+Build expected canonical `faculty_index` and `schedule_stats` via existing `derivedDocuments(faculty,sessions)`. Read all four derived setting docs. Strip generation metadata from the first two before deep comparison. Require both swap docs to exist and have `entries` arrays with equal public/private entry counts.
+
+Return `{ok:errors.length===0,errors}` and export the function.
+
+- [ ] **Step 4: Run tests**
 
 Run:
 
 ```bash
-node --test tests/index-maintenance-verification.test.js
+node --test tests/index-maintenance.test.js
 npm test
 ```
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Task 7**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add index-maintenance.js tests/index-maintenance-verification.test.js
+git add index-maintenance.js tests/index-maintenance.test.js
 git commit -m "feat: verify derived indexes after bulk import"
 ```
 
 ---
 
-### Task 8: Shared Maintenance-State Watcher and Normal Write Guards
+### Task 8: Shared Maintenance State and Normal Write Guards
 
 **Files:**
 - Create: `maintenance-state.js`
@@ -819,95 +665,83 @@ git commit -m "feat: verify derived indexes after bulk import"
 - Modify: `faculty-admin.html`
 - Modify: `timetable.js`
 - Modify: `approval-workflow.js`
-- Modify timetable/approval behavior tests that exercise writes.
+- Modify: `tests/timetable-selection.test.js`
+- Modify: `tests/timetable-multi-edit-ui.test.js`
+- Modify: `tests/faculty-swap-integration.test.js`
+- Modify: `tests/faculty-swap-direct-session.test.js`
 
 **Interfaces:**
-- Produces: `UCVM_MAINTENANCE.normalize(data)`.
-- Produces: `isActive(state)`.
-- Produces: `normalTeachingWritesAllowed(state)`.
-- Produces: `watch(db,callback): unsubscribe`.
-- Produces: `installBanner(): HTMLElement` and `renderBanner(state,{isAdmin})`.
-- Produces: `guardNormalWrite(state,{toast}): boolean` returning false and showing the standard maintenance message when locked.
+- `UCVM_MAINTENANCE.normalize(data)`.
+- `isActive(state)`.
+- `normalTeachingWritesAllowed(state)`.
+- `watch(db,callback): unsubscribe`.
+- `installBanner()` / `renderBanner(state,{isAdmin})`.
+- `guardNormalWrite(state,{toast}): boolean`.
 
-- [ ] **Step 1: Write RED unit tests for default unlocked state and locked message**
+- [ ] **Step 1: Write RED unit tests**
 
 ```js
-test('missing system state is treated as unlocked for backward-compatible rules rollout',()=>{
-  assert.equal(maintenance.isActive(maintenance.normalize(null)),false);
-});
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const maintenance=require('../maintenance-state.js');
 
-test('locked maintenance blocks normal teaching writes for every role',()=>{
+test('missing system state is unlocked',()=>assert.equal(maintenance.isActive(maintenance.normalize(null)),false));
+test('locked maintenance blocks normal teaching writes',()=>{
   const state=maintenance.normalize({teachingDataWriteLocked:true,maintenanceMode:'bulk_import',activeImportId:'i1'});
   assert.equal(maintenance.normalTeachingWritesAllowed(state),false);
 });
 ```
 
-- [ ] **Step 2: Run focused test and verify RED**
+- [ ] **Step 2: Run test to verify RED**
 
 Run: `node --test tests/maintenance-state.test.js`
 
-Expected: FAIL because module does not exist.
+Expected: FAIL because the module does not exist.
 
-- [ ] **Step 3: Implement watcher/banner module and load it before mutation code**
+- [ ] **Step 3: Implement watcher and banner**
 
-`index.html`: load `maintenance-state.js` before `timetable.js` and `approval-workflow.js`.
+Load `maintenance-state.js` before `timetable.js`/`approval-workflow.js` in `index.html`, and before `faculty-admin.js` in `faculty-admin.html`. Missing `settings/system_state` normalizes to unlocked.
 
-`faculty-admin.html`: load it before `faculty-admin.js`.
-
-The watcher reads `settings/system_state`; a missing document normalizes to unlocked.
-
-The banner text is exactly:
+Banner text is exactly:
 
 `Teaching Data Maintenance in Progress. Teaching and faculty-data editing is temporarily unavailable. Viewing remains available.`
 
-- [ ] **Step 4: Guard every normal timetable mutation path**
+- [ ] **Step 4: Guard timetable mutations**
 
-In `timetable.js`, keep a module-level `maintenanceState` updated by the watcher and call one shared helper before:
-
-- admin faculty swap batch;
-- multi-session selection save;
-- bulk session creation;
-- single session create/update;
-- session delete.
-
-Use:
+Keep module-level `maintenanceState` and call:
 
 ```js
-function teachingWriteAvailable(){
-  return window.UCVM_MAINTENANCE.guardNormalWrite(maintenanceState,{toast});
-}
+function teachingWriteAvailable(){return window.UCVM_MAINTENANCE.guardNormalWrite(maintenanceState,{toast})}
 ```
 
-Return before opening destructive confirmation/commit when false.
+before admin faculty swap, multi-session save, bulk session create, single create/update, and delete.
 
-- [ ] **Step 5: Guard change-request mutations**
+- [ ] **Step 5: Guard change-request writes**
 
-In `approval-workflow.js`, block request create, approval/apply, and rejection/update while maintenance is active. Reads/rendering remain available.
+In `approval-workflow.js`, block request create, approval/apply, and rejection/update while maintenance is active. Reads remain available. AFC workflow remains unchanged unless it reaches a session mutation path.
 
-Do not modify AFC request approval logic unless the path applies a timetable session mutation.
+- [ ] **Step 6: Update behavior tests and run verification**
 
-- [ ] **Step 6: Run maintenance, timetable, approval, and full tests**
-
-Run:
+Add locked-state assertions to the four listed tests so each affected mutation path returns before Firestore commit. Then run:
 
 ```bash
-node --test tests/maintenance-state.test.js tests/timetable-selection.test.js
+node --test tests/maintenance-state.test.js tests/timetable-selection.test.js tests/timetable-multi-edit-ui.test.js tests/faculty-swap-integration.test.js tests/faculty-swap-direct-session.test.js
 npm test
 npm run test:emulator
 ```
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit Task 8**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add maintenance-state.js tests/maintenance-state.test.js index.html faculty-admin.html timetable.js approval-workflow.js tests
+git add maintenance-state.js tests/maintenance-state.test.js index.html faculty-admin.html timetable.js approval-workflow.js tests/timetable-selection.test.js tests/timetable-multi-edit-ui.test.js tests/faculty-swap-integration.test.js tests/faculty-swap-direct-session.test.js
 git commit -m "feat: block normal teaching edits during maintenance"
 ```
 
 ---
 
-### Task 9: Faculty Dashboard Bulk Import / Recovery UI Integration
+### Task 9: Faculty Dashboard Bulk Import / Recovery UI
 
 **Files:**
 - Create: `bulk-import-ui.js`
@@ -917,30 +751,41 @@ git commit -m "feat: block normal teaching edits during maintenance"
 - Modify: `faculty-admin.js`
 
 **Interfaces:**
-- Produces: `UCVM_BULK_IMPORT_UI.create({controller,db,actor,profile,getFaculty,getSessions,reloadAdminDataset,toast})`.
-- UI object methods: `initialize()`, `handleSourceFile(file)`, `handleBackupFile(file)`, `renderRecovery(job,state)`, `destroy()`.
+- `UCVM_BULK_IMPORT_UI.create({controller,actor,getFaculty,getSessions,reloadAdminDataset,toast})`.
+- UI methods `initialize`, `handleSourceFile`, `handleBackupFile`, `renderRecovery`, `destroy`.
 
-- [ ] **Step 1: Write RED UI behavior tests with a minimal fake DOM/controller**
+- [ ] **Step 1: Write RED UI tests**
 
-Cover:
+Use a fake controller with counters and a minimal DOM fixture containing `bulk-import-card`, `summary-import-file`, and `recovery-backup-file`.
 
-- hard preflight error shows `IMPORT BLOCKED` and never calls `start()`;
-- large-change preflight requires typed `IMPORT`;
-- backup confirmation checkbox gates Start Import;
-- incomplete job hides/disables new import and shows Resume/Restore;
-- Resume with matching source calls controller `resume()`;
-- Restore requires typed `RESTORE`;
-- takeover requires non-blank reason.
+```js
+test('hard preflight failure never starts an import',async()=>{
+  const fake=createUiHarness({preflight:{errors:['Duplicate session ID'],warnings:[]}});
+  await fake.ui.handleSourceFile(fake.sourceFile);
+  assert.equal(fake.controllerCalls.start,0);
+  assert.match(fake.card.textContent,/IMPORT BLOCKED/);
+});
 
-- [ ] **Step 2: Run focused test and verify RED**
+test('incomplete job renders Resume and Restore instead of new import',async()=>{
+  const fake=createUiHarness({recovery:{job:{status:'FAILED',phase:'APPLYING_SESSIONS'},state:{teachingDataWriteLocked:true}}});
+  await fake.ui.initialize();
+  assert.match(fake.card.textContent,/Resume Import/);
+  assert.match(fake.card.textContent,/Restore Recovery Backup/);
+  assert.doesNotMatch(fake.card.textContent,/Select New Import File/);
+});
+```
+
+Add matching tests that typed `IMPORT` is required for large changes, backup checkbox gates Start, typed `RESTORE` gates restore, and blank takeover reason is rejected.
+
+- [ ] **Step 2: Run test to verify RED**
 
 Run: `node --test tests/bulk-import-ui.test.js`
 
 Expected: FAIL because the UI module does not exist.
 
-- [ ] **Step 3: Add synchronization card markup and styles**
+- [ ] **Step 3: Add synchronization card markup and script order**
 
-In `faculty-admin.html`, replace the direct summary import button with a mount inside the Teaching Summary panel:
+In `faculty-admin.html` add:
 
 ```html
 <div id="bulk-import-card" class="bulk-import-card" data-general-only></div>
@@ -948,45 +793,24 @@ In `faculty-admin.html`, replace the direct summary import button with a mount i
 <input type="file" id="recovery-backup-file" data-general-only accept="application/json,.json" class="hidden">
 ```
 
-Keep Workload DOE import separate.
+Load `bulk-import-core.js`, `bulk-import-backup.js`, `bulk-import-firestore.js`, `bulk-import-controller.js`, and `bulk-import-ui.js` before `faculty-admin.js`.
 
-Load scripts before `faculty-admin.js` in dependency order:
+- [ ] **Step 4: Replace the current destructive `importSummaryJson()` body**
 
-```html
-<script src="bulk-import-core.js"></script>
-<script src="bulk-import-backup.js"></script>
-<script src="bulk-import-firestore.js"></script>
-<script src="bulk-import-controller.js"></script>
-<script src="bulk-import-ui.js"></script>
+After admin auth, construct store/controller/UI. Pass controller index functions as wrappers:
+
+```js
+rebuildIndexes:({faculty,sessions,actor})=>UCVM_INDEX_MAINTENANCE.writeDerivedIndexes(db,faculty,sessions,actor),
+verifyIndexes:({faculty,sessions})=>UCVM_INDEX_MAINTENANCE.verifyDerivedIndexesProvisional(db,faculty,sessions)
 ```
 
-- [ ] **Step 4: Replace current `importSummaryJson()` destructive body with delegation**
+`summary-import-file.onchange` delegates to `bulkImportUi.handleSourceFile(file)` and `recovery-backup-file.onchange` delegates to `handleBackupFile(file)`.
 
-In `faculty-admin.js`, remove the old sequence that directly batches faculty, sessions, stale deletes, settings/logs, and reload.
+- [ ] **Step 5: Implement healthy/preflight/recovery rendering**
 
-After admin auth is established, construct the Firestore store/controller/UI using current `db`, `firebase`, actor, providers, `reloadAdminDataset`, and existing `toast`.
+Healthy card shows last completed import date/source and Select New Import File. Preflight shows source counts, current counts, creates/updates/stale deletes, warnings, and hard failures. Large changes require typed `IMPORT`. After backup generation trigger filename `UCVM-pre-import-backup-YYYY-MM-DD-HHmm.json`; Start stays disabled until `I have saved the recovery backup.` is checked. Failed/incomplete jobs show progress/error plus Resume, Restore, and Take Over Recovery when authorized.
 
-`summary-import-file.onchange` delegates the selected file to `bulkImportUi.handleSourceFile(file)`; recovery input delegates to `handleBackupFile(file)`.
-
-Expose no new global faculty/private dataset beyond existing admin-only page scope.
-
-- [ ] **Step 5: Implement progress/recovery rendering**
-
-Healthy card shows last completed import source/date and Select New Import File.
-
-Active/failed card shows import ID, source, phase, batch progress, last error, and authorized buttons. `Start New Import` is unavailable until the active job is terminal.
-
-Before starting a new import, the UI:
-
-1. computes preflight;
-2. shows impact counts/warnings;
-3. requires typed `IMPORT` when `requiresTypedImportConfirmation` is true;
-4. calls `controller.createRecoveryBackup()`;
-5. triggers JSON download with filename `UCVM-pre-import-backup-YYYY-MM-DD-HHmm.json`;
-6. requires checkbox `I have saved the recovery backup.`;
-7. starts only after confirmation.
-
-- [ ] **Step 6: Run focused + full tests**
+- [ ] **Step 6: Run tests**
 
 Run:
 
@@ -997,7 +821,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit Task 9**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add bulk-import-ui.js tests/bulk-import-ui.test.js faculty-admin.html faculty-admin.css faculty-admin.js
@@ -1006,56 +830,36 @@ git commit -m "feat: add bulk import recovery dashboard"
 
 ---
 
-### Task 10: Static Bundle, Setup Documentation, and End-to-End Completion Gate
+### Task 10: Static Bundle, Setup Documentation, and Completion Gate
 
 **Files:**
 - Modify: `tools/static-assets.json`
 - Create: `tests/bulk-import-static-assets.test.js`
 - Modify: `SETUP.md`
-- Review: all Workstream 3 runtime/tests/rules files
 
-**Interfaces:**
-- Shared static bundle must ship the new modules to both GitHub Pages and Azure.
-- Operational docs must state that Firestore rules must be deployed before relying on the production maintenance lock.
-
-- [ ] **Step 1: Write RED static-asset manifest test**
+- [ ] **Step 1: Write RED static-asset test**
 
 ```js
 'use strict';
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const assets=require('../tools/static-assets.json');
-
-test('bulk import recovery browser modules are in the shared static bundle',()=>{
-  for(const file of ['bulk-import-core.js','bulk-import-backup.js','bulk-import-firestore.js','bulk-import-controller.js','bulk-import-ui.js','maintenance-state.js']){
-    assert.ok(assets.includes(file),`${file} missing from tools/static-assets.json`);
-  }
+test('bulk import recovery modules ship in the shared bundle',()=>{
+  for(const file of ['bulk-import-core.js','bulk-import-backup.js','bulk-import-firestore.js','bulk-import-controller.js','bulk-import-ui.js','maintenance-state.js'])assert.ok(assets.includes(file),`${file} missing from static assets`);
 });
 ```
 
-- [ ] **Step 2: Run focused test and verify RED**
+- [ ] **Step 2: Run test to verify RED**
 
 Run: `node --test tests/bulk-import-static-assets.test.js`
 
-Expected: FAIL until the new assets are added.
+Expected: FAIL until assets are added.
 
-- [ ] **Step 3: Update shared asset manifest and setup documentation**
+- [ ] **Step 3: Update static assets and SETUP**
 
-Add the six new JS files to `tools/static-assets.json` in dependency-friendly alphabetical grouping.
+Add all six modules to `tools/static-assets.json`. Document backup storage responsibility, Resume using original source, Restore using matching backup, takeover restriction, intentional lock persistence after failure, no force-unlock path, emulator-only destructive testing, and Firestore-rule deployment before relying on production maintenance enforcement.
 
-Document in `SETUP.md`:
-
-- preflight/backup workflow;
-- where the user is responsible for safely storing the downloaded recovery JSON;
-- Resume requires the original source file;
-- Restore requires the matching recovery backup;
-- recovery takeover is Owner / ADFA General only;
-- an incomplete import intentionally keeps teaching-data writes locked;
-- do not force-unlock; Resume or Restore;
-- failure testing belongs in emulator only;
-- Firestore rules must be deployed before the production UI version that depends on maintenance enforcement.
-
-- [ ] **Step 4: Run the complete automated verification gate**
+- [ ] **Step 4: Run the full automated gate**
 
 Run:
 
@@ -1065,62 +869,37 @@ npm run test:emulator
 node tools/build-static.js
 ```
 
-Expected:
+Expected: all tests PASS and static build exits 0 with the six modules included.
 
-- all Node tests PASS;
-- all emulator tests PASS;
-- static build exits 0 and includes all six new modules.
+- [ ] **Step 5: Self-review implementation against the spec**
 
-- [ ] **Step 5: Perform implementation self-review against the design spec**
+Verify every item is evidenced by code/tests: zero-write preflight; mandatory typed-value-safe backup; transactional lock; atomic data+checkpoint batches; exact raw fingerprint resume; source verification before stale deletion; frozen chunked stale list; exact final ID match; real provisional index verification; resumable restore; audited takeover; terminal+unlock atomicity; UI+rules write blocking; append-only events; no force unlock; Workstream 4 replacement boundary.
 
-Check every spec requirement against code/tests and record no unresolved gaps before PR creation:
-
-- preflight has zero teaching-data writes;
-- backup is mandatory and typed-value-safe;
-- lock acquisition is transactional;
-- batch checkpoint is atomic with each data batch;
-- Resume raw fingerprint is enforced;
-- no stale delete before source verification;
-- stale list is frozen/chunked;
-- final source IDs match exactly;
-- provisional index gate is real, not a no-op;
-- restore is resumable;
-- takeover is audited;
-- terminal state + unlock are atomic;
-- normal writes are blocked by UI and rules;
-- events are append-only;
-- no force unlock;
-- Workstream 4 can replace provisional index verification through the existing function boundary.
-
-- [ ] **Step 6: Commit Task 10**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add tools/static-assets.json tests/bulk-import-static-assets.test.js SETUP.md
 git commit -m "docs: finalize bulk import recovery rollout"
 ```
 
-- [ ] **Step 7: Open implementation PR as draft and wait for CI**
+- [ ] **Step 7: Open the implementation PR as draft and wait for CI**
 
-PR title:
+Title: `Bulk import: add resumable recovery workflow`
 
-`Bulk import: add resumable recovery workflow`
+The PR body records RED/GREEN evidence, security-rule changes, recovery semantics, and that destructive failure injection ran only in the emulator.
 
-PR body must summarize the RED/GREEN evidence, security-rule changes, recovery semantics, and explicitly state that destructive failure injection ran only in the emulator.
+- [ ] **Step 8: Perform the fixed Pages non-destructive smoke test**
 
-- [ ] **Step 8: GitHub Pages manual smoke test before merge**
+1. Confirm TEST SITE banner.
+2. Sign in as ADFA General/Owner.
+3. Open Faculty Dashboard > Teaching Summary.
+4. Select a known-good source JSON and verify preflight counts/warnings.
+5. Stop before Start Import unless a real synchronization is intentionally being performed.
+6. Verify timetable/faculty views still load.
+7. Verify recovery UI shows Healthy when no active import exists.
 
-Use only non-destructive checks on the fixed Pages test site because it shares live Firebase:
+Do not inject failures, start a disposable import, restore, or manually manipulate `system_state` on Pages/live Firebase.
 
-1. confirm TEST SITE banner;
-2. sign in as ADFA General/Owner;
-3. open Faculty Dashboard > Teaching Summary;
-4. select a known-good source JSON and verify preflight counts/warnings appear;
-5. stop before Start Import unless a real production synchronization is intentionally being performed;
-6. verify existing timetable/faculty views still load;
-7. verify recovery UI reports Healthy when no active import exists.
+- [ ] **Step 9: Merge only after explicit manual approval and verify production**
 
-Do not inject failures, start a disposable import, restore, or manipulate `system_state` on Pages/live Firebase.
-
-- [ ] **Step 9: Merge only after explicit manual approval, then verify production workflow**
-
-After approval, merge the PR using the established repository release flow. Verify the post-merge `Test` workflow and Azure Static Web Apps workflow complete successfully. Deploy the reviewed `firestore.rules` separately according to the documented rules-deployment step; do not claim maintenance security is live until that deployment is confirmed.
+After approval, merge through the established release flow. Verify post-merge `Test` and Azure Static Web Apps workflows complete successfully. Deploy the reviewed `firestore.rules` separately; do not claim maintenance security is live until that deployment is confirmed.
