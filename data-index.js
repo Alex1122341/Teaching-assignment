@@ -1,9 +1,11 @@
 (function(root,factory){
- const api=factory();
+ const doe=typeof module==='object'&&module.exports?require('./faculty-doe.js'):root?.UCVM_FACULTY_DOE;
+ const api=factory(doe);
  if(typeof module==='object'&&module.exports)module.exports=api;
  if(root)root.UCVM_DATA_INDEX=api;
-})(typeof window!=='undefined'?window:null,function(){
+})(typeof window!=='undefined'?window:null,function(DOE){
  'use strict';
+ if(!DOE||typeof DOE.override!=='function'||typeof DOE.contract!=='function')throw Error('UCVM_FACULTY_DOE must load before data-index.js.');
  const text=v=>String(v??'').trim();
  const number=v=>{if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null};
  const uniqueSorted=values=>[...new Set(values.map(text).filter(Boolean))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
@@ -23,13 +25,11 @@
    workload.credits,workload.trainee,f.awayFromCampusRecords
   ])).join(' ').toLowerCase();
  }
- function contractTeachingDOE(f){return [f?.doe?.teaching,f?.doeTeaching,f?.teachingDOE,f?.contractTeachingDOE].map(number).find(v=>v!==null)??null}
- function override(f){const raw=f?.doeOverride2026_27;if(raw===null||raw===undefined)return{value:null,reason:''};if(typeof raw==='object')return{value:number(raw.value),reason:text(raw.reason)};return{value:number(raw),reason:''}}
-function facultyEntry(id,faculty,sessionStats={}){
-  const f=faculty||{},o=override(f),facultyId=text(id||f.__id||f.id||f.ucid),name=text(f.preferredFullName||f.hrFirstLast||f.hrFullName||f.teachingAssignmentName||facultyId);
+ function facultyEntry(id,faculty,sessionStats={}){
+  const f=faculty||{},o=DOE.override(f),facultyId=text(id||f.__id||f.id||f.ucid),name=text(f.preferredFullName||f.hrFirstLast||f.hrFullName||f.teachingAssignmentName||facultyId);
   const summary=f.facultySummary2026_27,roles=Array.isArray(summary?.roles)?summary.roles:[];
   const scheduled=number(sessionStats.assignedDOE),fixed=number(summary?.sourceNonTimetableTeachingDOE),sourceAssigned=number(summary?.assignedTeachingDOE),assigned=fixed!==null?fixed+(scheduled||0):(sourceAssigned??scheduled);
-  return{id:facultyId,name,hrName:text(f.hrFullName),email:text(f.email),rank:text(f.rank||f.currentTitle),appointmentType:text(f.appointmentType),campus:text(f.campus),department:text(f.primaryDepartment||f.department),specialty:text(f.teachingArea||f.teachingAreaEmphasis||f.boardSpecialties),reportsTo:text(f.reportsTo),active:f.active!==false,status:text(f.status||'current'),contractTeachingDOE:contractTeachingDOE(f),assignedTeachingDOE:assigned,overrideDOE:o.value,overrideReason:o.reason,sessionCount:Number(sessionStats.count)||0,hasSummary:!!(summary&&typeof summary==='object'),hasWorkload:!!(f.workloadPolicy2026_27&&typeof f.workloadPolicy2026_27==='object'),roleTypes:uniqueSorted(roles.map(r=>r?.type)),afcRecordCount:Array.isArray(f.awayFromCampusRecords)?f.awayFromCampusRecords.length:0,searchText:facultySearchText({...f,__id:facultyId})};
+  return{id:facultyId,name,hrName:text(f.hrFullName),email:text(f.email),rank:text(f.rank||f.currentTitle),appointmentType:text(f.appointmentType),campus:text(f.campus),department:text(f.primaryDepartment||f.department),specialty:text(f.teachingArea||f.teachingAreaEmphasis||f.boardSpecialties),reportsTo:text(f.reportsTo),active:f.active!==false,status:text(f.status||'current'),contractTeachingDOE:DOE.contract(f),assignedTeachingDOE:assigned,overrideDOE:o.value,overrideReason:o.reason,sessionCount:Number(sessionStats.count)||0,hasSummary:!!(summary&&typeof summary==='object'),hasWorkload:!!(f.workloadPolicy2026_27&&typeof f.workloadPolicy2026_27==='object'),roleTypes:uniqueSorted(roles.map(r=>r?.type)),afcRecordCount:Array.isArray(f.awayFromCampusRecords)?f.awayFromCampusRecords.length:0,searchText:facultySearchText({...f,__id:facultyId})};
  }
  function sessionFacultyIds(session){
   const s=session||{},rows=Array.isArray(s.assignments)?s.assignments:[];
