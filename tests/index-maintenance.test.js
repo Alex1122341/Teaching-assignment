@@ -66,3 +66,37 @@ test('create and delete session deltas are reversible and empty changes are idem
  assert.deepEqual(removed,{facultyIndex:index,scheduleStats:stats});
  assert.deepEqual(api.applySessionChanges(index,stats,[]),{facultyIndex:index,scheduleStats:stats});
 });
+
+function fakeSettingsDb(docs){
+ return{collection:name=>{assert.equal(name,'settings');return{doc:id=>({get:async()=>Object.prototype.hasOwnProperty.call(docs,id)?{exists:true,data:()=>docs[id]}:{exists:false,data:()=>undefined}})}}};
+}
+function verifierFixture(){
+ const api=require(path.join(root,'index-maintenance.js'));
+ const faculty=[{__id:'1001',preferredFullName:'Alex',doe:{teaching:20}},{__id:'1002',preferredFullName:'Blair',doe:{teaching:20}}];
+ const sessions=[{id:'s1',course:'200',assignments:[{ucid:'1001',doeCredit:2}]}];
+ const expected=api.derivedDocuments(faculty,sessions);
+ return{api,faculty,sessions,docs:{faculty_index:{...expected.facultyIndex,generatedAt:'x',generatedBy:'u',generatedByName:'N'},schedule_stats:{...expected.scheduleStats,generatedAt:'y',generatedBy:'u',generatedByName:'N'},faculty_swap_index:{schemaVersion:'ucvm-faculty-swap-index-v1',entries:[{key:'a'},{key:'b'}],generatedAt:'z'},faculty_swap_map:{schemaVersion:'ucvm-faculty-swap-map-v1',entries:[{key:'a',facultyId:'1001'},{key:'b',facultyId:'1002'}],generatedAt:'z',generatedBy:'u',generatedByName:'N'}}};
+}
+
+test('provisional verifier accepts canonical indexes and ignores generation metadata',async()=>{
+ const {api,faculty,sessions,docs}=verifierFixture();
+ const result=await api.verifyDerivedIndexesProvisional(fakeSettingsDb(docs),faculty,sessions);
+ assert.equal(result.ok,true);
+ assert.deepEqual(result.errors,[]);
+});
+
+test('provisional verifier rejects a mismatched schedule count',async()=>{
+ const {api,faculty,sessions,docs}=verifierFixture();
+ docs.schedule_stats.sessionCount=99;
+ const result=await api.verifyDerivedIndexesProvisional(fakeSettingsDb(docs),faculty,sessions);
+ assert.equal(result.ok,false);
+ assert.match(result.errors.join('\n'),/schedule_stats/i);
+});
+
+test('provisional verifier names missing swap documents',async()=>{
+ const {api,faculty,sessions,docs}=verifierFixture();
+ delete docs.faculty_swap_map;
+ const result=await api.verifyDerivedIndexesProvisional(fakeSettingsDb(docs),faculty,sessions);
+ assert.equal(result.ok,false);
+ assert.match(result.errors.join('\n'),/faculty_swap_map/i);
+});
