@@ -1,0 +1,85 @@
+name: WS5B Foundation Verification
+
+on:
+  push:
+    branches: [maintenance/ws5b-tasks1-4-transport]
+    paths:
+      - '.github/workflows/ws5b-foundation.yml'
+      - 'tools/ws5b-edits-*.json'
+      - 'tools/apply-ws5b-foundation.py'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve reviewed edit manifest and select feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ws5b"
+          cp tools/ws5b-edits-1.json tools/ws5b-edits-2.json tools/apply-ws5b-foundation.py "$RUNNER_TEMP/ws5b/"
+          git fetch origin feature/workstream-5b-approval-routing
+          test "$(git rev-parse FETCH_HEAD)" = bbf727a3db63522aa6ee5f9986692bad73cbffa2
+          git checkout -b ws5b-verified-work FETCH_HEAD
+          python "$RUNNER_TEMP/ws5b/apply-ws5b-foundation.py" "$RUNNER_TEMP/ws5b/ws5b-edits-1.json" "$RUNNER_TEMP/ws5b/ws5b-edits-2.json"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify new privacy tests fail against the old rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp firestore.rules "$RUNNER_TEMP/ws5b/candidate.rules"
+          trap 'cp "$RUNNER_TEMP/ws5b/candidate.rules" firestore.rules' EXIT
+          git show 86bd5aa2c8a25259f3f708e49b322220ff43a147:firestore.rules > firestore.rules
+          set +e
+          npx firebase emulators:exec --only firestore,auth --project demo-ucvm-access "node --test tests/calendar-session-security-emulator.test.js" > "$RUNNER_TEMP/ws5b/privacy-red.log" 2>&1
+          result=$?
+          set -e
+          test "$result" -ne 0
+          grep -q 'not ok .*calendar session: ADC and LAB can get and query sanitized calendar' "$RUNNER_TEMP/ws5b/privacy-red.log"
+          echo 'Confirmed the new calendar permission test fails against baseline rules.'
+      - name: Run all static and unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test | tee "$RUNNER_TEMP/ws5b/unit-green.log"
+      - name: Run all Firestore and Auth emulator tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:emulator | tee "$RUNNER_TEMP/ws5b/emulator-green.log"
+      - name: Verify static build and publish foundation commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/build-static.js
+          git diff --check
+          git add faculty-access.js firestore.rules index.html tests/faculty-swap-integration.test.js tests/hosting-boundary.test.js tests/runtime-assets.test.js tests/user-management.test.js tools/static-assets.json user-management.html user-management.js
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: integrate WS5B office identity and calendar privacy foundation'
+          git push origin HEAD:feature/workstream-5b-approval-routing
+          git rev-parse HEAD >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ws5b-foundation-verification
+          path: ${{ runner.temp }}/ws5b/*.log
+          if-no-files-found: ignore
+          retention-days: 7
