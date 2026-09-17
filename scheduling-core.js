@@ -1,5 +1,9 @@
-'use strict';
-window.UCVM_SCHEDULING=(()=>{
+(function(root,factory){
+ const api=factory();
+ if(typeof module==='object'&&module.exports)module.exports=api;
+ if(root)root.UCVM_SCHEDULING=api;
+})(typeof window!=='undefined'?window:null,function(){
+ 'use strict';
   function parseTime(value){
     const raw=String(value??'').trim();
     const match=raw.match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i);
@@ -60,11 +64,11 @@ window.UCVM_SCHEDULING=(()=>{
     return{date,...validateInterval(session.start,session.end,{timeUnknown:session.timeUnknown===true})};
   }
 
-  function findFacultyConflicts({date,start,end,sessions=[],excludeSessionId='',isAssigned=()=>false}){
+  function findFacultyConflicts({date,start,end,timeUnknown=false,sessions=[],excludeSessionId='',isAssigned=()=>false}){
     const normalizedDate=normalizeDate(date);
-    const target=validateInterval(start,end);
+    const target=validateInterval(start,end,{timeUnknown});
     const sameDay=(Array.isArray(sessions)?sessions:[]).filter(session=>
-      String(session?.id||'')!==String(excludeSessionId||'')&&
+      (!excludeSessionId||String(session?.id||'')!==String(excludeSessionId))&&
       normalizeDate(session?.date)===normalizedDate&&
       isAssigned(session)
     );
@@ -84,4 +88,4 @@ window.UCVM_SCHEDULING=(()=>{
   }
 
   return{parseTime,formatTime,normalizeDate,validateInterval,durationMinutes,durationHours,intervalsOverlap,validateSessionTiming,findFacultyConflicts};
-})();
+});

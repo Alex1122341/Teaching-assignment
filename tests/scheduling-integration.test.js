@@ -15,7 +15,7 @@ test('timetable delegates time parsing, duration, availability overlap, bulk tim
   assert.doesNotMatch(source,/function availabilityIntervalsOverlap\(/);
   assert.match(source,/function timetableAvailability\([^)]*\)\s*\{[\s\S]*?scheduling\.findFacultyConflicts\(/);
   assert.match(source,/function validateBulkRows\([^)]*\)\s*\{[\s\S]*?scheduling\.normalizeDate\(date\)[\s\S]*?scheduling\.validateInterval\(start,end\)/);
-  assert.match(source,/session-form[^]*?scheduling\.normalizeDate\(date\)[^]*?scheduling\.validateInterval\(start,end\)\.status!=='valid'/);
+  assert.match(source,/session-form[^]*?scheduling\.normalizeDate\(date\)[^]*?scheduling\.validateInterval\(start,end,\{timeUnknown\}\)\.status==='invalid'/);
 });
 
 test('timetable does not keep a second AM PM parser or manual overlap formula',()=>{

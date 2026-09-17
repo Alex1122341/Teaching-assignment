@@ -1,20 +1,4 @@
 /* HICC timetable + Spark-safe approval workflow for the main timetable only. */
-window.UCVM_APPROVAL_SCHEDULING=(()=>{
- const text=value=>String(value??'');
- const requiresOverride=check=>check?.status==='conflict';
- function overrideAudit(actor={},conflicts=[]){
-  return{
-   type:'faculty_time_conflict',
-   confirmed:true,
-   confirmedBy:text(actor.uid),
-   confirmedByName:text(actor.name),
-   conflicts:(Array.isArray(conflicts)?conflicts:[]).map(session=>({
-    id:text(session?.id),course:text(session?.course),date:text(session?.date).slice(0,10),start:text(session?.start),end:text(session?.end)
-   }))
-  };
- }
- return{requiresOverride,overrideAudit};
-})();
 (()=>{
  'use strict';
  if(!window.UCVM||typeof firebase==='undefined')return;
@@ -84,19 +68,19 @@ window.UCVM_APPROVAL_SCHEDULING=(()=>{
  function resolveFaculty(ref){const id=String(ref?.facultyId||ref?.ucid||'').trim();if(id&&approvalFacultyById.has(id))return approvalFacultyById.get(id);const key=norm(ref?.name||'');if(!key)return null;return approvalFaculty.find(f=>facultyAliases(f).has(key))||null}
  function indexFaculty(e){return{__id:String(e.id),preferredFullName:e.name||e.id,hrFullName:e.hrName||'',email:e.email||'',rank:e.rank||'',campus:e.campus||'',teachingArea:e.specialty||'',reportsTo:e.reportsTo||'',doe:e.contractTeachingDOE===null?{}:{teaching:e.contractTeachingDOE},facultySummary2026_27:e.assignedTeachingDOE===null?null:{assignedTeachingDOE:e.assignedTeachingDOE},__indexAssignedTeachingDOE:e.assignedTeachingDOE,__index:true}}
  function requestFacultyIds(requestRows){const ids=new Set();for(const r of requestRows||[]){for(const ref of [r.fromFaculty,r.toFaculty]){const id=String(ref?.facultyId||ref?.ucid||'').trim();if(id)ids.add(id)}const current=sessions.get(r.sessionId);for(const a of assignedArray(current)){const id=String(a?.ucid||a?.facultyId||'').trim();if(id)ids.add(id)}}return[...ids]}
- async function ensureApprovalFaculty(requestRows=requests){
+ async function ensureApprovalFaculty(requestRows=requests,force=false){
   if(!isApprover())return;
   if(!approvalFacultyLoaded){const snap=await db.collection('settings').doc('faculty_index').get();approvalFaculty=snap.exists?(snap.data().entries||[]).map(indexFaculty):[];approvalFacultyById=new Map(approvalFaculty.map(f=>[String(f.__id),f]));approvalFacultyLoaded=true}
-  const ids=requestFacultyIds(requestRows),missing=ids.filter(id=>approvalFacultyById.get(id)?.__index);
-  const details=await Promise.all(missing.map(id=>db.collection('faculty').doc(id).get()));for(const snap of details)if(snap.exists){const old=approvalFacultyById.get(snap.id),row={__id:snap.id,...snap.data(),__indexAssignedTeachingDOE:old?.__indexAssignedTeachingDOE},at=approvalFaculty.indexOf(old);if(at>=0)approvalFaculty[at]=row;else approvalFaculty.push(row);approvalFacultyById.set(snap.id,row)}
+  const ids=requestFacultyIds(requestRows),missing=ids.filter(id=>force||approvalFacultyById.get(id)?.__index);
+  const details=await Promise.all(missing.map(id=>db.collection('faculty').doc(id).get(force?{source:'server'}:undefined)));for(const snap of details)if(snap.exists){const old=approvalFacultyById.get(snap.id),row={__id:snap.id,...snap.data(),__indexAssignedTeachingDOE:old?.__indexAssignedTeachingDOE},at=approvalFaculty.indexOf(old);if(at>=0)approvalFaculty[at]=row;else approvalFaculty.push(row);approvalFacultyById.set(snap.id,row)}
  }
  async function ensureRequestSessions(requestRows){
   const ids=[...new Set((requestRows||[]).map(r=>String(r.sessionId||'')).filter(Boolean))],missing=ids.filter(id=>!sessions.has(id));
   const docs=await Promise.all(missing.map(id=>db.doc(`${SESSIONS}/${id}`).get()));for(const snap of docs)if(snap.exists)sessions.set(snap.id,{id:snap.id,...snap.data()});approvalSessionsComplete=true;
  }
- async function ensureFacultySessionContext(requestRows){
-  const dates=[...new Set((requestRows||[]).flatMap(r=>[sessions.get(String(r.sessionId||''))?.date,r.patch?.date]).map(ymd).filter(Boolean))].filter(date=>!approvalSessionDatesLoaded.has(date));
-  const sets=await Promise.all(dates.map(date=>db.collection(SESSIONS).where('date','==',date).get()));for(let i=0;i<sets.length;i++){for(const d of sets[i].docs)sessions.set(d.id,{id:d.id,...d.data()});approvalSessionDatesLoaded.add(dates[i])}
+ async function ensureFacultySessionContext(requestRows,force=false){
+  const dates=[...new Set((requestRows||[]).flatMap(r=>[sessions.get(String(r.sessionId||''))?.date,r.patch?.date]).map(ymd).filter(Boolean))].filter(date=>force||!approvalSessionDatesLoaded.has(date));
+  const sets=await Promise.all(dates.map(date=>db.collection(SESSIONS).where('date','==',date).get(force?{source:'server'}:undefined)));for(let i=0;i<sets.length;i++){for(const [id,row] of sessions)if(ymd(row.date)===dates[i])sessions.delete(id);for(const d of sets[i].docs)sessions.set(d.id,{id:d.id,...d.data()});approvalSessionDatesLoaded.add(dates[i])}
  }
  function buildDoeState(){
   const state=new Map(),aliases=new Map();
@@ -106,12 +90,12 @@ window.UCVM_APPROVAL_SCHEDULING=(()=>{
   return state;
  }
  function sessionHasFaculty(sess,f){const id=String(f?.__id||''),aliases=facultyAliases(f);return assignedArray(sess).some(a=>(id&&String(a?.ucid||'')===id)||aliases.has(norm(a?.name)))}
- function timetableCheck(f,date,start,end,excludeId=''){
-  const check=scheduling.findFacultyConflicts({date:ymd(date),start,end,sessions:[...sessions.values()],excludeSessionId:excludeId,isAssigned:s=>sessionHasFaculty(s,f)});
+ function timetableCheck(f,date,start,end,excludeId='',timeUnknown=false){
+  const check=scheduling.findFacultyConflicts({date:ymd(date),start,end,timeUnknown,sessions:[...sessions.values()],excludeSessionId:excludeId,isAssigned:s=>sessionHasFaculty(s,f)});
   return{status:check.status,available:check.status==='clear'?true:(check.status==='conflict'?false:null),conflicts:check.conflicts,possible:check.possibleConflicts,reason:check.reason==='target_time'?'time':(check.reason==='other_time_unknown'?'unknown':check.reason)};
  }
  function afcCheck(f,date){const d=ymd(date),records=Array.isArray(f?.awayFromCampusRecords)?f.awayFromCampusRecords:[];return{available:!records.some(x=>x&&x.startDate&&x.endDate&&String(x.startDate)<=d&&d<=String(x.endDate))}}
- function availabilityFor(f,date,start,end,excludeId=''){if(!f)return{available:null,afc:{available:null},tt:{available:null,conflicts:[],possible:[],reason:'faculty'}};const afc=afcCheck(f,date),tt=timetableCheck(f,date,start,end,excludeId),bad=afc.available===false||tt.available===false;return{available:bad?false:(tt.available===null?null:true),afc,tt}}
+ function availabilityFor(f,date,start,end,excludeId='',timeUnknown=false){if(!f)return{available:null,afc:{available:null},tt:{available:null,conflicts:[],possible:[],reason:'faculty'}};const afc=afcCheck(f,date),tt=timetableCheck(f,date,start,end,excludeId,timeUnknown),bad=afc.available===false||tt.available===false;return{available:bad?false:(tt.available===null?null:true),afc,tt}}
  function conflictLabel(s){return `${s.course||'Course'} ${s.start||'—'}-${s.end||'—'}${s.topic?` · ${s.topic}`:''}`}
  function availabilityDetail(av,start,end){const parts=[];if(av.afc?.available===false)parts.push('AFC: Unavailable');if(av.tt?.available===false)parts.push(`Timetable conflict: ${av.tt.conflicts.map(conflictLabel).join('; ')}`);else if(av.tt?.available===true)parts.push(`Timetable clear ${start||'—'}-${end||'—'}`);else parts.push('Timetable check incomplete');if(av.tt?.possible?.length)parts.push(`Time-check needed: ${av.tt.possible.map(conflictLabel).join('; ')}`);return parts.join(' · ')}
  function availabilityHtml(av,start,end){const cls=av.available===true?'ok':av.available===false?'warn':'unknown',label=av.available===true?'Available / no conflict':av.available===false?'Conflict or unavailable':'Check needed';return `<div class="workflow-check ${cls}">${esc(label)} · ${esc(availabilityDetail(av,start,end))}</div>`}
@@ -326,11 +310,11 @@ window.UCVM_APPROVAL_SCHEDULING=(()=>{
  function openMyRequests(){showModal(`<div class="modal-header"><div class="modal-title">My change requests</div><div class="modal-subtitle">Pending requests do not change the live timetable until ADFA approves.</div></div><div class="modal-body">${requests.map(r=>requestCard(r,false)).join('')||'<p>No requests yet.</p>'}</div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`)}
 
  function swapImpactHtml(r,current){
-  const arr=assignedArray(current),fromId=String(r.fromFaculty?.facultyId||''),fromName=norm(r.fromFaculty?.name),idx=arr.findIndex(a=>(fromId&&String(a.ucid||'')===fromId)||(fromName&&norm(a.name)===fromName)),out=idx>=0?arr[idx]:null,outF=resolveFaculty(r.fromFaculty),inF=resolveFaculty(r.toFaculty),credit=assignmentCredit(out),state=buildDoeState(),outState=outF?state.get(String(outF.__id)):null,inState=inF?state.get(String(inF.__id)):null,outCurrent=outState?.current??null,inCurrent=inState?.current??null,outProjected=outCurrent!==null&&credit!==null?outCurrent-credit:null,inProjected=inCurrent!==null&&credit!==null?inCurrent+credit:null,outAv=availabilityFor(outF,current.date,current.start,current.end,current.id),inAv=availabilityFor(inF,current.date,current.start,current.end,current.id);
+  const arr=assignedArray(current),fromId=String(r.fromFaculty?.facultyId||''),fromName=norm(r.fromFaculty?.name),idx=arr.findIndex(a=>(fromId&&String(a.ucid||'')===fromId)||(fromName&&norm(a.name)===fromName)),out=idx>=0?arr[idx]:null,outF=resolveFaculty(r.fromFaculty),inF=resolveFaculty(r.toFaculty),credit=assignmentCredit(out),state=buildDoeState(),outState=outF?state.get(String(outF.__id)):null,inState=inF?state.get(String(inF.__id)):null,outCurrent=outState?.current??null,inCurrent=inState?.current??null,outProjected=outCurrent!==null&&credit!==null?outCurrent-credit:null,inProjected=inCurrent!==null&&credit!==null?inCurrent+credit:null,outAv=availabilityFor(outF,current.date,current.start,current.end,current.id,current.timeUnknown===true),inAv=availabilityFor(inF,current.date,current.start,current.end,current.id,current.timeUnknown===true);
   return `<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-credit">Session DOE credit transferred: ${credit===null?'Unrated / unavailable':fmtDoe(credit)} · ${esc(ymd(current.date))} ${esc(current.start||'—')}–${esc(current.end||'—')}</div><div class="workflow-impact-grid"><div class="workflow-person"><div class="workflow-person-name">Outgoing · ${esc(r.fromFaculty?.name||facultyName(outF))}</div><div class="workflow-metric">${doeProjectionText(outCurrent,outProjected,outState?.contract??contractTeachingDoe(outF))}</div>${availabilityHtml(outAv,current.start,current.end)}</div><div class="workflow-person"><div class="workflow-person-name">Incoming · ${esc(r.toFaculty?.name||facultyName(inF))}</div><div class="workflow-metric">${doeProjectionText(inCurrent,inProjected,inState?.contract??contractTeachingDoe(inF))}</div>${availabilityHtml(inAv,current.start,current.end)}</div></div>`;
  }
  function editImpactHtml(r,current){
-  const date=r.patch?.date||current.date,start=r.patch?.start||current.start,end=r.patch?.end||current.end,state=buildDoeState(),rows=assignedArray(current).map(a=>{const f=resolveFaculty({facultyId:a.ucid,name:a.name}),st=f?state.get(String(f.__id)):null,av=availabilityFor(f,date,start,end,current.id),credit=assignmentCredit(a);return `<div class="workflow-person"><div class="workflow-person-name">${esc(a.name||facultyName(f))}</div><div class="workflow-metric">Session DOE: <strong>${credit===null?'Unrated':fmtDoe(credit)}</strong> · Current assigned DOE: <strong>${fmtDoe(st?.current??null)}</strong> · DOE is unchanged by this date/time/topic edit.</div>${availabilityHtml(av,start,end)}</div>`}).join('');
+  const date=r.patch?.date||current.date,start=r.patch?.start||current.start,end=r.patch?.end||current.end,state=buildDoeState(),rows=assignedArray(current).map(a=>{const f=resolveFaculty({facultyId:a.ucid,name:a.name}),st=f?state.get(String(f.__id)):null,av=availabilityFor(f,date,start,end,current.id,current.timeUnknown===true&&start===current.start&&end===current.end),credit=assignmentCredit(a);return `<div class="workflow-person"><div class="workflow-person-name">${esc(a.name||facultyName(f))}</div><div class="workflow-metric">Session DOE: <strong>${credit===null?'Unrated':fmtDoe(credit)}</strong> · Current assigned DOE: <strong>${fmtDoe(st?.current??null)}</strong> · DOE is unchanged by this date/time/topic edit.</div>${availabilityHtml(av,start,end)}</div>`}).join('');
   return `<div class="workflow-impact-title">DOE & proposed-time conflict checks</div><div class="workflow-credit">Proposed session: ${esc(ymd(date))} ${esc(start||'—')}–${esc(end||'—')}. All currently assigned faculty are checked against their other live timetable sessions.</div><div class="workflow-edit-impact">${rows||'<div class="workflow-check unknown">No assigned faculty were found to check.</div>'}</div>`;
  }
 async function hydrateApprovalImpacts(){
@@ -347,12 +331,12 @@ async function hydrateApprovalImpacts(){
  function approvalWarnings(r,current){
   const warnings=[];
   if(r.requestType==='faculty_swap'){
-    const outF=resolveFaculty(r.fromFaculty),inF=resolveFaculty(r.toFaculty),outAv=availabilityFor(outF,current.date,current.start,current.end,current.id),inAv=availabilityFor(inF,current.date,current.start,current.end,current.id);
+    const outF=resolveFaculty(r.fromFaculty),inF=resolveFaculty(r.toFaculty),outAv=availabilityFor(outF,current.date,current.start,current.end,current.id,current.timeUnknown===true),inAv=availabilityFor(inF,current.date,current.start,current.end,current.id,current.timeUnknown===true);
     if(outAv.available!==true)warnings.push(`Outgoing ${r.fromFaculty?.name||facultyName(outF)}: ${availabilityDetail(outAv,current.start,current.end)}`);
     if(inAv.available!==true)warnings.push(`Incoming ${r.toFaculty?.name||facultyName(inF)}: ${availabilityDetail(inAv,current.start,current.end)}`);
   }else if(r.requestType==='session_edit'){
     const date=r.patch?.date||current.date,start=r.patch?.start||current.start,end=r.patch?.end||current.end;
-    for(const a of assignedArray(current)){const f=resolveFaculty({facultyId:a.ucid,name:a.name}),av=availabilityFor(f,date,start,end,current.id);if(av.available!==true)warnings.push(`${a.name||facultyName(f)}: ${availabilityDetail(av,start,end)}`)}
+    for(const a of assignedArray(current)){const f=resolveFaculty({facultyId:a.ucid,name:a.name}),av=availabilityFor(f,date,start,end,current.id,current.timeUnknown===true&&start===current.start&&end===current.end);if(av.available!==true)warnings.push(`${a.name||facultyName(f)}: ${availabilityDetail(av,start,end)}`)}
   }
   return warnings;
  }
@@ -360,28 +344,36 @@ async function hydrateApprovalImpacts(){
   const impacted=[];
   const add=check=>{for(const conflict of check?.conflicts||[])impacted.push(conflict)};
   if(r.requestType==='faculty_swap'){
-    const incoming=resolveFaculty(r.toFaculty),av=availabilityFor(incoming,current.date,current.start,current.end,current.id);if(approvalScheduling.requiresOverride(av.tt))add(av.tt);
+    const incoming=resolveFaculty(r.toFaculty),av=availabilityFor(incoming,current.date,current.start,current.end,current.id,current.timeUnknown===true);if(approvalScheduling.requiresOverride(av.tt))add(av.tt);
   }else if(r.requestType==='session_edit'&&(r.changes||[]).some(change=>['date','start','end'].includes(change.field))){
     const date=r.patch?.date||current.date,start=r.patch?.start||current.start,end=r.patch?.end||current.end;
-    for(const assignment of assignedArray(current)){const faculty=resolveFaculty({facultyId:assignment.ucid,name:assignment.name}),av=availabilityFor(faculty,date,start,end,current.id);if(approvalScheduling.requiresOverride(av.tt))add(av.tt)}
+    for(const assignment of assignedArray(current)){const faculty=resolveFaculty({facultyId:assignment.ucid,name:assignment.name}),av=availabilityFor(faculty,date,start,end,current.id,current.timeUnknown===true&&start===current.start&&end===current.end);if(approvalScheduling.requiresOverride(av.tt))add(av.tt)}
   }
   if(!impacted.length)return null;
-  return{...approvalScheduling.overrideAudit({uid:user.uid,name:me?.name||user.email||''},impacted),confirmedAt:stamp()};
+  return{...approvalScheduling.overrideAudit({uid:user.uid,name:me?.name||'ADFA administrator'},impacted),confirmedAt:stamp()};
  }
  async function approveRequest(id){
-  if(!isApprover())return;const r=requests.find(x=>x.id===id);if(!r||r.status!=='pending')return;
-  await ensureRequestSessions([r]);await ensureApprovalFaculty([r]);await ensureFacultySessionContext([r]);
-  const ref=db.doc(`${SESSIONS}/${r.sessionId}`),snap=await ref.get();if(!snap.exists)return toast('The session no longer exists. Reject or review this request manually.',true);const current={id:snap.id,...snap.data()};
+  if(!isApprover())return;
+  const requestSnap=await db.doc(`${REQUESTS}/${id}`).get({source:'server'});
+  if(!requestSnap.exists)return;const r={id:requestSnap.id,...requestSnap.data()};if(r.status!=='pending')return;
+  const ref=db.doc(`${SESSIONS}/${r.sessionId}`),snap=await ref.get({source:'server'});if(!snap.exists)return toast('The session no longer exists. Reject or review this request manually.',true);const current={id:snap.id,...snap.data()};
+  sessions.set(String(current.id),current);
   let patch={},log={};
   if(r.requestType==='session_edit'){
     const fields=(r.changes||[]).map(c=>c.field);if(!validateBase(current,r.base,fields))return toast('This session changed after the request was submitted. Approval is blocked to prevent overwriting newer data.',true);
-    patch={...(r.patch||{})};log={action:'approved_session_edit',changes:r.changes||[]};
+    patch={...(r.patch||{})};
+    const timeChanged=['start','end'].some(field=>Object.prototype.hasOwnProperty.call(patch,field)&&patch[field]!==current[field]);
+    const proposed={...current,...patch,timeUnknown:timeChanged?false:current.timeUnknown===true};
+    if(scheduling.validateSessionTiming(proposed).status==='invalid')return toast('Approval blocked: enter a valid date and time interval before resubmitting.',true);
+    if(timeChanged)patch.timeUnknown=false;
+    log={action:'approved_session_edit',changes:r.changes||[]};
   }else if(r.requestType==='faculty_swap'){
     if(!validateBase(current,r.base,['course','date','start','end','topic','type','room']))return toast('This session changed after the swap request was submitted. Approval is blocked.',true);
     const arr=assignedArray(current),fromId=String(r.fromFaculty?.facultyId||''),fromName=norm(r.fromFaculty?.name),idx=arr.findIndex(a=>(fromId&&String(a.ucid||'')===fromId)||(fromName&&norm(a.name)===fromName));if(idx<0)return toast('The outgoing instructor is no longer assigned. Approval is blocked.',true);
     const incoming={...(arr[idx]||{}),ucid:String(r.toFaculty?.facultyId||''),name:r.toFaculty?.name||'',category:'Faculty',source:'Approved swap request',swappedFrom:{ucid:String(arr[idx]?.ucid||''),name:arr[idx]?.name||''},swappedAt:new Date().toISOString()};arr[idx]=incoming;patch={assignments:arr,instructor:arr.map(a=>a.name).filter(Boolean).join('; ')};log={action:'swap_faculty',fromFaculty:r.fromFaculty||{},toFaculty:r.toFaculty||{},role:incoming.role||current.type||''};
   }else return;
   if(patch.assignments)patch.facultyIds=UCVM_DATA_INDEX.sessionFacultyIds({...current,...patch});
+  await ensureApprovalFaculty([r],true);await ensureFacultySessionContext([r],true);
   const warnings=approvalWarnings(r,current),warningText=warnings.length?`\n\nWARNING — availability/conflict checks:\n- ${warnings.join('\n- ')}`:'',conflictOverride=approvalConflictOverride(r,current);
   if(conflictOverride){
     if(!confirm(`TIMETABLE CONFLICT DETECTED${warningText}\n\nOverride and approve despite the timetable conflict(s)? This override will be recorded in the audit log.`))return;

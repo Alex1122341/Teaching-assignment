@@ -5,6 +5,8 @@
  const page=(location.pathname.split('/').pop()||'index.html').toLowerCase();
  if(!['index.html','faculty-admin.html'].includes(page))return;
 
+ const scheduling=window.UCVM_SCHEDULING,approvalScheduling=window.UCVM_APPROVAL_SCHEDULING;
+ if(!scheduling||!approvalScheduling)throw Error('UCVM scheduling and approval policy helpers are required.');
  const {auth,db}=UCVM.init();
  const REQUESTS='change_requests',SESSIONS='sessions',SWAP_INDEX='faculty_swap_index',SWAP_MAP='faculty_swap_map';
  const $=id=>document.getElementById(id),esc=UCVM.esc||((v)=>String(v??''));
@@ -31,8 +33,6 @@
  function isAlreadyAssigned(candidate,session){const names=currentAssignmentNames(session);return [...candidateAliases(candidate)].some(name=>names.has(name))}
  function canonicalName(f,id=''){return String(f?.preferredFullName||f?.hrFirstLast||f?.hrFullName||f?.teachingAssignmentName||id||'Faculty')}
  function facultyAliases(f){const set=new Set([canonicalName(f),f?.preferredFullName,f?.hrFirstLast,f?.hrFullName,f?.teachingAssignmentName,f?.facultySummary2026_27?.displayName].map(norm).filter(Boolean));if(f?.firstName&&f?.lastName)set.add(norm(`${f.firstName} ${f.lastName}`));return set}
- function timeMinutes(v){const m=String(v||'').trim().match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i);if(!m)return null;let h=Number(m[1]),min=Number(m[2]);if(m[3]){const ap=m[3].toUpperCase();if(h===12)h=0;if(ap==='PM')h+=12}return h<=23&&min<=59?h*60+min:null}
- function overlaps(aStart,aEnd,bStart,bEnd){const as=timeMinutes(aStart),ae=timeMinutes(aEnd),bs=timeMinutes(bStart),be=timeMinutes(bEnd);return ![as,ae,bs,be].some(v=>v===null)&&ae>as&&be>bs&&as<be&&bs<ae}
  function safeConflictLabel(s){return `${s.course||'Course'} ${s.start||'—'}-${s.end||'—'}`}
 
  async function loadCandidateContext(session){
@@ -84,39 +84,39 @@
  }
  function findOutgoingIndex(current,request){const arr=assignedArray(current),fromId=String(request?.fromFaculty?.facultyId||''),fromName=norm(request?.fromFaculty?.name);return arr.findIndex(a=>(fromId&&String(a.ucid||a.facultyId||'')===fromId)||(fromName&&norm(a.name)===fromName))}
  async function liveIncomingWarnings(resolved,current){
-  if(!resolved||resolved.special)return[];
+  if(!resolved||resolved.special)return{warnings:[],check:{status:'clear',conflicts:[],possibleConflicts:[]}};
   const warnings=[],date=ymd(current.date),records=Array.isArray(resolved.faculty?.awayFromCampusRecords)?resolved.faculty.awayFromCampusRecords:[];
   if(records.some(r=>r?.startDate&&r?.endDate&&String(r.startDate)<=date&&date<=String(r.endDate)))warnings.push(`${resolved.name}: Unavailable (AFC).`);
-  const q=await db.collection(SESSIONS).where('date','==',date).get(),aliases=facultyAliases(resolved.faculty),conflicts=[],possible=[];
-  const targetTimeValid=!current.timeUnknown&&timeMinutes(current.start)!==null&&timeMinutes(current.end)!==null;
-  for(const doc of q.docs){
-   if(doc.id===current.id)continue;
-   const s={id:doc.id,...doc.data()},has=assignedArray(s).some(a=>String(a.ucid||a.facultyId||'')===resolved.facultyId||aliases.has(norm(a.name)));if(!has)continue;
-   const otherTimeValid=!s.timeUnknown&&timeMinutes(s.start)!==null&&timeMinutes(s.end)!==null;
-   if(!targetTimeValid||!otherTimeValid)possible.push(s);else if(overlaps(current.start,current.end,s.start,s.end))conflicts.push(s);
-  }
-  if(conflicts.length)warnings.push(`${resolved.name}: timetable conflict — ${conflicts.map(safeConflictLabel).join('; ')}.`);
-  if(possible.length)warnings.push(`${resolved.name}: timetable check incomplete — ${possible.map(safeConflictLabel).join('; ')}.`);
-  return warnings;
+  const q=await db.collection(SESSIONS).where('date','==',date).get({source:'server'}),aliases=facultyAliases(resolved.faculty);
+  const check=scheduling.findFacultyConflicts({date,start:current.start,end:current.end,timeUnknown:current.timeUnknown===true,
+   sessions:q.docs.map(doc=>({id:doc.id,...doc.data()})),excludeSessionId:current.id,
+   isAssigned:s=>assignedArray(s).some(a=>String(a.ucid||a.facultyId||'')===resolved.facultyId||aliases.has(norm(a.name)))});
+  if(check.conflicts.length)warnings.push(`${resolved.name}: timetable conflict - ${check.conflicts.map(safeConflictLabel).join('; ')}.`);
+  if(check.possibleConflicts.length)warnings.push(`${resolved.name}: timetable check incomplete - ${check.possibleConflicts.map(safeConflictLabel).join('; ')}.`);
+  else if(check.status==='check_needed')warnings.push(`${resolved.name}: timetable check incomplete - session timing is not confirmed.`);
+  return{warnings,check};
  }
 
  async function safeApproveRequest(requestId){
   if(!user||!UCVM.admin(profile))return;
-  const requestSnap=await db.collection(REQUESTS).doc(requestId).get();if(!requestSnap.exists)return toast('This request no longer exists.',true);
+  const requestSnap=await db.collection(REQUESTS).doc(requestId).get({source:'server'});if(!requestSnap.exists)return toast('This request no longer exists.',true);
   const request={id:requestSnap.id,...requestSnap.data()};if(request.status!=='pending'||request.requestType!=='faculty_swap')return;if(!request.toFaculty?.candidateKey&&!specialReplacement(request.toFaculty))return;
-  const sessionRef=db.collection(SESSIONS).doc(request.sessionId),sessionSnap=await sessionRef.get();if(!sessionSnap.exists)return toast('The session no longer exists. Review this request manually.',true);
+  const sessionRef=db.collection(SESSIONS).doc(request.sessionId),sessionSnap=await sessionRef.get({source:'server'});if(!sessionSnap.exists)return toast('The session no longer exists. Review this request manually.',true);
   const current={id:sessionSnap.id,...sessionSnap.data()};for(const field of ['course','date','start','end','topic','type','room'])if(!sameVal(field==='date'?ymd(current[field]):current[field],request.base?.[field]))return toast('This session changed after the request was submitted. Approval is blocked to protect newer data.',true);
   const idx=findOutgoingIndex(current,request);if(idx<0)return toast('The outgoing instructor is no longer assigned. Approval is blocked.',true);
   const resolved=await resolveCandidate(request.toFaculty);if(!resolved)return toast('The replacement faculty mapping could not be resolved. Rebuild the faculty swap directory before approving.',true);
   if(resolved.special&&!String(request.reason||'').trim())return toast('Sessional / Other requests require a reason or note.',true);
-  const warnings=await liveIncomingWarnings(resolved,current),warningText=warnings.length?`\n\nWARNING — availability/conflict checks:\n- ${warnings.join('\n- ')}\n\nYou may override as ADFA, but review these conflicts first.`:'';
-  if(!confirm(`Approve and apply this faculty replacement to the live timetable?${warningText}`))return;
+  const {warnings,check}=await liveIncomingWarnings(resolved,current),warningText=warnings.length?`\n\nWARNING - availability/conflict checks:\n- ${warnings.join('\n- ')}`:'';
+  const needsOverride=approvalScheduling.requiresOverride(check);
+  const question=needsOverride?'TIMETABLE CONFLICT DETECTED. Override and approve this replacement? This override will be recorded in the audit log.':'Approve and apply this faculty replacement to the live timetable?';
+  if(!confirm(`${question}${warningText}`))return;
+  const conflictOverride=needsOverride?{...approvalScheduling.overrideAudit({uid:user.uid,name:profile.name||'ADFA administrator'},check.conflicts),confirmedAt:stamp()}:null;
   const arr=assignedArray(current),out=arr[idx]||{},incoming={...out,ucid:resolved.facultyId,name:resolved.name,category:resolved.special?specialLabel(resolved.kind):'Faculty',source:'Approved swap request',swappedFrom:{ucid:String(out.ucid||out.facultyId||''),name:out.name||''},swappedAt:new Date().toISOString()};
   if(resolved.special){delete incoming.facultyId;incoming.ucid=''}
   arr[idx]=incoming;const patch={assignments:arr,instructor:arr.map(a=>a.name).filter(Boolean).join('; '),facultyIds:UCVM_DATA_INDEX.sessionFacultyIds({...current,assignments:arr})},after={...current,...patch};
   const reqRef=db.collection(REQUESTS).doc(requestId),logRef=db.collection('session_change_log').doc(),batch=db.batch();
   batch.set(sessionRef,{...patch,updatedBy:user.uid,updatedByName:profile.name||user.email||'',updatedAt:stamp()},{merge:true});
-  batch.set(logRef,{action:'swap_faculty',requestId,sessionId:current.id,course:current.course||request.course||'',date:ymd(current.date),topic:current.topic||'',fromFaculty:request.fromFaculty||{},toFaculty:{...request.toFaculty,facultyId:resolved.facultyId,name:resolved.name,category:incoming.category},role:incoming.role||current.type||'',changedBy:user.uid,changedByName:profile.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});
+  batch.set(logRef,{action:'swap_faculty',override:conflictOverride,requestId,sessionId:current.id,course:current.course||request.course||'',date:ymd(current.date),topic:current.topic||'',fromFaculty:request.fromFaculty||{},toFaculty:{...request.toFaculty,facultyId:resolved.facultyId,name:resolved.name,category:incoming.category},role:incoming.role||current.type||'',changedBy:user.uid,changedByName:profile.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});
   batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:profile.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});
   try{await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after}]);closeModal();toast('Approved and applied to the live timetable.')}catch(error){console.error('[safe faculty swap approval]',error);toast(error.message,true)}
  }

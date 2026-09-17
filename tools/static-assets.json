@@ -6,6 +6,7 @@
   "afc-pdf-browser.js",
   "afc-timetable-panel.js",
   "afc-workflow.js",
+  "approval-scheduling.js",
   "approval-workflow.js",
   "asset-loader.js",
   "availability-lookup.js",
