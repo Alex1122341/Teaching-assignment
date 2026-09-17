@@ -88,6 +88,26 @@ check('stale public swap display and AFC ranges repair without changing private 
  assert.equal(afterKey,stable);
 });
 
+check('new active faculty receives one new opaque key while existing keys stay stable',async()=>{
+ const {doc,getDoc,setDoc}=require('firebase/firestore');
+ const raw=env.authenticatedContext('general').firestore();
+ const beforeMap=(await getDoc(doc(raw,'settings/faculty_swap_map'))).data();
+ const beforeKeys=Object.fromEntries(beforeMap.entries.map(row=>[row.facultyId,row.key]));
+ await env.withSecurityRulesDisabled(async context=>setDoc(doc(context.firestore(),'faculty/f3'),{preferredFullName:'Faculty Three',active:true,email:'f3@ucvm.test'}));
+ const beforeReport=await api.verifyDerivedIndexes(generalDb());
+ assert.equal(beforeReport.severity,'mismatch');
+ assert.ok(beforeReport.mismatches.some(row=>row.issue==='missing-new-faculty-key'&&row.path==='faculty.f3'));
+ const afterReport=await api.rebuildDerivedIndexes(generalDb(),{uid:'general',name:'General'});
+ assert.equal(afterReport.ok,true);
+ const afterMap=(await getDoc(doc(raw,'settings/faculty_swap_map'))).data();
+ const f3=afterMap.entries.find(row=>row.facultyId==='f3');
+ assert.ok(f3?.key);
+ assert.equal(afterMap.entries.find(row=>row.facultyId==='f1').key,beforeKeys.f1);
+ assert.equal(afterMap.entries.find(row=>row.facultyId==='f2').key,beforeKeys.f2);
+ assert.notEqual(f3.key,beforeKeys.f1);
+ assert.notEqual(f3.key,beforeKeys.f2);
+});
+
 check('duplicate private opaque-key ownership is CRITICAL and rebuild is blocked',async()=>{
  const {doc,getDoc,setDoc}=require('firebase/firestore');
  const raw=env.authenticatedContext('general').firestore(),before=(await getDoc(doc(raw,'settings/faculty_swap_map'))).data(),key=before.entries[0].key;
