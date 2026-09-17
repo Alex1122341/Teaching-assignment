@@ -1,0 +1,28 @@
+{
+ "base":"86bd5aa2c8a25259f3f708e49b322220ff43a147",
+ "files":[
+  {"path":"faculty-access.js","before":"984edebf435e30301cdbdce0d28682eb58ada51db95b808c4dc523c0da5359ed","edits":[{"start":1063,"delete":0,"insert":"adc:'ADC',lab:'LAB',"},{"start":4750,"delete":0,"insert":"||['adc','lab'].includes(role(p?.role))"}]},
+  {"path":"firestore.rules","before":"966cf4b92c01a9b913ae47307667f091dfe79562cd55ea4ff2c064ebc0377373","edits":[
+   {"start":444,"delete":0,"insert":",'adc','lab'"},
+   {"start":1291,"delete":1,"insert":",'adc','lab'];}\n  function restrictedOffice(){return signedIn() && profile().role in ['adc','lab'];}\n  function privateReader(){return ready() && !restrictedOffice();}\n  function validOfficeIdentity(d){return !(d.role in ['adc','lab']) || !d.keys().hasAny(['facultyId','facultyRoles'])"},
+   {"start":3239,"delete":528,"insert":"validOfficeIdentity(request.resource.data) && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.createdAt == request.time && request.resource.data.keys().hasOnly(['name','email','role','facultyRoles','facultyId','active','mustChangePassword','updatedBy','updatedByName','updatedAt','createdAt']);}\n  function generalUserUpdate(uid){return general() && explicitRole(request.resource.data.role) && validFacultyLink(request.resource.data) && validFacultyRoles(request.resource.data) && validOfficeIdentity"},
+   {"start":7347,"delete":87,"insert":"!restrictedOffice() && (historyAll() || d.requesterUid == request.auth.uid || d.reportToUid == request.auth.uid)"},
+   {"start":18968,"delete":5,"insert":"privateReader"},
+   {"start":19274,"delete":0,"insert":"  match /calendar_sessions/{id} {\n   allow read: if ready();\n   allow write: if false;\n  }\n"},
+   {"start":19317,"delete":5,"insert":"privateReader"},
+   {"start":20589,"delete":0,"insert":"!restrictedOffice() && "},
+   {"start":21152,"delete":5,"insert":"privateReader"},
+   {"start":22788,"delete":5,"insert":"privateReader"},
+   {"start":23292,"delete":5,"insert":"privateReader"},
+   {"start":23947,"delete":5,"insert":"privateReader"},
+   {"start":24611,"delete":99,"insert":"privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid);\n   allow create: if privateReader"},
+   {"start":25110,"delete":5,"insert":"privateReader"},
+   {"start":25343,"delete":5,"insert":"privateReader"},
+   {"start":25964,"delete":195,"insert":"privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid || resource.data.requesterUid == request.auth.uid || resource.data.reportToUid == request.auth.uid); allow create: if privateReader"}
+  ]},
+  {"path":"index.html","before":"ad9c33b1119bc2227ef56c7d5c9b8ecfbca491f1a4998c605ee87d846c0af609","edits":[{"start":12624,"delete":0,"insert":"office-capabilities.js\"></script><script src=\"calendar-session.js\"></script><script src=\""}]},
+  {"path":"tests/faculty-swap-integration.test.js","before":"36d29a2a1c5d9692ec2f04a2fc9884219ceffe4d0a3ae5cda0a22c5f0bd22ac4","edits":[{"start":3197,"delete":5,"insert":"privateReader"}]},
+  {"path":"tests/hosting-boundary.test.js","before":"ff827db7b7bde3d9ee85ad80472a7f397d3766f9fd0e0160a3aa228dcb71cb8f","edits":[{"start":2684,"delete":1,"insert":"7"}]}
+ ],
+ "verify":{}
+}
