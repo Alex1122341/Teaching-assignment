@@ -40,11 +40,12 @@ test('runtime banner keeps the required maintenance message exact',()=>{
  assert.equal(nodes['teaching-maintenance-banner'].textContent,api.LOCKED_MESSAGE);
 });
 
-test('UI blocker covers timetable, approval, faculty, and import mutations but not viewing',()=>{
+test('UI blocker covers timetable, approval, faculty, import, and derived-index rebuild mutations but not viewing',()=>{
  const api=require('../maintenance-state.js');
- for(const selector of ['#add-session-btn','#selection-save-btn','.btn-swap-confirm','[data-approve-request]','#workflow-self-swap','#save-edit','#import-summary-btn'])assert.ok(api.BLOCKED_CLICK_SELECTORS.includes(selector),selector);
+ for(const selector of ['#add-session-btn','#selection-save-btn','.btn-swap-confirm','[data-approve-request]','#workflow-self-swap','#save-edit','#import-summary-btn','[data-derived-index-rebuild]'])assert.ok(api.BLOCKED_CLICK_SELECTORS.includes(selector),selector);
  for(const selector of ['#session-form','#bulk-session-form','#workflow-edit-form','#workflow-self-take-form','#edit-form'])assert.ok(api.BLOCKED_SUBMIT_SELECTORS.includes(selector),selector);
  assert.equal(api.BLOCKED_CLICK_SELECTORS.includes('#my-timetable-btn'),false);
+ assert.equal(api.BLOCKED_CLICK_SELECTORS.includes('#derived-index-verify'),false);
 });
 
 test('both timetable and faculty dashboard load maintenance-state before their mutation controllers',()=>{
