@@ -153,12 +153,12 @@ Instructor starts unassigned unless later assigned by ADFA.
 When ADC creates a LAB session:
 
 ```text
-Course       -> ADC
-Date         -> ADC
-Time         -> ADC
-Type         -> LAB
-Room         -> ADC
-Lab Topic    -> TBD
+Course       -> ADC sets
+Date         -> ADC sets
+Time         -> ADC sets
+Type         -> ADC sets value LAB
+Room         -> ADC sets
+Lab Topic    -> system sets TBD
 Instructor   -> unassigned
 ```
 
@@ -204,10 +204,12 @@ The chosen model is **one user-facing request with internal office-scoped approv
 
 Faculty/HICC/VISC see only the overall state. They do not need to know which office is currently processing the request.
 
-A representative public request structure is:
+A representative shared request structure is:
 
 ```text
+requestSchema: office-routing-v1
 status: pending
+revision: 1
 requiredApprovals:
   adc: true
   adfa: true
@@ -218,11 +220,12 @@ approvalScopes:
   lab.fields: []
 approvals:
   adc.status: approved
+  adc.scopeHash: ...
   adfa.status: pending
   lab.status: not_required
 ```
 
-The exact implementation may use nested maps or equivalent normalized structures, but the behavior must remain the same.
+Each office approval records a deterministic fingerprint/hash of that office's approved scope. On resubmission, unchanged approved scopes can be retained safely instead of relying only on disabled UI fields.
 
 ## 8. Faculty-Facing Status
 
@@ -348,7 +351,7 @@ timeUnknown
 type
 topic
 room
-instructorNames // names only, if appropriate for the visible timetable
+instructorNames // names only
 ```
 
 It must not contain:
@@ -375,11 +378,11 @@ ADC / LAB
   calendar_sessions   read allowed
 ```
 
-The exact legacy/faculty/HICC/VISC read model must be preserved carefully during implementation; WS5B must not accidentally break Faculty self-service or HICC/VISC workflows. The rule change must be designed role-by-role and tested in the Emulator.
+The exact Faculty/HICC/VISC read model must be preserved carefully during implementation; WS5B must not accidentally break existing self-service or group workflows. The rule change must be designed role-by-role and tested in the Emulator.
 
 ### 11.2 Keeping sanitized calendar in sync
 
-One canonical sanitizer/builder must derive `calendar_sessions` from a source session.
+One canonical `buildSanitizedCalendarSession()`-style builder must derive the sanitized document from a source session.
 
 All relevant writes must keep source and sanitized representations consistent, including:
 
@@ -393,7 +396,9 @@ All relevant writes must keep source and sanitized representations consistent, i
 - bulk import/restore paths where sessions change;
 - deletes.
 
-Where possible, a Firestore batch should update source session + sanitized calendar document atomically. A verification/rebuild mechanism for sanitized calendar consistency should be considered during implementation, but the initial workstream should avoid creating another silently diverging cache.
+Where possible, a Firestore batch/transaction must update source session + sanitized calendar document atomically.
+
+Bulk import/restore and repair tooling must not leave this collection silently stale. Implementation should provide deterministic verification/rebuild coverage for `calendar_sessions`, or integrate it into an existing integrity-verification path, before WS5B is considered complete.
 
 ## 12. Private Approval Data
 
@@ -406,14 +411,30 @@ change_requests/{id}
   sanitized/shared request and approval status
 
 change_request_private/{id}
-  ADFA/internal Faculty assignment identities and confidential data
+  ADFA/internal Faculty assignment references and confidential data
 ```
 
 ADC/LAB must be denied reads to the private collection.
 
-The shared request may contain a proposed Faculty **display name** and ADFA status but not the private identifier/DOE/AFC data.
+The shared request may contain a proposed Faculty **display name** and ADFA status but not private identifiers/DOE/AFC data.
 
-## 13. Approval Decision Model
+Faculty self-replacement can continue to use privacy-safe opaque candidate keys; resolution from opaque key to internal Faculty identity remains ADFA/private behavior.
+
+## 13. Legacy Request Privacy
+
+Existing legacy `change_requests` can contain unsanitized Faculty fields. ADC/LAB must not be granted broad read access to those documents.
+
+New routed requests must carry a schema marker such as:
+
+```text
+requestSchema: office-routing-v1
+```
+
+Firestore rules must allow ADC/LAB reads only for the sanitized routed schema they are authorized to review. Legacy requests remain ADFA-compatible and ADFA-only unless explicitly migrated by a deterministic migration.
+
+This prevents adding ADC/LAB from accidentally exposing UCIDs or other legacy private fields.
+
+## 14. Approval Decision Model
 
 Each required office has a scoped decision state such as:
 
@@ -436,7 +457,7 @@ rejected
 withdrawn
 ```
 
-### 13.1 Final apply
+### 14.1 Final apply
 
 No timetable fields are applied until every currently required office has approved.
 
@@ -447,11 +468,11 @@ When all required approvals are complete:
 3. run canonical WS5A schedule/conflict checks;
 4. perform any required ADFA conflict override confirmation before final approval is accepted;
 5. atomically apply the full request patch plus audit/log/sanitized-calendar updates as feasible;
-6. mark the request `approved` / applied.
+6. mark the exact revision as applied.
 
-This prevents partially applied sessions.
+Finalization must be idempotent. Two offices approving at nearly the same time must not apply the request twice. Use a Firestore transaction or equivalent guarded transition with `appliedRevision` / `appliedAt` checks.
 
-### 13.2 Reject
+### 14.2 Reject
 
 Any required office may reject.
 
@@ -464,7 +485,7 @@ any required office rejects
 
 Already completed office decisions remain preserved in audit history.
 
-## 14. Push Back & Resubmission
+## 15. Push Back & Resubmission
 
 `Push Back` is distinct from `Reject`.
 
@@ -491,13 +512,19 @@ Edit & Resubmit
 Withdraw Request
 ```
 
-### 14.1 Preserve prior office approvals
+### 15.1 Other office decisions continue
+
+A push back returns only that office's scope for revision. It does not erase approvals already given by other offices.
+
+Unchanged scopes that are still pending may continue to be reviewed while the returned scope is being corrected, provided their approved/pending data is immutable to the requester. If multiple offices push back, the requester may edit all returned scopes.
+
+### 15.2 Preserve prior office approvals
 
 If ADC and LAB approved and ADFA pushes back, a requester editing only the ADFA-owned fields does not need ADC/LAB reapproval.
 
-Previously approved fields are greyed out during revision so the requester cannot silently change them.
+Previously approved fields are greyed out during revision so the requester cannot silently change them. Backend scope-hash/revision checks enforce the same rule even if the UI is bypassed.
 
-### 14.2 Safety exception: date/time invalidates ADFA approval
+### 15.3 Safety exception: date/time invalidates ADFA approval
 
 If a resubmission changes Date, Start, or End while a Faculty assignment exists, any prior ADFA approval must automatically reopen to `pending` because availability/conflict meaning may have changed.
 
@@ -510,15 +537,28 @@ requester changes to 14:00-15:00
 -> ADFA approval reopens
 ```
 
-### 14.3 Type changes recompute routing
+### 15.4 Type changes recompute routing
 
 Changing session Type into or out of `LAB` recomputes required routing because topic ownership changes.
 
-### 14.4 Changing already approved unrelated fields
+### 15.5 Changing already approved unrelated fields
 
 A requester cannot change a field already approved by another office within a scoped push-back revision. To change previously approved scope, the requester must withdraw and submit a new request.
 
-## 15. Withdraw for Timetable Requests
+## 16. Direct ADC Date/Time Changes With Assigned Faculty
+
+ADC is allowed to directly edit its owned course/date/time fields without submitting an approval request. However, changing Date/Start/End on a live session that already has an assigned instructor can affect the validity of that assignment.
+
+Because ADC must not receive private availability/AFC data, the system must not expose those checks to ADC. Instead:
+
+- the ADC change may save if it satisfies ADC's own scheduling validation;
+- ADFA receives a sanitized workflow notification that the schedule changed and the existing Faculty assignment should be rechecked;
+- ADFA can use its full authorized information to review/adjust the assignment;
+- any actual ADFA reassignment still uses the normal conflict-warning/override rules.
+
+This preserves ADC's direct-edit authority while keeping Faculty-assignment responsibility with ADFA and avoiding private data leakage to ADC.
+
+## 17. Withdraw for Timetable Requests
 
 A requester may withdraw a timetable request while it is not finally applied, including:
 
@@ -538,7 +578,9 @@ The Firestore document is retained for audit; it is not deleted.
 
 Any prior office approvals remain visible in authorized audit history but cannot later cause the withdrawn request to apply.
 
-## 16. Withdraw for AFC
+Withdrawal and final approval/apply must use guarded transactional transitions so a request cannot be both applied and withdrawn in a race.
+
+## 18. Withdraw for AFC
 
 Extend AFC statuses with:
 
@@ -564,9 +606,9 @@ After withdrawal:
 
 Approved, rejected, or already withdrawn AFC requests cannot be withdrawn again.
 
-Firestore rules and AFC actions must explicitly enforce requester-only withdrawal and legal source statuses.
+Firestore rules and AFC actions must explicitly enforce requester-only withdrawal and legal source statuses. AFC approval and withdrawal must be guarded so they cannot both win concurrently.
 
-## 17. Workflow Notifications
+## 19. Workflow Notifications
 
 Add a small side-panel/notification window for office/admin users.
 
@@ -578,17 +620,18 @@ pushed-back request resubmitted
 another required office approved/rejected/pushed back
 request fully approved and applied
 request withdrawn
+ADC direct date/time change requires ADFA assignment recheck
 ```
 
-After successful full approval, each participating admin/office should receive a visible completion notification.
+After successful full approval, each participating office/admin should receive a visible completion notification.
 
 ADC/LAB notification payloads must remain sanitized and must not contain UCID, DOE, availability details, AFC data, or other private Faculty information.
 
 Owner/ADFA General may receive overall workflow notifications.
 
-Implementation may use a dedicated Firestore notification collection or a safely derived view, but permissions must ensure a user reads only notifications intended for their office/account.
+Because the application remains Spark/client-only, notification creation must be part of authorized workflow writes with rules constraining actor, target, and allowed payload. No Cloud Function is assumed.
 
-## 18. Audit Lifecycle
+## 20. Audit Lifecycle
 
 Audit/history must capture the full request lifecycle rather than only the final result.
 
@@ -613,17 +656,17 @@ Withdraw example:
 10:18 requester withdrew
 ```
 
-Conflict override events must also be auditable.
+Conflict override events and direct ADC schedule-change recheck notifications should also be auditable.
 
-## 19. Legacy Request Compatibility
+## 21. Legacy Request Compatibility
 
 Existing `change_requests` created before WS5B may not have scoped approvals.
 
-Implementation must define a compatibility path rather than making old pending requests unreadable. A safe approach is to identify legacy request shape and continue routing it through the existing ADFA-only decision path until resolved, while all newly created requests use scoped routing.
+Implementation must identify legacy request shape and continue routing it through the existing ADFA-only decision path until resolved, while all newly created requests use `office-routing-v1` scoped routing.
 
 Do not silently reinterpret old requests into new multi-office approvals without a deterministic migration.
 
-## 20. Firestore Rules
+## 22. Firestore Rules
 
 This workstream requires rule changes and therefore Firebase Emulator tests before manual deployment.
 
@@ -636,16 +679,18 @@ Rules must enforce, at minimum:
 - LAB can update only LAB topic on eligible LAB sessions;
 - LAB cannot create/delete sessions;
 - office decision writes can modify only the caller's scoped approval state;
-- ADC/LAB cannot read `change_request_private`;
+- ADC/LAB can read only sanitized `office-routing-v1` requests assigned/relevant to their office;
+- ADC/LAB cannot read `change_request_private` or unsanitized legacy request data;
 - requester-only timetable withdraw/resubmit transitions are valid;
 - requester-only AFC withdraw transition is valid;
 - terminal requests cannot be reactivated by unauthorized writes;
 - private Faculty/AFC collections remain inaccessible to ADC/LAB except where an explicitly sanitized collection exists;
-- `calendar_sessions` content is constrained to the approved sanitized schema as far as practical in rules.
+- `calendar_sessions` content is constrained to the approved sanitized schema as far as practical in rules;
+- final apply/withdraw transitions are race-safe and idempotent.
 
 UI grey-out must never be treated as authorization by itself.
 
-## 21. Testing Matrix
+## 23. Testing Matrix
 
 Automated/unit tests should cover:
 
@@ -665,23 +710,29 @@ Automated/unit tests should cover:
 14. office can decide only its scope;
 15. any reject terminates without partial apply;
 16. push back requires reason;
-17. resubmission preserves unaffected approvals;
-18. date/time revision reopens prior ADFA approval;
-19. type change recomputes LAB routing;
-20. withdrawn request never applies;
-21. AFC withdraw from `pending_report_to`;
-22. AFC withdraw from `pending_admin` after Reports To signature;
-23. sanitized `calendar_sessions` contains no forbidden Faculty fields;
-24. ADC/LAB read of source private session/approval data is denied in Emulator;
-25. ADC/LAB notification data remains sanitized;
-26. final all-office approval applies once and creates correct audit entries;
-27. legacy requests remain resolvable through compatibility behavior.
+17. other office approvals survive push back when scope is unchanged;
+18. resubmission scope hashes preserve only unchanged approvals;
+19. date/time revision reopens prior ADFA approval;
+20. type change recomputes LAB routing;
+21. withdrawn request never applies;
+22. AFC withdraw from `pending_report_to`;
+23. AFC withdraw from `pending_admin` after Reports To signature;
+24. sanitized `calendar_sessions` contains no forbidden Faculty fields;
+25. ADC/LAB read of source private session/approval data is denied in Emulator;
+26. legacy unsanitized requests remain unreadable to ADC/LAB;
+27. ADC/LAB notification data remains sanitized;
+28. direct ADC date/time edit with assigned Faculty creates ADFA recheck notification without exposing private availability data to ADC;
+29. simultaneous final approvals apply exactly once;
+30. simultaneous withdraw/final-approval race has one legal winner;
+31. final all-office approval creates correct audit entries;
+32. legacy requests remain resolvable through ADFA compatibility behavior;
+33. sanitized calendar verification/rebuild detects and repairs missing/stale read-model documents.
 
-Manual browser acceptance must include at least one mixed LAB request passing through ADC/LAB/ADFA, one push-back/resubmit flow, one withdrawal, one conflict override, and privacy inspection while signed in as ADC and LAB.
+Manual browser acceptance must include at least one mixed LAB request passing through ADC/LAB/ADFA, one push-back/resubmit flow, one withdrawal, one conflict override, direct ADC and LAB edits with greyed fields, the side notification panel, and privacy inspection while signed in as ADC and LAB.
 
-## 22. Delivery & Deployment Order
+## 24. Delivery & Deployment Order
 
-WS5B should not be merged before WS5A provides the canonical scheduling core it depends on.
+WS5B must not be merged before WS5A provides the canonical scheduling core it depends on.
 
 Recommended order:
 
@@ -703,7 +754,7 @@ WS5B branch based on merged WS5A
 
 The GitHub Pages test site uses live Firebase, so destructive permission/privacy scenarios must be tested in the Emulator. Live manual testing should use reversible normal workflow actions and dedicated test accounts.
 
-## 23. Definition of Done
+## 25. Definition of Done
 
 WS5B is complete when:
 
@@ -717,8 +768,10 @@ WS5B is complete when:
 - ADC/LAB see only sanitized Faculty assignment names/status and cannot access UCID/DOE/AFC/availability/private Faculty data;
 - ADFA retains the current information-rich Faculty approval experience;
 - sanitized calendar delivery prevents ADC/LAB from receiving private source session assignment data;
+- sanitized calendar integrity is verifiable/repairable rather than silently divergent;
 - Push Back, scoped resubmission, safety reapproval, Reject, and Withdraw behave as designed;
 - AFC supports requester withdrawal before final decision;
+- direct ADC time/date edits generate ADFA assignment-recheck notifications where appropriate;
 - workflow notifications appear for assigned/updated/completed activity without leaking private data;
 - audit history records the complete lifecycle;
 - Emulator tests prove the security boundaries;
