@@ -17,6 +17,20 @@ test('normal write guard uses the shared maintenance message',()=>{
  assert.throws(()=>api.assertNormalWriteAllowed(locked),new RegExp(api.LOCKED_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
 });
 
+test('planned maintenance API exposes a non-throwing normal-write guard',()=>{
+ const api=require('../maintenance-state.js'),messages=[];
+ const locked=api.normalize({teachingDataWriteLocked:true,maintenanceMode:'bulk_import',activeImportId:'i1'});
+ assert.equal(api.isActive(locked),true);
+ assert.equal(api.normalTeachingWritesAllowed(locked),false);
+ assert.equal(api.guardNormalWrite(locked,{toast:message=>messages.push(message)}),false);
+ assert.deepEqual(messages,[api.LOCKED_MESSAGE]);
+ const open=api.normalize(null);
+ assert.equal(api.guardNormalWrite(open,{toast:message=>messages.push(message)}),true);
+ assert.equal(typeof api.watch,'function');
+ assert.equal(typeof api.installBanner,'function');
+ assert.equal(typeof api.renderBanner,'function');
+});
+
 test('UI blocker covers timetable, approval, faculty, and import mutations but not viewing',()=>{
  const api=require('../maintenance-state.js');
  for(const selector of ['#add-session-btn','#selection-save-btn','.btn-swap-confirm','[data-approve-request]','#workflow-self-swap','#save-edit','#import-summary-btn'])assert.ok(api.BLOCKED_CLICK_SELECTORS.includes(selector),selector);
