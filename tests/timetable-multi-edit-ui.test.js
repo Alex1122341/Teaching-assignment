@@ -39,3 +39,13 @@ test('spreadsheet editor validates before one atomic commit and applies exact in
  assert.match(js,/plan\.logs\.map\(log=>\(\{before:log\.before,after:log\.after\}\)\)/);
  assert.match(js,/invalidateAllSessions\(\);await updateDerivedIndexes\(changes,\{rethrow:true\}\)/);
 });
+
+test('back to selection rerenders immediately instead of relying on a subscription change',()=>{
+ const js=read('timetable.js');
+ const match=js.match(/\$\('selection-back-btn'\)\.onclick=\(\)=>\{([^}]*)\}/);
+ assert.ok(match,'selection back handler must exist');
+ const handler=match[1];
+ assert.match(handler,/reviewingSelection=false/);
+ assert.match(handler,/viewMode=selectionViewFlow\.finish\(\)/);
+ assert.match(handler,/render\(\)/);
+});
