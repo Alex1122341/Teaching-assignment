@@ -5,6 +5,8 @@
 })(typeof window!=='undefined'?window:null,function(indexApi){
  'use strict';
  const index=indexApi||(typeof require==='function'?require('./data-index.js'):null);
+ const DERIVED_IDS=Object.freeze(['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map']);
+ const GENERATION_META=new Set(['generatedAt','generatedBy','generatedByName']);
  function sessionForWrite(session){return{...(session||{}),facultyIds:index.sessionFacultyIds(session)}}
  function replaceSession(rows,next){return[...(rows||[]).filter(row=>String(row.id)!==String(next.id)),sessionForWrite(next)]}
  function removeSession(rows,id){return(rows||[]).filter(row=>String(row.id)!==String(id))}
@@ -54,6 +56,108 @@
  const canonical=value=>Array.isArray(value)?value.map(canonical):(value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value);
  const sameCanonical=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
  const withoutGenerationMeta=value=>{const next={...(value||{})};delete next.generatedAt;delete next.generatedBy;delete next.generatedByName;return next};
+ function stripGenerationMeta(value){
+  if(Array.isArray(value))return value.map(stripGenerationMeta);
+  if(value&&typeof value==='object'){
+   const out={};for(const[key,item]of Object.entries(value))if(!GENERATION_META.has(key))out[key]=stripGenerationMeta(item);return out;
+  }
+  return value;
+ }
+ function comparableDocument(id,value){
+  const doc=stripGenerationMeta(value||{});
+  if(id==='faculty_index'&&Array.isArray(doc.entries)){
+   doc.entries=Object.fromEntries(doc.entries.map(row=>{const next={...row};if(Array.isArray(next.roleTypes))next.roleTypes=[...next.roleTypes].sort();return[String(row?.id||''),next]}).sort(([a],[b])=>a.localeCompare(b)));
+  }
+  if(id==='faculty_swap_index'&&Array.isArray(doc.entries)){
+   doc.entries=Object.fromEntries(doc.entries.map(row=>{const next={...row};if(Array.isArray(next.aliases))next.aliases=[...next.aliases].sort();if(Array.isArray(next.unavailableRanges))next.unavailableRanges=[...next.unavailableRanges].sort((a,b)=>String(a?.startDate||'').localeCompare(String(b?.startDate||''))||String(a?.endDate||'').localeCompare(String(b?.endDate||'')));return[String(row?.key||''),next]}).sort(([a],[b])=>a.localeCompare(b)));
+  }
+  if(id==='faculty_swap_map'&&Array.isArray(doc.entries))doc.entries=Object.fromEntries(doc.entries.map(row=>[String(row?.facultyId||''),row]).sort(([a],[b])=>a.localeCompare(b)));
+  return canonical(doc);
+ }
+ function diffValues(document,expected,actual,maxDetails=50){
+  const mismatches=[];let count=0;
+  const add=(path,expectedValue,actualValue,issue='value-mismatch',severity='mismatch')=>{count++;if(mismatches.length<maxDetails)mismatches.push({document,path,expected:expectedValue,actual:actualValue,issue,severity})};
+  const walk=(left,right,path='')=>{
+   if(sameCanonical(left,right))return;
+   const lo=left&&typeof left==='object'&&!Array.isArray(left),ro=right&&typeof right==='object'&&!Array.isArray(right);
+   if(lo&&ro){const keys=[...new Set([...Object.keys(left),...Object.keys(right)])].sort();for(const key of keys)walk(left[key],right[key],path?`${path}.${key}`:key);return}
+   add(path,left,right);
+  };
+  walk(expected,actual);return{count,mismatches};
+ }
+ function analyzeSwapIdentity({faculty,publicIndex,privateMap,publicExists=true,privateExists=true}){
+  const activeIds=new Set((faculty||[]).filter(row=>row&&row.active!==false).map(row=>String(row.__id||row.id||row.ucid||'').trim()).filter(Boolean));
+  const privateRows=Array.isArray(privateMap?.entries)?privateMap.entries:[],publicRows=Array.isArray(publicIndex?.entries)?publicIndex.entries:[],keyOwners=new Map(),facultyKeys=new Map(),criticalIssues=[];
+  for(const row of privateRows){
+   const facultyId=String(row?.facultyId||'').trim(),key=String(row?.key||'').trim();
+   if(!facultyId||!key){criticalIssues.push({document:'faculty_swap_map',path:'entries',issue:'invalid-private-identity',expected:'non-empty facultyId and key',actual:{facultyId,key},severity:'critical'});continue}
+   const owners=keyOwners.get(key)||new Set();owners.add(facultyId);keyOwners.set(key,owners);
+   const keys=facultyKeys.get(facultyId)||new Set();keys.add(key);facultyKeys.set(facultyId,keys);
+  }
+  for(const[key,owners]of keyOwners)if(owners.size>1)criticalIssues.push({document:'faculty_swap_map',path:`key.${key}`,issue:'duplicate-key-ownership',expected:'one faculty owner',actual:[...owners].sort(),severity:'critical'});
+  for(const[facultyId,keys]of facultyKeys)if(keys.size>1)criticalIssues.push({document:'faculty_swap_map',path:`faculty.${facultyId}`,issue:'conflicting-faculty-keys',expected:'one opaque key',actual:[...keys].sort(),severity:'critical'});
+  const privateKeys=new Set(keyOwners.keys());
+  if(!privateExists&&publicRows.some(row=>String(row?.key||'').trim()))criticalIssues.push({document:'faculty_swap_map',path:'document',issue:'missing-private-map-with-public-keys',expected:'private ownership map',actual:'missing',severity:'critical'});
+  for(const row of publicRows){const key=String(row?.key||'').trim();if(key&&!privateKeys.has(key))criticalIssues.push({document:'faculty_swap_index',path:`entries.${key}`,issue:'public-key-without-private-owner',expected:'matching private ownership',actual:key,severity:'critical'})}
+  const missingFacultyIds=[...activeIds].filter(id=>!facultyKeys.has(id)).sort(),staleFacultyIds=[...facultyKeys.keys()].filter(id=>!activeIds.has(id)).sort();
+  const knownEntries=privateRows.filter(row=>{const facultyId=String(row?.facultyId||'').trim(),key=String(row?.key||'').trim();return activeIds.has(facultyId)&&key&&keyOwners.get(key)?.size===1&&facultyKeys.get(facultyId)?.size===1});
+  return{criticalIssues,missingFacultyIds,staleFacultyIds,knownPrivateMap:{schemaVersion:'ucvm-faculty-swap-map-v1',entries:knownEntries}};
+ }
+ function buildExpectedDerivedIndexes({faculty,sessions,privateMap,keyFactory,allocateMissingKeys=false}){
+  const base=derivedDocuments(faculty,sessions),active=(faculty||[]).filter(row=>row&&row.active!==false),analysis=analyzeSwapIdentity({faculty:active,publicIndex:{entries:[]},privateMap,publicExists:true,privateExists:true});
+  const known=new Set((analysis.knownPrivateMap.entries||[]).map(row=>String(row.facultyId))),swapFaculty=allocateMissingKeys?active:active.filter(row=>known.has(String(row.__id||row.id||row.ucid||'')));
+  const factory=allocateMissingKeys?keyFactory:()=>{throw Error('Verify cannot allocate opaque swap keys.')};
+  const swap=index.buildFacultySwapIndexes(swapFaculty,analysis.knownPrivateMap,factory);
+  return{documents:{faculty_index:base.facultyIndex,schedule_stats:base.scheduleStats,faculty_swap_index:swap.publicIndex,faculty_swap_map:swap.privateMap},swapAnalysis:analysis};
+ }
+ async function loadCollectionRows(db,name){const snap=await db.collection(name).get();return snap.docs.map(doc=>({...doc.data(),__id:doc.id}))}
+ async function loadDerivedDocuments(db){
+  const snaps=await Promise.all(DERIVED_IDS.map(id=>db.collection('settings').doc(id).get()));
+  return Object.fromEntries(DERIVED_IDS.map((id,i)=>[id,{exists:snaps[i].exists,data:snaps[i].exists?snaps[i].data():undefined}]));
+ }
+ function structureIssues(id,loaded){
+  if(!loaded?.exists)return[{document:id,path:'document',issue:'document-missing',expected:'document exists',actual:'missing',severity:'mismatch'}];
+  const data=loaded.data;
+  if(!data||typeof data!=='object'||Array.isArray(data))return[{document:id,path:'document',issue:'invalid-structure',expected:'object',actual:Array.isArray(data)?'array':typeof data,severity:'mismatch'}];
+  if(id==='schedule_stats')return[];
+  if(!Array.isArray(data.entries))return[{document:id,path:'entries',issue:'invalid-structure',expected:'array',actual:typeof data.entries,severity:'mismatch'}];
+  if(id==='faculty_index'){
+   const ids=data.entries.map(row=>String(row?.id||'').trim());if(ids.some(value=>!value)||new Set(ids).size!==ids.length)return[{document:id,path:'entries',issue:'invalid-structure',expected:'unique non-empty entry ids',actual:ids,severity:'mismatch'}];
+  }
+  if(id==='faculty_swap_index'){
+   const keys=data.entries.map(row=>String(row?.key||'').trim());if(keys.some(value=>!value)||new Set(keys).size!==keys.length)return[{document:id,path:'entries',issue:'invalid-structure',expected:'unique non-empty keys',actual:keys,severity:'mismatch'}];
+  }
+  if(id==='faculty_swap_map'){
+   const pairs=data.entries.map(row=>`${String(row?.facultyId||'').trim()}|${String(row?.key||'').trim()}`);if(new Set(pairs).size!==pairs.length)return[{document:id,path:'entries',issue:'invalid-structure',expected:'no duplicate private mapping rows',actual:pairs,severity:'mismatch'}];
+  }
+  return[];
+ }
+ function compareDerivedIndexDocuments({expected,actual,swapAnalysis,counts,maxDetails=50}){
+  const mismatches=[],documents=Object.fromEntries(DERIVED_IDS.map(id=>[id,'healthy']));let mismatchCount=0;
+  const rank={healthy:0,mismatch:1,critical:2};
+  const mark=(document,severity)=>{const next=severity||'mismatch';if(rank[next]>rank[documents[document]])documents[document]=next};
+  const push=row=>{mismatchCount++;mark(row.document,row.severity);if(mismatches.length<maxDetails)mismatches.push(row)};
+  const criticalSwap=(swapAnalysis.criticalIssues||[]).length>0,stale=new Set(swapAnalysis.staleFacultyIds||[]);
+  for(const id of DERIVED_IDS){
+   const issues=structureIssues(id,actual[id]);if(issues.length){for(const row of issues)push(row);continue}
+   if(criticalSwap&&(id==='faculty_swap_index'||id==='faculty_swap_map'))continue;
+   let actualData=actual[id].data;
+   if(id==='faculty_swap_map'&&stale.size&&Array.isArray(actualData?.entries))actualData={...actualData,entries:actualData.entries.filter(row=>!stale.has(String(row?.facultyId||'').trim()))};
+   const remaining=Math.max(0,maxDetails-mismatches.length),diff=diffValues(id,comparableDocument(id,expected[id]),comparableDocument(id,actualData),remaining);
+   if(diff.count){mismatchCount+=diff.count;mark(id,'mismatch');mismatches.push(...diff.mismatches)}
+  }
+  for(const facultyId of swapAnalysis.missingFacultyIds||[])push({document:'faculty_swap_map',path:`faculty.${facultyId}`,issue:'missing-new-faculty-key',expected:'opaque key allocated during rebuild',actual:'missing',severity:'mismatch'});
+  for(const facultyId of swapAnalysis.staleFacultyIds||[])push({document:'faculty_swap_map',path:`faculty.${facultyId}`,issue:'stale-private-mapping',expected:'removed for inactive/deleted faculty',actual:'present',severity:'mismatch'});
+  for(const row of swapAnalysis.criticalIssues||[])push(row);
+  const severity=Object.values(documents).includes('critical')?'critical':Object.values(documents).includes('mismatch')?'mismatch':'healthy';
+  return{ok:severity==='healthy',severity,checkedAt:new Date().toISOString(),counts,documents,mismatchCount,mismatches};
+ }
+ async function verifyDerivedIndexes(db,{faculty,sessions,maxDetails=50}={}){
+  const sourceFaculty=faculty===undefined?await loadCollectionRows(db,'faculty'):faculty,sourceSessions=sessions===undefined?await loadCollectionRows(db,'sessions'):sessions,actual=await loadDerivedDocuments(db);
+  const privateMap=actual.faculty_swap_map.exists?actual.faculty_swap_map.data:{schemaVersion:'ucvm-faculty-swap-map-v1',entries:[]},publicIndex=actual.faculty_swap_index.exists?actual.faculty_swap_index.data:{schemaVersion:'ucvm-faculty-swap-index-v1',entries:[]};
+  const built=buildExpectedDerivedIndexes({faculty:sourceFaculty,sessions:sourceSessions,privateMap,allocateMissingKeys:false}),swapAnalysis=analyzeSwapIdentity({faculty:sourceFaculty,publicIndex,privateMap,publicExists:actual.faculty_swap_index.exists,privateExists:actual.faculty_swap_map.exists});
+  return compareDerivedIndexDocuments({expected:built.documents,actual,swapAnalysis,counts:{faculty:sourceFaculty.length,sessions:sourceSessions.length},maxDetails});
+ }
  async function verifyDerivedIndexesProvisional(db,faculty,sessions){
   const ids=['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map'],snaps=await Promise.all(ids.map(id=>db.collection('settings').doc(id).get())),errors=[],byId=new Map(ids.map((id,index)=>[id,snaps[index]])),expected=derivedDocuments(faculty,sessions);
   for(const id of ids)if(!byId.get(id)?.exists)errors.push(`Derived index ${id} is missing.`);
@@ -66,5 +170,5 @@
   if(publicSnap?.exists&&privateSnap?.exists&&Array.isArray(publicSnap.data()?.entries)&&Array.isArray(privateSnap.data()?.entries)&&publicSnap.data().entries.length!==privateSnap.data().entries.length)errors.push('Derived swap indexes have different entry counts.');
   return{ok:errors.length===0,errors};
  }
- return{sessionForWrite,replaceSession,removeSession,derivedDocuments,applySessionChanges,writeDerivedIndexes,updateDerivedIndexes,verifyDerivedIndexesProvisional,writeFacultySwapIndexes,addFacultySwapUnavailableRange,prepareFacultySwapAfcUpdate};
+ return{sessionForWrite,replaceSession,removeSession,derivedDocuments,applySessionChanges,writeDerivedIndexes,updateDerivedIndexes,verifyDerivedIndexes,verifyDerivedIndexesProvisional,analyzeSwapIdentity,buildExpectedDerivedIndexes,compareDerivedIndexDocuments,writeFacultySwapIndexes,addFacultySwapUnavailableRange,prepareFacultySwapAfcUpdate};
 });
