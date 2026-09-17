@@ -1,0 +1,57 @@
+--- a/firestore.rules
++++ b/firestore.rules
+@@ -3,7 +3,8 @@
+  match /databases/{database}/documents {
+   function signedIn(){return request.auth != null;}
+   function profile(){return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;}
+-  function ready(){return signedIn() && profile().active == true && profile().role in ['owner','administrator','other_office','admin','editor','viewer','adfa_general','adfa_regular','hicc','visc','faculty','adc','lab'] && profile().get('mustChangePassword',false) == false;}
++  function readySignedIn(){let p=profile();return p.active == true && p.role in ['owner','administrator','other_office','admin','editor','viewer','adfa_general','adfa_regular','hicc','visc','faculty','adc','lab'] && p.get('mustChangePassword',false) == false;}
++  function ready(){return signedIn() && readySignedIn();}
+   function admin(){return ready() && profile().role in ['owner','administrator','other_office','admin','adfa_general','adfa_regular'];}
+   function approver(){return ready() && profile().role in ['owner','administrator','other_office','adfa_general','adfa_regular'];}
+   function general(){return ready() && profile().role in ['owner','adfa_general'];}
+@@ -15,8 +16,9 @@
+   function adc(){return ready() && profile().role == 'adc';}
+   function lab(){return ready() && profile().role == 'lab';}
+   function adfaApprover(){return ready() && profile().role in ['owner','administrator','admin','adfa_general','adfa_regular'];}
+-  function officeUser(){return adc() || lab() || adfaApprover();}
+-  function officeName(){return adc() ? 'adc' : (lab() ? 'lab' : (adfaApprover() ? 'adfa' : ''));}
++  function officeForRole(r){return r == 'adc' ? 'adc' : (r == 'lab' ? 'lab' : (r in ['owner','administrator','admin','adfa_general','adfa_regular'] ? 'adfa' : ''));}
++  function officeUser(){return ready() && officeForRole(profile().role) != '';}
++  function officeName(){return ready() ? officeForRole(profile().role) : '';}
+   function requestPublicPath(id){return /databases/$(database)/documents/change_requests/$(id);}
+   function requestWorkflowPath(id){return /databases/$(database)/documents/change_request_workflow/$(id);}
+   function requestApprovalPath(id,office){return /databases/$(database)/documents/change_request_approvals/$(id + '_' + office);}
+@@ -83,47 +85,39 @@
+   function resubmitScheduleChanged(before,after){return resubmitChanged(before,after,'date') || resubmitChanged(before,after,'start') || resubmitChanged(before,after,'end');}
+   function officeReturned(before,oldWorkflow,office){return oldWorkflow.scopes.get(office,[]).toSet().intersection(before.editableFields.toSet()).size() > 0
+    || (office == 'adfa' && before.editableFields.hasAny(['assignments','facultyIds','instructor']));}
+-  function validRoutedOfficeRequestUpdate(id){let before=resource.data;let after=request.resource.data;let actorApproval=getAfter(requestApprovalPath(id,officeName())).data;let changed=after.diff(before).affectedKeys();return officeUser() && routedRequest(before) && routedRequest(after)
+-   && before.status in ['pending','update_required'] && actorApproval.requestId == id && actorApproval.office == officeName()
+-   && changed.hasOnly(['status','editableFields','requesterMessage','updatedAt']) && after.updatedAt == request.time && publicRequestKeysValid(after)
+-   && ((actorApproval.status == 'approved' && after.status == before.status && after.editableFields == before.editableFields && after.requesterMessage == before.requesterMessage)
+-    || (actorApproval.status == 'push_back' && after.status == 'update_required' && after.requesterMessage.size() > 0 && after.requesterMessage.size() <= 1000
+-        && after.editableFields.hasAll(before.editableFields) && after.editableFields.hasAll(actorApproval.fields)
+-        && after.editableFields.toSet().difference(before.editableFields.toSet()).hasOnly(actorApproval.fields))
+-    || (actorApproval.status == 'rejected' && after.status == 'rejected' && after.editableFields.size() == 0 && after.requesterMessage.size() <= 1000));}
+-  function validRoutedOfficeDecision(id){let d=request.resource.data;let parentBefore=get(requestPublicPath(resource.data.requestId)).data;let parentAfter=getAfter(requestPublicPath(resource.data.requestId)).data;let changed=d.diff(resource.data).affectedKeys();return teachingWritesOpen() && approvalShapeValid(d) && routedRequest(parentBefore)
+-   && ((officeUser() && resource.data.office == officeName() && resource.data.status == 'pending' && d.requestId == resource.data.requestId && d.office == officeName()
+-       && changed.hasOnly(['status','decidedBy','decidedByName','decidedAt','pushBackReason','updatedAt']) && d.status in ['approved','push_back','rejected']
+-       && d.decidedBy == request.auth.uid && d.decidedAt == request.time && d.updatedAt == request.time
+-       && ((d.status == 'push_back' && d.pushBackReason.size() > 0 && d.pushBackReason.size() <= 1000) || (d.status != 'push_back' && d.pushBackReason == ''))
+-       && validRoutedOfficeRequestUpdate(d.requestId))
+-    || (officeUser() && resource.data.office != officeName() && resource.data.status in ['pending','push_back'] && d.status == 'cancelled'
+-       && changed.hasOnly(['status','updatedAt']) && d.updatedAt == request.time && parentAfter.status == 'rejected'
+-       && getAfter(requestApprovalPath(d.requestId,officeName())).data.status == 'rejected')
+-    || (parentBefore.requesterUid == request.auth.uid && parentBefore.status == 'update_required' && parentAfter.status == 'pending'
+-       && d.requestId == resource.data.requestId && d.office == resource.data.office && d.status == 'pending' && d.revision == parentAfter.revision
+-       && approvalMatchesWorkflow(id,d,getAfter(requestWorkflowPath(d.requestId)).data)
+-       && d.decidedBy == '' && d.decidedByName == '' && d.decidedAt == null && d.pushBackReason == '' && d.updatedAt == request.time
+-       && (officeReturned(parentBefore,get(requestWorkflowPath(d.requestId)).data,d.office)
+-           || !(d.office in get(requestWorkflowPath(d.requestId)).data.requiredOffices)
+-           || (d.office == 'adfa' && get(requestWorkflowPath(d.requestId)).data.hasFacultyChange == true && resubmitScheduleChanged(parentBefore,parentAfter))))
+-    || (parentBefore.requesterUid == request.auth.uid && parentBefore.status == 'update_required' && parentAfter.status == 'pending'
+-       && resource.data.status in ['pending','push_back'] && d.status == 'cancelled' && changed.hasOnly(['status','updatedAt']) && d.updatedAt == request.time
+-       && !(d.office in getAfter(requestWorkflowPath(d.requestId)).data.requiredOffices))
+-    || (parentBefore.requesterUid == request.auth.uid && parentBefore.status == 'withdrawn' && resource.data.status in ['pending','push_back'] && d.status == 'cancelled'
+-       && changed.hasOnly(['status','updatedAt']) && 
