@@ -17,7 +17,14 @@
  const emptyState=()=>({teachingDataWriteLocked:false,maintenanceMode:'none',activeImportId:'',maintenanceOwnerUid:'',maintenanceOwnerName:''});
  function normalizeState(data){const state=emptyState();if(!data||typeof data!=='object')return state;state.teachingDataWriteLocked=data.teachingDataWriteLocked===true;state.maintenanceMode=String(data.maintenanceMode||'none');state.activeImportId=String(data.activeImportId||'');state.maintenanceOwnerUid=String(data.maintenanceOwnerUid||'');state.maintenanceOwnerName=String(data.maintenanceOwnerName||'');return state}
  const isLocked=state=>normalizeState(state).teachingDataWriteLocked===true;
+ const normalize=normalizeState;
+ const isActive=isLocked;
+ const normalTeachingWritesAllowed=state=>!isLocked(state);
  function assertNormalWriteAllowed(state){if(isLocked(state))throw Error(LOCKED_MESSAGE);return true}
+ function guardNormalWrite(state,{toast}={}){if(normalTeachingWritesAllowed(state))return true;if(typeof toast==='function')toast(LOCKED_MESSAGE);return false}
+ function watch(db,callback){if(!db?.collection||typeof callback!=='function')return()=>{};return db.collection('settings').doc('system_state').onSnapshot(snapshot=>callback(normalizeState(snapshot.exists?snapshot.data():null)),error=>{if(error?.code!=='permission-denied')console.warn?.('[maintenance state]',error);callback(normalizeState(null))})}
+ function installBanner(doc=root?.document){if(!doc?.body)return null;let banner=doc.getElementById('teaching-maintenance-banner');if(banner)return banner;banner=doc.createElement('div');banner.id='teaching-maintenance-banner';banner.setAttribute('role','status');banner.style.cssText='display:none;position:sticky;top:0;z-index:100000;padding:9px 14px;background:#fff3cd;color:#5f4500;border-bottom:1px solid #e4c65a;font:600 12px/1.35 Arial,sans-serif;text-align:center';doc.body.prepend(banner);return banner}
+ function renderBanner(state,{isAdmin=false,document:doc=root?.document}={}){const banner=installBanner(doc);if(!banner)return null;const active=isActive(state);banner.style.display=active?'block':'none';banner.textContent=active?LOCKED_MESSAGE:'';if(active&&isAdmin&&normalizeState(state).maintenanceOwnerName)banner.title=`Maintenance owner: ${normalizeState(state).maintenanceOwnerName}`;else banner.removeAttribute?.('title');return banner}
  function selectorMatch(target,selectors){if(!target||typeof target.closest!=='function')return null;for(const selector of selectors){const match=target.closest(selector);if(match)return match}return null}
  function create({db,auth,document:doc=root?.document,onBlocked}={}){
   let state=emptyState(),stateUnsub=null,authUnsub=null,started=false;
@@ -41,5 +48,5 @@
  let active=null;
  function autoStart(){if(!root||active||!root.UCVM||typeof root.firebase==='undefined')return active;try{const shared=root.UCVM.init();active=create({db:shared.db,auth:shared.auth,document:root.document,onBlocked:message=>{const toast=root.document?.getElementById('toast');if(toast){toast.textContent=message;toast.classList.add('show','error');setTimeout(()=>toast.classList.remove('show'),6000)}}});active.start()}catch(error){console.warn?.('[maintenance init]',error)}return active}
  if(root?.document){if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',autoStart,{once:true});else autoStart()}
- return{LOCKED_MESSAGE,BLOCKED_CLICK_SELECTORS,BLOCKED_SUBMIT_SELECTORS,normalizeState,isLocked,assertNormalWriteAllowed,create,autoStart,current:()=>active?.current()||emptyState(),subscribe:callback=>{autoStart();return active?active.subscribe(callback):()=>{}},normalWritesAllowed:()=>!isLocked(active?.current()||emptyState())};
+ return{LOCKED_MESSAGE,BLOCKED_CLICK_SELECTORS,BLOCKED_SUBMIT_SELECTORS,normalize,normalizeState,isActive,isLocked,normalTeachingWritesAllowed,guardNormalWrite,watch,installBanner,renderBanner,assertNormalWriteAllowed,create,autoStart,current:()=>active?.current()||emptyState(),subscribe:callback=>{autoStart();return active?active.subscribe(callback):()=>{}},normalWritesAllowed:()=>normalTeachingWritesAllowed(active?.current()||emptyState())};
 });
