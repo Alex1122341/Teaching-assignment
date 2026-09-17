@@ -1,7 +1,25 @@
 /* HICC timetable + Spark-safe approval workflow for the main timetable only. */
+window.UCVM_APPROVAL_SCHEDULING=(()=>{
+ const text=value=>String(value??'');
+ const requiresOverride=check=>check?.status==='conflict';
+ function overrideAudit(actor={},conflicts=[]){
+  return{
+   type:'faculty_time_conflict',
+   confirmed:true,
+   confirmedBy:text(actor.uid),
+   confirmedByName:text(actor.name),
+   conflicts:(Array.isArray(conflicts)?conflicts:[]).map(session=>({
+    id:text(session?.id),course:text(session?.course),date:text(session?.date).slice(0,10),start:text(session?.start),end:text(session?.end)
+   }))
+  };
+ }
+ return{requiresOverride,overrideAudit};
+})();
 (()=>{
  'use strict';
  if(!window.UCVM||typeof firebase==='undefined')return;
+ const scheduling=window.UCVM_SCHEDULING,approvalScheduling=window.UCVM_APPROVAL_SCHEDULING;
+ if(!scheduling||!approvalScheduling)throw new Error('UCVM scheduling and approval policy helpers are required.');
  const page=(location.pathname.split('/').pop()||'index.html').toLowerCase();
  if(page&&page!=='index.html')return;
 
@@ -87,14 +105,10 @@
   for(const row of state.values())row.current=row.indexedCurrent!==null?row.indexedCurrent:(row.fixed!==null?row.fixed+row.scheduled:(row.sourceAssigned!==null?row.sourceAssigned:null));
   return state;
  }
- function timeMinutes(v){const s=String(v||'').trim();if(!s)return null;let m=s.match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i);if(!m)return null;let h=Number(m[1]),min=Number(m[2]);if(m[3]){const ap=m[3].toUpperCase();if(h===12)h=0;if(ap==='PM')h+=12}if(h>23||min>59)return null;return h*60+min}
- function overlaps(aStart,aEnd,bStart,bEnd){const as=timeMinutes(aStart),ae=timeMinutes(aEnd),bs=timeMinutes(bStart),be=timeMinutes(bEnd);return ![as,ae,bs,be].some(v=>v===null)&&ae>as&&be>bs&&as<be&&bs<ae}
  function sessionHasFaculty(sess,f){const id=String(f?.__id||''),aliases=facultyAliases(f);return assignedArray(sess).some(a=>(id&&String(a?.ucid||'')===id)||aliases.has(norm(a?.name)))}
  function timetableCheck(f,date,start,end,excludeId=''){
-  const d=ymd(date),ts=timeMinutes(start),te=timeMinutes(end),sameDay=[...sessions.values()].filter(s=>String(s.id)!==String(excludeId)&&ymd(s.date)===d&&sessionHasFaculty(s,f));
-  if(!d||ts===null||te===null||te<=ts)return{available:null,conflicts:[],possible:sameDay,reason:'time'};
-  const conflicts=[],possible=[];for(const s of sameDay){if(s.timeUnknown||timeMinutes(s.start)===null||timeMinutes(s.end)===null){possible.push(s);continue}if(overlaps(start,end,s.start,s.end))conflicts.push(s)}
-  return{available:conflicts.length?false:(possible.length?null:true),conflicts,possible,reason:conflicts.length?'overlap':(possible.length?'unknown':'clear')};
+  const check=scheduling.findFacultyConflicts({date:ymd(date),start,end,sessions:[...sessions.values()],excludeSessionId:excludeId,isAssigned:s=>sessionHasFaculty(s,f)});
+  return{status:check.status,available:check.status==='clear'?true:(check.status==='conflict'?false:null),conflicts:check.conflicts,possible:check.possibleConflicts,reason:check.reason==='target_time'?'time':(check.reason==='other_time_unknown'?'unknown':check.reason)};
  }
  function afcCheck(f,date){const d=ymd(date),records=Array.isArray(f?.awayFromCampusRecords)?f.awayFromCampusRecords:[];return{available:!records.some(x=>x&&x.startDate&&x.endDate&&String(x.startDate)<=d&&d<=String(x.endDate))}}
  function availabilityFor(f,date,start,end,excludeId=''){if(!f)return{available:null,afc:{available:null},tt:{available:null,conflicts:[],possible:[],reason:'faculty'}};const afc=afcCheck(f,date),tt=timetableCheck(f,date,start,end,excludeId),bad=afc.available===false||tt.available===false;return{available:bad?false:(tt.available===null?null:true),afc,tt}}
@@ -342,6 +356,18 @@ async function hydrateApprovalImpacts(){
   }
   return warnings;
  }
+ function approvalConflictOverride(r,current){
+  const impacted=[];
+  const add=check=>{for(const conflict of check?.conflicts||[])impacted.push(conflict)};
+  if(r.requestType==='faculty_swap'){
+    const incoming=resolveFaculty(r.toFaculty),av=availabilityFor(incoming,current.date,current.start,current.end,current.id);if(approvalScheduling.requiresOverride(av.tt))add(av.tt);
+  }else if(r.requestType==='session_edit'&&(r.changes||[]).some(change=>['date','start','end'].includes(change.field))){
+    const date=r.patch?.date||current.date,start=r.patch?.start||current.start,end=r.patch?.end||current.end;
+    for(const assignment of assignedArray(current)){const faculty=resolveFaculty({facultyId:assignment.ucid,name:assignment.name}),av=availabilityFor(faculty,date,start,end,current.id);if(approvalScheduling.requiresOverride(av.tt))add(av.tt)}
+  }
+  if(!impacted.length)return null;
+  return{...approvalScheduling.overrideAudit({uid:user.uid,name:me?.name||user.email||''},impacted),confirmedAt:stamp()};
+ }
  async function approveRequest(id){
   if(!isApprover())return;const r=requests.find(x=>x.id===id);if(!r||r.status!=='pending')return;
   await ensureRequestSessions([r]);await ensureApprovalFaculty([r]);await ensureFacultySessionContext([r]);
@@ -356,10 +382,12 @@ async function hydrateApprovalImpacts(){
     const incoming={...(arr[idx]||{}),ucid:String(r.toFaculty?.facultyId||''),name:r.toFaculty?.name||'',category:'Faculty',source:'Approved swap request',swappedFrom:{ucid:String(arr[idx]?.ucid||''),name:arr[idx]?.name||''},swappedAt:new Date().toISOString()};arr[idx]=incoming;patch={assignments:arr,instructor:arr.map(a=>a.name).filter(Boolean).join('; ')};log={action:'swap_faculty',fromFaculty:r.fromFaculty||{},toFaculty:r.toFaculty||{},role:incoming.role||current.type||''};
   }else return;
   if(patch.assignments)patch.facultyIds=UCVM_DATA_INDEX.sessionFacultyIds({...current,...patch});
-  const warnings=approvalWarnings(r,current),warningText=warnings.length?`\n\nWARNING — availability/conflict checks:\n- ${warnings.join('\n- ')}\n\nYou may override as ADFA, but review these conflicts first.`:'';
-  if(!confirm(`Approve and apply this ${r.requestType==='faculty_swap'?'faculty swap':'session change'} to the live timetable?${warningText}`))return;
+  const warnings=approvalWarnings(r,current),warningText=warnings.length?`\n\nWARNING — availability/conflict checks:\n- ${warnings.join('\n- ')}`:'',conflictOverride=approvalConflictOverride(r,current);
+  if(conflictOverride){
+    if(!confirm(`TIMETABLE CONFLICT DETECTED${warningText}\n\nOverride and approve despite the timetable conflict(s)? This override will be recorded in the audit log.`))return;
+  }else if(!confirm(`Approve and apply this ${r.requestType==='faculty_swap'?'faculty swap':'session change'} to the live timetable?${warningText}`))return;
   try{
-    const after={...current,...patch},batch=db.batch(),reqRef=db.doc(`${REQUESTS}/${id}`),logRef=db.collection(LOGS).doc();batch.set(ref,{...patch,updatedBy:user.uid,updatedByName:me?.name||user.email||'',updatedAt:stamp()},{merge:true});batch.set(logRef,{...log,requestId:id,sessionId:r.sessionId,course:current.course||r.course||'',date:ymd(patch.date||current.date),topic:patch.topic||current.topic||'',changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:me?.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after}]);toast('Approved and applied to the live timetable.');closeModal();
+    const after={...current,...patch},batch=db.batch(),reqRef=db.doc(`${REQUESTS}/${id}`),logRef=db.collection(LOGS).doc();batch.set(ref,{...patch,updatedBy:user.uid,updatedByName:me?.name||user.email||'',updatedAt:stamp()},{merge:true});batch.set(logRef,{...log,requestId:id,sessionId:r.sessionId,course:current.course||r.course||'',date:ymd(patch.date||current.date),topic:patch.topic||current.topic||'',override:conflictOverride,changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:me?.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after}]);toast('Approved and applied to the live timetable.');closeModal();
   }catch(e){console.error(e);toast(e.message,true)}
  }
  async function rejectRequest(id){
