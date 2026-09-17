@@ -35,6 +35,7 @@
   "password.js",
   "session-guard.js",
   "signature-capture.js",
+  "scheduling-core.js",
   "timetable.css",
   "timetable-selection.js",
   "timetable.js",
