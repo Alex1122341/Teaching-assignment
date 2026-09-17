@@ -1,10 +1,10 @@
 'use strict';
 window.UCVM_TIMETABLE_SELECTION=(()=>{
+ const scheduling=window.UCVM_SCHEDULING;
+ if(!scheduling)throw new Error('UCVM scheduling core is required.');
  const text=value=>String(value??'').trim();
  const facultyId=assignment=>text(assignment?.facultyId||assignment?.ucid);
  const facultyIds=row=>[...new Set((Array.isArray(row?.facultyIds)&&row.facultyIds.length?row.facultyIds:(row?.assignments||[]).map(facultyId)).map(text).filter(Boolean))];
- const validDate=value=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(text(value)))return false;const [y,m,d]=text(value).split('-').map(Number),date=new Date(Date.UTC(y,m-1,d));return date.getUTCFullYear()===y&&date.getUTCMonth()===m-1&&date.getUTCDate()===d};
- const minutes=value=>{const match=/^([01]\d|2[0-3]):([0-5]\d)$/.exec(text(value));return match?Number(match[1])*60+Number(match[2]):null};
  const clone=value=>JSON.parse(JSON.stringify(value??null));
  const canonical=value=>{if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])]));return value};
  const equal=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
@@ -40,14 +40,13 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   };
  }
  function validateRow(row,rowNumber,facultyById){
-  const prefix=`Row ${rowNumber}: `,errors=[],ids=facultyIds(row),start=minutes(row?.start),end=minutes(row?.end);
-  if(!validDate(row?.date))errors.push(prefix+'date must be a valid YYYY-MM-DD value.');
+  const prefix=`Row ${rowNumber}: `,errors=[],ids=facultyIds(row),timing=scheduling.validateSessionTiming(row);
+  if(!scheduling.normalizeDate(row?.date))errors.push(prefix+'date must be a valid YYYY-MM-DD value.');
   if(![1,2,3,4].includes(Number(row?.year)))errors.push(prefix+'year must be 1, 2, 3, or 4.');
   if(!text(row?.course))errors.push(prefix+'course is required.');
   if(!text(row?.type))errors.push(prefix+'type is required.');
-  if(start===null)errors.push(prefix+'start time must use HH:MM.');
-  if(end===null)errors.push(prefix+'end time must use HH:MM.');
-  else if(start!==null&&end<=start)errors.push(prefix+'end time must be after start time.');
+  const interval=timing.reason==='invalid_date'?scheduling.validateInterval(row?.start,row?.end,{timeUnknown:row?.timeUnknown===true}):timing;
+  if(interval.status==='invalid')errors.push(prefix+'end time must be after start time and use a valid timetable time.');
   const known=id=>typeof facultyById?.has==='function'?facultyById.has(id):Boolean(facultyById?.[id]);
   if(!ids.length||ids.some(id=>!known(id)))errors.push(prefix+'assigned faculty must contain at least one valid faculty record.');
   return errors;
