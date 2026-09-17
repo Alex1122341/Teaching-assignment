@@ -40,14 +40,22 @@
   return{facultyIndex:faculty,scheduleStats:stats};
  }
  async function writeDerivedIndexes(db,faculty,sessions,actor={}){
-  const docs=derivedDocuments(faculty,sessions),swap=await buildFacultySwapIndexesForDb(db,faculty),stamp=stampValue(),meta={generatedAt:stamp,...actorMeta(actor)};
-  await Promise.all([
-   db.collection('settings').doc('faculty_index').set({...docs.facultyIndex,...meta}),
-   db.collection('settings').doc('schedule_stats').set({...docs.scheduleStats,...meta}),
-   db.collection('settings').doc('faculty_swap_index').set({...swap.publicIndex,generatedAt:stamp}),
-   db.collection('settings').doc('faculty_swap_map').set({...swap.privateMap,...meta})
+  const [publicSnap,privateSnap]=await Promise.all([
+   db.collection('settings').doc('faculty_swap_index').get(),
+   db.collection('settings').doc('faculty_swap_map').get()
   ]);
-  return{...docs,...swap};
+  const publicIndex=publicSnap.exists?publicSnap.data():{schemaVersion:'ucvm-faculty-swap-index-v1',entries:[]},privateMap=privateSnap.exists?privateSnap.data():{schemaVersion:'ucvm-faculty-swap-map-v1',entries:[]};
+  const identity=analyzeSwapIdentity({faculty,publicIndex,privateMap,publicExists:publicSnap.exists,privateExists:privateSnap.exists});
+  if(identity.criticalIssues.length){
+   const error=Error('Critical swap identity corruption blocks derived-index rebuild.');error.code='critical-derived-index';error.report={ok:false,severity:'critical',mismatchCount:identity.criticalIssues.length,mismatches:identity.criticalIssues};throw error;
+  }
+  const built=buildExpectedDerivedIndexes({faculty,sessions,privateMap,keyFactory:()=>db.collection('settings').doc().id,allocateMissingKeys:true}),stamp=stampValue(),meta={generatedAt:stamp,...actorMeta(actor)},batch=db.batch();
+  batch.set(db.collection('settings').doc('faculty_index'),{...built.documents.faculty_index,...meta});
+  batch.set(db.collection('settings').doc('schedule_stats'),{...built.documents.schedule_stats,...meta});
+  batch.set(db.collection('settings').doc('faculty_swap_index'),{...built.documents.faculty_swap_index,generatedAt:stamp});
+  batch.set(db.collection('settings').doc('faculty_swap_map'),{...built.documents.faculty_swap_map,...meta});
+  await batch.commit();
+  return{facultyIndex:built.documents.faculty_index,scheduleStats:built.documents.schedule_stats,publicIndex:built.documents.faculty_swap_index,privateMap:built.documents.faculty_swap_map};
  }
  async function updateDerivedIndexes(db,changes,actor={}){
   if(!changes?.length)return null;const facultyRef=db.collection('settings').doc('faculty_index'),statsRef=db.collection('settings').doc('schedule_stats');
@@ -158,6 +166,16 @@
   const built=buildExpectedDerivedIndexes({faculty:sourceFaculty,sessions:sourceSessions,privateMap,allocateMissingKeys:false}),swapAnalysis=analyzeSwapIdentity({faculty:sourceFaculty,publicIndex,privateMap,publicExists:actual.faculty_swap_index.exists,privateExists:actual.faculty_swap_map.exists});
   return compareDerivedIndexDocuments({expected:built.documents,actual,swapAnalysis,counts:{faculty:sourceFaculty.length,sessions:sourceSessions.length},maxDetails});
  }
+ async function rebuildDerivedIndexes(db,actor={}){
+  const [faculty,sessions]=await Promise.all([loadCollectionRows(db,'faculty'),loadCollectionRows(db,'sessions')]),before=await verifyDerivedIndexes(db,{faculty,sessions});
+  if(before.severity==='critical'){
+   const error=Error('Critical swap identity corruption blocks derived-index rebuild.');error.code='critical-derived-index';error.report=before;throw error;
+  }
+  await writeDerivedIndexes(db,faculty,sessions,actor);
+  const after=await verifyDerivedIndexes(db);
+  if(!after.ok){const error=Error('Derived indexes were written but post-rebuild verification is not healthy.');error.code='derived-index-post-verify-failed';error.report=after;throw error}
+  return after;
+ }
  async function verifyDerivedIndexesProvisional(db,faculty,sessions){
   const ids=['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map'],snaps=await Promise.all(ids.map(id=>db.collection('settings').doc(id).get())),errors=[],byId=new Map(ids.map((id,index)=>[id,snaps[index]])),expected=derivedDocuments(faculty,sessions);
   for(const id of ids)if(!byId.get(id)?.exists)errors.push(`Derived index ${id} is missing.`);
@@ -170,5 +188,5 @@
   if(publicSnap?.exists&&privateSnap?.exists&&Array.isArray(publicSnap.data()?.entries)&&Array.isArray(privateSnap.data()?.entries)&&publicSnap.data().entries.length!==privateSnap.data().entries.length)errors.push('Derived swap indexes have different entry counts.');
   return{ok:errors.length===0,errors};
  }
- return{sessionForWrite,replaceSession,removeSession,derivedDocuments,applySessionChanges,writeDerivedIndexes,updateDerivedIndexes,verifyDerivedIndexes,verifyDerivedIndexesProvisional,analyzeSwapIdentity,buildExpectedDerivedIndexes,compareDerivedIndexDocuments,writeFacultySwapIndexes,addFacultySwapUnavailableRange,prepareFacultySwapAfcUpdate};
+ return{sessionForWrite,replaceSession,removeSession,derivedDocuments,applySessionChanges,writeDerivedIndexes,rebuildDerivedIndexes,updateDerivedIndexes,verifyDerivedIndexes,verifyDerivedIndexesProvisional,analyzeSwapIdentity,buildExpectedDerivedIndexes,compareDerivedIndexDocuments,writeFacultySwapIndexes,addFacultySwapUnavailableRange,prepareFacultySwapAfcUpdate};
 });
