@@ -70,33 +70,107 @@ test('create and delete session deltas are reversible and empty changes are idem
 function fakeSettingsDb(docs){
  return{collection:name=>{assert.equal(name,'settings');return{doc:id=>({get:async()=>Object.prototype.hasOwnProperty.call(docs,id)?{exists:true,data:()=>docs[id]}:{exists:false,data:()=>undefined}})}}};
 }
-function verifierFixture(){
+
+function fullVerifierFixture(){
  const api=require(path.join(root,'index-maintenance.js'));
- const faculty=[{__id:'1001',preferredFullName:'Alex',doe:{teaching:20}},{__id:'1002',preferredFullName:'Blair',doe:{teaching:20}}];
+ const dataIndex=require(path.join(root,'data-index.js'));
+ const faculty=[
+  {__id:'1001',preferredFullName:'Alex',active:true,doe:{teaching:20}},
+  {__id:'1002',preferredFullName:'Blair',active:true,doe:{teaching:20}}
+ ];
  const sessions=[{id:'s1',course:'200',assignments:[{ucid:'1001',doeCredit:2}]}];
- const expected=api.derivedDocuments(faculty,sessions);
- return{api,faculty,sessions,docs:{faculty_index:{...expected.facultyIndex,generatedAt:'x',generatedBy:'u',generatedByName:'N'},schedule_stats:{...expected.scheduleStats,generatedAt:'y',generatedBy:'u',generatedByName:'N'},faculty_swap_index:{schemaVersion:'ucvm-faculty-swap-index-v1',entries:[{key:'a'},{key:'b'}],generatedAt:'z'},faculty_swap_map:{schemaVersion:'ucvm-faculty-swap-map-v1',entries:[{key:'a',facultyId:'1001'},{key:'b',facultyId:'1002'}],generatedAt:'z',generatedBy:'u',generatedByName:'N'}}};
+ const privateMap={schemaVersion:'ucvm-faculty-swap-map-v1',entries:[
+  {key:'key-a',facultyId:'1001'},
+  {key:'key-b',facultyId:'1002'}
+ ]};
+ const swap=dataIndex.buildFacultySwapIndexes(faculty,privateMap,()=>{throw Error('verify must not allocate keys')});
+ const base=api.derivedDocuments(faculty,sessions);
+ return{api,faculty,sessions,docs:{
+  faculty_index:{...base.facultyIndex,generatedAt:'old',generatedBy:'u',generatedByName:'N'},
+  schedule_stats:{...base.scheduleStats,generatedAt:'old'},
+  faculty_swap_index:{...swap.publicIndex,generatedAt:'old'},
+  faculty_swap_map:{...swap.privateMap,generatedAt:'old',generatedBy:'u',generatedByName:'N'}
+ }};
 }
 
-test('provisional verifier accepts canonical indexes and ignores generation metadata',async()=>{
- const {api,faculty,sessions,docs}=verifierFixture();
- const result=await api.verifyDerivedIndexesProvisional(fakeSettingsDb(docs),faculty,sessions);
+test('full verifier returns HEALTHY and ignores generation metadata',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions});
  assert.equal(result.ok,true);
- assert.deepEqual(result.errors,[]);
+ assert.equal(result.severity,'healthy');
+ assert.equal(result.mismatchCount,0);
+ assert.deepEqual(result.documents,{
+  faculty_index:'healthy',schedule_stats:'healthy',faculty_swap_index:'healthy',faculty_swap_map:'healthy'
+ });
 });
 
-test('provisional verifier rejects a mismatched schedule count',async()=>{
- const {api,faculty,sessions,docs}=verifierFixture();
+test('full verifier reports exact schedule_stats path and values',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ docs.schedule_stats.courseCounts['200']=9;
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions});
+ assert.equal(result.severity,'mismatch');
+ assert.ok(result.mismatches.some(row=>row.document==='schedule_stats'&&row.path==='courseCounts.200'&&row.expected===1&&row.actual===9));
+});
+
+test('legacy provisional verifier name delegates to full structured verification',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
  docs.schedule_stats.sessionCount=99;
  const result=await api.verifyDerivedIndexesProvisional(fakeSettingsDb(docs),faculty,sessions);
- assert.equal(result.ok,false);
- assert.match(result.errors.join('\n'),/schedule_stats/i);
+ assert.equal(result.severity,'mismatch');
+ assert.ok(result.mismatches.some(row=>row.document==='schedule_stats'&&row.path==='sessionCount'));
 });
 
-test('provisional verifier names missing swap documents',async()=>{
- const {api,faculty,sessions,docs}=verifierFixture();
- delete docs.faculty_swap_map;
- const result=await api.verifyDerivedIndexesProvisional(fakeSettingsDb(docs),faculty,sessions);
- assert.equal(result.ok,false);
- assert.match(result.errors.join('\n'),/faculty_swap_map/i);
+test('new active faculty without private mapping is repairable and verify allocates nothing',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ faculty.push({__id:'1003',preferredFullName:'Casey',active:true});
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions});
+ assert.equal(result.severity,'mismatch');
+ assert.ok(result.mismatches.some(row=>row.issue==='missing-new-faculty-key'&&row.path==='faculty.1003'));
+});
+
+test('duplicate private key ownership is critical',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ docs.faculty_swap_map.entries[1].key='key-a';
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions});
+ assert.equal(result.severity,'critical');
+ assert.equal(result.documents.faculty_swap_map,'critical');
+ assert.ok(result.mismatches.some(row=>row.issue==='duplicate-key-ownership'));
+});
+
+test('missing and invalid derived documents are named explicitly',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ delete docs.faculty_index;
+ docs.schedule_stats='broken';
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions});
+ assert.ok(result.mismatches.some(row=>row.document==='faculty_index'&&row.issue==='document-missing'));
+ assert.ok(result.mismatches.some(row=>row.document==='schedule_stats'&&row.issue==='invalid-structure'));
+});
+
+test('verifier counts all mismatches but returns at most 50 details',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ docs.faculty_index.entries=Array.from({length:80},(_,i)=>({id:String(i),name:`Wrong ${i}`}));
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions,maxDetails:50});
+ assert.ok(result.mismatchCount>50);
+ assert.equal(result.mismatches.length,50);
+});
+
+function fakeBatchDb(initial={}){
+ const docs=new Map(Object.entries(initial)),commits=[];let generated=0;
+ const makeRef=id=>({id,get:async()=>docs.has(id)?{exists:true,data:()=>docs.get(id)}:{exists:false,data:()=>undefined}});
+ return{
+  commits,
+  collection(name){if(name!=='settings')throw Error(`unexpected collection ${name}`);return{doc(id){return id===undefined?{id:`generated-${++generated}`} : makeRef(id)}}},
+  batch(){const writes=[];return{set(ref,data){writes.push({id:ref.id,data})},async commit(){for(const write of writes)docs.set(write.id,write.data);commits.push(writes)}}}
+ };
+}
+
+test('writeDerivedIndexes commits all four settings documents in one batch',async()=>{
+ const api=require(path.join(root,'index-maintenance.js'));
+ const db=fakeBatchDb({
+  faculty_swap_map:{schemaVersion:'ucvm-faculty-swap-map-v1',entries:[{key:'stable',facultyId:'1001'}]},
+  faculty_swap_index:{schemaVersion:'ucvm-faculty-swap-index-v1',entries:[{key:'stable',name:'Alex',aliases:['Alex'],unavailableRanges:[]}]}
+ });
+ await api.writeDerivedIndexes(db,[{__id:'1001',preferredFullName:'Alex',active:true}],[],{uid:'g',name:'General'});
+ assert.equal(db.commits.length,1);
+ assert.deepEqual(db.commits[0].map(row=>row.id).sort(),['faculty_index','faculty_swap_index','faculty_swap_map','schedule_stats']);
 });

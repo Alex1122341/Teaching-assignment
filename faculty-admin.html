@@ -55,6 +55,14 @@
 
   <section id="database-view" class="panel hidden">
     <div class="toolbar"><input class="input search" id="db-search" placeholder="Filter database…"><button class="btn btn-primary" id="add-btn">+ Add Faculty</button><button class="btn" id="import-btn" data-general-only>Import Full Faculty JSON</button><button class="btn" id="export-json-btn">Export JSON</button><button class="btn" id="export-csv-btn">Export CSV</button><input type="file" id="import-file" data-general-only accept="application/json,.json" class="hidden"></div>
+    <div id="derived-index-health-card" class="derived-index-health-card">
+      <div class="derived-index-health-head">
+        <div><div class="section-kicker">Data integrity</div><h2>Derived Index Health</h2><p id="derived-index-health-meta">Not checked yet.</p></div>
+        <div class="derived-index-health-actions"><button type="button" class="btn" id="derived-index-verify">Verify Derived Indexes</button><button type="button" class="btn btn-primary hidden" id="derived-index-rebuild" data-derived-index-rebuild>Rebuild Derived Indexes</button></div>
+      </div>
+      <div id="derived-index-health-status" class="derived-index-health-status" aria-live="polite"></div>
+      <div id="derived-index-health-diffs" class="derived-index-health-diffs"></div>
+    </div>
     <div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>UCID</th><th>Email</th><th>Rank / Title</th><th>Teaching Area</th><th>Board Specialty</th><th>FTE</th><th>Campus</th><th>Reports To / AD</th><th>Actions</th></tr></thead><tbody id="db-body"></tbody></table></div>
   </section>
 </main>
@@ -64,4 +72,5 @@
 <script src="faculty-admin.js"></script>
 <script src="faculty-swap-safe.js"></script>
 <script src="bulk-import-ui.js"></script>
+<script src="derived-index-health.js"></script>
 </body></html>
