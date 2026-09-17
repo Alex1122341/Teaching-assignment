@@ -1,0 +1,22 @@
+--- a/tests/approval-lifecycle-security-emulator.test.js
++++ b/tests/approval-lifecycle-security-emulator.test.js
+@@ -17,7 +17,7 @@
+  await env.clearFirestore();
+  await env.withSecurityRulesDisabled(async ctx=>{
+   const db=ctx.firestore();
+-  for(const [uid,role] of [['faculty','faculty'],['other','faculty'],['adc','adc'],['lab','lab'],['adfa','adfa_regular']])await db.doc(`users/${uid}`).set({role,active:true,mustChangePassword:false,facultyId:role==='faculty'?(uid==='faculty'?'f1':'f2'):undefined,email:`${uid}@example.test`});
++  for(const [uid,role] of [['faculty','faculty'],['other','faculty'],['adc','adc'],['lab','lab'],['adfa','adfa_regular']]){const profile={role,active:true,mustChangePassword:false,email:`${uid}@example.test`};if(role==='faculty')profile.facultyId=uid==='faculty'?'f1':'f2';await db.doc(`users/${uid}`).set(profile);}
+   await db.doc('faculty/f1').set({email:'faculty@example.test'});await db.doc('faculty/f2').set({email:'other@example.test'});
+   await db.doc('change_requests/r1').set(publicRequest());await db.doc('change_request_workflow/r1').set(workflow());await db.doc('change_request_approvals/r1_adc').set(approval());
+   await db.doc('sessions/s1').set(source);await db.doc('calendar_sessions/s1').set(calendar);
+--- a/tests/approval-security-emulator.test.js
++++ b/tests/approval-security-emulator.test.js
+@@ -11,7 +11,7 @@
+  await env.clearFirestore();
+  await env.withSecurityRulesDisabled(async ctx=>{
+   const db=ctx.firestore();
+-  for(const [uid,role] of [['faculty','faculty'],['other','faculty'],['adc','adc'],['lab','lab'],['adfa','adfa_regular'],['owner','owner']])await db.doc(`users/${uid}`).set({role,active:true,mustChangePassword:false,facultyId:role==='faculty'?(uid==='faculty'?'f1':'f2'):undefined,email:`${uid}@example.test`});
++  for(const [uid,role] of [['faculty','faculty'],['other','faculty'],['adc','adc'],['lab','lab'],['adfa','adfa_regular'],['owner','owner']]){const profile={role,active:true,mustChangePassword:false,email:`${uid}@example.test`};if(role==='faculty')profile.facultyId=uid==='faculty'?'f1':'f2';await db.doc(`users/${uid}`).set(profile);}
+   await db.doc('faculty/f1').set({email:'faculty@example.test'});await db.doc('faculty/f2').set({email:'other@example.test'});
+   await db.doc('change_requests/r1').set({requestSchema:'office-routing-v1',requesterUid:'faculty',requesterRole:'faculty',sessionId:'s1',requestType:'faculty_swap',status:'pending',revision:1,basePublic:{course:'505'},patchPublic:{instructor:'Dr New'},currentFacultyName:'Dr Old',proposedFacultyName:'Dr New',editableFields:[],requesterMessage:''});
+   await db.doc('change_request_workflow/r1').set({requestId:'r1',revision:1,requiredOffices:['adc','lab','adfa'],hasFacultyChange:true,finalType:'LAB',scopes:{adc:['date'],lab:['topic'],adfa:['assignments']},scopeSignatures:{adc:'adc-sig',lab:'lab-sig',adfa:'adfa-sig'}});
