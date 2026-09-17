@@ -28,7 +28,10 @@ jobs:
           set -euo pipefail
           cat tools/ws5b-final.patch.xz.b64.00 \
               tools/ws5b-final.patch.xz.b64.01 \
-              tools/ws5b-final.patch.xz.b64.02 \
+              tools/ws5b-final.patch.xz.b64.02a \
+              tools/ws5b-final.patch.xz.b64.02b \
+              tools/ws5b-final.patch.xz.b64.02c \
+              tools/ws5b-final.patch.xz.b64.02d \
               tools/ws5b-final.patch.xz.b64.03 \
               tools/ws5b-final.patch.xz.b64.04 \
               tools/ws5b-final.patch.xz.b64.05 \
