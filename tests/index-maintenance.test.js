@@ -175,3 +175,24 @@ test('verifier counts all mismatches but returns at most 50 details',async()=>{
  assert.ok(result.mismatchCount>50);
  assert.equal(result.mismatches.length,50);
 });
+
+function fakeBatchDb(initial={}){
+ const docs=new Map(Object.entries(initial)),commits=[];let generated=0;
+ const makeRef=id=>({id,get:async()=>docs.has(id)?{exists:true,data:()=>docs.get(id)}:{exists:false,data:()=>undefined}});
+ return{
+  commits,
+  collection(name){if(name!=='settings')throw Error(`unexpected collection ${name}`);return{doc(id){return id===undefined?{id:`generated-${++generated}`} : makeRef(id)}}},
+  batch(){const writes=[];return{set(ref,data){writes.push({id:ref.id,data})},async commit(){for(const write of writes)docs.set(write.id,write.data);commits.push(writes)}}}
+ };
+}
+
+test('writeDerivedIndexes commits all four settings documents in one batch',async()=>{
+ const api=require(path.join(root,'index-maintenance.js'));
+ const db=fakeBatchDb({
+  faculty_swap_map:{schemaVersion:'ucvm-faculty-swap-map-v1',entries:[{key:'stable',facultyId:'1001'}]},
+  faculty_swap_index:{schemaVersion:'ucvm-faculty-swap-index-v1',entries:[{key:'stable',name:'Alex',aliases:['Alex'],unavailableRanges:[]}]}
+ });
+ await api.writeDerivedIndexes(db,[{__id:'1001',preferredFullName:'Alex',active:true}],[],{uid:'g',name:'General'});
+ assert.equal(db.commits.length,1);
+ assert.deepEqual(db.commits[0].map(row=>row.id).sort(),['faculty_index','faculty_swap_index','faculty_swap_map','schedule_stats']);
+});
