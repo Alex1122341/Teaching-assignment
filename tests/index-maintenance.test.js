@@ -100,3 +100,44 @@ test('provisional verifier names missing swap documents',async()=>{
  assert.equal(result.ok,false);
  assert.match(result.errors.join('\n'),/faculty_swap_map/i);
 });
+
+function fullVerifierFixture(){
+ const api=require(path.join(root,'index-maintenance.js'));
+ const dataIndex=require(path.join(root,'data-index.js'));
+ const faculty=[
+  {__id:'1001',preferredFullName:'Alex',active:true,doe:{teaching:20}},
+  {__id:'1002',preferredFullName:'Blair',active:true,doe:{teaching:20}}
+ ];
+ const sessions=[{id:'s1',course:'200',assignments:[{ucid:'1001',doeCredit:2}]}];
+ const privateMap={schemaVersion:'ucvm-faculty-swap-map-v1',entries:[
+  {key:'key-a',facultyId:'1001'},
+  {key:'key-b',facultyId:'1002'}
+ ]};
+ const swap=dataIndex.buildFacultySwapIndexes(faculty,privateMap,()=>{throw Error('verify must not allocate keys')});
+ const base=api.derivedDocuments(faculty,sessions);
+ return{api,faculty,sessions,docs:{
+  faculty_index:{...base.facultyIndex,generatedAt:'old',generatedBy:'u',generatedByName:'N'},
+  schedule_stats:{...base.scheduleStats,generatedAt:'old'},
+  faculty_swap_index:{...swap.publicIndex,generatedAt:'old'},
+  faculty_swap_map:{...swap.privateMap,generatedAt:'old',generatedBy:'u',generatedByName:'N'}
+ }};
+}
+
+test('full verifier returns HEALTHY and ignores generation metadata',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions});
+ assert.equal(result.ok,true);
+ assert.equal(result.severity,'healthy');
+ assert.equal(result.mismatchCount,0);
+ assert.deepEqual(result.documents,{
+  faculty_index:'healthy',schedule_stats:'healthy',faculty_swap_index:'healthy',faculty_swap_map:'healthy'
+ });
+});
+
+test('full verifier reports exact schedule_stats path and values',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ docs.schedule_stats.courseCounts['200']=9;
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions});
+ assert.equal(result.severity,'mismatch');
+ assert.ok(result.mismatches.some(row=>row.document==='schedule_stats'&&row.path==='courseCounts.200'&&row.expected===1&&row.actual===9));
+});
