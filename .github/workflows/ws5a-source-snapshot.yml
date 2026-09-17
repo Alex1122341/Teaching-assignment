@@ -1,4 +1,4 @@
-name: WS5A Source Snapshot
+name: WS5B Source Snapshot
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
       - name: Upload short-lived source snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: ws5a-source-snapshot
+          name: ws5b-source-snapshot
           path: ${{ runner.temp }}/teaching-assignment.bundle
           if-no-files-found: error
           retention-days: 1
