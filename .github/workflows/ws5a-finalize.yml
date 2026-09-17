@@ -1,0 +1,53 @@
+name: WS5A Finalize
+
+on:
+  push:
+    branches:
+      - maintenance/ws5a-final-transport
+    paths:
+      - .github/workflows/ws5a-finalize.yml
+      - tools/ws5a-final.patch.part*
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out transport branch
+        uses: actions/checkout@v4
+        with:
+          ref: maintenance/ws5a-final-transport
+          path: transport
+          persist-credentials: false
+
+      - name: Check out clean WS5A target branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/workstream-5a-scheduling-core
+          path: target
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Reconstruct and verify patch transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat transport/tools/ws5a-final.patch.part0* > "$RUNNER_TEMP/ws5a.b64"
+          echo "634a7b87bf88140b006c32a3db32bb583beb202baf079da4f2196527d4e2caa2  $RUNNER_TEMP/ws5a.b64" | sha256sum -c -
+          base64 -d "$RUNNER_TEMP/ws5a.b64" | gzip -d > "$RUNNER_TEMP/ws5a.patch"
+
+      - name: Apply verified WS5A commit to target branch
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "3e42811597edbf84b6b21368da2cdfcc2aabdd46"
+          git config user.name "Alex1122341"
+          git config user.email "xinyu.zhu1@ucalgary.ca"
+          git am "$RUNNER_TEMP/ws5a.patch"
+          test "$(git rev-parse HEAD^{tree})" = "ee1b8dd7889e63cdbc971963b7c110183c421dde"
+          test -z "$(git status --porcelain)"
+          git push origin HEAD:refs/heads/feature/workstream-5a-scheduling-core
