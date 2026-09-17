@@ -1,0 +1,35 @@
+name: WS5A Source Snapshot
+
+on:
+  push:
+    branches:
+      - maintenance/ws5a-source-snapshot
+    paths:
+      - .github/workflows/ws5a-source-snapshot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read repository history without retained credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export tracked Git objects only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git bundle create "$RUNNER_TEMP/teaching-assignment.bundle" --all
+          git bundle verify "$RUNNER_TEMP/teaching-assignment.bundle"
+      - name: Upload short-lived source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: ws5a-source-snapshot
+          path: ${{ runner.temp }}/teaching-assignment.bundle
+          if-no-files-found: error
+          retention-days: 1
