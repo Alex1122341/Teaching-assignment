@@ -30,7 +30,7 @@ test('approval workflow fetches only sessions referenced by requests',()=>{
  const source=read('approval-workflow.js');
  assert.match(source,/function ensureRequestSessions\(requestRows\)/);
  assert.match(source,/db\.doc\(`\$\{SESSIONS\}\/\$\{id\}`\)\.get\(\)/);
- assert.match(source,/where\('date','==',date\)\.get\(\)/);
+ assert.match(source,/where\('date','==',date\)\.get\(force\?\{source:'server'\}:undefined\)/);
  assert.doesNotMatch(source,/where\('facultyIds','array-contains',id\)\.get\(\)/);
  assert.match(source,/approvalSessionDatesLoaded=new Set\(\)/);
  assert.doesNotMatch(source,/approvalSessionFacultyLoaded/);
