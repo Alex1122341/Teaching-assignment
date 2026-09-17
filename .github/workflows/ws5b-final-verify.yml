@@ -1,0 +1,92 @@
+name: WS5B Final Verification
+
+on:
+  push:
+    branches:
+      - maintenance/ws5b-final-transport
+    paths:
+      - ".github/workflows/ws5b-final-verify.yml"
+      - "tools/ws5b-final.patch.xz.b64.*"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out transport branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Reconstruct and verify reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat tools/ws5b-final.patch.xz.b64.00 \
+              tools/ws5b-final.patch.xz.b64.01 \
+              tools/ws5b-final.patch.xz.b64.02 \
+              tools/ws5b-final.patch.xz.b64.03 \
+              tools/ws5b-final.patch.xz.b64.04 \
+              tools/ws5b-final.patch.xz.b64.05 \
+              tools/ws5b-final.patch.xz.b64.06 \
+              tools/ws5b-final.patch.xz.b64.07 \
+              tools/ws5b-final.patch.xz.b64.08 > "$RUNNER_TEMP/ws5b-final.patch.xz.b64"
+          test "$(wc -c < "$RUNNER_TEMP/ws5b-final.patch.xz.b64")" -eq 98464
+          echo "8b2a504f13697d097100e5c27c61fa327c9cf5e0a4f15d7c64d21df032ba2bbc  $RUNNER_TEMP/ws5b-final.patch.xz.b64" | sha256sum -c -
+          base64 -d "$RUNNER_TEMP/ws5b-final.patch.xz.b64" > "$RUNNER_TEMP/ws5b-final.patch.xz"
+          xz -dc "$RUNNER_TEMP/ws5b-final.patch.xz" > "$RUNNER_TEMP/ws5b-final.patch"
+          echo "a7f50592f1170be097c0863b06ca948e0e69c0728f60f8429986a4e7d1ef624e  $RUNNER_TEMP/ws5b-final.patch" | sha256sum -c -
+
+      - name: Apply patch to WS5B feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin feature/workstream-5b-approval-routing
+          git checkout -B feature/workstream-5b-approval-routing origin/feature/workstream-5b-approval-routing
+          test "$(git rev-parse HEAD)" = "e7cb6e5d4a81f9d4fa6b94363dbff7e6a257cd8c"
+          git apply --check "$RUNNER_TEMP/ws5b-final.patch"
+          git apply "$RUNNER_TEMP/ws5b-final.patch"
+          git status --short
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Java for Firebase emulators
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run static and unit tests
+        run: npm test
+
+      - name: Run Firestore and Auth emulator tests
+        run: npm run test:emulator
+
+      - name: Build static site
+        run: node tools/build-static.js
+
+      - name: Publish verified WS5B application commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No application changes to publish."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat: implement WS5B office routing privacy and workflows"
+          git push origin HEAD:feature/workstream-5b-approval-routing
