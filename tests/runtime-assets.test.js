@@ -18,16 +18,23 @@ test('retired faculty assets are absent from disk, manifest and all runtime link
  assert.doesNotMatch(runtime,/faculty-dashboard\.(?:html|js)/);
 });
 
-test('production manifest contains the complete 42-file dependency graph and no stale visible names',()=>{
+test('production manifest contains the complete 43-file dependency graph and no stale visible names',()=>{
  const manifest=JSON.parse(read('tools/static-assets.json'));
- assert.equal(manifest.length,42);
- for(const name of ['afc-form-values.js','afc-form-state.js','afc-timetable-panel.js','audit-details.js','derived-index-health.js','faculty-account-planner.js','faculty-doe.js','faculty-swap-handoff.js','faculty-swap-safe.js','index-maintenance.js','timetable-selection.js','user-management.css'])assert.ok(manifest.includes(name),name);
+ assert.equal(manifest.length,43);
+ for(const name of ['afc-form-values.js','afc-form-state.js','afc-timetable-panel.js','audit-details.js','derived-index-health.js','faculty-account-planner.js','faculty-doe.js','faculty-swap-handoff.js','faculty-swap-safe.js','index-maintenance.js','scheduling-core.js','timetable-selection.js','user-management.css'])assert.ok(manifest.includes(name),name);
  const runtime=manifest.filter(name=>/\.(html|js)$/.test(name)).map(read).join('\n');
  assert.doesNotMatch(runtime,/Faculty Directory|Faculty Admin Dashboard|Open Faculty Dashboard/);
  for(const page of manifest.filter(name=>name.endsWith('.html'))){
   const html=read(page),references=[...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)].map(match=>match[1].split(/[?#]/)[0]).filter(value=>value&&!/^(?:https?:|#|mailto:|tel:)/.test(value));
   for(const reference of references)assert.ok(manifest.includes(reference),`${page} -> ${reference}`);
  }
+});
+
+test('scheduling core loads before timetable consumers',()=>{
+ const html=read('index.html');
+ assert.ok(html.includes('<script src="scheduling-core.js"></script>'));
+ assert.ok(html.indexOf('scheduling-core.js')<html.indexOf('timetable-selection.js'));
+ assert.ok(html.indexOf('scheduling-core.js')<html.indexOf('timetable.js'));
 });
 
 test('Spark AFC client and its PDF template remain deployable',()=>{
