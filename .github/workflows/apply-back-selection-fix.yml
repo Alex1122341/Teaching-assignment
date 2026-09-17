@@ -32,21 +32,22 @@ jobs:
 
           test_file = Path('tests/timetable-multi-edit-ui.test.js')
           tests = test_file.read_text()
-          marker = "back to selection rerenders immediately instead of relying on a subscription change"
+          marker = 'back to selection rerenders immediately instead of relying on a subscription change'
           if marker not in tests:
-              tests += """
-
-test('back to selection rerenders immediately instead of relying on a subscription change',()=>{
- const js=read('timetable.js');
- const match=js.match(/\\$\\('selection-back-btn'\\)\\.onclick=\\(\\)=>\\{([^}]*)\\}/);
- assert.ok(match,'selection back handler must exist');
- const handler=match[1];
- assert.match(handler,/reviewingSelection=false/);
- assert.match(handler,/viewMode=selectionViewFlow\\.finish\\(\\)/);
- assert.match(handler,/render\\(\\)/);
-});
-"""
-              test_file.write_text(tests)
+              lines = [
+                  '',
+                  "test('back to selection rerenders immediately instead of relying on a subscription change',()=>{",
+                  " const js=read('timetable.js');",
+                  " const match=js.match(/\\$\\('selection-back-btn'\\)\\.onclick=\\(\\)=>\\{([^}]*)\\}/);",
+                  " assert.ok(match,'selection back handler must exist');",
+                  " const handler=match[1];",
+                  " assert.match(handler,/reviewingSelection=false/);",
+                  " assert.match(handler,/viewMode=selectionViewFlow\\.finish\\(\\)/);",
+                  " assert.match(handler,/render\\(\\)/);",
+                  '});',
+                  ''
+              ]
+              test_file.write_text(tests + '\n'.join(lines))
           PY
       - name: Run targeted regression test
         run: node --test tests/timetable-multi-edit-ui.test.js
