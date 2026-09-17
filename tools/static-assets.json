@@ -16,6 +16,7 @@
   "bulk-import-firestore.js",
   "bulk-import-ui.js",
   "data-index.js",
+  "derived-index-health.js",
   "index-maintenance.js",
   "faculty-access.css",
   "faculty-access.js",
