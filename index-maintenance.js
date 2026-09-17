@@ -177,16 +177,12 @@
   return after;
  }
  async function verifyDerivedIndexesProvisional(db,faculty,sessions){
-  const ids=['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map'],snaps=await Promise.all(ids.map(id=>db.collection('settings').doc(id).get())),errors=[],byId=new Map(ids.map((id,index)=>[id,snaps[index]])),expected=derivedDocuments(faculty,sessions);
-  for(const id of ids)if(!byId.get(id)?.exists)errors.push(`Derived index ${id} is missing.`);
-  const facultySnap=byId.get('faculty_index'),statsSnap=byId.get('schedule_stats');
-  if(facultySnap?.exists&&!sameCanonical(withoutGenerationMeta(facultySnap.data()),expected.facultyIndex))errors.push('Derived index faculty_index does not match canonical faculty/session data.');
-  if(statsSnap?.exists&&!sameCanonical(withoutGenerationMeta(statsSnap.data()),expected.scheduleStats))errors.push('Derived index schedule_stats does not match canonical session data.');
-  const publicSnap=byId.get('faculty_swap_index'),privateSnap=byId.get('faculty_swap_map');
-  if(publicSnap?.exists&&!Array.isArray(publicSnap.data()?.entries))errors.push('Derived index faculty_swap_index entries are invalid.');
-  if(privateSnap?.exists&&!Array.isArray(privateSnap.data()?.entries))errors.push('Derived index faculty_swap_map entries are invalid.');
-  if(publicSnap?.exists&&privateSnap?.exists&&Array.isArray(publicSnap.data()?.entries)&&Array.isArray(privateSnap.data()?.entries)&&publicSnap.data().entries.length!==privateSnap.data().entries.length)errors.push('Derived swap indexes have different entry counts.');
-  return{ok:errors.length===0,errors};
+  const report=await verifyDerivedIndexes(db,{faculty,sessions});
+  const errors=(report.mismatches||[]).map(row=>{
+   const location=[String(row?.document||''),String(row?.path||'')].filter(Boolean).join('.');
+   return`Derived index ${location||'verification'}: ${String(row?.issue||'mismatch')}.`;
+  });
+  return{...report,errors};
  }
  return{sessionForWrite,replaceSession,removeSession,derivedDocuments,applySessionChanges,writeDerivedIndexes,rebuildDerivedIndexes,updateDerivedIndexes,verifyDerivedIndexes,verifyDerivedIndexesProvisional,analyzeSwapIdentity,buildExpectedDerivedIndexes,compareDerivedIndexDocuments,writeFacultySwapIndexes,addFacultySwapUnavailableRange,prepareFacultySwapAfcUpdate};
 });
