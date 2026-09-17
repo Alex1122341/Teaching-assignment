@@ -47,3 +47,10 @@ test('Faculty Dashboard loads bulk import runtime after legacy admin bindings so
  assert.ok(html.indexOf('bulk-import-controller.js')>html.indexOf('bulk-import-core.js'));
  assert.ok(html.indexOf('bulk-import-ui.js')>html.indexOf('faculty-admin.js'));
 });
+
+test('bulk import runtime injects the full derived-index verifier and atomic writer',()=>{
+ const js=fs.readFileSync(path.join(root,'bulk-import-ui.js'),'utf8');
+ assert.match(js,/rebuildIndexes:\(\{faculty,sessions,actor:who\}\)=>indexMaintenance\.writeDerivedIndexes\(db,faculty,sessions,who\)/);
+ assert.match(js,/verifyIndexes:\(\{faculty,sessions\}\)=>indexMaintenance\.verifyDerivedIndexes\(db,\{faculty,sessions\}\)/);
+ assert.doesNotMatch(js,/verifyDerivedIndexesProvisional/);
+});
