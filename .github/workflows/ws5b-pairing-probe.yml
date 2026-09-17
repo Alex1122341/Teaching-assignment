@@ -1,0 +1,38 @@
+name: WS5B Pairing Capacity Probe
+on:
+  push:
+    branches: [maintenance/ws5b-tasks1-4-transport]
+    paths:
+      - '.github/workflows/ws5b-pairing-probe.yml'
+      - 'tools/ws5b-pairing-probe.cjs'
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - name: Probe paired writes against synthetic emulator-only rules and records
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx firebase emulators:exec --only firestore --project demo-ucvm-access "node --test tools/ws5b-pairing-probe.cjs" 2>&1 | tee "$RUNNER_TEMP/pairing-probe.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ws5b-pairing-probe
+          path: ${{ runner.temp }}/pairing-probe.log
+          if-no-files-found: error
+          retention-days: 7
