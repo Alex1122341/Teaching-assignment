@@ -141,3 +141,37 @@ test('full verifier reports exact schedule_stats path and values',async()=>{
  assert.equal(result.severity,'mismatch');
  assert.ok(result.mismatches.some(row=>row.document==='schedule_stats'&&row.path==='courseCounts.200'&&row.expected===1&&row.actual===9));
 });
+
+test('new active faculty without private mapping is repairable and verify allocates nothing',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ faculty.push({__id:'1003',preferredFullName:'Casey',active:true});
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions});
+ assert.equal(result.severity,'mismatch');
+ assert.ok(result.mismatches.some(row=>row.issue==='missing-new-faculty-key'&&row.path==='faculty.1003'));
+});
+
+test('duplicate private key ownership is critical',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ docs.faculty_swap_map.entries[1].key='key-a';
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions});
+ assert.equal(result.severity,'critical');
+ assert.equal(result.documents.faculty_swap_map,'critical');
+ assert.ok(result.mismatches.some(row=>row.issue==='duplicate-key-ownership'));
+});
+
+test('missing and invalid derived documents are named explicitly',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ delete docs.faculty_index;
+ docs.schedule_stats='broken';
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions});
+ assert.ok(result.mismatches.some(row=>row.document==='faculty_index'&&row.issue==='document-missing'));
+ assert.ok(result.mismatches.some(row=>row.document==='schedule_stats'&&row.issue==='invalid-structure'));
+});
+
+test('verifier counts all mismatches but returns at most 50 details',async()=>{
+ const {api,faculty,sessions,docs}=fullVerifierFixture();
+ docs.faculty_index.entries=Array.from({length:80},(_,i)=>({id:String(i),name:`Wrong ${i}`}));
+ const result=await api.verifyDerivedIndexes(fakeSettingsDb(docs),{faculty,sessions,maxDetails:50});
+ assert.ok(result.mismatchCount>50);
+ assert.equal(result.mismatches.length,50);
+});
