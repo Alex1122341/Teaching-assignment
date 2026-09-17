@@ -1,0 +1,61 @@
+name: Apply Back To Selection Fix
+
+on:
+  push:
+    branches:
+      - fix/review-back-to-selection
+
+permissions:
+  contents: write
+
+jobs:
+  apply-reviewed-fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/review-back-to-selection
+      - name: Apply the reviewed minimal fix and regression test
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          timetable = Path('timetable.js')
+          source = timetable.read_text()
+          old = "$('selection-back-btn').onclick=()=>{reviewingSelection=false;viewMode=selectionViewFlow.finish();setViewButtons();refreshSessionScope()};"
+          new = "$('selection-back-btn').onclick=()=>{reviewingSelection=false;viewMode=selectionViewFlow.finish();setViewButtons();render();refreshSessionScope()};"
+          if old not in source:
+              raise SystemExit('Expected Back to selection handler was not found.')
+          timetable.write_text(source.replace(old, new, 1))
+
+          test_file = Path('tests/timetable-multi-edit-ui.test.js')
+          tests = test_file.read_text()
+          marker = "back to selection rerenders immediately instead of relying on a subscription change"
+          if marker not in tests:
+              tests += """
+
+test('back to selection rerenders immediately instead of relying on a subscription change',()=>{
+ const js=read('timetable.js');
+ const match=js.match(/\\$\\('selection-back-btn'\\)\\.onclick=\\(\\)=>\\{([^}]*)\\}/);
+ assert.ok(match,'selection back handler must exist');
+ const handler=match[1];
+ assert.match(handler,/reviewingSelection=false/);
+ assert.match(handler,/viewMode=selectionViewFlow\\.finish\\(\\)/);
+ assert.match(handler,/render\\(\\)/);
+});
+"""
+              test_file.write_text(tests)
+          PY
+      - name: Run targeted regression test
+        run: node --test tests/timetable-multi-edit-ui.test.js
+      - name: Commit only the bug fix and regression test
+        shell: bash
+        run: |
+          rm .github/workflows/apply-back-selection-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add timetable.js tests/timetable-multi-edit-ui.test.js .github/workflows/apply-back-selection-fix.yml
+          git commit -m "Fix back to selection rerender"
+          git push origin HEAD:fix/review-back-to-selection
