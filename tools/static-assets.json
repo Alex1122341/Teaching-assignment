@@ -33,6 +33,7 @@
   "maintenance-state.js",
   "password.html",
   "password.js",
+  "scheduling-core.js",
   "session-guard.js",
   "signature-capture.js",
   "timetable.css",
