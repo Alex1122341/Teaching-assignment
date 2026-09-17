@@ -7,7 +7,7 @@ let env;
 before(async()=>{
  if(!enabled)return;
  const {initializeTestEnvironment}=require('@firebase/rules-unit-testing');
- env=await initializeTestEnvironment({projectId:'demo-ucvm-access',firestore:{rules:fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8')}});
+ env=await initializeTestEnvironment({projectId:'demo-ucvm-password-security',firestore:{rules:fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8')}});
  await env.clearFirestore();
  await env.withSecurityRulesDisabled(async context=>{
   const db=context.firestore();
