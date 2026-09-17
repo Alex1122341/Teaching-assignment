@@ -1,0 +1,41 @@
+name: WS5A Large File Patcher
+
+on:
+  push:
+    branches: [ws5a-scheduling-core]
+    paths:
+      - '.github/workflows/ws5a-large-file-patcher.yml'
+      - 'tools/apply-ws5a-large-file-patches.js'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ws5a-scheduling-core
+          fetch-depth: 0
+      - name: Reset large files to main baseline
+        run: |
+          git fetch origin main
+          git checkout origin/main -- index.html timetable.js approval-workflow.js
+      - name: Apply deterministic WS5A patches
+        run: node tools/apply-ws5a-large-file-patches.js
+      - name: Verify syntax
+        run: |
+          node --check timetable.js
+          node --check approval-workflow.js
+      - name: Commit patched files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html timetable.js approval-workflow.js
+          if git diff --cached --quiet; then
+            echo 'No patch changes required.'
+            exit 0
+          fi
+          git commit -m 'refactor: apply canonical scheduling integration'
+          git push origin HEAD:ws5a-scheduling-core
