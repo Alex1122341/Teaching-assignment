@@ -31,6 +31,15 @@ test('planned maintenance API exposes a non-throwing normal-write guard',()=>{
  assert.equal(typeof api.renderBanner,'function');
 });
 
+test('runtime banner keeps the required maintenance message exact',()=>{
+ const api=require('../maintenance-state.js'),nodes={};
+ const body={prepend(node){nodes[node.id]=node},classList:{toggle(){}}};
+ const doc={body,getElementById:id=>nodes[id]||null,createElement:()=>({id:'',style:{},textContent:'',setAttribute(){},removeAttribute(){},getAttribute(){return null}}),querySelectorAll:()=>[],addEventListener(){},removeEventListener(){}};
+ const runtime=api.create({document:doc});
+ runtime.setState({teachingDataWriteLocked:true,maintenanceMode:'bulk_import',activeImportId:'i1',maintenanceOwnerName:'Alex'});
+ assert.equal(nodes['teaching-maintenance-banner'].textContent,api.LOCKED_MESSAGE);
+});
+
 test('UI blocker covers timetable, approval, faculty, and import mutations but not viewing',()=>{
  const api=require('../maintenance-state.js');
  for(const selector of ['#add-session-btn','#selection-save-btn','.btn-swap-confirm','[data-approve-request]','#workflow-self-swap','#save-edit','#import-summary-btn'])assert.ok(api.BLOCKED_CLICK_SELECTORS.includes(selector),selector);
