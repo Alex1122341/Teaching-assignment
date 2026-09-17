@@ -42,3 +42,36 @@ test('runtime separates read-only verify from full rebuild',()=>{
  assert.match(js,/verifyDerivedIndexes\(db\)/);
  assert.match(js,/rebuildDerivedIndexes\(db,actor\)/);
 });
+
+function fakeNode(){return{textContent:'',innerHTML:'',disabled:false,classList:{toggle(){}},addEventListener(){}}}
+function fakeDocument(){
+ const nodes={
+  'derived-index-health-card':fakeNode(),
+  'derived-index-health-meta':fakeNode(),
+  'derived-index-health-status':fakeNode(),
+  'derived-index-health-diffs':fakeNode(),
+  'derived-index-verify':fakeNode(),
+  'derived-index-rebuild':fakeNode()
+ };
+ return{nodes,head:{appendChild(){}},getElementById:id=>nodes[id]||null,createElement:()=>({id:'',textContent:''})};
+}
+
+test('post-rebuild verification failure keeps mismatch details visible',async()=>{
+ const document=fakeDocument(),mismatch={
+  ok:false,severity:'mismatch',checkedAt:'2026-09-17T12:00:00Z',counts:{faculty:2,sessions:1},mismatchCount:1,
+  documents:{faculty_index:'healthy',schedule_stats:'mismatch',faculty_swap_index:'healthy',faculty_swap_map:'healthy'},
+  mismatches:[{document:'schedule_stats',path:'sessionCount',issue:'value-mismatch',expected:1,actual:2,severity:'mismatch'}]
+ };
+ const runtime=ui.createRuntime({
+  document,window:{confirm:()=>true},db:{},profile:{role:'adfa_general'},actor:{uid:'g',name:'General'},access:{general:()=>true},maintenance:{normalWritesAllowed:()=>true,subscribe:()=>()=>{}},
+  indexMaintenance:{
+   verifyDerivedIndexes:async()=>mismatch,
+   rebuildDerivedIndexes:async()=>{const error=Error('Derived indexes were written but post-rebuild verification is not healthy.');error.report=mismatch;throw error}
+  }
+ });
+ await runtime.verify();
+ await runtime.rebuild();
+ assert.match(document.nodes['derived-index-health-diffs'].innerHTML,/Overall: MISMATCH/);
+ assert.match(document.nodes['derived-index-health-diffs'].innerHTML,/schedule_stats/);
+ assert.match(document.nodes['derived-index-health-diffs'].innerHTML,/post-rebuild verification is not healthy/i);
+});
