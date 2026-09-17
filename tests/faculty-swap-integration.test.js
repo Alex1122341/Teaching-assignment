@@ -58,7 +58,7 @@ test('approval resolves opaque candidate keys through admin-only mapping and sup
 test('Firestore rules expose only sanitized swap index and require notes for special targets',()=>{
  const rules=read('firestore.rules');
  assert.match(rules,/id == 'faculty_swap_index'/);
- assert.match(rules,/allow read: if ready\(\) && id == 'faculty_swap_index'/);
+ assert.match(rules,/allow read: if privateReader\(\) && id == 'faculty_swap_index'/);
  assert.match(rules,/faculty_swap_map/);
  assert.match(rules,/specialReplacement/);
  assert.match(rules,/reason\.size\(\) > 0/);
