@@ -1,0 +1,79 @@
+name: WS5B Task45 Verification
+
+on:
+  push:
+    branches:
+      - maintenance/ws5b-task45-transport
+    paths:
+      - .github/workflows/ws5b-task45-verify.yml
+      - tools/ws5b-task45.patch.b64.*
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out transport branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Reconstruct reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat tools/ws5b-task45.patch.b64.* | base64 -d | gzip -d > "$RUNNER_TEMP/ws5b-task45.patch"
+          test -s "$RUNNER_TEMP/ws5b-task45.patch"
+          echo "patch_sha256=$(sha256sum "$RUNNER_TEMP/ws5b-task45.patch" | awk '{print $1}')" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Select feature branch and apply patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin feature/workstream-5b-approval-routing
+          git checkout -B feature/workstream-5b-approval-routing origin/feature/workstream-5b-approval-routing
+          git apply --check "$RUNNER_TEMP/ws5b-task45.patch"
+          git apply "$RUNNER_TEMP/ws5b-task45.patch"
+          git status --short
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up Java for Firebase emulators
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run static and unit tests
+        run: npm test
+
+      - name: Run Firestore and Auth emulator tests
+        run: npm run test:emulator
+
+      - name: Build static site
+        run: node tools/build-static.js
+
+      - name: Publish verified application commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No application changes to commit.'
+            exit 0
+          fi
+          git commit -m 'feat: enforce office timetable privacy and calendar synchronization'
+          git push origin HEAD:feature/workstream-5b-approval-routing
