@@ -33,7 +33,7 @@
    const writesAllowed=maintenance?.normalWritesAllowed?.()!==false;
    if(rebuildButton)rebuildButton.disabled=busy||!report||report.severity!=='mismatch'||!writesAllowed;
    if(verifyButton)verifyButton.disabled=busy;
-   if(operationalError){
+   if(operationalError&&!report){
     if(meta)meta.textContent='Verification could not be completed.';
     if(status)status.innerHTML='';
     if(diffs)diffs.innerHTML=`<div class="derived-index-health-error"><strong>Operational error:</strong> ${esc(operationalError)}</div>`;
@@ -49,12 +49,12 @@
    if(meta)meta.textContent=`Last checked: ${checkedTime(report.checkedAt)} · Faculty checked: ${Number(counts.faculty)||0} · Sessions checked: ${Number(counts.sessions)||0}`;
    if(status)status.innerHTML=statusRows(report).map(row=>`<div class="derived-index-health-doc" data-status="${esc(row.status)}"><strong>${esc(row.id)}</strong><span>${esc(row.status)}</span></div>`).join('');
    const details=(report.mismatches||[]).map(row=>`<div class="derived-index-health-diff"><strong>${esc(row.document||'derived index')}</strong> · <code>${esc(row.path||row.issue||'document')}</code><br>${esc(row.issue||'value-mismatch')} · Expected: <code>${esc(displayValue(row.expected))}</code> · Actual: <code>${esc(displayValue(row.actual))}</code></div>`).join('');
-   const remaining=Math.max(0,(Number(report.mismatchCount)||0)-(report.mismatches||[]).length),critical=summary.severity==='critical'?'<div class="derived-index-health-note derived-index-health-critical">Automatic rebuild is unavailable because swap identity ownership is ambiguous.</div>':'';
-   if(diffs)diffs.innerHTML=`<div class="derived-index-health-overall">Overall: ${esc(summary.label)}${summary.count?` · ${summary.count} mismatch${summary.count===1?'':'es'}`:''}</div>${critical}${details}${remaining?`<div class="derived-index-health-note">${remaining} additional mismatch${remaining===1?'':'es'} not shown.</div>`:''}`;
+   const remaining=Math.max(0,(Number(report.mismatchCount)||0)-(report.mismatches||[]).length),critical=summary.severity==='critical'?'<div class="derived-index-health-note derived-index-health-critical">Automatic rebuild is unavailable because swap identity ownership is ambiguous.</div>':'',errorBox=operationalError?`<div class="derived-index-health-error"><strong>Rebuild not verified:</strong> ${esc(operationalError)}</div>`:'';
+   if(diffs)diffs.innerHTML=`<div class="derived-index-health-overall">Overall: ${esc(summary.label)}${summary.count?` · ${summary.count} mismatch${summary.count===1?'':'es'}`:''}</div>${critical}${errorBox}${details}${remaining?`<div class="derived-index-health-note">${remaining} additional mismatch${remaining===1?'':'es'} not shown.</div>`:''}`;
   }
   async function verify(){
    busy=true;operationalError='';render();
-   try{report=await indexMaintenance.verifyDerivedIndexes(db)}catch(error){operationalError=error?.message||String(error)}finally{busy=false;render()}
+   try{report=await indexMaintenance.verifyDerivedIndexes(db)}catch(error){report=null;operationalError=error?.message||String(error)}finally{busy=false;render()}
    return report;
   }
   async function rebuild(){
