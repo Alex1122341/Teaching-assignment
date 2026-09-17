@@ -17,6 +17,21 @@ test('restore phase and recovery ownership are explicit',()=>{
  assert.deepEqual(ui.recoveryPermissions({teachingDataWriteLocked:true,maintenanceOwnerUid:'general'},{phase:'FAILED'},'general2'),{active:true,isOwner:false,canTakeOver:true,isRestore:false});
 });
 
+test('start gate requires a saved backup and exact IMPORT confirmation for large changes',()=>{
+ assert.deepEqual(ui.startGate({backupConfirmed:false,requiresTypedImportConfirmation:false,typedConfirmation:''}),{ok:false,message:'Confirm that the recovery backup has been saved.'});
+ assert.deepEqual(ui.startGate({backupConfirmed:true,requiresTypedImportConfirmation:true,typedConfirmation:'import'}),{ok:false,message:'Type IMPORT exactly to confirm this large synchronization.'});
+ assert.deepEqual(ui.startGate({backupConfirmed:true,requiresTypedImportConfirmation:true,typedConfirmation:'IMPORT'}),{ok:true,message:''});
+ assert.deepEqual(ui.startGate({backupConfirmed:true,requiresTypedImportConfirmation:false,typedConfirmation:''}),{ok:true,message:''});
+});
+
+test('restore and takeover confirmation helpers reject ambiguous input',()=>{
+ assert.equal(ui.restoreConfirmed('RESTORE'),true);
+ assert.equal(ui.restoreConfirmed('restore'),false);
+ assert.equal(ui.restoreConfirmed(' RESTORE '),true);
+ assert.equal(ui.takeoverReason('   '),'');
+ assert.equal(ui.takeoverReason(' Original administrator unavailable '),'Original administrator unavailable');
+});
+
 test('raw file payload preserves exact bytes used for fingerprinting',async()=>{
  const raw=new TextEncoder().encode('{ "a": 1 }');
  const file={name:'source.json',arrayBuffer:async()=>raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength)};
