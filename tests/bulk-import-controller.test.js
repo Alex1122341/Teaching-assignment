@@ -9,6 +9,8 @@ const enc=new TextEncoder(),DELETE=Symbol('delete'),clone=value=>JSON.parse(JSON
 const smallCore={...realCore,FACULTY_BATCH_SIZE:2,SESSION_BATCH_SIZE:2,STALE_BATCH_SIZE:2};
 function sourceObject(){return{schemaVersion:realCore.SOURCE_SCHEMA,sourceWorkbook:'Teaching Assignments.xlsx',faculty:[{ucid:'f1',displayName:'One'},{ucid:'f2',displayName:'Two'},{ucid:'f3',displayName:'Three'}],sessions:[{id:'s1',course:'301',date:'2026-09-08',assignments:[{ucid:'f1'}]},{id:'s2',course:'302',date:'2026-09-09',assignments:[{ucid:'f2'}]},{id:'s3',course:'303',date:'2026-09-10',assignments:[{ucid:'f3'}]}]}}
 function sourceFile(source=sourceObject()){const text=JSON.stringify(source);return{bytes:enc.encode(text),text}}
+function healthyIndexReport(){return{ok:true,severity:'healthy',documents:{faculty_index:'healthy',schedule_stats:'healthy',faculty_swap_index:'healthy',faculty_swap_map:'healthy'},mismatchCount:0,mismatches:[]}}
+function mismatchReport(){return{ok:false,severity:'mismatch',documents:{faculty_index:'healthy',schedule_stats:'mismatch',faculty_swap_index:'healthy',faculty_swap_map:'healthy'},mismatchCount:1,mismatches:[{document:'schedule_stats',path:'sessionCount',issue:'value-mismatch',expected:3,actual:99,severity:'mismatch'}]}}
 
 function memoryStore({failOnceAt}={}){
   const state={teachingDataWriteLocked:false,maintenanceMode:'none',activeImportId:'',maintenanceOwnerUid:'',maintenanceOwnerName:''},faculty=new Map([['f1',{__id:'f1',facultySummary2026_27:{old:true}}],['f2',{__id:'f2',facultySummary2026_27:{old:true}}],['f3',{__id:'f3',facultySummary2026_27:{old:true}}]]),sessions=new Map([['s1',{id:'s1',course:'old'}],['old1',{id:'old1',course:'old'}],['old2',{id:'old2',course:'old'}],['old3',{id:'old3',course:'old'}]]);
@@ -30,18 +32,49 @@ function memoryStore({failOnceAt}={}){
     completeAndUnlock:async({status})=>{Object.assign(job,{status,phase:status});Object.assign(state,{teachingDataWriteLocked:false,maintenanceMode:'none',activeImportId:'',maintenanceOwnerUid:'',maintenanceOwnerName:''})},appendEvent:async event=>events.push(clone(event)),loadCurrentFaculty:async()=>[...faculty.values()].map(clone),loadCurrentSessions:async()=>[...sessions.values()].map(clone),loadSummarySettings:async()=>clone(summarySettings),writeSummarySettings:async({data})=>{summarySettings={exists:true,data:clone(data)}},restoreSummarySettings:async value=>{summarySettings=value?.exists?{exists:true,data:clone(value.data)}:{exists:false}}
   };
 }
-function makeController(store,actor={uid:'general',name:'General'},options={}){let failIndexRebuild=options.failOnceAt==='index-rebuild',failVerifyFinal=options.failOnceAt==='index-verify';return controllerModule.create({core:smallCore,backup,store,actor,projectId:'tester-teaching',prepareSession:row=>({...row,facultyIds:(row.assignments||[]).map(a=>a.ucid).filter(Boolean)}),rebuildIndexes:async()=>{if(failIndexRebuild){failIndexRebuild=false;throw Error('Injected failure at index-rebuild')}},verifyIndexes:async()=>{if(failVerifyFinal){failVerifyFinal=false;return{ok:false,errors:['Injected failure at verify-final']}}return{ok:true,errors:[]}}})}
+function makeController(store,actor={uid:'general',name:'General'},options={}){
+ let failIndexRebuild=options.failOnceAt==='index-rebuild',failIndexVerify=options.failOnceAt==='index-verify',failRestoreIndexVerify=options.failOnceAt==='restore-index-verify';
+ return controllerModule.create({
+  core:smallCore,backup,store,actor,projectId:'tester-teaching',
+  prepareSession:row=>({...row,facultyIds:(row.assignments||[]).map(a=>a.ucid).filter(Boolean)}),
+  rebuildIndexes:async()=>{if(failIndexRebuild){failIndexRebuild=false;throw Error('Injected failure at index-rebuild')}},
+  verifyIndexes:async({mode})=>{
+   if(failIndexVerify&&mode!=='preflight'){failIndexVerify=false;return mismatchReport()}
+   if(failRestoreIndexVerify&&mode==='restore'){failRestoreIndexVerify=false;return mismatchReport()}
+   return options.indexReportByMode?.[mode]||healthyIndexReport();
+  }
+ });
+}
 async function createHarness(options={}){const store=memoryStore(options),actor={uid:'general',name:'General'},file=sourceFile(),controller=makeController(store,actor,options),preflight=await controller.preflight(file),recovery=await controller.createRecoveryBackup(preflight);return{store,actor,file,controller,preflight,recovery,startArgs:{preflight,recoveryBackup:recovery.backup,backupConfirmed:true,typedConfirmation:'IMPORT'}}}
 async function createInterruptedHarness({restoreFailAt}={}){const h=await createHarness({failOnceAt:'session:1'});await assert.rejects(()=>h.controller.start(h.startArgs));h.store.setFailOnceAt(restoreFailAt||'');h.backupSessionIds=h.recovery.backup.sessions.map(row=>row.id);return h}
+
+test('preflight warns but allows ordinary derived-index mismatch',async()=>{
+ const store=memoryStore(),controller=makeController(store,undefined,{indexReportByMode:{preflight:mismatchReport()}}),result=await controller.preflight(sourceFile());
+ assert.equal(result.errors.length,0);
+ assert.match(result.warnings.join('\n'),/derived index/i);
+ assert.equal(result.indexHealth.severity,'mismatch');
+ assert.equal(store.system.teachingDataWriteLocked,false);
+ assert.equal(store.job,null);
+});
+
+test('preflight blocks critical swap identity corruption before source writes',async()=>{
+ const critical={ok:false,severity:'critical',mismatchCount:1,mismatches:[{document:'faculty_swap_map',path:'key.dup',issue:'duplicate-key-ownership',severity:'critical'}]},store=memoryStore(),controller=makeController(store,undefined,{indexReportByMode:{preflight:critical}}),result=await controller.preflight(sourceFile());
+ assert.match(result.errors.join('\n'),/critical.*derived|critical.*swap/i);
+ assert.equal(result.indexHealth.severity,'critical');
+ assert.equal(store.system.teachingDataWriteLocked,false);
+ assert.equal(store.job,null);
+});
 
 test('session failure keeps lock and never starts stale deletion',async()=>{const h=await createHarness({failOnceAt:'session:1'});await assert.rejects(()=>h.controller.start(h.startArgs),/injected failure/i);assert.equal(h.store.job.status,'FAILED');assert.equal(h.store.job.failedPhase,'APPLYING_SESSIONS');assert.equal(h.store.deletedSessionIds.length,0);assert.equal(h.store.system.teachingDataWriteLocked,true)});
 test('faculty batch failure resumes from its persisted checkpoint',async()=>{const h=await createHarness({failOnceAt:'faculty:1'});await assert.rejects(()=>h.controller.start(h.startArgs),/injected failure/i);assert.equal(h.store.job.failedPhase,'APPLYING_FACULTY');assert.equal(h.store.job.facultyBatchCompleted,1);assert.equal(h.store.system.teachingDataWriteLocked,true);await h.controller.resume(h.file);assert.equal(h.store.job.status,'COMPLETED')});
 test('source verification failure happens before stale deletion and resumes safely',async()=>{const h=await createHarness({failOnceAt:'verify-source'});await assert.rejects(()=>h.controller.start(h.startArgs),/verify-source/i);assert.equal(h.store.job.failedPhase,'VERIFYING_SOURCE');assert.equal(h.store.deletedSessionIds.length,0);assert.equal(h.store.system.teachingDataWriteLocked,true);await h.controller.resume(h.file);assert.equal(h.store.job.status,'COMPLETED')});
 test('index rebuild failure keeps the lock and resumes at rebuild phase',async()=>{const h=await createHarness({failOnceAt:'index-rebuild'});await assert.rejects(()=>h.controller.start(h.startArgs),/index-rebuild/i);assert.equal(h.store.job.failedPhase,'REBUILDING_INDEXES');assert.equal(h.store.system.teachingDataWriteLocked,true);await h.controller.resume(h.file);assert.equal(h.store.job.status,'COMPLETED')});
 test('final verification failure keeps the lock and resumes at final verification',async()=>{const h=await createHarness({failOnceAt:'verify-final'});await assert.rejects(()=>h.controller.start(h.startArgs),/verify-final/i);assert.equal(h.store.job.failedPhase,'VERIFYING_FINAL');assert.equal(h.store.system.teachingDataWriteLocked,true);await h.controller.resume(h.file);assert.equal(h.store.job.status,'COMPLETED')});
+test('final structured verifier failure keeps the lock and identifies the mismatch',async()=>{const h=await createHarness({failOnceAt:'index-verify'});await assert.rejects(()=>h.controller.start(h.startArgs),/schedule_stats.*sessionCount/i);assert.equal(h.store.job.failedPhase,'VERIFYING_FINAL');assert.equal(h.store.system.teachingDataWriteLocked,true);await h.controller.resume(h.file);assert.equal(h.store.job.status,'COMPLETED')});
 test('resume rejects a different source fingerprint',async()=>{const h=await createInterruptedHarness(),text='{"different":true}';await assert.rejects(()=>h.controller.resume({bytes:enc.encode(text),text}),/does not match/i)});
 test('stale deletion resumes and completes',async()=>{const h=await createHarness({failOnceAt:'stale:1'});await assert.rejects(()=>h.controller.start(h.startArgs));await h.controller.resume(h.file);assert.equal(h.store.job.status,'COMPLETED');assert.equal(h.store.system.teachingDataWriteLocked,false);assert.deepEqual([...h.store.sessions.keys()].sort(),['s1','s2','s3'])});
 test('restore rejects a backup for another import',async()=>{const h=await createInterruptedHarness(),wrong=JSON.parse(h.recovery.text);wrong.metadata.importId='different';await assert.rejects(()=>h.controller.restore(JSON.stringify(wrong)),/does not belong/i)});
 test('interrupted restore resumes to the exact backup session set',async()=>{const h=await createInterruptedHarness({restoreFailAt:'restore-session:1'});await assert.rejects(()=>h.controller.restore(h.recovery.text),/restore-session/i);assert.equal(h.store.system.teachingDataWriteLocked,true);assert.equal(h.store.job.failedPhase,'RESTORING_SESSIONS');await h.controller.resumeRestore(h.recovery.text);assert.deepEqual([...h.store.sessions.keys()].sort(),h.backupSessionIds.slice().sort());assert.equal(h.store.job.status,'RESTORED');assert.equal(h.store.system.teachingDataWriteLocked,false)});
+test('restore structured verifier failure keeps the lock and identifies the mismatch',async()=>{const h=await createInterruptedHarness(),controller=makeController(h.store,h.actor,{failOnceAt:'restore-index-verify'});await assert.rejects(()=>controller.restore(h.recovery.text),/schedule_stats.*sessionCount/i);assert.equal(h.store.job.failedPhase,'RESTORE_FINAL_VERIFY');assert.equal(h.store.system.teachingDataWriteLocked,true);await controller.resumeRestore(h.recovery.text);assert.equal(h.store.job.status,'RESTORED');assert.equal(h.store.system.teachingDataWriteLocked,false)});
 test('takeover changes recovery owner but not active import or phase',async()=>{const h=await createInterruptedHarness(),before={id:h.store.system.activeImportId,phase:h.store.job.phase},actor={uid:'general2',name:'General Two'},controller=makeController(h.store,actor);await controller.takeOver('Original administrator unavailable');assert.equal(h.store.system.activeImportId,before.id);assert.equal(h.store.job.phase,before.phase);assert.equal(h.store.system.maintenanceOwnerUid,actor.uid);assert.equal(h.store.events.at(-1).type,'BULK_IMPORT_RECOVERY_TAKEN_OVER')});
 for(const failure of ['restore-faculty:1','restore-delete:0','restore-verify','restore-index-rebuild','restore-final-verify'])test(`restore failure ${failure} remains resumable`,async()=>{const h=await createInterruptedHarness({restoreFailAt:failure});await assert.rejects(()=>h.controller.restore(h.recovery.text),/Injected failure/i);assert.equal(h.store.system.teachingDataWriteLocked,true);await h.controller.resumeRestore(h.recovery.text);assert.equal(h.store.job.status,'RESTORED');assert.deepEqual([...h.store.sessions.keys()].sort(),h.backupSessionIds.slice().sort())});
