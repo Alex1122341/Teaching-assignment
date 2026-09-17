@@ -30,9 +30,11 @@ test('production manifest contains the complete 43-file dependency graph and no 
  }
 });
 
-test('scheduling core loads before timetable consumers',()=>{
+test('scheduling core loads before approval bootstrap and timetable consumers',()=>{
  const html=read('index.html');
  assert.ok(html.includes('<script src="scheduling-core.js"></script>'));
+ assert.ok(html.includes('<script src="faculty-access.js"></script>'));
+ assert.ok(html.indexOf('scheduling-core.js')<html.indexOf('faculty-access.js'));
  assert.ok(html.indexOf('scheduling-core.js')<html.indexOf('timetable-selection.js'));
  assert.ok(html.indexOf('scheduling-core.js')<html.indexOf('timetable.js'));
 });
