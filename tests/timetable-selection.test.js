@@ -7,12 +7,18 @@ const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
 
 function load(){
- const context={window:{}};
+ const context={window:{},Date};
+ vm.runInNewContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
  vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
  return context.window.UCVM_TIMETABLE_SELECTION;
 }
 const plain=value=>JSON.parse(JSON.stringify(value));
 const baseSession={id:'s1',date:'2026-10-07',year:1,course:'204',type:'LEC',start:'08:30',end:'09:30',topic:'Passports',room:'A101',assignments:[{ucid:'1001',name:'Alex Faculty',role:'Lecture'}],facultyIds:['1001']};
+
+test('selection module requires the canonical scheduling core',()=>{
+ const context={window:{},Date};
+ assert.throws(()=>vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context),/scheduling core/i);
+});
 
 test('selection persists by session id, toggles, clears, and enforces 200 limit',()=>{
  const selection=load().create(200);
@@ -32,6 +38,14 @@ test('row validation reports exact row and field failures',()=>{
  const invalid={...baseSession,date:'2026-02-30',year:5,course:' ',type:'',start:'10:00',end:'09:00',facultyIds:['missing'],assignments:[]};
  const errors=plain(api.validateRow(invalid,4,faculty));
  for(const text of ['Row 4: date','Row 4: year','Row 4: course','Row 4: type','Row 4: end time','Row 4: assigned faculty'])assert.ok(errors.some(error=>error.toLowerCase().includes(text.toLowerCase())),text);
+});
+
+test('row validation delegates timing to the core and preserves unknown-time sessions',()=>{
+ const api=load(),faculty=new Map([['1001',true]]);
+ assert.deepEqual(plain(api.validateRow({...baseSession,start:'10:00',end:'11:00'},1,faculty)),[]);
+ assert.ok(api.validateRow({...baseSession,start:'10:00',end:'10:00'},1,faculty).some(error=>/end time/i.test(error)));
+ assert.ok(api.validateRow({...baseSession,start:'11:00',end:'10:00'},1,faculty).some(error=>/end time/i.test(error)));
+ assert.deepEqual(plain(api.validateRow({...baseSession,start:'',end:'',timeUnknown:true},1,faculty)),[]);
 });
 
 test('change planner suppresses unchanged rows and pairs each update with one audit log',()=>{

@@ -12,7 +12,15 @@ window.UCVM_AUDIT_DETAILS=(()=>{
   if(!same(beforeFaculty,afterFaculty))out.push({field:'assignments',label:'Faculty',before:beforeFaculty,after:afterFaculty});
   return out;
  }
- function changes(entry){return Array.isArray(entry?.changes)&&entry.changes.length?entry.changes:entry?.action==='batch_update'?recovered(entry):[]}
+ function changes(entry){
+  const out=Array.isArray(entry?.changes)&&entry.changes.length?[...entry.changes]:entry?.action==='batch_update'?recovered(entry):[],override=entry?.override;
+  if(override?.type!=='faculty_time_conflict'||override.confirmed!==true)return out;
+  if(!out.length&&entry.action==='swap_faculty')out.push({field:'assignments',label:'Faculty',before:entry.fromFaculty?.name||'',after:entry.toFaculty?.name||''});
+  if(!out.length&&['create','delete'].includes(entry.action)){const summary=[entry.course,entry.date,entry.topic].filter(Boolean).join(' - ');out.push({field:'session',label:'Session',before:entry.action==='delete'?summary:null,after:entry.action==='create'?summary:null});}
+  const details=(Array.isArray(override.conflicts)?override.conflicts:[]).map(s=>`${s.course||'Course'} ${s.date||''} ${s.start||''}-${s.end||''}`).join('; ');
+  out.push({field:'conflictOverride',label:'Faculty timetable conflict override',before:'Conflict detected',after:`Confirmed by ${override.confirmedByName||override.confirmedBy||'administrator'}: ${details}`});
+  return out;
+ }
  function diff(before,after,kind='session'){
   const fields=kind==='faculty'?FACULTY_FIELDS:SESSION_FIELDS,out=[];
   for(const [field,label] of Object.entries(fields)){const b=before?.[field]??null,a=after?.[field]??null;if(same(b,a))continue;if(before===null&&(a===null||a===''))continue;if(after===null&&(b===null||b===''))continue;out.push({field,label,before:b,after:a})}
