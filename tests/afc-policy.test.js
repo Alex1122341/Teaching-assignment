@@ -1,11 +1,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {workDays, validateDraft, nextStatus, HOLIDAYS} = require('../test-support/afc-policy');
+const closures=require('../university-closures');
 
 test('workdays exclude weekends and official UCalgary closures', () => {
   assert.equal(HOLIDAYS.has('2026-09-30'), true);
   assert.equal(workDays('2026-09-28', '2026-10-02'), 4);
   assert.equal(workDays('2026-12-21', '2027-01-04'), 5);
+});
+
+test('AFC policy derives its closure dates from the shared catalog',()=>{
+  assert.equal(HOLIDAYS.size,closures.entries.length);
+  for(const row of closures.entries)assert.equal(HOLIDAYS.has(row.date),true,row.date);
 });
 
 test('Business or Other requires purpose and destination', () => {
