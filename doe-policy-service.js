@@ -251,7 +251,7 @@
     return sha256(value);
    }
    if(typeof datasetProvider==='function'){
-    const value=await datasetProvider();
+    const value=await datasetProvider(bundle);
     return previewDatasetChecksum(bundle,value);
    }
    return text(run?.inputDatasetChecksum);
@@ -278,7 +278,7 @@
     });
    }
 
-   const sourceDataset=dataset===undefined?(typeof datasetProvider==='function'?await datasetProvider():null):dataset;
+   const sourceDataset=dataset===undefined?(typeof datasetProvider==='function'?await datasetProvider(bundle):null):dataset;
    if(!sourceDataset)throw new DoeServiceError('PREVIEW_DATASET_REQUIRED','DOE Impact Preview requires the current Faculty/Timetable dataset.');
    const projection=previewDatasetProjection(bundle,sourceDataset);
    const inputDatasetChecksum=await sha256(projection);
