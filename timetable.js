@@ -339,6 +339,12 @@
     return clean;
   }
 
+  function firestoreSafeSessionPatch(s) {
+    const clean = JSON.parse(JSON.stringify(UCVM_INDEX_MAINTENANCE.sessionPatchForWrite(s)));
+    delete clean.__id;
+    return clean;
+  }
+
   function updateScheduleSourceUI() {
     const live = scheduleSource === 'firestore';
     const text = $('conn-text');
