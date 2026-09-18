@@ -80,15 +80,16 @@ Forked pull requests do not deploy the test site. The Pages workflow uses the no
 
 ### One-time gated Azure production setup
 
-Create a GitHub Environment named `production` under **Settings > Environments** and configure it as the production release gate:
+Production has two gates. The repository-enforced gate is the manual **Azure Production Deploy** workflow; the GitHub `production` Environment remains defense in depth and the home for the Azure secret. A `main` push can build a candidate artifact but does not automatically deploy it.
 
-1. Add a **Required reviewer** who can approve production releases.
-2. Restrict deployment branches/tags so only `main` may deploy to this environment.
-3. Keep **Prevent self-review** disabled. This allows the repository owner to approve a deployment they initiated when appropriate.
-4. Add `AZURE_STATIC_WEB_APPS_API_TOKEN` as a **production environment secret** containing the deployment token for the existing Azure Static Web App `ucvm-teaching-lab-web`.
-5. After the environment secret is confirmed working, remove the old repository-level copy of `AZURE_STATIC_WEB_APPS_API_TOKEN` so the Azure token is available only to the approval-gated production job.
+1. Create a GitHub Environment named `production` under **Settings > Environments**.
+2. Add a **Required reviewer** when available. If configured, GitHub will still show **Review deployments** / **Approve and deploy** after the manual workflow is dispatched.
+3. Restrict deployment branches/tags so only `main` may deploy to this environment.
+4. Keep **Prevent self-review** disabled when the repository owner must be able to approve a deployment they initiated.
+5. Add `AZURE_STATIC_WEB_APPS_API_TOKEN` as a **production environment secret** containing the deployment token for the existing Azure Static Web App `ucvm-teaching-lab-web`.
+6. After the environment secret is confirmed working, remove the old repository-level copy of `AZURE_STATIC_WEB_APPS_API_TOKEN` so the Azure token is available only to the production job.
 
-Never commit the deployment token, an ARM token, or an Azure access token to the repository.
+Never commit the deployment token, an ARM token, or an Azure access token to the repository. The manual workflow is mandatory even if Environment reviewer protection is accidentally absent.
 
 ### Routine pull-request and release flow
 
@@ -98,10 +99,10 @@ Never commit the deployment token, an ARM token, or an Azure access token to the
 4. Open `https://alex1122341.github.io/Teaching-assignment/` and manually validate sign-in, Timetable, Faculty Dashboard, and the changed workflow. Confirm the TEST SITE / Not Production banner is present. Because this site uses the live `tester-teaching` backend, avoid unnecessary edits to real data.
 5. Additional commits to the same or another same-repository PR update the single fixed Pages test site after their verification passes. The latest successful PR version is the version visible at the fixed URL.
 6. Only after the browser test is accepted, merge the pull request to `main`.
-7. The `main` push starts the **Azure Static Web Apps** workflow. Its `validate_and_build` job runs the full test suite again, builds `.deploy-static`, adds the canonical `staticwebapp.config.json`, and uploads an immutable `azure-production-${{ github.sha }}` Actions artifact.
-8. The production deployment then waits at the GitHub `production` Environment gate. In GitHub Actions choose **Review deployments**, select **production**, then choose **Approve and deploy**.
-9. After approval, the deployment job downloads the exact artifact built before approval and sends those bytes to Azure Static Web Apps. It does not run the build again after approval.
-10. If a newer `main` version arrives while an older production release is still waiting for approval, the `azure-production-main` concurrency group cancels the older run so only the newest candidate remains.
+7. The `main` push starts the **Azure Static Web Apps** workflow. Its `validate_and_build` job runs the full test suite again, builds `.deploy-static`, adds the canonical `staticwebapp.config.json`, and uploads an immutable `azure-production-${{ github.sha }}` Actions artifact. The `main` push does not deploy production.
+8. After that build succeeds, an explicit approver opens **Actions > Azure Production Deploy > Run workflow** and enters the successful build's **source run ID** (`source_run_id`) and exact **commit SHA** (`commit_sha`). Starting this workflow is the repository-enforced production approval.
+9. The deployment workflow verifies that the source run was a successful `main` push of `.github/workflows/azure-static-web-apps.yml`, then downloads `azure-production-${commit_sha}` from that exact run. If the `production` Environment has a Required reviewer, GitHub may additionally require **Review deployments** / **Approve and deploy**.
+10. The deployment job sends those already-built bytes to Azure Static Web Apps. It does not check out application code, run tests, or rebuild after approval. A wrong run ID, SHA, branch, workflow, or unsuccessful source run fails closed.
 
 Azure is production-only in this flow; pull requests do not create Azure preview environments. GitHub Pages is the fixed browser-test host.
 
