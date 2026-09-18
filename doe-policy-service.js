@@ -261,8 +261,178 @@
    return repository.archiveVersion(policyVersionId,current);
   }
 
+  function clonedId(versionId,kind,sourceId){
+   const safe=text(sourceId).replace(/[^A-Za-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'')||kind;
+   return `${versionId}--${kind}--${safe}`;
+  }
+
+  function cloneRow(row,overrides,drop=[]){
+   const copy={...(row||{})};
+   for(const key of [
+    'createdAt','createdBy','updatedAt','updatedBy','publishedAt','publishedBy',
+    'archivedAt','archivedBy','lastValidatedAt','lastValidatedBy','lastImpactAt','lastImpactBy',
+    ...drop
+   ])delete copy[key];
+   return{...copy,...overrides};
+  }
+
+  async function cloneAsDraft(sourceVersionId){
+   const current=actor();
+   if(!canEditDraft(current))deny('clone');
+   const source=await loadPolicyBundle(sourceVersionId);
+   const versions=await repository.listVersions(source.version.policyId);
+   const nextNumber=Math.max(0,...versions.map(version=>Number(version.versionNumber||0)))+1;
+   const targetVersionId=`${source.version.policyId}-v${nextNumber}`;
+   const createdAt=timestamp();
+   let target=await repository.createVersion({
+    policyVersionId:targetVersionId,
+    policyId:source.version.policyId,
+    academicYear:source.version.academicYear,
+    versionNumber:nextNumber,
+    status:'draft',
+    revision:0,
+    clonedFromVersionId:text(sourceVersionId),
+    rulesChecksum:'',
+    lastValidatedRevision:null,
+    lastValidationPassed:false,
+    lastImpactRunId:'',
+    createdAt,
+    createdBy:text(current.uid),
+    updatedAt:createdAt,
+    updatedBy:text(current.uid)
+   });
+
+   let revision=Number(target.revision||0);
+   for(const sourceRule of source.rules){
+    const newRuleId=clonedId(targetVersionId,'rule',sourceRule.ruleId||sourceRule.ruleKey);
+    const rule=cloneRow(sourceRule,{
+     ruleId:newRuleId,
+     policyVersionId:targetVersionId
+    },['selectors','parameters','tiers','inputs']);
+    const savedRule=await repository.saveDraftRule(rule,revision,current);
+    revision=Number(savedRule.version.revision||0);
+
+    for(const selector of sourceRule.selectors||[]){
+     const saved=await repository.saveSelector(cloneRow(selector,{
+      selectorId:clonedId(targetVersionId,'selector',selector.selectorId),
+      ruleId:newRuleId,
+      policyVersionId:targetVersionId
+     }),revision,current);
+     revision=Number(saved.version.revision||0);
+    }
+    for(const parameter of sourceRule.parameters||[]){
+     const saved=await repository.saveParameter(cloneRow(parameter,{
+      parameterId:clonedId(targetVersionId,'parameter',parameter.parameterId),
+      ruleId:newRuleId,
+      policyVersionId:targetVersionId
+     }),revision,current);
+     revision=Number(saved.version.revision||0);
+    }
+    for(const tier of sourceRule.tiers||[]){
+     const saved=await repository.saveTier(cloneRow(tier,{
+      tierId:clonedId(targetVersionId,'tier',tier.tierId),
+      ruleId:newRuleId,
+      policyVersionId:targetVersionId
+     }),revision,current);
+     revision=Number(saved.version.revision||0);
+    }
+    for(const input of sourceRule.inputs||[]){
+     const saved=await repository.saveRuleInput(cloneRow(input,{
+      ruleInputId:clonedId(targetVersionId,'input',input.ruleInputId||input.inputName),
+      ruleId:newRuleId,
+      policyVersionId:targetVersionId
+     }),revision,current);
+     revision=Number(saved.version.revision||0);
+    }
+   }
+
+   for(const exception of source.exceptions||[]){
+    const saved=await repository.saveException(cloneRow(exception,{
+     exceptionId:clonedId(targetVersionId,'exception',exception.exceptionId),
+     policyVersionId:targetVersionId
+    }),revision,current);
+    revision=Number(saved.version.revision||0);
+   }
+
+   target=await repository.getVersion(targetVersionId);
+   if(typeof repository.appendAudit==='function'){
+    await repository.appendAudit({
+     auditId:clonedId(targetVersionId,'audit','draft-created'),
+     policyVersionId:targetVersionId,
+     action:'draft_cloned',
+     entityType:'policy_version',
+     entityId:targetVersionId,
+     sourcePolicyVersionId:text(sourceVersionId),
+     changedBy:text(current.uid),
+     changedByName:text(current.name),
+     changedByEmail:text(current.email),
+     changedAt:timestamp()
+    });
+   }
+   return{version:target,sourcePolicyVersionId:text(sourceVersionId)};
+  }
+
+  async function activePolicyForYear(academicYear){
+   const year=text(academicYear);
+   const policies=await repository.listPolicies();
+   const policy=policies.find(row=>text(row.academicYear)===year);
+   const activeId=text(policy?.currentActiveVersionId);
+   if(!policy||!activeId)throw new DoeServiceError('ACTIVE_POLICY_NOT_FOUND','No Active DOE policy exists for the requested Academic Year.',{academicYear:year});
+   const bundle=await loadPolicyBundle(activeId);
+   if(bundle.version.status!=='active')throw new DoeServiceError('ACTIVE_POLICY_NOT_FOUND','DOE policy active pointer does not reference an Active version.',{academicYear:year,policyVersionId:activeId});
+   return{policy,bundle};
+  }
+
+  async function calculateSession(context={}){
+   const year=text(context.academicYear);
+   if(!year)throw new DoeServiceError('ACADEMIC_YEAR_REQUIRED','Academic Year is required for DOE calculation.');
+   const {bundle}=await activePolicyForYear(year);
+   return engine.calculate(bundle,context);
+  }
+
+  function calculationId(metadata,current){
+   if(text(metadata?.calculationId))return text(metadata.calculationId);
+   const uuid=nodeCrypto?.randomUUID?.()||webCrypto?.randomUUID?.();
+   if(uuid)return`calculation-${uuid}`;
+   const safeTime=timestamp().replace(/[^0-9]/g,'').slice(0,17);
+   const source=text(metadata?.assignmentId||metadata?.sessionId||metadata?.facultyId||current?.uid||'record').replace(/[^A-Za-z0-9._-]+/g,'-');
+   return`calculation-${safeTime}-${source}`;
+  }
+
+  async function recordCalculation(result,metadata={}){
+   const current=actor();
+   if(!result||result.ok!==true||!Number.isFinite(Number(result.resultDoe))){
+    throw new DoeServiceError('CALCULATION_RESULT_INVALID','A successful finite DOE calculation result is required.');
+   }
+   const record={
+    calculationId:calculationId(metadata,current),
+    academicYear:text(result.academicYear||metadata.academicYear),
+    policyVersionId:text(result.policyVersionId),
+    ruleId:text(result.ruleId),
+    ruleKey:text(result.ruleKey),
+    exceptionId:text(result.exceptionId),
+    source:text(result.source),
+    facultyId:text(metadata.facultyId),
+    sessionId:text(metadata.sessionId),
+    assignmentId:text(metadata.assignmentId),
+    sourceEntityType:text(metadata.sourceEntityType),
+    sourceEntityId:text(metadata.sourceEntityId),
+    inputsSnapshot:{...(result.inputs||{})},
+    parametersSnapshot:{...(result.parameters||{})},
+    ruleSnapshot:{...(result.ruleSnapshot||{})},
+    resultDoe:Number(result.resultDoe),
+    trigger:text(metadata.trigger),
+    calculatedAt:timestamp(),
+    calculatedBy:text(current.uid),
+    calculatedByName:text(current.name),
+    calculatedByEmail:text(current.email)
+   };
+   return repository.createCalculationRecord(record);
+  }
+
   return Object.freeze({
-   loadPolicyBundle,policyChecksum,validateDraft,publish,createPolicyYear,archive,
+   loadPolicyBundle,policyChecksum,validateDraft,publish,createPolicyYear,cloneAsDraft,archive,
+   activePolicyForYear,calculateSession,recordCalculation,
    capabilities:()=>({canEditDraft:canEditDraft(actor()),canPublish:canPublish(actor()),canRecalculate:canRecalculate(actor())})
   });
  }
