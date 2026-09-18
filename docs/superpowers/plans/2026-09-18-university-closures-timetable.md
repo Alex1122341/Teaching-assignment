@@ -177,7 +177,8 @@ Use a UMD-style wrapper consistent with existing focused modules:
   ];
 
   const DATE_RE=/^\d{4}-\d{2}-\d{2}$/;
-  const byDate=new Map(entries.map(row=>[row.date,Object.freeze({...row})]));
+  const catalog=Object.freeze(entries.map(row=>Object.freeze({...row})));
+  const byDate=new Map(catalog.map(row=>[row.date,row]));
 
   function validDate(value){
     const raw=String(value||'');
@@ -191,7 +192,7 @@ Use a UMD-style wrapper consistent with existing focused modules:
   function between(startDate,endDate){
     const start=validDate(startDate),end=validDate(endDate);
     if(!start||!end||start>end)return[];
-    return entries.filter(row=>row.date>=start&&row.date<=end);
+    return catalog.filter(row=>row.date>=start&&row.date<=end);
   }
   function countWorkingDays(startDate,endDate){
     const start=validDate(startDate),end=validDate(endDate);
@@ -204,7 +205,7 @@ Use a UMD-style wrapper consistent with existing focused modules:
     return count;
   }
 
-  return{entries:Object.freeze(entries.map(row=>byDate.get(row.date))),get,isClosed,between,countWorkingDays};
+  return{entries:catalog,get,isClosed,between,countWorkingDays};
 });
 ```
 
@@ -456,6 +457,17 @@ test('closure details are read-only institutional records',()=>{
   const js=read('timetable.js');
   assert.match(js,/University Closure — read-only institutional calendar record/);
   assert.match(js,/UCalgary University Closure Calendar/);
+});
+
+test('closure rows stay in render/export projection and out of core teaching data',()=>{
+  const js=read('timetable.js');
+  assert.match(js,/sessions:\(\)=>pageSessions\(\)/);
+  const pageData=js.slice(js.indexOf('window.UCVM_PAGE_DATA='),js.indexOf('let scheduleSource'));
+  assert.doesNotMatch(pageData,/sessionsWithOverlays|universityClosureRows/);
+  const schedulingReview=js.slice(js.indexOf('function reviewSchedulingChanges'),js.indexOf('function sessionLabel'));
+  assert.doesNotMatch(schedulingReview,/sessionsWithOverlays|universityClosureRows/);
+  const derived=js.slice(js.indexOf('async function updateDerivedIndexes'),js.indexOf('async function ensureFacultyDirectory'));
+  assert.doesNotMatch(derived,/sessionsWithOverlays|universityClosureRows/);
 });
 ```
 
@@ -873,7 +885,7 @@ const events=teachingData.map(session=>{
 Also filter the rows prepared inside `openOutlookInviteDialog()` before review/count/export:
 
 ```js
-const rows=exportFilteredRows(all,options).filter(row=>!row.isUniversityClosure);
+const rows=()=>exportFilteredRows(all,options()).filter(row=>!row.isUniversityClosure);
 ```
 
 Do not change existing CCC invitation behavior in this task.
