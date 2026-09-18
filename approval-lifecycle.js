@@ -1,12 +1,17 @@
 'use strict';
 window.UCVM_APPROVAL_LIFECYCLE=(()=>{
-  const state=window.UCVM_APPROVAL_STATE,routing=window.UCVM_APPROVAL_ROUTING;
-  if(!state||!routing)throw Error('UCVM approval state and routing are required.');
+  const state=window.UCVM_APPROVAL_STATE,routing=window.UCVM_APPROVAL_ROUTING,scheduling=window.UCVM_SCHEDULING;
+  if(!state||!routing||!scheduling)throw Error('UCVM approval state, routing, and scheduling core are required.');
   const text=value=>String(value??'').trim();
   const copy=value=>value&&typeof value==='object'?JSON.parse(JSON.stringify(value)):value;
   const approvalStatus=value=>typeof value==='string'?value:text(value?.status||'pending');
   const unfinished=status=>['pending','push_back'].includes(status);
   const normalizeMessage=message=>text(message).slice(0,1000);
+  function assertTimingPatch(base,patch){
+    const check=scheduling.validateSessionTimingChange(base,patch);
+    if(check.status==='invalid')throw Error(`Invalid session timing (${check.reason}).`);
+    return check;
+  }
 
   function requiredApproved(workflow={},approvals={}){
     return (workflow.requiredOffices||[]).every(office=>{
@@ -67,6 +72,7 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
     if(!Object.keys(edits).length&&!hasFacultyEdit)throw Error('Enter at least one returned-field change.');
     const patchPublic={...(request.patchPublic||{}),...edits};
     if(hasFacultyEdit)patchPublic.instructor=facultyDisplayName;
+    assertTimingPatch(request.basePublic||{},patchPublic);
     const route=routing.build({base:request.basePublic||{},patch:patchPublic});
     if(workflow.hasFacultyChange){
       route.scopes.adfa=[...(workflow.scopes?.adfa||[])];
@@ -139,6 +145,7 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
     if(!Object.keys(edits).length&&!hasFacultyEdit)throw Error('Enter at least one returned-field change.');
     const oldPatch={...(request.patchPublic||{})},nextPatch={...oldPatch,...edits};
     if(hasFacultyEdit)nextPatch.instructor=facultyDisplayName;
+    assertTimingPatch(request.basePublic||{},nextPatch);
     const oldRoute=routedPublicPlan(request,oldPatch,facultyScopeSignature);
     const nextFacultySignature=hasFacultyEdit?text(facultyEdit.scopeSignature):text(facultyScopeSignature);
     if(request.requestType==='faculty_swap'&&!nextFacultySignature)throw Error('Faculty replacement revision requires a safe scope signature.');
