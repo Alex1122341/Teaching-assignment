@@ -33,7 +33,8 @@ test('spreadsheet editor validates before progressive paired commits and applies
  const js=read('timetable.js');
  for(const field of ['date','year','course','type','start','end','topic','room','faculty'])assert.match(js,new RegExp(`data-selection-field=["']${field}["']`));
  assert.match(js,/planChanges\(/);
- assert.match(js,/firestoreSafeSession\(update\.data\)/);
+ assert.match(js,/firestoreSafeSessionPatch\(update\.data\)/);
+ assert.doesNotMatch(js,/firestoreSafeSession\(update\.data\)/);
  assert.match(js,/updatedBy:currentUser\.uid[\s\S]*updatedAt:timestamp/);
  assert.match(js,/commitPlan\(/);
  assert.match(js,/afterBatch:async\(\{logs\}\)=>/);

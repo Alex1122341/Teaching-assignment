@@ -339,6 +339,12 @@
     return clean;
   }
 
+  function firestoreSafeSessionPatch(s) {
+    const clean = JSON.parse(JSON.stringify(UCVM_INDEX_MAINTENANCE.sessionPatchForWrite(s)));
+    delete clean.__id;
+    return clean;
+  }
+
   function updateScheduleSourceUI() {
     const live = scheduleSource === 'firestore';
     const text = $('conn-text');
@@ -1066,7 +1072,7 @@
     if(!plan.updates.length){toast('No selected session values changed.');return}
     const overrides=canEditFaculty?confirmSchedulingChanges(plan.logs.map(log=>({id:log.sessionId,...log.after}))):new Map();if(overrides===null)return;
     for(const log of plan.logs)log.override=overrides.get(String(log.sessionId))||null;
-    plan.updates=plan.updates.map(update=>({...update,data:{...(canEditFaculty?firestoreSafeSession(update.data):update.data),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp}}));
+    plan.updates=plan.updates.map(update=>({...update,data:{...firestoreSafeSessionPatch(update.data),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp}}));
     const planKey=JSON.stringify(plan.updates.map(update=>[update.id,update.data])),resumeFrom=button.dataset.planKey===planKey?Number(button.dataset.resumeFrom||0):0;
     button.dataset.planKey=planKey;button.disabled=true;button.textContent=resumeFrom?`Resuming ${resumeFrom}/${plan.updates.length}...`:'Saving...';
     try{
