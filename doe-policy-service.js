@@ -106,7 +106,9 @@
   engine=DEFAULT_ENGINE,
   actorProvider=()=>({}),
   clock=()=>new Date(),
-  datasetChecksumProvider=null
+  datasetProvider=null,
+  datasetChecksumProvider=null,
+  previewReviewThreshold=5
  }={}){
   if(!repository)throw new Error('DOE policy repository is required.');
   if(!engine)throw new Error('DOE policy engine is required.');
@@ -140,6 +142,84 @@
    return sha256(canonicalPolicy(bundle));
   }
 
+  function previewRelevantFields(bundle={}){
+   const fields=new Set([
+    'academicYear','category','facultyId','sessionId','assignmentId','sourceEntityId','sourceEntityType',
+    'course','roleType','date'
+   ]);
+   for(const rule of Array.isArray(bundle.rules)?bundle.rules:[]){
+    for(const selector of Array.isArray(rule?.selectors)?rule.selectors:[]){
+     const field=text(selector?.field);if(field)fields.add(field);
+    }
+    for(const input of Array.isArray(rule?.inputs)?rule.inputs:[]){
+     const name=text(typeof input==='string'?input:input?.inputName);if(name)fields.add(name);
+    }
+   }
+   return fields;
+  }
+
+  function previewDatasetProjection(bundle,dataset={}){
+   const relevant=previewRelevantFields(bundle);
+   const raw=Array.isArray(dataset?.calculations)?dataset.calculations:Array.isArray(dataset?.items)?dataset.items:[];
+   const rows=raw.map(item=>{
+    const source=item&&typeof item==='object'?item:{};
+    const sourceContext=source.context&&typeof source.context==='object'&&!Array.isArray(source.context)?source.context:{};
+    const context={};
+    for(const field of [...relevant].sort()){
+     const value=Object.prototype.hasOwnProperty.call(sourceContext,field)?sourceContext[field]:source[field];
+     if(value!==undefined&&value!==null&&value!=='')context[field]=stableValue(value);
+    }
+    const currentDoe=Number(source.currentDoe);
+    return{
+     sourceEntityType:text(source.sourceEntityType),
+     sourceEntityId:text(source.sourceEntityId||source.assignmentId||source.sessionId),
+     sessionId:text(source.sessionId),
+     assignmentId:text(source.assignmentId),
+     facultyId:text(source.facultyId),
+     currentDoe:Number.isFinite(currentDoe)?currentDoe:null,
+     context
+    };
+   });
+   rows.sort((a,b)=>
+    a.facultyId.localeCompare(b.facultyId)||
+    a.sourceEntityType.localeCompare(b.sourceEntityType)||
+    a.sourceEntityId.localeCompare(b.sourceEntityId)||
+    a.assignmentId.localeCompare(b.assignmentId)||
+    a.sessionId.localeCompare(b.sessionId)
+   );
+   return{academicYear:text(dataset?.academicYear||bundle?.version?.academicYear),calculations:rows};
+  }
+
+  async function previewDatasetChecksum(bundle,dataset={}){
+   return sha256(previewDatasetProjection(bundle,dataset));
+  }
+
+  function previewRunId(policyVersionId,revision){
+   const uuid=nodeCrypto?.randomUUID?.()||webCrypto?.randomUUID?.();
+   if(uuid)return`impact-${text(policyVersionId)}-${uuid}`;
+   return`impact-${text(policyVersionId)}-${Number(revision||0)}-${timestamp().replace(/[^0-9]/g,'').slice(0,17)}`;
+  }
+
+  function previewError(error,item){
+   return{
+    code:text(error?.code)||'CALCULATION_ERROR',
+    message:text(error?.message||error)||'DOE calculation failed.',
+    sourceEntityType:text(item?.sourceEntityType),
+    sourceEntityId:text(item?.sourceEntityId),
+    facultyId:text(item?.facultyId)
+   };
+  }
+
+  function calculationBundleForItem(bundle,item){
+   const category=text(item?.context?.category);
+   if(!category)return bundle;
+   return{
+    ...bundle,
+    rules:(bundle.rules||[]).filter(rule=>text(rule?.category)===category),
+    exceptions:(bundle.exceptions||[]).filter(exception=>!text(exception?.category)||text(exception?.category)===category)
+   };
+  }
+
   async function validateDraft(policyVersionId){
    const current=actor();
    if(!canEditDraft(current))deny('validate');
@@ -164,11 +244,146 @@
    };
   }
 
-  async function currentDatasetChecksum(run){
-   if(typeof datasetChecksumProvider!=='function')return text(run?.inputDatasetChecksum);
-   const value=await datasetChecksumProvider();
-   if(typeof value==='string')return text(value);
-   return sha256(value);
+  async function currentDatasetChecksum(run,bundle){
+   if(typeof datasetChecksumProvider==='function'){
+    const value=await datasetChecksumProvider();
+    if(typeof value==='string')return text(value);
+    return sha256(value);
+   }
+   if(typeof datasetProvider==='function'){
+    const value=await datasetProvider();
+    return previewDatasetChecksum(bundle,value);
+   }
+   return text(run?.inputDatasetChecksum);
+  }
+
+  async function runImpactPreview(policyVersionId,dataset){
+   const current=actor();
+   if(!canEditDraft(current))deny('preview');
+   const bundle=await loadPolicyBundle(policyVersionId);
+   const version=bundle.version;
+   if(version.status!=='draft')throw new DoeServiceError('POLICY_NOT_DRAFT','Impact Preview requires a Draft DOE policy.',{policyVersionId:text(policyVersionId)});
+
+   const revision=Number(version.revision||0);
+   const checksum=await policyChecksum(bundle);
+   const validation=engine.validatePolicy(bundle);
+   const validationCurrent=
+    validation.valid===true&&
+    Number(version.lastValidatedRevision)===revision&&
+    version.lastValidationPassed===true&&
+    text(version.rulesChecksum)===checksum;
+   if(!validationCurrent){
+    throw new DoeServiceError('VALIDATION_REQUIRED','Validate the current DOE Draft revision successfully before running Impact Preview.',{
+     policyVersionId:text(policyVersionId),policyRevision:revision,errors:validation.errors
+    });
+   }
+
+   const sourceDataset=dataset===undefined?(typeof datasetProvider==='function'?await datasetProvider():null):dataset;
+   if(!sourceDataset)throw new DoeServiceError('PREVIEW_DATASET_REQUIRED','DOE Impact Preview requires the current Faculty/Timetable dataset.');
+   const projection=previewDatasetProjection(bundle,sourceDataset);
+   const inputDatasetChecksum=await sha256(projection);
+   const impactRunId=previewRunId(policyVersionId,revision);
+   const groups=new Map();
+   const errors=[];
+
+   for(const item of projection.calculations){
+    const facultyId=text(item.facultyId)||'unassigned';
+    if(!groups.has(facultyId))groups.set(facultyId,{
+     facultyId,
+     currentDoe:0,
+     draftDoe:0,
+     calculationCount:0,
+     affectedRules:new Set(),
+     errors:[]
+    });
+    const group=groups.get(facultyId);
+    group.calculationCount+=1;
+    if(Number.isFinite(item.currentDoe))group.currentDoe+=item.currentDoe;
+    const context={
+     ...(item.context||{}),
+     academicYear:text(version.academicYear),
+     facultyId:text(item.facultyId),
+     sessionId:text(item.sessionId),
+     assignmentId:text(item.assignmentId),
+     sourceEntityId:text(item.sourceEntityId),
+     sourceEntityType:text(item.sourceEntityType)
+    };
+    try{
+     const result=engine.calculate(calculationBundleForItem(bundle,{...item,context}),context);
+     group.draftDoe+=Number(result.resultDoe);
+     if(text(result.ruleKey))group.affectedRules.add(text(result.ruleKey));
+     else if(text(result.exceptionId))group.affectedRules.add(`Exception: ${text(result.exceptionId)}`);
+    }catch(error){
+     const detail=previewError(error,item);
+     group.errors.push(detail);
+     errors.push(detail);
+    }
+   }
+
+   const threshold=Math.abs(Number(previewReviewThreshold))||5;
+   let changedFacultyCount=0,largeIncreaseCount=0,largeDecreaseCount=0,warningCount=0;
+   const rows=[...groups.values()].sort((a,b)=>a.facultyId.localeCompare(b.facultyId)).map(group=>{
+    const rowErrors=group.errors.slice();
+    const draftDoe=rowErrors.length?null:group.draftDoe;
+    const difference=draftDoe===null?null:draftDoe-group.currentDoe;
+    const warnings=[];
+    if(difference!==null&&difference>threshold){
+     warnings.push({code:'LARGE_INCREASE',message:`Draft DOE increases by more than ${threshold.toFixed(2)} percentage points.`});
+     largeIncreaseCount+=1;
+    }else if(difference!==null&&difference<-threshold){
+     warnings.push({code:'LARGE_DECREASE',message:`Draft DOE decreases by more than ${threshold.toFixed(2)} percentage points.`});
+     largeDecreaseCount+=1;
+    }
+    if(difference!==null&&Math.abs(difference)>1e-9)changedFacultyCount+=1;
+    warningCount+=warnings.length;
+    return{
+     impactRowId:`${impactRunId}--faculty--${group.facultyId.replace(/[^A-Za-z0-9._-]+/g,'-')}`,
+     impactRunId,
+     policyVersionId:text(policyVersionId),
+     facultyId:group.facultyId,
+     currentDoe:group.currentDoe,
+     draftDoe,
+     difference,
+     calculationCount:group.calculationCount,
+     affectedRules:[...group.affectedRules].sort(),
+     warnings,
+     errors:rowErrors
+    };
+   });
+
+   const status=errors.length?'failed':'passed';
+   const completedAt=timestamp();
+   const run={
+    impactRunId,
+    policyVersionId:text(policyVersionId),
+    policyRevision:revision,
+    policyChecksum:checksum,
+    inputDatasetChecksum,
+    status,
+    facultyCount:rows.length,
+    calculationCount:projection.calculations.length,
+    changedFacultyCount,
+    largeIncreaseCount,
+    largeDecreaseCount,
+    errorCount:errors.length,
+    warningCount,
+    startedAt:completedAt,
+    completedAt,
+    runBy:text(current.uid),
+    runByName:text(current.name)
+   };
+   await repository.createImpactRun(run);
+   if(rows.length)await repository.saveImpactRows(impactRunId,rows);
+   if(status==='passed'){
+    await repository.saveImpactEvidence(policyVersionId,{
+     revision,
+     impactRunId,
+     policyChecksum:checksum,
+     inputDatasetChecksum,
+     actor:current
+    });
+   }
+   return{...run,rows,errors,warnings:rows.flatMap(row=>row.warnings.map(warning=>({...warning,facultyId:row.facultyId})))};
   }
 
   async function publish(policyVersionId){
@@ -198,7 +413,7 @@
    if(Number(version.lastValidatedRevision)!==revision||text(version.rulesChecksum)!==checksum||version.lastValidationPassed!==true){
     throw new DoeServiceError('VALIDATION_REQUIRED','The current Draft revision must pass validation before Publish.',{policyVersionId:text(policyVersionId)});
    }
-   const datasetChecksum=await currentDatasetChecksum(run);
+   const datasetChecksum=await currentDatasetChecksum(run,bundle);
    if(text(run.inputDatasetChecksum)!==datasetChecksum||text(version.lastImpactDatasetChecksum)!==datasetChecksum){
     throw new DoeServiceError('PREVIEW_STALE','The DOE source dataset changed after Impact Preview.',{impactRunId:runId});
    }
@@ -431,7 +646,7 @@
   }
 
   return Object.freeze({
-   loadPolicyBundle,policyChecksum,validateDraft,publish,createPolicyYear,cloneAsDraft,archive,
+   loadPolicyBundle,policyChecksum,previewDatasetProjection,previewDatasetChecksum,validateDraft,runImpactPreview,publish,createPolicyYear,cloneAsDraft,archive,
    activePolicyForYear,calculateSession,recordCalculation,
    capabilities:()=>({canEditDraft:canEditDraft(actor()),canPublish:canPublish(actor()),canRecalculate:canRecalculate(actor())})
   });
