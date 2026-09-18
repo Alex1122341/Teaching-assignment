@@ -81,20 +81,20 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
    let after=candidate,data=candidate;
    if(policy){
     after={...before};
-    const publicFields=['date','year','course','type','start','end','topic','room'];
+    const publicFields=['date','year','course','type','start','end','topic','room'],derivedFields=['week','semester','courseName','timeUnknown'],facultyFields=['assignments','facultyIds','instructor','labDetails'];
     for(const field of publicFields)if(policy.fields[field])after[field]=candidate[field];
+    if(policy.fields.date||policy.fields.start||policy.fields.end){after.week=candidate.week;after.semester=candidate.semester;after.timeUnknown=candidate.timeUnknown}
+    if(policy.fields.course)after.courseName=candidate.courseName;
+    if(policy.fields.faculty)for(const field of facultyFields)after[field]=candidate[field];
     if(role==='adc'){
-     if(policy.fields.date||policy.fields.start||policy.fields.end){after.week=candidate.week;after.semester=candidate.semester;after.timeUnknown=candidate.timeUnknown}
-     if(policy.fields.course)after.courseName=candidate.courseName;
      if(text(after.type).toUpperCase()==='LAB'&&text(before.type).toUpperCase()!=='LAB')after.topic='TBD';
      after.instructor=before.instructor;
     }
     if(role==='lab')after.instructor=before.instructor;
     data={};
     for(const field of publicFields)if(!equal(before[field],after[field]))data[field]=after[field];
-    if(role==='adc'){
-     for(const field of ['week','semester','courseName','timeUnknown'])if(!equal(before[field],after[field]))data[field]=after[field];
-    }
+    for(const field of derivedFields)if(!equal(before[field],after[field]))data[field]=after[field];
+    if(policy.fields.faculty)for(const field of facultyFields)if(!equal(before[field],after[field]))data[field]=after[field];
    }
    if(equal(before,after))continue;
    updates.push({id:text(row.id),data,after});
