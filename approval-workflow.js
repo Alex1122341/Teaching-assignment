@@ -3,18 +3,19 @@
  'use strict';
  if(!window.UCVM||typeof firebase==='undefined')return;
  const scheduling=window.UCVM_SCHEDULING,approvalScheduling=window.UCVM_APPROVAL_SCHEDULING;
- if(!scheduling||!approvalScheduling)throw new Error('UCVM scheduling and approval policy helpers are required.');
+ const officeCaps=window.UCVM_OFFICE_CAPABILITIES,officeView=window.UCVM_APPROVAL_OFFICE_VIEW,lifecycle=window.UCVM_APPROVAL_LIFECYCLE,finalizer=window.UCVM_APPROVAL_FINALIZER,approvalRequest=window.UCVM_APPROVAL_REQUEST,notifications=window.UCVM_WORKFLOW_NOTIFICATIONS;
+ if(!scheduling||!approvalScheduling||!officeCaps||!officeView||!lifecycle||!finalizer||!approvalRequest)throw new Error('UCVM scheduling and routed approval helpers are required.');
  const page=(location.pathname.split('/').pop()||'index.html').toLowerCase();
  if(page&&page!=='index.html')return;
 
  const {auth,db}=UCVM.init();
  const $=id=>document.getElementById(id), esc=UCVM.esc;
- const REQUESTS='change_requests', SESSIONS='sessions', LOGS='session_change_log';
+ const REQUESTS='change_requests', SESSIONS='sessions', LOGS='session_change_log', WORKFLOWS='change_request_workflow', APPROVALS='change_request_approvals', PRIVATE_REQUESTS='change_request_private', REQUEST_AUDIT='change_request_audit', CALENDAR='calendar_sessions', SWAP_INDEX='faculty_swap_index';
  let me=null,user=null,role='',sessions=new Map(),people=[],peopleByUid=new Map(),groups=[],myGroups=[],hiccScope=new Set();
- let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleLoading=null,renderQueued=false;
+ let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleLoading=null,renderQueued=false,requestLoadToken=0;
  let approvalFaculty=[],approvalFacultyById=new Map(),approvalFacultyLoaded=false;
  let approvalSessionsComplete=false,approvalSessionDatesLoaded=new Set(),openApprovalFromHash=location.hash==='#approvals';
- let requestsReady=false,afcRequestsReady=false;
+ let requestsReady=false,afcRequestsReady=false,notificationUnsub=null;
 
  const css=document.createElement('style');
  css.id='ucvm-approval-workflow-style';
@@ -50,7 +51,10 @@
  const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
  const stamp=()=>firebase.firestore.FieldValue.serverTimestamp();
  const roleIsFaculty=r=>['faculty','hicc','visc'].includes(UCVM.role(r));
- const isApprover=()=>['adfa_general','adfa_regular'].includes(role);
+ const office=()=>officeCaps.officeForRole(role);
+ const isOfficeApprover=()=>['adc','lab','adfa'].includes(office());
+ const isAdfaApprover=()=>office()==='adfa';
+ const isApprover=isAdfaApprover;
  const ownFacultyId=()=>String(me?.facultyId||me?.facultyDirectoryMatch?.id||'').trim();
  const ownAliases=()=>new Set([me?.name,me?.instructor,me?.facultyDirectoryMatch?.name,user?.displayName].map(norm).filter(Boolean));
  const peopleName=p=>String(p?.name||p?.email||p?.uid||'');
@@ -69,7 +73,7 @@
  function indexFaculty(e){return{__id:String(e.id),preferredFullName:e.name||e.id,hrFullName:e.hrName||'',email:e.email||'',rank:e.rank||'',campus:e.campus||'',teachingArea:e.specialty||'',reportsTo:e.reportsTo||'',doe:e.contractTeachingDOE===null?{}:{teaching:e.contractTeachingDOE},facultySummary2026_27:e.assignedTeachingDOE===null?null:{assignedTeachingDOE:e.assignedTeachingDOE},__indexAssignedTeachingDOE:e.assignedTeachingDOE,__index:true}}
  function requestFacultyIds(requestRows){const ids=new Set();for(const r of requestRows||[]){for(const ref of [r.fromFaculty,r.toFaculty]){const id=String(ref?.facultyId||ref?.ucid||'').trim();if(id)ids.add(id)}const current=sessions.get(r.sessionId);for(const a of assignedArray(current)){const id=String(a?.ucid||a?.facultyId||'').trim();if(id)ids.add(id)}}return[...ids]}
  async function ensureApprovalFaculty(requestRows=requests,force=false){
-  if(!isApprover())return;
+  if(!isAdfaApprover())return;
   if(!approvalFacultyLoaded){const snap=await db.collection('settings').doc('faculty_index').get();approvalFaculty=snap.exists?(snap.data().entries||[]).map(indexFaculty):[];approvalFacultyById=new Map(approvalFaculty.map(f=>[String(f.__id),f]));approvalFacultyLoaded=true}
   const ids=requestFacultyIds(requestRows),missing=ids.filter(id=>force||approvalFacultyById.get(id)?.__index);
   const details=await Promise.all(missing.map(id=>db.collection('faculty').doc(id).get(force?{source:'server'}:undefined)));for(const snap of details)if(snap.exists){const old=approvalFacultyById.get(snap.id),row={__id:snap.id,...snap.data(),__indexAssignedTeachingDOE:old?.__indexAssignedTeachingDOE},at=approvalFaculty.indexOf(old);if(at>=0)approvalFaculty[at]=row;else approvalFaculty.push(row);approvalFacultyById.set(snap.id,row)}
@@ -136,15 +140,51 @@
   const sync=()=>{const rows=window.UCVM_PAGE_DATA.sessions();for(const s of rows)sessions.set(s.id,s);approvalSessionsComplete=false;rebuildHiccScope();queueDecorate()};
   window.addEventListener('ucvm:sessions-updated',sync);sync();sessionUnsub=()=>window.removeEventListener('ucvm:sessions-updated',sync);
  }
+ async function loadRoutedBundle(id,seedApproval=null){
+  const [requestSnap,workflowSnap]=await Promise.all([db.doc(`${REQUESTS}/${id}`).get(),db.doc(`${WORKFLOWS}/${id}`).get()]);
+  if(!requestSnap.exists||!workflowSnap.exists)return null;
+  const request={id:requestSnap.id,...requestSnap.data()},workflow={id:workflowSnap.id,...workflowSnap.data()};
+  const approvalRows={};
+  const required=[...new Set(workflow.requiredOffices||[])];
+  const docs=await Promise.all(required.map(name=>db.doc(`${APPROVALS}/${id}_${name}`).get()));
+  docs.forEach((snap,index)=>{if(snap.exists)approvalRows[required[index]]={id:snap.id,...snap.data()}});
+  if(seedApproval?.office)approvalRows[seedApproval.office]=seedApproval;
+  return{...request,_workflow:workflow,_approvals:approvalRows};
+ }
+ async function hydrateRoutedRows(rows,token){
+  const out=[];
+  for(const row of rows){
+   if(token!==requestLoadToken)return[];
+   if(row.requestSchema==='office-routing-v1'){const full=await loadRoutedBundle(row.id);if(full)out.push(full)}else out.push(row);
+  }
+  return out;
+ }
+ function sortRequests(rows){return rows.sort((a,b)=>((b.requestedAt?.toMillis?.()||0)-(a.requestedAt?.toMillis?.()||0)))}
+ function commitRequestRows(rows,token){if(token!==requestLoadToken)return;requests=sortRequests(rows);requestsReady=true;injectButtons();queueDecorate()}
  function listenRequests(){
   if(requestUnsub){requestUnsub();requestUnsub=null}
   if(!user)return;
+  const token=++requestLoadToken,currentOffice=office();
+  if(currentOffice==='adc'||currentOffice==='lab'){
+   const q=db.collection(APPROVALS).where('office','==',office());
+   requestUnsub=q.onSnapshot(async snap=>{
+    try{
+     const own=snap.docs.map(d=>({id:d.id,...d.data()})),rows=[];
+     for(const approval of own){const full=await loadRoutedBundle(String(approval.requestId||''),approval);if(full)rows.push(full)}
+     commitRequestRows(rows,token);
+    }catch(e){if(token===requestLoadToken){requestsReady=true;console.warn('[workflow office requests]',e);injectButtons()}}
+   },e=>{if(token===requestLoadToken){requestsReady=true;console.warn('[workflow office requests]',e);injectButtons()}});
+   return;
+  }
   let q=db.collection(REQUESTS);
-  if(!isApprover())q=q.where('requesterUid','==',user.uid);
-  requestUnsub=q.onSnapshot(s=>{
-    requests=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>((b.requestedAt?.toMillis?.()||0)-(a.requestedAt?.toMillis?.()||0)));
-    requestsReady=true;injectButtons();queueDecorate();
-  },e=>{requestsReady=true;console.warn('[workflow requests]',e);injectButtons()});
+  if(!isAdfaApprover())q=q.where('requesterUid','==',user.uid);
+  requestUnsub=q.onSnapshot(async snap=>{
+   try{
+    const base=snap.docs.map(d=>({id:d.id,...d.data()}));
+    const rows=isAdfaApprover()?await hydrateRoutedRows(base,token):base;
+    commitRequestRows(rows,token);
+   }catch(e){if(token===requestLoadToken){requestsReady=true;console.warn('[workflow requests]',e);injectButtons()}}
+  },e=>{if(token===requestLoadToken){requestsReady=true;console.warn('[workflow requests]',e);injectButtons()}});
  }
  function listenAfcRequests(){
   if(afcUnsub){afcUnsub();afcUnsub=null}
@@ -180,7 +220,7 @@
  function toolbar(){return document.querySelector('.cal-toolbar-right')}
  function mkButton(id,label){let b=$(id);if(b)return b;b=document.createElement('button');b.id=id;b.className='workflow-btn';b.type='button';b.textContent=label;return b}
  function maybeOpenApprovalFromHash(){
-  if(!openApprovalFromHash||!isApprover()||!requestsReady||!afcRequestsReady)return;
+  if(!openApprovalFromHash||!isOfficeApprover()||!requestsReady||!afcRequestsReady)return;
   openApprovalFromHash=false;setTimeout(()=>openApprovalQueue(),0);
  }
  function injectButtons(){
@@ -197,9 +237,10 @@
     if(!b.isConnected)bar.insertBefore(b,bar.firstChild);b.onclick=()=>openMyRequests();
   }else $('my-requests-btn')?.remove();
 
-  if(isApprover()){
-    const pending=requests.filter(r=>r.status==='pending').length+afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length,b=mkButton('approval-queue-btn','Approvals');
-    b.innerHTML=`Approvals${pending?` <span class="workflow-count">${pending}</span>`:''}`;
+  if(isOfficeApprover()){
+    const currentOffice=office(),pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?r._approvals?.[currentOffice]?.status==='pending':(isAdfaApprover()&&r.status==='pending')).length+(isAdfaApprover()?afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length:0),b=mkButton('approval-queue-btn','Approvals');
+    const label=officeView.queueLabel(currentOffice,pending),plain=label.replace(/ \(\d+\)$/,'');
+    b.innerHTML=`${esc(plain)}${pending?` <span class="workflow-count">${pending}</span>`:''}`;
     if(!b.isConnected)bar.insertBefore(b,bar.firstChild);b.onclick=()=>openApprovalQueue();
     maybeOpenApprovalFromHash();
   }else $('approval-queue-btn')?.remove();
@@ -260,10 +301,11 @@
  }
 
  async function createRequest(payload){
-  const base={status:'pending',requesterUid:user.uid,requesterName:me?.name||user.email||'',requesterEmail:user.email||me?.email||'',requesterRole:role,requesterFacultyId:ownFacultyId(),requestedAt:stamp()};
-  await db.collection(REQUESTS).add({...base,...payload});closeModal();toast('Request submitted to ADFA for approval.');
+  if(!window.UCVM_APPROVAL_REQUEST)throw Error('UCVM approval request helper is required.');
+  await window.UCVM_APPROVAL_REQUEST.submit({db,requester:{uid:user.uid,name:me?.name||user.displayName||'Faculty',role},payload,now:stamp()});
+  closeModal();toast('Request submitted for approval.');
  }
- function baseSnapshot(s){return{course:s.course||'',date:ymd(s.date),start:s.start||'',end:s.end||'',topic:s.topic||'',type:s.type||'',room:s.room||'',assignments:assignedArray(s).map(a=>({ucid:String(a.ucid||''),name:a.name||'',role:a.role||'',category:a.category||'',creditedHours:a.creditedHours??null,doeRate:a.doeRate??null,doeCredit:a.doeCredit??null}))}}
+ function baseSnapshot(s){return window.UCVM_APPROVAL_REQUEST.publicSession(s)}
 
  function openHiccEdit(s,g){
   showModal(`<div class="modal-header"><div class="modal-title">Request HICC session change</div><div class="modal-subtitle">${esc(g.name)} · ADFA approval required</div></div><form id="workflow-edit-form"><div class="modal-body">${sessionSummary(s)}<div class="workflow-grid"><label class="form-field"><span class="form-label">Date</span><input class="form-input" name="date" type="date" value="${esc(ymd(s.date))}"></label><label class="form-field"><span class="form-label">Room</span><input class="form-input" name="room" value="${esc(s.room||'')}"></label><label class="form-field"><span class="form-label">Start</span><input class="form-input" name="start" type="time" value="${esc(s.start||'')}"></label><label class="form-field"><span class="form-label">End</span><input class="form-input" name="end" type="time" value="${esc(s.end||'')}"></label><label class="form-field" style="grid-column:1/-1"><span class="form-label">Session name / topic</span><input class="form-input" name="topic" value="${esc(s.topic||'')}"></label><label class="form-field"><span class="form-label">Type</span><input class="form-input" name="type" value="${esc(s.type||'')}"></label><label class="form-field"><span class="form-label">Reason / note</span><input class="form-input" name="reason" placeholder="Optional"></label></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-workflow-close>Cancel</button><button class="btn btn-primary" type="submit">Submit for approval</button></div></form>`);
@@ -299,30 +341,174 @@
   await createRequest({requestType:'faculty_swap',scope,groupId:g?.id||'',groupName:g?.name||'',sessionId:s.id,course:s.course||'',date:ymd(s.date),topic:s.topic||'',base:baseSnapshot(s),assignmentIndex:idx,fromFaculty:{facultyId:fromFacultyId,name:out.name||''},toFaculty:{uid:incoming.uid||'',facultyId:toFacultyId,name:peopleName(incoming)},reason:String(reason||'').trim()});
  }
 
- function statusLabel(r){return r.status==='approved'?'Approved':r.status==='rejected'?'Rejected':'Pending'}
- function requestDetail(r){
-  if(r.requestType==='faculty_swap')return `<div class="workflow-approval-change"><strong>Faculty swap</strong>${esc(r.fromFaculty?.name||'')} → ${esc(r.toFaculty?.name||'')}</div>`;
-  return (r.changes||[]).map(c=>`<div class="workflow-approval-change"><strong>${esc(c.field)}</strong>${esc(c.before)} → ${esc(c.after)}</div>`).join('');
+ function statusLabel(r){return({approved:'Approved',rejected:'Rejected',withdrawn:'Withdrawn',update_required:'Pending - Update required',pending:'Pending'})[r?.status]||'Pending'}
+ function approvalMatrix(r){return Object.fromEntries(Object.entries(r?._approvals||{}).map(([name,row])=>[name,String(row?.status||'pending')]))}
+ function fieldOffice(r,field){for(const name of ['adc','lab','adfa'])if((r?._workflow?.scopes?.[name]||[]).includes(field))return name;return''}
+ function officeStatusText(r,name){const value=String(r?._approvals?.[name]?.status||'pending');return value.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
+ function requestDetail(r,officeContext=false){
+  if(r.requestSchema!=='office-routing-v1'){
+   if(r.requestType==='faculty_swap')return `<div class="workflow-approval-change"><strong>Faculty swap</strong>${esc(r.fromFaculty?.name||'')} → ${esc(r.toFaculty?.name||'')}</div>`;
+   return (r.changes||[]).map(c=>`<div class="workflow-approval-change"><strong>${esc(c.field)}</strong>${esc(c.before)} → ${esc(c.after)}</div>`).join('');
+  }
+  const view=officeView.requestView({office:officeContext?office():'',request:r,workflow:r._workflow||{},approvalMatrix:approvalMatrix(r)});
+  const rows=view.fields.map(change=>{const owner=fieldOffice(r,change.field),state=owner&&officeContext?` <span class="workflow-pill">${esc(owner.toUpperCase())}: ${esc(officeStatusText(r,owner))}</span>`:'';return `<div class="workflow-approval-change${change.owned?'':' role-locked-field'}"><strong>${esc(change.field)}</strong>${esc(change.before)} → ${esc(change.after)}${state}</div>`}).join('');
+  const faculty=view.faculty.proposedName?`<div class="workflow-approval-change${officeContext&&office()!=='adfa'?' role-locked-field':''}"><strong>Faculty Assignment</strong>${view.faculty.currentName?`${esc(view.faculty.currentName)} → `:''}${esc(view.faculty.proposedName)}${officeContext?` <span class="workflow-pill">ADFA: ${esc(officeStatusText(r,'adfa'))}</span>`:''}</div>`:'';
+  return rows+faculty;
  }
- function requestCard(r,admin=false){const when=r.requestedAt?.toDate?.().toLocaleString('en-CA',{timeZone:'America/Edmonton'})||'Pending timestamp',impact=admin&&r.status==='pending'?`<div class="workflow-impact" data-approval-impact="${esc(r.id)}"><div class="workflow-impact-title">DOE & schedule checks</div>Checking live DOE and timetable conflicts…</div>`:'';return `<div class="workflow-card ${esc(r.status||'pending')}"><div class="workflow-card-head"><div><div class="workflow-card-title">${esc(r.course||'')} · ${esc(r.topic||'')}</div><div class="workflow-card-meta">${esc(r.requesterName||r.requesterEmail||'')} · ${esc(UCVM.label(r.requesterRole||''))} · ${esc(when)}</div></div><span class="workflow-pill">${statusLabel(r)}</span></div>${requestDetail(r)}${r.reason?`<div class="workflow-note">Reason: ${esc(r.reason)}</div>`:''}${impact}${admin&&r.status==='pending'?`<div class="workflow-actions"><button class="btn btn-primary" data-approve-request="${esc(r.id)}">Approve & apply</button><button class="btn btn-secondary" data-reject-request="${esc(r.id)}">Reject</button></div>`:''}</div>`}
+ function routedActionHtml(r){
+  const currentOffice=office(),own=r?._approvals?.[currentOffice];if(!own||own.status!=='pending'||r.status!=='pending')return'';
+  const otherApproved=(r._workflow?.requiredOffices||[]).filter(name=>name!==currentOffice).every(name=>r._approvals?.[name]?.status==='approved');
+  if(r._workflow?.hasFacultyChange&&currentOffice==='adfa'&&!otherApproved)return '<div class="workflow-note">Waiting for the other required office approvals before ADFA final approval and apply.</div>';
+  return `<div class="workflow-actions"><button class="btn btn-primary" data-office-decision="approve" data-request-id="${esc(r.id)}">Approve${r._workflow?.hasFacultyChange&&currentOffice==='adfa'?' & apply':''}</button><button class="btn btn-secondary" data-office-decision="push_back" data-request-id="${esc(r.id)}">Push Back</button><button class="btn btn-secondary" data-office-decision="reject" data-request-id="${esc(r.id)}">Reject</button></div>`;
+ }
+ function requesterActionHtml(r){if(r.requestSchema!=='office-routing-v1'||!['pending','update_required'].includes(r.status))return'';return `<div class="workflow-actions">${r.status==='update_required'?`<button class="btn btn-primary" data-request-resubmit="${esc(r.id)}">Edit & Resubmit</button>`:''}<button class="btn btn-secondary" data-request-withdraw="${esc(r.id)}">Withdraw Request</button></div>`}
+ function requestCard(r,admin=false){
+  const when=r.requestedAt?.toDate?.().toLocaleString('en-CA',{timeZone:'America/Edmonton'})||'Pending timestamp';
+  const routed=r.requestSchema==='office-routing-v1',currentOffice=office(),own=r?._approvals?.[currentOffice];
+  const impact=admin&&isAdfaApprover()&&routed&&r.status==='pending'&&own?.status==='pending'?`<div class="workflow-impact" data-approval-impact="${esc(r.id)}"><div class="workflow-impact-title">DOE & schedule checks</div>Checking live DOE and timetable conflicts…</div>`:'';
+  const actions=admin?(routed?routedActionHtml(r):(isAdfaApprover()&&r.status==='pending'?`<div class="workflow-actions"><button class="btn btn-primary" data-approve-request="${esc(r.id)}">Approve & apply</button><button class="btn btn-secondary" data-reject-request="${esc(r.id)}">Reject</button></div>`:'')):requesterActionHtml(r);
+  return `<div class="workflow-card ${esc(r.status||'pending')}"><div class="workflow-card-head"><div><div class="workflow-card-title">${esc(r.course||r.basePublic?.course||'')} · ${esc(r.topic||r.basePublic?.topic||'')}</div><div class="workflow-card-meta">${esc(r.requesterName||r.requesterEmail||'')} · ${esc(UCVM.label(r.requesterRole||''))} · ${esc(when)}</div></div><span class="workflow-pill">${statusLabel(r)}</span></div>${requestDetail(r,admin)}${r.reason?`<div class="workflow-note">Reason: ${esc(r.reason)}</div>`:''}${r.requesterMessage?`<div class="workflow-note">Update requested: ${esc(r.requesterMessage)}</div>`:''}${impact}${actions}</div>`;
+ }
  function afcStatus(s){return({pending_report_to:'Reports To signature needed',pending_admin:'ADMIN signature needed',approved:'Approved',rejected:'Rejected'})[s]||s}
  function afcCard(r,active=false){const when=r.submittedAt?.toDate?.().toLocaleString('en-CA',{timeZone:'America/Edmonton'})||'Pending timestamp',action=r.status==='pending_report_to'?'recommend':'approve';return `<div class="workflow-card ${esc(r.status||'pending')}"><div class="workflow-card-head"><div><div class="workflow-card-title">${esc(r.facultyName)} · AFC ${esc(r.startDate)} – ${esc(r.endDate)}</div><div class="workflow-card-meta">${esc(r.requesterEmail||'')} · ${esc(when)} · ${esc(r.workDays)} workday(s)</div></div><span class="workflow-pill">${esc(afcStatus(r.status))}</span></div><div class="workflow-note">Teaching cross-check: ${r.teachingSessions?.length?`${r.teachingSessions.length} assignment(s); coverage supplied`:'no teaching assignment found'}.</div>${active?`<div class="workflow-actions"><button class="btn btn-primary" data-afc-action="${action}" data-afc-id="${esc(r.id)}">${action==='recommend'?'Sign for Reports To & forward':'Sign & approve PDF'}</button><button class="btn btn-secondary" data-afc-action="reject" data-afc-id="${esc(r.id)}">Sign & reject</button></div>`:''}</div>`}
- function openMyRequests(){showModal(`<div class="modal-header"><div class="modal-title">My change requests</div><div class="modal-subtitle">Pending requests do not change the live timetable until ADFA approves.</div></div><div class="modal-body">${requests.map(r=>requestCard(r,false)).join('')||'<p>No requests yet.</p>'}</div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`)}
+ function openMyRequests(){showModal(`<div class="modal-header"><div class="modal-title">My change requests</div><div class="modal-subtitle">Pending requests do not change the live timetable until all required approvals are complete.</div></div><div class="modal-body">${requests.map(r=>requestCard(r,false)).join('')||'<p>No requests yet.</p>'}</div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`);document.querySelectorAll('[data-request-withdraw]').forEach(b=>b.onclick=()=>withdrawRoutedRequest(b.dataset.requestWithdraw));document.querySelectorAll('[data-request-resubmit]').forEach(b=>b.onclick=()=>openResubmitRequest(b.dataset.requestResubmit))}
+
+
+ async function readRoutedBundleTx(tx,id,{includePrivate=false,includeCalendar=false,includeSource=false}={}){
+  const requestRef=db.doc(`${REQUESTS}/${id}`),workflowRef=db.doc(`${WORKFLOWS}/${id}`),requestSnap=await tx.get(requestRef),workflowSnap=await tx.get(workflowRef);
+  if(!requestSnap.exists||!workflowSnap.exists)throw Error('This request no longer exists.');
+  const request={id:requestSnap.id,...requestSnap.data()},workflow={id:workflowSnap.id,...workflowSnap.data()};
+  if(request.requestSchema!=='office-routing-v1')throw Error('This action is available only for routed requests.');
+  const approvals={},approvalRefs={};
+  for(const name of workflow.requiredOffices||[]){const ref=db.doc(`${APPROVALS}/${id}_${name}`),snap=await tx.get(ref);if(!snap.exists)throw Error(`Missing ${name.toUpperCase()} approval record.`);approvalRefs[name]=ref;approvals[name]={id:snap.id,...snap.data()}}
+  let privateRecord=null,privateRef=null,calendar=null,calendarRef=null,source=null,sourceRef=null;
+  if(includePrivate){privateRef=db.doc(`${PRIVATE_REQUESTS}/${id}`);const snap=await tx.get(privateRef);if(!snap.exists)throw Error('The private Faculty assignment record is missing.');privateRecord={id:snap.id,...snap.data()}}
+  if(includeCalendar){calendarRef=db.doc(`${CALENDAR}/${request.sessionId}`);const snap=await tx.get(calendarRef);if(!snap.exists)throw Error('The sanitized calendar session no longer exists.');calendar={id:snap.id,...snap.data()}}
+  if(includeSource){sourceRef=db.doc(`${SESSIONS}/${request.sessionId}`);const snap=await tx.get(sourceRef);if(!snap.exists)throw Error('The live source session no longer exists.');source={id:snap.id,...snap.data()}}
+  return{requestRef,workflowRef,request,workflow,approvals,approvalRefs,privateRecord,privateRef,calendar,calendarRef,source,sourceRef};
+ }
+ function otherRequiredApproved(bundle,currentOffice){return(bundle.workflow.requiredOffices||[]).filter(name=>name!==currentOffice).every(name=>bundle.approvals?.[name]?.status==='approved')}
+ async function decideRoutedRequest(id,decision){
+  if(!isOfficeApprover())return;
+  let message='';
+  if(decision==='push_back'){message=String(prompt('What needs to be updated?','')||'').trim();if(!message)return toast('Push Back requires a message.',true)}
+  if(decision==='reject'){const value=prompt('Reason for rejection:','');if(value===null)return;message=String(value||'').trim()}
+  const currentOffice=office(),auditRef=db.collection(REQUEST_AUDIT).doc();let shouldFinalize=false;
+  try{
+   await db.runTransaction(async tx=>{
+    const bundle=await readRoutedBundleTx(tx,id),own=bundle.approvals[currentOffice];
+    if(!own||own.status!=='pending')throw Error('This office decision is no longer pending.');
+    if(bundle.workflow.hasFacultyChange&&currentOffice==='adfa'&&decision==='approve'&&!otherRequiredApproved(bundle,currentOffice))throw Error('ADFA final approval waits until the other required offices approve.');
+    const now=stamp(),plan=lifecycle.planDecision({request:bundle.request,workflow:bundle.workflow,approvals:bundle.approvals,office:currentOffice,decision,message,actor:{uid:user.uid,name:me?.name||user.email||''},now});
+    tx.update(bundle.requestRef,plan.publicPatch);
+    for(const [name,patch] of Object.entries(plan.approvalPatches))tx.update(bundle.approvalRefs[name],patch);
+    tx.set(auditRef,plan.audit);
+    if(notifications)for(const name of bundle.workflow.requiredOffices||[]){
+     if(name===currentOffice)continue;
+     notifications.emitBatch(tx,db,{kind:'office_decision',office:name,request:bundle.request,session:{id:bundle.request.sessionId,...(bundle.request.basePublic||{}),...(bundle.request.patchPublic||{})},message:decision==='push_back'?message:`${currentOffice.toUpperCase()} ${decision}`},now);
+    }
+    shouldFinalize=decision==='approve'&&plan.allRequiredApproved;
+   });
+   if(shouldFinalize)await finalizeRoutedRequest(id);else{toast(decision==='approve'?'Office scope approved.':decision==='push_back'?'Request returned for update.':'Request rejected.');closeModal()}
+  }catch(e){console.error('[routed office decision]',e);toast(e.message,true)}
+ }
+ async function withdrawRoutedRequest(id){
+  if(!user)return;if(!confirm('Withdraw this request? No timetable changes will be applied.'))return;
+  const requestRef=db.doc(`${REQUESTS}/${id}`),auditRef=db.collection(REQUEST_AUDIT).doc();let cancelOffices=[];
+  try{
+   await db.runTransaction(async tx=>{const snap=await tx.get(requestRef);if(!snap.exists)throw Error('This request no longer exists.');const request={id:snap.id,...snap.data()};if(request.requesterUid!==user.uid)throw Error('Only the requester can withdraw this request.');const now=stamp(),plan=lifecycle.planRequesterWithdrawal({request,actor:{uid:user.uid,name:me?.name||user.email||''},now});cancelOffices=plan.cancelOffices;tx.update(requestRef,plan.publicPatch);tx.set(auditRef,plan.audit);if(notifications)for(const name of cancelOffices)notifications.emitBatch(tx,db,{kind:'request_withdrawn',office:name,request,session:{id:request.sessionId,...(request.basePublic||{}),...(request.patchPublic||{})}},now)});
+   await Promise.allSettled(cancelOffices.map(name=>db.doc(`${APPROVALS}/${id}_${name}`).update({status:'cancelled',updatedAt:stamp()})));
+   toast('Request withdrawn.');closeModal();
+  }catch(e){console.error('[request withdraw]',e);toast(e.message,true)}
+ }
+ function editInput(field,value){const safe=esc(value??''),type=field==='date'?'date':['start','end'].includes(field)?'time':['year','week'].includes(field)?'number':'text';if(field==='timeUnknown')return `<label class="form-field"><span class="form-label">Time unknown</span><input name="${field}" type="checkbox" ${value===true?'checked':''}></label>`;return `<label class="form-field"><span class="form-label">${esc(field)}</span><input class="form-input" name="${esc(field)}" type="${type}" value="${safe}"></label>`}
+ async function loadResubmitFacultyCandidates(){
+  const snap=await db.collection('settings').doc(SWAP_INDEX).get();
+  if(!snap.exists||!Array.isArray(snap.data()?.entries))throw Error('The Faculty replacement directory is not available. Please contact ADFA.');
+  return snap.data().entries.filter(row=>row&&String(row.key||'').trim()&&String(row.name||'').trim()).map(row=>({key:String(row.key),name:String(row.name)}));
+ }
+ async function openResubmitRequest(id){
+  const r=requests.find(row=>row.id===id);if(!r||r.status!=='update_required')return;
+  const fields=r.editableFields||[],facultyReturned=fields.some(field=>['assignments','facultyIds','instructor'].includes(field)),publicFields=fields.filter(field=>!['assignments','facultyIds','instructor'].includes(field)),current={...(r.basePublic||{}),...(r.patchPublic||{})};
+  try{
+   const candidates=facultyReturned?await loadResubmitFacultyCandidates():[];
+   const facultyEditor=facultyReturned?`<label class="form-field"><span class="form-label">Faculty replacement</span><select class="form-select" name="facultyChoice" required><option value="" selected disabled>Choose a replacement</option>${candidates.map(row=>`<option value="candidate:${esc(row.key)}">${esc(row.name)}</option>`).join('')}<optgroup label="Other replacement types"><option value="special:sessional">Sessional</option><option value="special:other">Other</option></optgroup></select></label><label class="form-field"><span class="form-label">Reason / note (required for Sessional / Other)</span><input class="form-input" name="facultyReason" type="text" maxlength="500" value="${esc(r.reason||'')}"></label>`:'';
+   showModal(`<div class="modal-header"><div class="modal-title">Edit & Resubmit</div><div class="modal-subtitle">Only fields returned for update can be changed.</div></div><form id="workflow-resubmit-form"><div class="modal-body"><div class="workflow-grid">${publicFields.map(field=>editInput(field,current[field])).join('')}${facultyEditor}</div>${facultyReturned?`<div class="workflow-note">Faculty choices use the privacy-safe replacement directory. Internal Faculty identifiers are not loaded into this form.</div>`:''}</div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-workflow-close>Cancel</button><button type="submit" class="btn btn-primary">Resubmit</button></div></form>`);
+   $('workflow-resubmit-form').onsubmit=async ev=>{ev.preventDefault();const form=new FormData(ev.currentTarget),edits={};for(const field of publicFields)edits[field]=field==='timeUnknown'?ev.currentTarget.elements[field]?.checked===true:form.get(field);const facultyChoice=facultyReturned?approvalRequest.facultyEditFromChoice(form.get('facultyChoice'),candidates):null,facultyReason=facultyReturned?String(form.get('facultyReason')||'').trim():undefined;if(facultyChoice?.privateTarget?.kind&&!facultyReason){toast('Enter a reason / note for a Sessional or Other replacement.',true);return}await resubmitRoutedRequest(id,edits,facultyChoice,facultyReason)};
+  }catch(e){console.error('[open request resubmit]',e);toast(e.message,true)}
+ }
+ async function resubmitRoutedRequest(id,edits,facultyChoice=null,facultyReason=undefined){
+  const requestRef=db.doc(`${REQUESTS}/${id}`),workflowRef=db.doc(`${WORKFLOWS}/${id}`),auditRef=db.collection(REQUEST_AUDIT).doc();
+  try{await db.runTransaction(async tx=>{const snap=await tx.get(requestRef);if(!snap.exists)throw Error('This request no longer exists.');const request={id:snap.id,...snap.data()};if(request.requesterUid!==user.uid)throw Error('Only the requester can resubmit this request.');const now=stamp(),plan=lifecycle.planRequesterResubmission({request,publicEdits:edits,facultyEdit:facultyChoice?{displayName:facultyChoice.displayName,scopeSignature:facultyChoice.scopeSignature}:{},facultyScopeSignature:request.requestType==='faculty_swap'?approvalRequest.facultyScopeSignature(request.proposedFacultyName):'',reason:facultyReason,now});
+    const publicPatch={...plan.publicPatch,course:plan.publicPatch.patchPublic?.course??request.course,date:plan.publicPatch.patchPublic?.date??request.date,topic:plan.publicPatch.patchPublic?.topic??request.topic};tx.update(requestRef,publicPatch);tx.set(workflowRef,plan.workflow);
+    if(facultyChoice){const privateRef=db.doc(`${PRIVATE_REQUESTS}/${id}`);tx.update(privateRef,{'assignmentChange.to':facultyChoice.privateTarget,revision:plan.publicPatch.revision,updatedAt:now})}
+    for(const name of plan.cancelOffices)tx.update(db.doc(`${APPROVALS}/${id}_${name}`),{status:'cancelled',updatedAt:now});
+    for(const [name,row] of Object.entries(plan.approvalWrites))tx.set(db.doc(`${APPROVALS}/${id}_${name}`),row,{merge:true});
+    tx.set(auditRef,{...plan.audit,changedBy:user.uid,changedByName:me?.name||user.email||''});
+    if(notifications)for(const name of Object.keys(plan.approvalWrites))notifications.emitBatch(tx,db,{kind:'request_resubmitted',office:name,request:{...request,...publicPatch},session:{id:request.sessionId,...(request.basePublic||{}),...(publicPatch.patchPublic||request.patchPublic||{})}},now);
+   });toast('Request resubmitted for approval.');closeModal()}catch(e){console.error('[request resubmit]',e);toast(e.message,true)}
+ }
+ async function resolveRoutedReplacement(privateRecord,request){
+  const target=privateRecord?.assignmentChange?.to||{};
+  if(['sessional','other'].includes(String(target.kind||'').toLowerCase())){const kind=String(target.kind).toLowerCase(),fallback=kind==='sessional'?'Sessional':'Other';return{special:true,kind,facultyId:'',name:request.proposedFacultyName||fallback,faculty:null}}
+  let facultyId=String(target.facultyId||'').trim();
+  if(!facultyId&&target.candidateKey){const mapSnap=await db.doc('settings/faculty_swap_map').get({source:'server'}),mapping=(mapSnap.data()?.entries||[]).find(row=>String(row?.key||'')===String(target.candidateKey));facultyId=String(mapping?.facultyId||'').trim()}
+  if(!facultyId)throw Error('The replacement Faculty identity could not be resolved.');
+  const facultySnap=await db.doc(`faculty/${facultyId}`).get({source:'server'});if(!facultySnap.exists)throw Error('The replacement Faculty record no longer exists.');const faculty={__id:facultySnap.id,...facultySnap.data()};return{special:false,kind:'faculty',facultyId,name:request.proposedFacultyName||facultyName(faculty),faculty};
+ }
+ async function routedFacultyPreflight(request,source,privateRecord,resolved){
+  const plan=finalizer.planFacultySwap({request,source,privateRecord,resolved}),next={...source,...plan.sourcePatch},warnings=[];let check={status:'clear',conflicts:[],possibleConflicts:[]};
+  if(resolved.faculty){const records=Array.isArray(resolved.faculty.awayFromCampusRecords)?resolved.faculty.awayFromCampusRecords:[],date=ymd(next.date);if(records.some(row=>row?.startDate&&row?.endDate&&String(row.startDate)<=date&&date<=String(row.endDate)))warnings.push(`${resolved.name}: Unavailable (AFC).`);const day=await db.collection(SESSIONS).where('date','==',date).get({source:'server'}),aliases=facultyAliases(resolved.faculty);check=scheduling.findFacultyConflicts({date,start:next.start,end:next.end,timeUnknown:next.timeUnknown===true,sessions:day.docs.map(doc=>({id:doc.id,...doc.data()})),excludeSessionId:source.id,isAssigned:s=>assignedArray(s).some(a=>String(a.ucid||a.facultyId||'')===resolved.facultyId||aliases.has(norm(a.name)))});if(check.conflicts?.length)warnings.push(`${resolved.name}: timetable conflict - ${check.conflicts.map(conflictLabel).join('; ')}.`);if(check.possibleConflicts?.length)warnings.push(`${resolved.name}: timetable check incomplete.`)}
+  return{plan,warnings,check};
+ }
+ // UCVM_DB_MIGRATION_REVISIT: spark-client-finalizer
+ // Current Spark/client architecture requires ADFA to finalize requests containing private Faculty changes.
+ // Move final apply to a trusted UCalgary backend transaction/service during the database/API migration.
+ async function finalizeRoutedRequest(id){
+  const requestSnap=await db.doc(`${REQUESTS}/${id}`).get({source:'server'}),workflowSnap=await db.doc(`${WORKFLOWS}/${id}`).get({source:'server'});if(!requestSnap.exists||!workflowSnap.exists)throw Error('This request no longer exists.');const request={id:requestSnap.id,...requestSnap.data()},workflow={id:workflowSnap.id,...workflowSnap.data()},currentOffice=office();
+  const approvalDocs=await Promise.all((workflow.requiredOffices||[]).map(name=>db.doc(`${APPROVALS}/${id}_${name}`).get({source:'server'}))),approvalRows={};approvalDocs.forEach((snap,index)=>{if(snap.exists)approvalRows[workflow.requiredOffices[index]]={id:snap.id,...snap.data()}});if(!lifecycle.requiredApproved(workflow,approvalRows))throw Error('All required office approvals must be complete before applying this request.');
+  if(workflow.hasFacultyChange&&currentOffice!=='adfa')throw Error('ADFA must complete a request that changes Faculty assignment.');
+  let resolved=null,preflight=null,conflictOverride=null;
+  if(workflow.hasFacultyChange){const [privateSnap,sourceSnap]=await Promise.all([db.doc(`${PRIVATE_REQUESTS}/${id}`).get({source:'server'}),db.doc(`${SESSIONS}/${request.sessionId}`).get({source:'server'})]);if(!privateSnap.exists||!sourceSnap.exists)throw Error('Required private Faculty/session data is missing.');resolved=await resolveRoutedReplacement(privateSnap.data(),request);preflight=await routedFacultyPreflight(request,{id:sourceSnap.id,...sourceSnap.data()},privateSnap.data(),resolved);const warningText=preflight.warnings.length?`\n\nWARNING — availability/conflict checks:\n- ${preflight.warnings.join('\n- ')}`:'';if(approvalScheduling.requiresOverride(preflight.check)){if(!confirm(`TIMETABLE CONFLICT DETECTED${warningText}\n\nOverride and apply this Faculty change? The override will be audited.`))throw Error('Approval cancelled.');conflictOverride={...approvalScheduling.overrideAudit({uid:user.uid,name:me?.name||'ADFA administrator'},preflight.check.conflicts),confirmedAt:stamp()}}else if(!confirm(`Apply the fully approved Faculty change to the live timetable?${warningText}`))throw Error('Approval cancelled.')}
+  else if(!confirm('All required offices approved. Apply this request to the live timetable?'))throw Error('Approval cancelled.');
+  const auditRef=db.collection(REQUEST_AUDIT).doc(),logRef=db.collection(LOGS).doc();let beforeAfter=null;
+  await db.runTransaction(async tx=>{const bundle=await readRoutedBundleTx(tx,id,{includePrivate:workflow.hasFacultyChange,includeCalendar:!workflow.hasFacultyChange,includeSource:workflow.hasFacultyChange});if(bundle.request.status!=='pending')throw Error('This request is no longer pending.');if(bundle.request.appliedRevision===bundle.request.revision||bundle.request.appliedAt)throw Error('This request revision was already applied.');if(!lifecycle.requiredApproved(bundle.workflow,bundle.approvals))throw Error('All required office approvals must be complete before applying this request.');if(bundle.workflow.hasFacultyChange&&currentOffice!=='adfa')throw Error('ADFA must complete a request that changes Faculty assignment.');const now=stamp();let applyPlan,before;
+    if(bundle.workflow.hasFacultyChange){applyPlan=finalizer.planFacultySwap({request:bundle.request,source:bundle.source,privateRecord:bundle.privateRecord,resolved});before=bundle.source;tx.set(bundle.sourceRef,{...applyPlan.sourcePatch,approvalRequestId:id,approvalRevision:bundle.request.revision,updatedBy:user.uid,updatedByName:me?.name||user.email||'',updatedAt:now},{merge:true});tx.set(db.doc(`${CALENDAR}/${bundle.request.sessionId}`),applyPlan.calendar)}
+    else{applyPlan=finalizer.planPublicApply({request:bundle.request,calendar:bundle.calendar});before=bundle.calendar;tx.set(db.doc(`${SESSIONS}/${bundle.request.sessionId}`),{...applyPlan.sourcePatch,approvalRequestId:id,approvalRevision:bundle.request.revision,updatedBy:user.uid,updatedByName:me?.name||user.email||'',updatedAt:now},{merge:true});tx.set(bundle.calendarRef,applyPlan.calendar)}
+    const after={...before,...applyPlan.sourcePatch};beforeAfter={before,after};const changes=applyPlan.changedFields.map(field=>({field,before:before?.[field]??null,after:after?.[field]??null}));tx.set(logRef,{action:bundle.workflow.hasFacultyChange?'swap_faculty':'approved_session_edit',override:conflictOverride,requestId:id,sessionId:bundle.request.sessionId,course:after.course||bundle.request.course||'',date:ymd(after.date),topic:after.topic||'',instructors:bundle.workflow.hasFacultyChange?assignedArray(after).map(a=>a.name).filter(Boolean):[],changes,changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:now});tx.set(auditRef,{requestId:id,event:'request_applied',revision:bundle.request.revision,office:currentOffice,changedBy:user.uid,changedByName:me?.name||user.email||'',changedAt:now});tx.update(bundle.requestRef,{status:'approved',editableFields:[],requesterMessage:'',appliedRevision:bundle.request.revision,appliedAt:now,updatedAt:now});
+    if(notifications)for(const name of bundle.workflow.requiredOffices||[])notifications.emitBatch(tx,db,{kind:'request_applied',office:name,request:bundle.request,session:{id:bundle.request.sessionId,...applyPlan.calendar}},now);
+   });
+  if(isAdfaApprover()&&beforeAfter)await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([beforeAfter]);toast('All required approvals are complete. Changes applied to the live timetable.');closeModal();
+ }
 
  function swapImpactHtml(r,current){
   const arr=assignedArray(current),fromId=String(r.fromFaculty?.facultyId||''),fromName=norm(r.fromFaculty?.name),idx=arr.findIndex(a=>(fromId&&String(a.ucid||'')===fromId)||(fromName&&norm(a.name)===fromName)),out=idx>=0?arr[idx]:null,outF=resolveFaculty(r.fromFaculty),inF=resolveFaculty(r.toFaculty),credit=assignmentCredit(out),state=buildDoeState(),outState=outF?state.get(String(outF.__id)):null,inState=inF?state.get(String(inF.__id)):null,outCurrent=outState?.current??null,inCurrent=inState?.current??null,outProjected=outCurrent!==null&&credit!==null?outCurrent-credit:null,inProjected=inCurrent!==null&&credit!==null?inCurrent+credit:null,outAv=availabilityFor(outF,current.date,current.start,current.end,current.id,current.timeUnknown===true),inAv=availabilityFor(inF,current.date,current.start,current.end,current.id,current.timeUnknown===true);
   return `<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-credit">Session DOE credit transferred: ${credit===null?'Unrated / unavailable':fmtDoe(credit)} · ${esc(ymd(current.date))} ${esc(current.start||'—')}–${esc(current.end||'—')}</div><div class="workflow-impact-grid"><div class="workflow-person"><div class="workflow-person-name">Outgoing · ${esc(r.fromFaculty?.name||facultyName(outF))}</div><div class="workflow-metric">${doeProjectionText(outCurrent,outProjected,outState?.contract??contractTeachingDoe(outF))}</div>${availabilityHtml(outAv,current.start,current.end)}</div><div class="workflow-person"><div class="workflow-person-name">Incoming · ${esc(r.toFaculty?.name||facultyName(inF))}</div><div class="workflow-metric">${doeProjectionText(inCurrent,inProjected,inState?.contract??contractTeachingDoe(inF))}</div>${availabilityHtml(inAv,current.start,current.end)}</div></div>`;
  }
+ function routedSwapImpactHtml(r,current,privateRecord,resolved){
+  const change=privateRecord?.assignmentChange||{},arr=assignedArray(current),index=Number(change.assignmentIndex)||0,out=arr[index]||null,outRef={facultyId:String(change.from?.facultyId||out?.ucid||''),name:r.currentFacultyName||out?.name||''},outF=resolveFaculty(outRef),inF=resolved?.faculty||null,credit=assignmentCredit(out),state=buildDoeState(),outState=outF?state.get(String(outF.__id)):null,inState=inF?state.get(String(inF.__id)):null,outCurrent=outState?.current??null,inCurrent=inState?.current??null,outProjected=outCurrent!==null&&credit!==null?outCurrent-credit:null,inProjected=inCurrent!==null&&credit!==null?inCurrent+credit:null,outAv=availabilityFor(outF,current.date,current.start,current.end,current.id,current.timeUnknown===true),incomingName=resolved?.name||r.proposedFacultyName||'Replacement Faculty';
+  const incoming=resolved?.special?`<div class="workflow-person"><div class="workflow-person-name">Incoming · ${esc(incomingName)}</div><div class="workflow-metric">DOE/AFC/availability checks will be completed by ADFA when the specific Faculty record is resolved.</div><div class="workflow-check unknown">Specific Faculty identity not yet assigned.</div></div>`:(()=>{const inAv=availabilityFor(inF,current.date,current.start,current.end,current.id,current.timeUnknown===true);return `<div class="workflow-person"><div class="workflow-person-name">Incoming · ${esc(incomingName)}</div><div class="workflow-metric">${doeProjectionText(inCurrent,inProjected,inState?.contract??contractTeachingDoe(inF))}</div>${availabilityHtml(inAv,current.start,current.end)}</div>`})();
+  return `<div class="workflow-impact-title">DOE, AFC & schedule checks</div><div class="workflow-credit">Session DOE credit transferred: ${credit===null?'Unrated / unavailable':fmtDoe(credit)} · ${esc(ymd(current.date))} ${esc(current.start||'—')}–${esc(current.end||'—')}</div><div class="workflow-impact-grid"><div class="workflow-person"><div class="workflow-person-name">Outgoing · ${esc(r.currentFacultyName||out?.name||facultyName(outF))}</div><div class="workflow-metric">${doeProjectionText(outCurrent,outProjected,outState?.contract??contractTeachingDoe(outF))}</div>${availabilityHtml(outAv,current.start,current.end)}</div>${incoming}</div>`;
+ }
  function editImpactHtml(r,current){
-  const date=r.patch?.date||current.date,start=r.patch?.start||current.start,end=r.patch?.end||current.end,state=buildDoeState(),rows=assignedArray(current).map(a=>{const f=resolveFaculty({facultyId:a.ucid,name:a.name}),st=f?state.get(String(f.__id)):null,av=availabilityFor(f,date,start,end,current.id,current.timeUnknown===true&&start===current.start&&end===current.end),credit=assignmentCredit(a);return `<div class="workflow-person"><div class="workflow-person-name">${esc(a.name||facultyName(f))}</div><div class="workflow-metric">Session DOE: <strong>${credit===null?'Unrated':fmtDoe(credit)}</strong> · Current assigned DOE: <strong>${fmtDoe(st?.current??null)}</strong> · DOE is unchanged by this date/time/topic edit.</div>${availabilityHtml(av,start,end)}</div>`}).join('');
+  const patch=r.patchPublic||r.patch||{},date=patch.date||current.date,start=patch.start||current.start,end=patch.end||current.end,state=buildDoeState(),rows=assignedArray(current).map(a=>{const f=resolveFaculty({facultyId:a.ucid,name:a.name}),st=f?state.get(String(f.__id)):null,av=availabilityFor(f,date,start,end,current.id,current.timeUnknown===true&&start===current.start&&end===current.end),credit=assignmentCredit(a);return `<div class="workflow-person"><div class="workflow-person-name">${esc(a.name||facultyName(f))}</div><div class="workflow-metric">Session DOE: <strong>${credit===null?'Unrated':fmtDoe(credit)}</strong> · Current assigned DOE: <strong>${fmtDoe(st?.current??null)}</strong> · DOE is unchanged by this date/time/topic edit.</div>${availabilityHtml(av,start,end)}</div>`}).join('');
   return `<div class="workflow-impact-title">DOE & proposed-time conflict checks</div><div class="workflow-credit">Proposed session: ${esc(ymd(date))} ${esc(start||'—')}–${esc(end||'—')}. All currently assigned faculty are checked against their other live timetable sessions.</div><div class="workflow-edit-impact">${rows||'<div class="workflow-check unknown">No assigned faculty were found to check.</div>'}</div>`;
  }
-async function hydrateApprovalImpacts(){
+async function hydrateApprovalImpacts(){if(!isAdfaApprover())return;
   await ensureRequestSessions(requests);await ensureApprovalFaculty(requests);await ensureFacultySessionContext(requests);
-  for(const el of document.querySelectorAll('[data-approval-impact]')){const r=requests.find(x=>x.id===el.dataset.approvalImpact),current=r?sessions.get(r.sessionId):null;if(!r||!current){el.innerHTML='<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check warn">The live session could not be found. Do not approve until reviewed manually.</div>';continue}try{el.innerHTML=r.requestType==='faculty_swap'?swapImpactHtml(r,current):editImpactHtml(r,current)}catch(e){console.error('[approval impact]',e);el.innerHTML=`<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check unknown">Unable to calculate checks: ${esc(e.message)}</div>`}}
+  for(const el of document.querySelectorAll('[data-approval-impact]')){const r=requests.find(x=>x.id===el.dataset.approvalImpact),current=r?sessions.get(r.sessionId):null;if(!r||!current){el.innerHTML='<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check warn">The live session could not be found. Do not approve until reviewed manually.</div>';continue}try{if(r.requestSchema==='office-routing-v1'&&r._workflow?.hasFacultyChange){const privateSnap=await db.doc(`${PRIVATE_REQUESTS}/${r.id}`).get({source:'server'});if(!privateSnap.exists)throw Error('The private Faculty assignment record is missing.');const privateRecord=privateSnap.data(),resolved=await resolveRoutedReplacement(privateRecord,r);el.innerHTML=routedSwapImpactHtml(r,current,privateRecord,resolved)}else el.innerHTML=r.requestType==='faculty_swap'?swapImpactHtml(r,current):editImpactHtml(r,current)}catch(e){console.error('[approval impact]',e);el.innerHTML=`<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check unknown">Unable to calculate checks: ${esc(e.message)}</div>`}}
  }
  async function openApprovalQueue(){
-  const pending=requests.filter(r=>r.status==='pending'),done=requests.filter(r=>r.status!=='pending').slice(0,20),afcPending=afcRequests;showModal(`<div class="modal-header"><div class="modal-title">ADFA approval queue</div><div class="modal-subtitle">Timetable decisions use live DOE/conflict checks. AFC decisions create the signed, read-only PDF record.</div></div><div class="modal-body"><h3>AFC requests (${afcPending.length})</h3>${afcPending.map(r=>afcCard(r,true)).join('')||'<p>No pending AFC requests.</p>'}<h3 style="margin-top:18px">Timetable requests (${pending.length})</h3>${pending.map(r=>requestCard(r,true)).join('')||'<p>No pending timetable requests.</p>'}${done.length?`<h3 style="margin-top:18px">Recent timetable decisions</h3>${done.map(r=>requestCard(r,false)).join('')}`:''}</div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`);document.querySelectorAll('[data-approve-request]').forEach(b=>b.onclick=()=>approveRequest(b.dataset.approveRequest));document.querySelectorAll('[data-reject-request]').forEach(b=>b.onclick=()=>rejectRequest(b.dataset.rejectRequest));document.querySelectorAll('[data-afc-action]').forEach(b=>b.onclick=()=>decideAfc(b.dataset.afcId,b.dataset.afcAction));try{await hydrateApprovalImpacts()}catch(e){toast(`DOE/conflict checks could not load: ${e.message}`,true)}
+  const currentOffice=office(),pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?r._approvals?.[currentOffice]?.status==='pending':(isAdfaApprover()&&r.status==='pending')),done=requests.filter(r=>r.requestSchema==='office-routing-v1'?r._approvals?.[currentOffice]?.status!=='pending':r.status!=='pending').slice(0,20),afcPending=isAdfaApprover()?afcRequests:[];
+  const heading=currentOffice==='adc'?'ADC approval queue':currentOffice==='lab'?'LAB approval queue':'ADFA approval queue';
+  const subtitle=isAdfaApprover()?'Timetable Faculty decisions retain live DOE/AFC/conflict checks.':'Only your office-owned fields are actionable; other fields are read-only context.';
+  const afcHtml=isAdfaApprover()?`<h3>AFC requests (${afcPending.length})</h3>${afcPending.map(r=>afcCard(r,true)).join('')||'<p>No pending AFC requests.</p>'}`:'';
+  showModal(`<div class="modal-header"><div class="modal-title">${esc(heading)}</div><div class="modal-subtitle">${esc(subtitle)}</div></div><div class="modal-body">${afcHtml}<h3${isAdfaApprover()?' style="margin-top:18px"':''}>Timetable requests (${pending.length})</h3>${pending.map(r=>requestCard(r,true)).join('')||'<p>No pending timetable requests for this office.</p>'}${done.length?`<h3 style="margin-top:18px">Recent decisions</h3>${done.map(r=>requestCard(r,true)).join('')}`:''}</div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`);
+  document.querySelectorAll('[data-office-decision]').forEach(b=>b.onclick=()=>decideRoutedRequest(b.dataset.requestId,b.dataset.officeDecision));
+  document.querySelectorAll('[data-approve-request]').forEach(b=>b.onclick=()=>approveRequest(b.dataset.approveRequest));
+  document.querySelectorAll('[data-reject-request]').forEach(b=>b.onclick=()=>rejectRequest(b.dataset.rejectRequest));
+  document.querySelectorAll('[data-afc-action]').forEach(b=>b.onclick=()=>decideAfc(b.dataset.afcId,b.dataset.afcAction));
+  if(isAdfaApprover())try{await hydrateApprovalImpacts()}catch(e){toast(`DOE/conflict checks could not load: ${e.message}`,true)}
  }
 
  async function decideAfc(id,action){const r=afcRequests.find(x=>x.id===id);if(!r||!isApprover())return;let rejectionReason='';if(action==='reject'){rejectionReason=prompt('Reason for rejection:')?.trim()||'';if(!rejectionReason)return}const signature=await UCVM_SIGNATURE.capture({name:me?.name||user.email||'',email:user.email||'',uid:user.uid,title:`Sign AFC ${action}`});if(!signature){openApprovalQueue();return}try{await UCVM_AFC_ACTIONS.decide({db,user,profile:me,request:r,action,signature,rejectionReason});toast(action==='approve'?'AFC approved and signed PDF created.':action==='recommend'?'AFC signed and forwarded to ADMIN.':'AFC rejected.');closeModal()}catch(e){toast(e.message,true)}}
@@ -387,8 +573,8 @@ async function hydrateApprovalImpacts(){
  }
 
  auth.onAuthStateChanged(async u=>{
-  user=u;me=null;role='';hiccMode=false;sessions.clear();people=[];peopleByUid=new Map();peopleLoading=null;requests=[];afcRequests=[];requestsReady=false;afcRequestsReady=false;approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;approvalSessionDatesLoaded=new Set();if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}
+  user=u;me=null;role='';hiccMode=false;sessions.clear();people=[];peopleByUid=new Map();peopleLoading=null;requests=[];afcRequests=[];requestsReady=false;afcRequestsReady=false;approvalFaculty=[];approvalFacultyById=new Map();approvalFacultyLoaded=false;approvalSessionDatesLoaded=new Set();if(notificationUnsub){notificationUnsub();notificationUnsub=null}if(sessionUnsub){sessionUnsub();sessionUnsub=null}if(requestUnsub){requestUnsub();requestUnsub=null}if(afcUnsub){afcUnsub();afcUnsub=null}if(groupUnsub){groupUnsub();groupUnsub=null}
   if(!u){injectButtons();queueDecorate();return}
-  try{const d=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(u.uid):await db.doc(`users/${u.uid}`).get();me=d.data()||{};await UCVM.ready(u,me);role=UCVM.role(me.role);listenGroups();listenSessions();listenRequests();listenAfcRequests();injectButtons()}catch(e){console.warn('[approval workflow init]',e)}
+  try{const d=window.UCVM_PAGE_DATA?.profileSnapshot?await window.UCVM_PAGE_DATA.profileSnapshot(u.uid):await db.doc(`users/${u.uid}`).get();me=d.data()||{};await UCVM.ready(u,me);role=UCVM.role(me.role);notificationUnsub=notifications&&notifications.mount?notifications.mount({db,user:u,profile:me,host:$('workflow-notifications')}):null;listenGroups();listenSessions();listenRequests();listenAfcRequests();injectButtons()}catch(e){console.warn('[approval workflow init]',e)}
  });
 })();

@@ -23,6 +23,19 @@ before(async()=>{
 after(async()=>{if(env)await env.cleanup()});
 const check=(name,fn)=>test(name,{skip:!enabled},fn);
 
+function routedSwapCommit(db,id,{name,candidateKey='',kind='',reason=''}){
+ const {doc,writeBatch,serverTimestamp}=require('firebase/firestore');
+ const batch=writeBatch(db),stamp=serverTimestamp(),signature=`sig:${id}`;
+ const basePublic={course:'500',courseName:'',year:null,semester:'',week:null,date:'2026-10-05',start:'09:00',end:'10:00',timeUnknown:false,type:'LEC',topic:'',room:'',instructor:'Member Faculty'};
+ const patchPublic={instructor:name};
+ batch.set(doc(db,`change_requests/${id}`),{requestSchema:'office-routing-v1',requesterUid:'member',requesterName:'Member',requesterRole:'faculty',sessionId:'s1',requestType:'faculty_swap',scope:'self',groupId:'',groupName:'',status:'pending',revision:1,basePublic,patchPublic,currentFacultyName:'Member Faculty',proposedFacultyName:name,editableFields:[],requesterMessage:'',reason,course:'500',date:'2026-10-05',topic:'',requestedAt:stamp,updatedAt:stamp});
+ batch.set(doc(db,`change_request_workflow/${id}`),{requestId:id,revision:1,requiredOffices:['adfa'],hasFacultyChange:true,finalType:'LEC',scopes:{adc:[],lab:[],adfa:['assignments','instructor']},scopeSignatures:{adc:'',lab:'',adfa:signature},updatedAt:stamp});
+ batch.set(doc(db,`change_request_approvals/${id}_adfa`),{id:`${id}_adfa`,requestId:id,office:'adfa',revision:1,fields:['assignments','instructor'],scopeSignature:signature,status:'pending',decidedBy:'',decidedByName:'',decidedAt:null,pushBackReason:'',updatedAt:stamp});
+ const to=candidateKey?{candidateKey}:{kind};
+ batch.set(doc(db,`change_request_private/${id}`),{requestId:id,requesterUid:'member',revision:1,assignmentChange:{assignmentIndex:0,from:{facultyId:'f3'},to},updatedAt:stamp});
+ return batch.commit();
+}
+
 check('faculty can read sanitized swap index but not private key map or full faculty records',async()=>{
  const {assertFails,assertSucceeds}=require('@firebase/rules-unit-testing');
  const {doc,getDoc}=require('firebase/firestore');
@@ -42,23 +55,22 @@ check('faculty cannot write sanitized or private swap indexes',async()=>{
  await assertFails(setDoc(doc(member,'settings/faculty_swap_map'),{entries:[]}));
 });
 
-check('normal opaque-key self replacement can be requested without exposing incoming UCID',async()=>{
- const {assertSucceeds}=require('@firebase/rules-unit-testing');
- const {doc,setDoc,serverTimestamp}=require('firebase/firestore');
+check('normal opaque-key self replacement uses routed storage without exposing incoming UCID',async()=>{
+ const {assertFails,assertSucceeds}=require('@firebase/rules-unit-testing');
+ const {doc,getDoc}=require('firebase/firestore');
  const member=env.authenticatedContext('member').firestore();
- await assertSucceeds(setDoc(doc(member,'change_requests/opaque-swap'),{
-  requesterUid:'member',requesterRole:'faculty',status:'pending',requestedAt:serverTimestamp(),sessionId:'s1',requestType:'faculty_swap',
-  fromFaculty:{facultyId:'f3',name:'Member Faculty'},toFaculty:{candidateKey:'opaque-f4',name:'Other Faculty'},reason:''
- }));
+ await assertSucceeds(routedSwapCommit(member,'opaque-swap',{name:'Other Faculty',candidateKey:'opaque-f4'}));
+ const publicSnap=await assertSucceeds(getDoc(doc(member,'change_requests/opaque-swap')));
+ const publicText=JSON.stringify(publicSnap.data());
+ require('node:assert/strict').doesNotMatch(publicText,/opaque-f4|f4/);
+ await assertFails(getDoc(doc(member,'change_request_private/opaque-swap')));
 });
 
-check('Sessional and Other self replacements require a nonblank reason',async()=>{
+check('Sessional and Other routed self replacements require a nonblank reason',async()=>{
  const {assertFails,assertSucceeds}=require('@firebase/rules-unit-testing');
- const {doc,setDoc,serverTimestamp}=require('firebase/firestore');
  const member=env.authenticatedContext('member').firestore();
- const base={requesterUid:'member',requesterRole:'faculty',status:'pending',requestedAt:serverTimestamp(),sessionId:'s1',requestType:'faculty_swap',fromFaculty:{facultyId:'f3',name:'Member Faculty'}};
- await assertFails(setDoc(doc(member,'change_requests/sessional-blank'),{...base,toFaculty:{kind:'sessional',name:'Sessional'},reason:' '}));
- await assertSucceeds(setDoc(doc(member,'change_requests/sessional-ok'),{...base,requestedAt:serverTimestamp(),toFaculty:{kind:'sessional',name:'Sessional'},reason:'Sessional coverage requested.'}));
- await assertFails(setDoc(doc(member,'change_requests/other-blank'),{...base,requestedAt:serverTimestamp(),toFaculty:{kind:'other',name:'Other'},reason:''}));
- await assertSucceeds(setDoc(doc(member,'change_requests/other-ok'),{...base,requestedAt:serverTimestamp(),toFaculty:{kind:'other',name:'Other'},reason:'External teaching coverage.'}));
+ await assertFails(routedSwapCommit(member,'sessional-blank',{name:'Sessional',kind:'sessional',reason:' '}));
+ await assertSucceeds(routedSwapCommit(member,'sessional-ok',{name:'Sessional',kind:'sessional',reason:'Sessional coverage requested.'}));
+ await assertFails(routedSwapCommit(member,'other-blank',{name:'Other',kind:'other',reason:''}));
+ await assertSucceeds(routedSwapCommit(member,'other-ok',{name:'Other',kind:'other',reason:'External teaching coverage.'}));
 });

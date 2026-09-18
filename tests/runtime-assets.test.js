@@ -18,10 +18,10 @@ test('retired faculty assets are absent from disk, manifest and all runtime link
  assert.doesNotMatch(runtime,/faculty-dashboard\.(?:html|js)/);
 });
 
-test('production manifest contains the complete 47-file dependency graph and no stale visible names',()=>{
+test('production manifest contains the complete 55-file dependency graph and no stale visible names',()=>{
  const manifest=JSON.parse(read('tools/static-assets.json'));
- assert.equal(manifest.length,47);
- for(const name of ['approval-scheduling.js','afc-form-values.js','afc-form-state.js','afc-timetable-panel.js','audit-details.js','derived-index-health.js','faculty-account-planner.js','faculty-doe.js','faculty-swap-handoff.js','faculty-swap-safe.js','index-maintenance.js','scheduling-core.js','timetable-selection.js','user-management.css'])assert.ok(manifest.includes(name),name);
+ assert.equal(manifest.length,55);
+ for(const name of ['approval-scheduling.js','approval-routing.js','approval-state.js','approval-office-view.js','approval-lifecycle.js','approval-finalizer.js','afc-form-values.js','afc-form-state.js','afc-timetable-panel.js','audit-details.js','derived-index-health.js','faculty-account-planner.js','faculty-doe.js','faculty-swap-handoff.js','faculty-swap-safe.js','index-maintenance.js','scheduling-core.js','timetable-selection.js','workflow-notifications.js','user-management.css'])assert.ok(manifest.includes(name),name);
  const runtime=manifest.filter(name=>/\.(html|js)$/.test(name)).map(read).join('\n');
  assert.doesNotMatch(runtime,/Faculty Directory|Faculty Admin Dashboard|Open Faculty Dashboard/);
  for(const page of manifest.filter(name=>name.endsWith('.html'))){
@@ -48,4 +48,17 @@ test('undeployed callable implementation and completed migration are removed',()
  for(const name of ['functions/index.js','functions/afc-pdf.js','functions/bootstrap-general.js','tools/migrate_assigned_ad_rest.js'])assert.equal(fs.existsSync(path.join(root,name)),false,name);
  const deployed=JSON.parse(read('tools/static-assets.json')).map(read).join('\n');
  assert.doesNotMatch(deployed,/httpsCallable|bootstrapGeneral|replaceGroupAssignment/);
+});
+
+
+test('approval routing and state engines load before timetable workflow consumers',()=>{
+ const html=read('index.html');
+ for(const name of ['approval-routing.js','approval-state.js','approval-office-view.js','approval-lifecycle.js','approval-finalizer.js'])assert.ok(html.includes(`<script src="${name}"></script>`),name);
+ assert.ok(html.indexOf('approval-routing.js')<html.indexOf('timetable.js'));
+ assert.ok(html.indexOf('approval-state.js')<html.indexOf('timetable.js'));
+ assert.ok(html.indexOf('approval-office-view.js')<html.indexOf('asset-loader.js'));
+ assert.ok(html.indexOf('approval-lifecycle.js')<html.indexOf('asset-loader.js'));
+ assert.ok(html.indexOf('approval-finalizer.js')<html.indexOf('asset-loader.js'));
+ const loader=read('asset-loader.js');
+ assert.ok(loader.includes("loadScriptOnce('approval-workflow.js')"));
 });

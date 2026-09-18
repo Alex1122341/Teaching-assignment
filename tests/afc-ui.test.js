@@ -38,3 +38,11 @@ test('AFC teaching matches render as a vertical sorted list', () => {
   assert.match(source, /String\(a\.topic\|\|a\.type\|\|''\)\.localeCompare\(String\(b\.topic\|\|b\.type\|\|''\)\)/);
   assert.doesNotMatch(source, /teaching assignment\(s\) found:.*\.join/);
 });
+
+test('AFC requester can withdraw only pending requests and withdrawn has a terminal label', () => {
+  const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
+  assert.match(source, /withdrawn:'Withdrawn'/);
+  assert.match(source, /requesterUid===uid\(\).*\['pending_report_to','pending_admin'\]\.includes\(r\.status\)/);
+  assert.match(source, /data-afc-withdraw/);
+  assert.match(source, /UCVM_AFC_ACTIONS\.withdraw/);
+});

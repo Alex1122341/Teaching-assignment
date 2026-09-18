@@ -31,7 +31,7 @@ test('timetable Faculty Dashboard button supports administrators and faculty sel
   const currentUser=role?{role,name:'Test'}:null,elements=new Map();
   const $=id=>{if(!elements.has(id))elements.set(id,{classList:{toggle(name,value){this[name]=value;},contains(){return true;}},addEventListener(_name,fn){this.click=fn;}});return elements.get(id);};
   const admin=p=>['adfa_general','adfa_regular','other_office'].includes(p?.role);
-  const context={$ ,currentUser,UCVM:{admin,general:p=>p?.role==='adfa_general'},canEdit:()=>admin(currentUser),updateScheduleSourceUI(){},roleIsFaculty:p=>p?.role==='faculty',uiSettings:{showMyTimetable:true},myTimetableOnly:false,window:{location:{href:''}}};
+  const context={$ ,currentUser,UCVM:{admin,general:p=>p?.role==='adfa_general'},canEdit:()=>admin(currentUser),canAddSessions:()=>admin(currentUser),canAddOneSession:()=>admin(currentUser),canSelectSessions:()=>admin(currentUser),updateScheduleSourceUI(){},roleIsFaculty:p=>p?.role==='faculty',uiSettings:{showMyTimetable:true},myTimetableOnly:false,window:{location:{href:''}}};
   vm.runInNewContext(ui+'\nupdateAuthUI();\n'+binding,context);
   const button=$('faculty-dashboard-btn');
   assert.equal(button.classList.hidden,!admin(currentUser),String(role));

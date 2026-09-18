@@ -3,7 +3,8 @@ service cloud.firestore {
  match /databases/{database}/documents {
   function signedIn(){return request.auth != null;}
   function profile(){return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;}
-  function ready(){return signedIn() && profile().active == true && profile().role in ['owner','administrator','other_office','admin','editor','viewer','adfa_general','adfa_regular','hicc','visc','faculty','adc','lab'] && profile().get('mustChangePassword',false) == false;}
+  function readySignedIn(){let p=profile();return p.active == true && p.role in ['owner','administrator','other_office','admin','editor','viewer','adfa_general','adfa_regular','hicc','visc','faculty','adc','lab'] && p.get('mustChangePassword',false) == false;}
+  function ready(){return signedIn() && readySignedIn();}
   function admin(){return ready() && profile().role in ['owner','administrator','other_office','admin','adfa_general','adfa_regular'];}
   function approver(){return ready() && profile().role in ['owner','administrator','other_office','adfa_general','adfa_regular'];}
   function general(){return ready() && profile().role in ['owner','adfa_general'];}
@@ -12,6 +13,250 @@ service cloud.firestore {
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
   function explicitRole(r){return r in ['owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
   function restrictedOffice(){return signedIn() && profile().role in ['adc','lab'];}
+  function adc(){return ready() && profile().role == 'adc';}
+  function lab(){return ready() && profile().role == 'lab';}
+  function adfaApprover(){return ready() && profile().role in ['owner','administrator','admin','adfa_general','adfa_regular'];}
+  function officeForRole(r){return r == 'adc' ? 'adc' : (r == 'lab' ? 'lab' : (r in ['owner','administrator','admin','adfa_general','adfa_regular'] ? 'adfa' : ''));}
+  function officeUser(){return ready() && officeForRole(profile().role) != '';}
+  function officeName(){return ready() ? officeForRole(profile().role) : '';}
+  function requestPublicPath(id){return /databases/$(database)/documents/change_requests/$(id);}
+  function requestWorkflowPath(id){return /databases/$(database)/documents/change_request_workflow/$(id);}
+  function requestApprovalPath(id,office){return /databases/$(database)/documents/change_request_approvals/$(id + '_' + office);}
+  function requestPrivatePath(id){return /databases/$(database)/documents/change_request_private/$(id);}
+  function routedRequest(d){return d.get('requestSchema','') == 'office-routing-v1';}
+  function publicSessionMapValid(d){return d is map && d.keys().hasOnly(['course','courseName','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructor']);}
+  function publicRequestKeysValid(d){return d.keys().hasOnly(['requestSchema','requesterUid','requesterName','requesterRole','sessionId','requestType','scope','groupId','groupName','status','revision','basePublic','patchPublic','currentFacultyName','proposedFacultyName','editableFields','requesterMessage','reason','course','date','topic','requestedAt','updatedAt','withdrawnBy','withdrawnAt','appliedRevision','appliedAt'])
+   && publicSessionMapValid(d.basePublic) && publicSessionMapValid(d.patchPublic)
+   && d.status in ['pending','update_required','approved','rejected','withdrawn']
+   && d.requesterName is string && d.requesterRole is string && d.scope is string && d.groupId is string && d.groupName is string
+   && d.currentFacultyName is string && d.proposedFacultyName is string && d.editableFields is list && d.editableFields.hasOnly(['course','courseName','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructor','assignments','facultyIds'])
+   && d.requesterMessage is string && d.reason is string
+   && d.get('withdrawnBy','') is string && (d.get('withdrawnAt',null) == null || d.withdrawnAt is timestamp)
+   && d.get('appliedRevision',0) is int && (d.get('appliedAt',null) == null || d.appliedAt is timestamp);}
+  function routedPrivateShapeValid(d){return d.keys().hasOnly(['requestId','requesterUid','revision','assignmentChange','updatedAt'])
+   && d.assignmentChange is map && d.assignmentChange.keys().hasOnly(['assignmentIndex','from','to'])
+   && d.assignmentChange.get('from',{}) is map && d.assignmentChange.get('to',{}) is map
+   && d.assignmentChange.get('from',{}).keys().hasOnly(['facultyId','candidateKey','kind'])
+   && d.assignmentChange.get('to',{}).keys().hasOnly(['facultyId','candidateKey','kind']);}
+  function routedSpecialReplacement(id){return existsAfter(requestPrivatePath(id)) && getAfter(requestPrivatePath(id)).data.assignmentChange.get('to',{}).get('kind','') in ['sessional','other'];}
+  function routedSelfSwap(id){return existsAfter(requestPrivatePath(id)) && (selfFacultyId(getAfter(requestPrivatePath(id)).data.assignmentChange.get('from',{}).get('facultyId','')) || selfFacultyId(getAfter(requestPrivatePath(id)).data.assignmentChange.get('to',{}).get('facultyId','')));}
+  function routedScopeCreate(id,d){return (d.requestType == 'session_edit' && d.scope == 'hicc' && ownsRequestGroup(d)) || (d.requestType == 'faculty_swap' && ((d.scope == 'hicc' && ownsRequestGroup(d)) || (d.scope == 'self' && routedSelfSwap(id))));}
+  function validRoutedRequestCreate(id){let d=request.resource.data;return facultyMember() && routedRequest(d) && publicRequestKeysValid(d)
+   && d.requesterUid == request.auth.uid && d.requesterRole == profile().role && d.status == 'pending' && d.revision == 1
+   && d.requestedAt == request.time && d.updatedAt == request.time && d.sessionId is string && d.sessionId.size() > 0
+   && d.requestType in ['faculty_swap','session_edit'] && routedScopeCreate(id,d)
+   && (!routedSpecialReplacement(id) || (d.reason.size() > 0 && d.reason.size() <= 1000 && d.reason.matches('.*\\S.*')));}
+  function requestFieldChanged(parent,field){return parent.patchPublic.get(field,parent.basePublic.get(field,null)) != parent.basePublic.get(field,null);}
+  function requestFinalType(parent){return parent.patchPublic.get('type',parent.basePublic.get('type',''));}
+  function requestFacultyChange(parent){return parent.requestType == 'faculty_swap' || requestFieldChanged(parent,'instructor');}
+  function workflowScopesValid(d){let adcFields=d.scopes.get('adc',[]);let labFields=d.scopes.get('lab',[]);let adfaFields=d.scopes.get('adfa',[]);return
+   d.requiredOffices is list && d.requiredOffices.size() > 0 && d.requiredOffices.size() <= 3 && d.requiredOffices.hasOnly(['adc','lab','adfa'])
+   && adcFields is list && labFields is list && adfaFields is list
+   && adcFields.hasOnly(['course','courseName','year','semester','week','date','start','end','timeUnknown','type','room','topic'])
+   && labFields.hasOnly(['topic']) && adfaFields.hasOnly(['assignments','facultyIds','instructor'])
+   && (d.finalType != 'LAB' || !('topic' in adcFields)) && (labFields.size() == 0 || d.finalType == 'LAB')
+   && ((adcFields.size() > 0) == ('adc' in d.requiredOffices)) && ((labFields.size() > 0) == ('lab' in d.requiredOffices)) && ((adfaFields.size() > 0) == ('adfa' in d.requiredOffices))
+   && d.hasFacultyChange == (adfaFields.size() > 0);}
+  function workflowMatchesRequest(d,parent){let adcFields=d.scopes.get('adc',[]);let labFields=d.scopes.get('lab',[]);let adfaFields=d.scopes.get('adfa',[]);let finalType=requestFinalType(parent);return workflowScopesValid(d)
+   && d.finalType == finalType && d.hasFacultyChange == requestFacultyChange(parent)
+   && (('course' in adcFields) == requestFieldChanged(parent,'course')) && (('courseName' in adcFields) == requestFieldChanged(parent,'courseName'))
+   && (('year' in adcFields) == requestFieldChanged(parent,'year')) && (('semester' in adcFields) == requestFieldChanged(parent,'semester')) && (('week' in adcFields) == requestFieldChanged(parent,'week'))
+   && (('date' in adcFields) == requestFieldChanged(parent,'date')) && (('start' in adcFields) == requestFieldChanged(parent,'start')) && (('end' in adcFields) == requestFieldChanged(parent,'end'))
+   && (('timeUnknown' in adcFields) == requestFieldChanged(parent,'timeUnknown')) && (('type' in adcFields) == requestFieldChanged(parent,'type')) && (('room' in adcFields) == requestFieldChanged(parent,'room'))
+   && (('topic' in adcFields) == (finalType != 'LAB' && requestFieldChanged(parent,'topic'))) && (('topic' in labFields) == (finalType == 'LAB' && requestFieldChanged(parent,'topic')))
+   && ((parent.requestType != 'faculty_swap' || (('assignments' in adfaFields) && ('instructor' in adfaFields))) && (('instructor' in adfaFields) == requestFacultyChange(parent)));}
+  function validRoutedWorkflowCreate(id){let d=request.resource.data;let parent=getAfter(requestPublicPath(id)).data;return parent.requesterUid == request.auth.uid && routedRequest(parent)
+   && d.keys().hasOnly(['requestId','revision','requiredOffices','hasFacultyChange','finalType','scopes','scopeSignatures','updatedAt'])
+   && d.requestId == id && d.revision == 1 && d.updatedAt == request.time && d.scopes is map && d.scopeSignatures is map
+   && d.scopes.keys().hasOnly(['adc','lab','adfa']) && d.scopeSignatures.keys().hasOnly(['adc','lab','adfa']) && workflowMatchesRequest(d,parent);}
+  function validRoutedApprovalCreate(id){let d=request.resource.data;let workflow=getAfter(requestWorkflowPath(d.requestId)).data;let parent=getAfter(requestPublicPath(d.requestId)).data;return parent.requesterUid == request.auth.uid && routedRequest(parent)
+   && d.keys().hasOnly(['id','requestId','office','revision','fields','scopeSignature','status','decidedBy','decidedByName','decidedAt','pushBackReason','updatedAt'])
+   && id == d.requestId + '_' + d.office && d.office in ['adc','lab','adfa'] && d.office in workflow.requiredOffices
+   && d.revision == 1 && d.fields == workflow.scopes.get(d.office,[]) && d.scopeSignature == workflow.scopeSignatures.get(d.office,'')
+   && d.status == 'pending' && d.decidedBy == '' && d.decidedByName == '' && d.decidedAt == null && d.pushBackReason == '' && d.updatedAt == request.time;}
+  function validRoutedPrivateCreate(id){let d=request.resource.data;let parent=getAfter(requestPublicPath(id)).data;let workflow=getAfter(requestWorkflowPath(id)).data;return parent.requesterUid == request.auth.uid && routedRequest(parent) && parent.requestType == 'faculty_swap' && workflow.hasFacultyChange == true
+   && routedPrivateShapeValid(d) && d.requestId == id && d.requesterUid == request.auth.uid && d.revision == 1 && d.updatedAt == request.time;}
+  function approvalShapeValid(d){return d.keys().hasOnly(['id','requestId','office','revision','fields','scopeSignature','status','decidedBy','decidedByName','decidedAt','pushBackReason','updatedAt'])
+   && d.office in ['adc','lab','adfa'] && d.fields is list && d.scopeSignature is string && d.status in ['pending','approved','push_back','rejected','cancelled']
+   && d.decidedBy is string && d.decidedByName is string && d.pushBackReason is string;}
+  function approvalMatchesWorkflow(id,d,workflow){return approvalShapeValid(d) && d.id == id && id == d.requestId + '_' + d.office && d.office in workflow.requiredOffices
+   && d.fields == workflow.scopes.get(d.office,[]) && d.scopeSignature == workflow.scopeSignatures.get(d.office,'');}
+  function resubmitChanged(before,after,field){return before.patchPublic.get(field,before.basePublic.get(field,null)) != after.patchPublic.get(field,after.basePublic.get(field,null));}
+  function resubmitScheduleChanged(before,after){return resubmitChanged(before,after,'date') || resubmitChanged(before,after,'start') || resubmitChanged(before,after,'end');}
+  function officeReturned(before,oldWorkflow,office){return oldWorkflow.scopes.get(office,[]).toSet().intersection(before.editableFields.toSet()).size() > 0
+   || (office == 'adfa' && before.editableFields.hasAny(['assignments','facultyIds','instructor']));}
+  function officeDecisionParentMatches(before,after,approval){let changed=after.diff(before).affectedKeys();return changed.hasOnly(['status','editableFields','requesterMessage','updatedAt']) && after.updatedAt == request.time && after.editableFields is list && after.requesterMessage is string
+   && ((approval.status == 'approved' && after.status == before.status && after.editableFields == before.editableFields && after.requesterMessage == before.requesterMessage)
+    || (approval.status == 'push_back' && after.status == 'update_required' && after.requesterMessage.size() > 0 && after.requesterMessage.size() <= 1000
+        && after.editableFields.hasAll(before.editableFields) && after.editableFields.hasAll(approval.fields)
+        && after.editableFields.toSet().difference(before.editableFields.toSet()).hasOnly(approval.fields))
+    || (approval.status == 'rejected' && after.status == 'rejected' && after.editableFields.size() == 0 && after.requesterMessage.size() <= 1000));}
+  function validRoutedOfficeRequestUpdate(id){let before=resource.data;let after=request.resource.data;let actorOffice=officeName();return actorOffice != '' && routedRequest(before) && before.status in ['pending','update_required'] && officeDecisionParentMatches(before,after,getAfter(requestApprovalPath(id,actorOffice)).data);}
+  function validOfficeApprovalDecision(id,d,actorOffice){let parentBefore=get(requestPublicPath(d.requestId)).data;let parentAfter=getAfter(requestPublicPath(d.requestId)).data;let changed=d.diff(resource.data).affectedKeys();return routedRequest(parentBefore) && resource.data.office == actorOffice && resource.data.status == 'pending' && d.requestId == resource.data.requestId && d.office == resource.data.office && d.revision == resource.data.revision && d.fields == resource.data.fields && d.scopeSignature == resource.data.scopeSignature
+   && changed.hasOnly(['status','decidedBy','decidedByName','decidedAt','pushBackReason','updatedAt']) && d.status in ['approved','push_back','rejected'] && d.decidedBy == request.auth.uid && d.decidedAt == request.time && d.updatedAt == request.time
+   && ((d.status == 'push_back' && d.pushBackReason.size() > 0 && d.pushBackReason.size() <= 1000) || (d.status != 'push_back' && d.pushBackReason == '')) && officeDecisionParentMatches(parentBefore,parentAfter,d);}
+  function validOfficeApprovalCancel(id,d,actorOffice){let parentAfter=getAfter(requestPublicPath(d.requestId)).data;let changed=d.diff(resource.data).affectedKeys();return resource.data.office != actorOffice && resource.data.status in ['pending','push_back'] && d.status == 'cancelled' && changed.hasOnly(['status','updatedAt']) && d.updatedAt == request.time && parentAfter.status == 'rejected' && getAfter(requestApprovalPath(d.requestId,actorOffice)).data.status == 'rejected';}
+  function validRequesterApprovalResubmitUpdate(id,d,parentBefore,parentAfter,changed){let oldWorkflow=get(requestWorkflowPath(d.requestId)).data;let newWorkflow=getAfter(requestWorkflowPath(d.requestId)).data;return d.status == 'pending'
+   ? (d.requestId == resource.data.requestId && d.office == resource.data.office && d.revision == parentAfter.revision && approvalMatchesWorkflow(id,d,newWorkflow) && d.decidedBy == '' && d.decidedByName == '' && d.decidedAt == null && d.pushBackReason == '' && d.updatedAt == request.time
+      && (officeReturned(parentBefore,oldWorkflow,d.office) || !(d.office in oldWorkflow.requiredOffices) || (d.office == 'adfa' && oldWorkflow.hasFacultyChange == true && resubmitScheduleChanged(parentBefore,parentAfter))))
+   : (d.status == 'cancelled' && resource.data.status in ['pending','push_back'] && changed.hasOnly(['status','updatedAt']) && d.updatedAt == request.time && !(d.office in newWorkflow.requiredOffices));}
+  function validRequesterApprovalUpdate(id,d){let parentBefore=get(requestPublicPath(d.requestId)).data;let parentAfter=getAfter(requestPublicPath(d.requestId)).data;let changed=d.diff(resource.data).affectedKeys();return parentBefore.requesterUid == request.auth.uid
+   && (parentAfter.status == 'withdrawn'
+      ? (resource.data.status in ['pending','push_back'] && d.status == 'cancelled' && changed.hasOnly(['status','updatedAt']) && d.updatedAt == request.time)
+      : (parentBefore.status == 'update_required' && parentAfter.status == 'pending' && validRequesterApprovalResubmitUpdate(id,d,parentBefore,parentAfter,changed)));}
+  function validRoutedOfficeDecision(id){let d=request.resource.data;let actorOffice=officeName();return teachingWritesOpen() && approvalShapeValid(d) && (actorOffice != '' ? (resource.data.office == actorOffice ? validOfficeApprovalDecision(id,d,actorOffice) : validOfficeApprovalCancel(id,d,actorOffice)) : validRequesterApprovalUpdate(id,d));}
+  function validRoutedApprovalResubmitCreate(id){let d=request.resource.data;let parentBefore=get(requestPublicPath(d.requestId)).data;let parentAfter=getAfter(requestPublicPath(d.requestId)).data;let oldWorkflow=get(requestWorkflowPath(d.requestId)).data;let newWorkflow=getAfter(requestWorkflowPath(d.requestId)).data;return teachingWritesOpen() && parentBefore.requesterUid == request.auth.uid && parentBefore.status == 'update_required' && parentAfter.status == 'pending'
+   && d.revision == parentAfter.revision && approvalMatchesWorkflow(id,d,newWorkflow) && !(d.office in oldWorkflow.requiredOffices)
+   && d.status == 'pending' && d.decidedBy == '' && d.decidedByName == '' && d.decidedAt == null && d.pushBackReason == '' && d.updatedAt == request.time;}
+  function validRoutedRequesterWithdraw(id){let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();return facultyMember() && routedRequest(before) && before.requesterUid == request.auth.uid
+   && before.status in ['pending','update_required'] && after.status == 'withdrawn' && after.revision == before.revision
+   && changed.hasOnly(['status','editableFields','requesterMessage','withdrawnBy','withdrawnAt','updatedAt']) && after.editableFields is list && after.editableFields.size() == 0 && after.requesterMessage == ''
+   && after.withdrawnBy == request.auth.uid && after.withdrawnAt == request.time && after.updatedAt == request.time;}
+  function validRoutedRequesterResubmit(id){let before=resource.data;let after=request.resource.data;let changedPublic=after.patchPublic.diff(before.patchPublic).affectedKeys();let changed=after.diff(before).affectedKeys();let newWorkflow=getAfter(requestWorkflowPath(id)).data;return facultyMember() && routedRequest(before) && before.requesterUid == request.auth.uid
+   && before.status == 'update_required' && after.status == 'pending' && after.revision == before.revision + 1 && after.updatedAt == request.time
+   && changed.hasOnly(['patchPublic','proposedFacultyName','reason','status','revision','editableFields','requesterMessage','course','date','topic','updatedAt'])
+   && publicSessionMapValid(after.patchPublic) && after.proposedFacultyName is string && after.reason is string && after.editableFields is list && after.requesterMessage is string
+   && changedPublic.hasOnly(before.editableFields) && (changedPublic.size() > 0 || after.proposedFacultyName != before.proposedFacultyName)
+   && after.editableFields.size() == 0 && after.requesterMessage == ''
+   && after.course == after.patchPublic.get('course',before.course) && after.date == after.patchPublic.get('date',before.date) && after.topic == after.patchPublic.get('topic',before.topic)
+   && (after.proposedFacultyName == before.proposedFacultyName || (before.editableFields.hasAny(['assignments','facultyIds','instructor']) && after.patchPublic.get('instructor','') == after.proposedFacultyName))
+   && (after.reason == before.reason || before.editableFields.hasAny(['assignments','facultyIds','instructor']))
+   && newWorkflow.requestId == id && newWorkflow.revision == after.revision && newWorkflow.updatedAt == request.time && workflowMatchesRequest(newWorkflow,after)
+   && (!routedSpecialReplacement(id) || (after.reason.size() > 0 && after.reason.size() <= 1000 && after.reason.matches('.*\\S.*')));}
+  function validRoutedWorkflowResubmit(id){let d=request.resource.data;let beforeParent=get(requestPublicPath(id)).data;let afterParent=getAfter(requestPublicPath(id)).data;return facultyMember() && beforeParent.requesterUid == request.auth.uid && beforeParent.status == 'update_required' && afterParent.status == 'pending'
+   && resource.data.requestId == id && d.keys().hasOnly(['requestId','revision','requiredOffices','hasFacultyChange','finalType','scopes','scopeSignatures','updatedAt'])
+   && d.requestId == id && d.revision == afterParent.revision && d.updatedAt == request.time && d.scopes is map && d.scopeSignatures is map
+   && d.scopes.keys().hasOnly(['adc','lab','adfa']) && d.scopeSignatures.keys().hasOnly(['adc','lab','adfa']) && workflowMatchesRequest(d,afterParent);}
+  function validRoutedPrivateTarget(t){return t is map && t.keys().hasOnly(['candidateKey','kind'])
+   && ((t.get('candidateKey','') is string && t.get('candidateKey','').size() > 0 && t.get('kind','') == '') || (t.get('candidateKey','') == '' && t.get('kind','') in ['sessional','other']));}
+  function validRoutedPrivateResubmit(id){let d=request.resource.data;let beforeParent=get(requestPublicPath(id)).data;let afterParent=getAfter(requestPublicPath(id)).data;return facultyMember() && beforeParent.requesterUid == request.auth.uid && beforeParent.status == 'update_required' && afterParent.status == 'pending'
+   && beforeParent.editableFields.hasAny(['assignments','facultyIds','instructor']) && routedPrivateShapeValid(d) && d.requestId == id && d.requesterUid == resource.data.requesterUid
+   && d.revision == afterParent.revision && d.updatedAt == request.time && d.assignmentChange.assignmentIndex == resource.data.assignmentChange.assignmentIndex && d.assignmentChange.from == resource.data.assignmentChange.from
+   && validRoutedPrivateTarget(d.assignmentChange.to) && d.diff(resource.data).affectedKeys().hasOnly(['revision','assignmentChange','updatedAt'])
+   && (d.assignmentChange.to.get('kind','') == '' || (afterParent.reason.size() > 0 && afterParent.reason.size() <= 1000 && afterParent.reason.matches('.*\\S.*')));}
+  function requiredApprovalMatches(id,workflow,office){let approval=get(requestApprovalPath(id,office)).data;return approval.status == 'approved' && approval.fields == workflow.scopes.get(office,[]) && approval.scopeSignature == workflow.scopeSignatures.get(office,'');}
+  function approvedScope(id,workflow,office){return !(office in workflow.requiredOffices) || (exists(requestApprovalPath(id,office)) && requiredApprovalMatches(id,workflow,office));}
+  function allRequiredApproved(id,workflow){return approvedScope(id,workflow,'adc') && approvedScope(id,workflow,'lab') && approvedScope(id,workflow,'adfa');}
+  function routedApplyContextValid(id,before,after,workflow){let actorOffice=officeName();return actorOffice != '' && routedRequest(before) && before.status == 'pending' && after.status == 'approved'
+   && before.revision == after.revision && after.appliedRevision == before.revision && after.appliedAt == request.time && after.updatedAt == request.time
+   && workflow.requestId == id && workflow.revision == before.revision && workflowMatchesRequest(workflow,before) && allRequiredApproved(id,workflow)
+   && actorOffice in workflow.requiredOffices && (!workflow.hasFacultyChange || actorOffice == 'adfa');}
+  function validRoutedApply(id){let before=resource.data;let after=request.resource.data;let workflow=get(requestWorkflowPath(id)).data;return routedApplyContextValid(id,before,after,workflow)
+   && after.diff(before).affectedKeys().hasOnly(['status','editableFields','requesterMessage','appliedRevision','appliedAt','updatedAt'])
+   && after.editableFields is list && after.editableFields.size() == 0 && after.requesterMessage == '';}
+  function validRoutedRequesterUpdate(id){return request.resource.data.status == 'withdrawn' ? validRoutedRequesterWithdraw(id) : validRoutedRequesterResubmit(id);}
+  function validRoutedOfficeUpdate(id){return request.resource.data.status == 'approved' ? validRoutedApply(id) : validRoutedOfficeRequestUpdate(id);}
+  function validRoutedRequestUpdate(id){return resource.data.requesterUid == request.auth.uid ? validRoutedRequesterUpdate(id) : validRoutedOfficeUpdate(id);}
+  function sourceMatchesPublicPatch(before,after,parent){return
+   after.get('course',null) == parent.patchPublic.get('course',before.get('course',null)) && after.get('courseName',null) == parent.patchPublic.get('courseName',before.get('courseName',null))
+   && after.get('year',null) == parent.patchPublic.get('year',before.get('year',null)) && after.get('semester',null) == parent.patchPublic.get('semester',before.get('semester',null)) && after.get('week',null) == parent.patchPublic.get('week',before.get('week',null))
+   && after.get('date',null) == parent.patchPublic.get('date',before.get('date',null)) && after.get('start',null) == parent.patchPublic.get('start',before.get('start',null)) && after.get('end',null) == parent.patchPublic.get('end',before.get('end',null))
+   && after.get('timeUnknown',null) == parent.patchPublic.get('timeUnknown',before.get('timeUnknown',null)) && after.get('type',null) == parent.patchPublic.get('type',before.get('type',null))
+   && after.get('topic',null) == parent.patchPublic.get('topic',before.get('topic',null)) && after.get('room',null) == parent.patchPublic.get('room',before.get('room',null));}
+  function routedSessionApplyFor(id,rid){let parentBefore=get(requestPublicPath(rid)).data;let parentAfter=getAfter(requestPublicPath(rid)).data;let changed=request.resource.data.diff(resource.data).affectedKeys();return parentBefore.sessionId == id && routedRequest(parentBefore) && parentBefore.status == 'pending' && parentAfter.status == 'approved' && parentAfter.appliedRevision == parentBefore.revision && parentAfter.appliedAt == request.time
+   && request.resource.data.get('approvalRevision',0) == parentBefore.revision && changed.hasOnly(['course','courseName','year','semester','week','date','start','end','timeUnknown','type','room','topic','updatedBy','updatedByName','updatedAt','approvalRequestId','approvalRevision'])
+   && sourceMatchesPublicPatch(resource.data,request.resource.data,parentBefore) && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && calendarMatchesSourceAfter(id);}
+  function routedSessionApply(id){let rid=request.resource.data.get('approvalRequestId','');return teachingWritesOpen() && rid is string && rid.size() > 0 && routedSessionApplyFor(id,rid);}
+  function validRoutedAuditCreate(){let d=request.resource.data;let parent=getAfter(requestPublicPath(d.requestId)).data;return routedRequest(parent)
+   && d.keys().hasOnly(['requestId','event','revision','status','office','message','changedFields','changedBy','changedByName','changedAt'])
+   && d.requestId is string && d.requestId.size() > 0 && d.revision is int && d.changedBy == request.auth.uid && d.changedByName is string && d.changedAt == request.time
+   && d.get('status','') is string && d.get('office','') is string && d.get('message','') is string && d.get('changedFields',[]) is list
+   && ((d.event == 'request_submitted' && parent.requesterUid == request.auth.uid && parent.status == 'pending' && d.revision == 1)
+    || (d.event in ['request_withdrawn','request_resubmitted'] && parent.requesterUid == request.auth.uid)
+    || (d.event in ['office_approve','office_push_back','office_reject'] && officeUser() && d.office == officeName() && d.revision == parent.revision)
+    || (d.event == 'request_applied' && officeUser() && d.office == officeName() && parent.status == 'approved' && d.revision == parent.revision));}
+  function routedRequestRead(id,d){return routedRequest(d) && (adfaApprover() || d.requesterUid == request.auth.uid || ((adc() || lab()) && exists(requestApprovalPath(id,officeName()))));}
+  function legacyRequestRead(d){return adfaApprover() && !routedRequest(d);}
+  function officeWorkflowRead(id){return adfaApprover() || ((adc() || lab()) && exists(requestApprovalPath(id,officeName())));}
+  function workflowNotificationShapeValid(d){return d.keys().hasOnly(['recipientOffice','kind','requestId','sessionId','course','date','start','end','type','topic','facultyDisplayName','message','createdAt','readBy'])
+   && d.recipientOffice in ['adc','lab','adfa'] && d.kind in ['request_assigned','request_resubmitted','office_decision','request_applied','request_withdrawn','assignment_recheck_required']
+   && d.requestId is string && d.sessionId is string && d.sessionId.size() > 0 && d.course is string && d.date is string && d.start is string && d.end is string && d.type is string && d.topic is string
+   && d.facultyDisplayName is string && d.message is string && d.message.size() <= 1000 && d.createdAt == request.time && d.readBy is list && d.readBy.size() == 0;}
+  function workflowNotificationMatchesRequest(d,parent){return routedRequest(parent) && d.sessionId == parent.sessionId
+   && d.course == parent.patchPublic.get('course',parent.basePublic.get('course','')) && d.date == parent.patchPublic.get('date',parent.basePublic.get('date',''))
+   && d.start == parent.patchPublic.get('start',parent.basePublic.get('start','')) && d.end == parent.patchPublic.get('end',parent.basePublic.get('end',''))
+   && d.type == parent.patchPublic.get('type',parent.basePublic.get('type','')) && d.topic == parent.patchPublic.get('topic',parent.basePublic.get('topic',''))
+   && d.facultyDisplayName == (parent.proposedFacultyName != '' ? parent.proposedFacultyName : parent.patchPublic.get('instructor',parent.basePublic.get('instructor','')));}
+  function validRequestAssignedNotification(d){let parent=getAfter(requestPublicPath(d.requestId)).data;let workflow=getAfter(requestWorkflowPath(d.requestId)).data;return facultyMember() && parent.requesterUid == request.auth.uid && parent.status == 'pending' && parent.revision == 1
+   && parent.requestedAt == request.time && workflow.requestId == d.requestId && workflow.revision == 1 && d.recipientOffice in workflow.requiredOffices && workflowNotificationMatchesRequest(d,parent);}
+  function validRequestResubmittedNotification(d){let before=get(requestPublicPath(d.requestId)).data;let after=getAfter(requestPublicPath(d.requestId)).data;let workflow=getAfter(requestWorkflowPath(d.requestId)).data;return facultyMember() && before.requesterUid == request.auth.uid
+   && before.status == 'update_required' && after.status == 'pending' && after.revision == before.revision + 1 && workflow.requestId == d.requestId && workflow.revision == after.revision
+   && d.recipientOffice in workflow.requiredOffices && existsAfter(requestApprovalPath(d.requestId,d.recipientOffice)) && getAfter(requestApprovalPath(d.requestId,d.recipientOffice)).data.status == 'pending'
+   && getAfter(requestApprovalPath(d.requestId,d.recipientOffice)).data.updatedAt == request.time && workflowNotificationMatchesRequest(d,after);}
+  function validRequestWithdrawnNotification(d){let before=get(requestPublicPath(d.requestId)).data;let after=getAfter(requestPublicPath(d.requestId)).data;let workflow=get(requestWorkflowPath(d.requestId)).data;return facultyMember() && before.requesterUid == request.auth.uid
+   && before.status in ['pending','update_required'] && after.status == 'withdrawn' && after.withdrawnBy == request.auth.uid && after.withdrawnAt == request.time
+   && d.recipientOffice in workflow.requiredOffices && workflowNotificationMatchesRequest(d,after);}
+  function validOfficeDecisionNotification(d){let workflow=get(requestWorkflowPath(d.requestId)).data;let actorBefore=get(requestApprovalPath(d.requestId,officeName())).data;let actorAfter=getAfter(requestApprovalPath(d.requestId,officeName())).data;let parent=getAfter(requestPublicPath(d.requestId)).data;return officeUser()
+   && actorBefore.status == 'pending' && actorAfter.status in ['approved','push_back','rejected'] && actorAfter.decidedBy == request.auth.uid && actorAfter.decidedAt == request.time
+   && d.recipientOffice in workflow.requiredOffices && d.recipientOffice != officeName() && workflowNotificationMatchesRequest(d,parent);}
+  function validRequestAppliedNotification(d){let before=get(requestPublicPath(d.requestId)).data;let after=getAfter(requestPublicPath(d.requestId)).data;let workflow=get(requestWorkflowPath(d.requestId)).data;return officeUser() && before.status == 'pending' && after.status == 'approved'
+   && after.appliedRevision == before.revision && after.appliedAt == request.time && d.recipientOffice in workflow.requiredOffices && officeName() in workflow.requiredOffices && (!workflow.hasFacultyChange || officeName() == 'adfa')
+   && workflowNotificationMatchesRequest(d,after);}
+  function validAssignmentRecheckNotification(d){let calendar=get(/databases/$(database)/documents/calendar_sessions/$(d.sessionId)).data;return adc() && d.recipientOffice == 'adfa' && d.requestId == ''
+   && exists(/databases/$(database)/documents/calendar_sessions/$(d.sessionId)) && calendar.get('instructor','') != '' && d.course == calendar.get('course','') && d.date == calendar.get('date','')
+   && d.start == calendar.get('start','') && d.end == calendar.get('end','') && d.type == calendar.get('type','') && d.topic == calendar.get('topic','') && d.facultyDisplayName == calendar.get('instructor','');}
+  function validWorkflowNotificationCreate(){let d=request.resource.data;return ready() && workflowNotificationShapeValid(d)
+   && ((d.kind == 'request_assigned' && validRequestAssignedNotification(d)) || (d.kind == 'request_resubmitted' && validRequestResubmittedNotification(d))
+    || (d.kind == 'office_decision' && validOfficeDecisionNotification(d)) || (d.kind == 'request_applied' && validRequestAppliedNotification(d))
+    || (d.kind == 'request_withdrawn' && validRequestWithdrawnNotification(d)) || (d.kind == 'assignment_recheck_required' && validAssignmentRecheckNotification(d)));}
+  function workflowNotificationRead(){return general() || (officeUser() && resource.data.recipientOffice == officeName());}
+  function workflowNotificationAcknowledge(){let before=resource.data;let after=request.resource.data;return workflowNotificationRead() && after.diff(before).affectedKeys().hasOnly(['readBy'])
+   && after.readBy is list && ((request.auth.uid in before.readBy && after.readBy == before.readBy) || (!(request.auth.uid in before.readBy) && after.readBy.size() == before.readBy.size() + 1
+    && after.readBy.toSet().difference(before.readBy.toSet()).hasOnly([request.auth.uid])));}
+  function calendarPath(id){return /databases/$(database)/documents/calendar_sessions/$(id);}
+  function sessionPath(id){return /databases/$(database)/documents/sessions/$(id);}
+  function calendarKeysValid(d){return d.keys().hasOnly(['sessionId','course','courseName','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructorNames','instructor']) && d.instructorNames is list;}
+  function calendarMatchesSourceAfter(id){
+   let source=getAfter(sessionPath(id)).data;
+   let calendar=getAfter(calendarPath(id)).data;
+   return calendarKeysValid(calendar) && calendar.sessionId == id
+    && calendar.course == source.get('course','') && calendar.courseName == source.get('courseName','')
+    && calendar.year == source.get('year',null) && calendar.semester == source.get('semester','') && calendar.week == source.get('week',null)
+    && calendar.date == source.get('date','') && calendar.start == source.get('start','') && calendar.end == source.get('end','')
+    && calendar.timeUnknown == source.get('timeUnknown',false) && calendar.type == source.get('type','') && calendar.topic == source.get('topic','')
+    && calendar.room == source.get('room','') && calendar.instructor == source.get('instructor','');
+  }
+  function calendarMatchesCurrentSource(id){
+   let source=get(sessionPath(id)).data;
+   let calendar=request.resource.data;
+   return calendarKeysValid(calendar) && calendar.sessionId == id
+    && calendar.course == source.get('course','') && calendar.courseName == source.get('courseName','')
+    && calendar.year == source.get('year',null) && calendar.semester == source.get('semester','') && calendar.week == source.get('week',null)
+    && calendar.date == source.get('date','') && calendar.start == source.get('start','') && calendar.end == source.get('end','')
+    && calendar.timeUnknown == source.get('timeUnknown',false) && calendar.type == source.get('type','') && calendar.topic == source.get('topic','')
+    && calendar.room == source.get('room','') && calendar.instructor == source.get('instructor','');
+  }
+  function maintenanceSessionWrite(id){return maintenanceOwner() && calendarMatchesSourceAfter(id);}
+  function maintenanceSessionDelete(id){return maintenanceOwner() && !existsAfter(calendarPath(id));}
+  function maintenanceCalendarWrite(id){return maintenanceOwner() && calendarMatchesSourceAfter(id);}
+  function maintenanceCalendarDelete(id){return maintenanceOwner() && !existsAfter(sessionPath(id));}
+  function generalCalendarRepair(id){return general() && teachingWritesOpen() && exists(sessionPath(id)) && calendarMatchesCurrentSource(id);}
+  function generalCalendarDelete(id){return general() && teachingWritesOpen() && !exists(sessionPath(id));}
+  function adcSessionCreate(id){return adc() && teachingWritesOpen() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
+   && request.resource.data.get('instructor','') == '' && request.resource.data.get('assignments',[]) is list && request.resource.data.get('assignments',[]).size() == 0
+   && request.resource.data.get('facultyIds',[]) is list && request.resource.data.get('facultyIds',[]).size() == 0
+   && (!request.resource.data.keys().hasAny(['awayFromCampusRecords']) && (request.resource.data.get('type','') != 'LAB' || request.resource.data.get('topic','') == 'TBD'))
+   && calendarMatchesSourceAfter(id);}
+  function adcSessionUpdate(id){
+   let changed=request.resource.data.diff(resource.data).affectedKeys();
+   return adc() && teachingWritesOpen() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
+    && changed.hasOnly(['course','courseName','year','semester','week','date','start','end','timeUnknown','type','room','topic','updatedBy','updatedByName','updatedAt'])
+    && (!changed.hasAny(['topic']) || request.resource.data.get('type','') != 'LAB' || (resource.data.get('type','') != 'LAB' && request.resource.data.get('topic','') == 'TBD'))
+    && calendarMatchesSourceAfter(id);
+  }
+  function labSessionUpdate(id){
+   let changed=request.resource.data.diff(resource.data).affectedKeys();
+   return lab() && teachingWritesOpen() && resource.data.get('type','') == 'LAB' && request.resource.data.get('type','') == 'LAB'
+    && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
+    && changed.hasOnly(['topic','updatedBy','updatedByName','updatedAt']) && calendarMatchesSourceAfter(id);
+  }
+  function pairedCalendarSource(id){let source=getAfter(sessionPath(id)).data;return source.updatedBy == request.auth.uid && source.updatedAt == request.time;}
+  function officeCalendarCreate(id){return adc() && teachingWritesOpen() && pairedCalendarSource(id);}
+  function officeCalendarUpdate(id){return teachingWritesOpen() && (adc() || lab()) && pairedCalendarSource(id);}
+  function adminCalendarWrite(id){return teachingWritesOpen() && admin() && pairedCalendarSource(id);}
+  function officeSessionAuditCreate(){return (adc() || lab()) && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time
+   && request.resource.data.keys().hasOnly(['action','override','requestId','sessionId','course','date','topic','instructors','changes','changedBy','changedByName','changedByEmail','changedAt'])
+   && request.resource.data.instructors is list && request.resource.data.instructors.size() == 0 && request.resource.data.changes is list;}
   function privateReader(){return ready() && !restrictedOffice();}
   function validOfficeIdentity(d){return !(d.role in ['adc','lab']) || !d.keys().hasAny(['facultyId','facultyRoles']);}
   function facultyRole(r){return r in ['hicc','visc','faculty','editor','viewer'];}
@@ -37,6 +282,9 @@ service cloud.firestore {
   function afcRecommend(){return resource.data.status == 'pending_report_to' && request.resource.data.status == 'pending_admin' && (request.auth.uid == resource.data.reportToUid || historyAll()) && request.resource.data.reportToSignature.uid == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','reportToSignature','updatedAt']);}
   function afcReject(){return resource.data.status in ['pending_report_to','pending_admin'] && request.resource.data.status == 'rejected' && (historyAll() || request.auth.uid == resource.data.reportToUid) && request.resource.data.rejectedSignature.uid == request.auth.uid && request.resource.data.rejectionReason is string && request.resource.data.rejectionReason.size() > 0 && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','rejectionReason','rejectedSignature','updatedAt']);}
   function afcApprove(){return historyAll() && resource.data.status == 'pending_admin' && request.resource.data.status == 'approved' && request.resource.data.adminSignature.uid == request.auth.uid && request.resource.data.pdfChunkCount is int && request.resource.data.pdfChunkCount > 0 && request.resource.data.approvedAt == request.time && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','adminSignature','pdfChunkCount','pdfSha256','pdfByteLength','approvedAt','updatedAt']);}
+  function afcWithdraw(){return facultyMember() && resource.data.requesterUid == request.auth.uid && resource.data.status in ['pending_report_to','pending_admin'] && request.resource.data.status == 'withdrawn'
+   && request.resource.data.withdrawnBy == request.auth.uid && request.resource.data.withdrawnAt == request.time && request.resource.data.updatedAt == request.time
+   && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','withdrawnBy','withdrawnAt','updatedAt']);}
   function bulkFacultyImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['awayFromCampusRecords','awayFromCampusSource','awayFromCampusImportedAt','awayFromCampusImportedBy','facultySummary2026_27','facultySummarySource2026_27','facultySummaryImportedAt','facultySummaryImportedBy','workloadPolicy2026_27','workloadPolicySource2026_27','workloadPolicyImportedAt2026_27','workloadPolicyImportedBy2026_27','bulkImportedAt','bulkImportedBy']);}
   function bulkFacultyImportCreate(){return request.resource.data.keys().hasAny(['awayFromCampusRecords','facultySummary2026_27','workloadPolicy2026_27','bulkImportedAt','bulkImportedBy']);}
   function bulkSessionImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']);}
@@ -73,13 +321,15 @@ service cloud.firestore {
   }
   match /calendar_sessions/{id} {
    allow read: if ready();
-   allow write: if false;
+   allow create: if officeCalendarCreate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id) || generalCalendarRepair(id);
+   allow update: if officeCalendarUpdate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id) || generalCalendarRepair(id);
+   allow delete: if (teachingWritesOpen() && admin() && !existsAfter(sessionPath(id))) || maintenanceCalendarDelete(id) || generalCalendarDelete(id);
   }
   match /sessions/{id} {
    allow read: if privateReader();
-   allow create: if (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general())) || maintenanceOwner();
-   allow update: if (teachingWritesOpen() && admin() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general())) || maintenanceOwner();
-   allow delete: if (teachingWritesOpen() && admin()) || maintenanceOwner();
+   allow create: if adcSessionCreate(id) || (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
+   allow update: if adcSessionUpdate(id) || labSessionUpdate(id) || routedSessionApply(id) || (teachingWritesOpen() && admin() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
+   allow delete: if (teachingWritesOpen() && admin() && !existsAfter(calendarPath(id))) || maintenanceSessionDelete(id);
   }
   match /faculty/{id} {
    allow get: if admin() || ownFacultyId(id);
@@ -89,9 +339,38 @@ service cloud.firestore {
    allow delete: if teachingWritesOpen() && admin();
   }
   match /change_requests/{id} {
-   allow read: if approver() || (signedIn() && !restrictedOffice() && resource.data.requesterUid == request.auth.uid);
-   allow create: if teachingWritesOpen() && validRequestCreate();
-   allow update: if teachingWritesOpen() && validRequestDecision();
+   allow read: if routedRequestRead(id,resource.data) || legacyRequestRead(resource.data);
+   allow create: if teachingWritesOpen() && validRoutedRequestCreate(id);
+   allow update: if teachingWritesOpen() && ((routedRequest(resource.data) && validRoutedRequestUpdate(id)) || (!routedRequest(resource.data) && validRequestDecision()));
+   allow delete: if false;
+  }
+  match /change_request_workflow/{id} {
+   allow read: if officeWorkflowRead(id);
+   allow create: if teachingWritesOpen() && validRoutedWorkflowCreate(id);
+   allow update: if teachingWritesOpen() && validRoutedWorkflowResubmit(id);
+   allow delete: if false;
+  }
+  match /change_request_approvals/{id} {
+   allow read: if officeUser();
+   allow create: if teachingWritesOpen() && (validRoutedApprovalCreate(id) || validRoutedApprovalResubmitCreate(id));
+   allow update: if teachingWritesOpen() && validRoutedOfficeDecision(id);
+   allow delete: if false;
+  }
+  match /change_request_private/{id} {
+   allow read: if adfaApprover();
+   allow create: if teachingWritesOpen() && validRoutedPrivateCreate(id);
+   allow update: if teachingWritesOpen() && validRoutedPrivateResubmit(id);
+   allow delete: if false;
+  }
+  match /change_request_audit/{id} {
+   allow read: if adfaApprover();
+   allow create: if teachingWritesOpen() && validRoutedAuditCreate();
+   allow update,delete: if false;
+  }
+  match /workflow_notifications/{id} {
+   allow read: if workflowNotificationRead();
+   allow create: if validWorkflowNotificationCreate();
+   allow update: if workflowNotificationAcknowledge();
    allow delete: if false;
   }
   match /settings/system_state {
@@ -137,7 +416,7 @@ service cloud.firestore {
   }
   match /session_change_log/{id} {
    allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid);
-   allow create: if teachingWritesOpen() && admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
+   allow create: if teachingWritesOpen() && ((admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time) || officeSessionAuditCreate());
    allow update: if teachingWritesOpen() && admin() && resource.data.changedBy == request.auth.uid && request.resource.data.changedBy == resource.data.changedBy && request.resource.data.changedAt == resource.data.changedAt && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['changes','changedByEmail','changedByName']);
    allow delete: if false;
   }
@@ -156,7 +435,7 @@ service cloud.firestore {
   match /afc_requests/{id} {
    allow read: if ready() && afcRead(resource.data);
    allow create: if afcCreate();
-   allow update: if privateReader() && (afcRecommend() || afcReject() || afcApprove());
+   allow update: if privateReader() && (afcRecommend() || afcReject() || afcApprove() || afcWithdraw());
    allow delete: if false;
    match /pdf_chunks/{part} {
     allow read: if ready() && afcRead(get(/databases/$(database)/documents/afc_requests/$(id)).data);

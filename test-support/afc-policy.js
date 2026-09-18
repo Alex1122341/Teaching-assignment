@@ -26,6 +26,7 @@ function nextStatus(action,request){
  if(action==='recommend'&&request.status==='pending_report_to')return'pending_admin';
  if(action==='approve'&&request.status==='pending_admin')return'approved';
  if(action==='reject'&&['pending_report_to','pending_admin'].includes(request.status))return'rejected';
+ if(action==='withdraw'&&['pending_report_to','pending_admin'].includes(request.status))return'withdrawn';
  throw Error('This AFC request cannot make that transition.');
 }
 module.exports={HOLIDAYS,workDays,validateDraft,nextStatus};

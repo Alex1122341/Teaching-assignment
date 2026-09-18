@@ -16,7 +16,7 @@
  let user=null,profile=null,lastSessionId='',adminInitPromise=null;
 
  function assignedArray(s){return Array.isArray(s?.assignments)&&s.assignments.length?s.assignments.map(a=>({...a})):(String(s?.instructor||'').split(';').map(x=>x.trim()).filter(Boolean).map(name=>({name,ucid:'',role:s?.type||''})))}
- function baseSnapshot(s){return{course:s?.course||'',date:ymd(s?.date),start:s?.start||'',end:s?.end||'',topic:s?.topic||'',type:s?.type||'',room:s?.room||'',assignments:assignedArray(s).map(a=>({ucid:String(a.ucid||''),name:a.name||'',role:a.role||'',category:a.category||'',creditedHours:a.creditedHours??null,doeRate:a.doeRate??null,doeCredit:a.doeCredit??null}))}}
+ function baseSnapshot(s){return window.UCVM_APPROVAL_REQUEST.publicSession(s)}
  function sameVal(a,b){return JSON.stringify(a??null)===JSON.stringify(b??null)}
  function ownFacultyId(){return String(profile?.facultyId||profile?.facultyDirectoryMatch?.id||'').trim()}
  function ownAliases(){return new Set([profile?.name,profile?.instructor,profile?.facultyDirectoryMatch?.name,user?.displayName,user?.email?.split('@')[0]].map(norm).filter(Boolean))}
@@ -69,8 +69,8 @@
    ev.preventDefault();const form=new FormData(ev.currentTarget),choice=String(form.get('to')||''),note=String(form.get('reason')||'').trim();let toFaculty;
    if(choice.startsWith('special:')){const kind=choice.split(':')[1];if(!note)return toast('Reason / note is required for Sessional or Other.',true);toFaculty={kind,name:specialLabel(kind)}}
    else{const row=rowByValue.get(choice);if(!row)return toast('Choose a replacement faculty member.',true);toFaculty={candidateKey:row.candidate.key,name:row.candidate.name}}
-   const payload={status:'pending',requesterUid:user.uid,requesterName:profile.name||user.email||'',requesterEmail:user.email||profile.email||'',requesterRole:String(profile.role||'').toLowerCase(),requesterFacultyId:fid,requestedAt:stamp(),requestType:'faculty_swap',scope:'self',groupId:'',groupName:'',sessionId:session.id,course:session.course||'',date:ymd(session.date),topic:session.topic||'',base:baseSnapshot(session),assignmentIndex:idx,fromFaculty:{facultyId:fid,name:out.name||profile.name||''},toFaculty,reason:note};
-   try{await db.collection(REQUESTS).add(payload);closeModal();toast('Request submitted to ADFA for approval.')}catch(error){console.error('[safe faculty swap request]',error);toast(error.message,true)}
+   const payload={requestType:'faculty_swap',scope:'self',groupId:'',groupName:'',sessionId:session.id,base:baseSnapshot(session),assignmentIndex:idx,fromFaculty:{facultyId:fid,name:out.name||profile.name||''},toFaculty,reason:note};
+   try{await window.UCVM_APPROVAL_REQUEST.submit({db,requester:{uid:user.uid,name:profile.name||user.displayName||'Faculty',role:String(profile.role||'').toLowerCase()},payload,now:stamp()});closeModal();toast('Request submitted for approval.')}catch(error){console.error('[safe faculty swap request]',error);toast(error.message,true)}
   };
  }
 

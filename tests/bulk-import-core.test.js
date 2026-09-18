@@ -41,3 +41,10 @@ test('analyzeSource reports stale sessions and large-change confirmation',()=>{
 test('diffIdSets compares identity, not only counts',()=>{
   assert.deepEqual(core.diffIdSets(['A','B','C'],['A','B','D']),{missing:['C'],unexpected:['D']});
 });
+
+
+test('session and stale import batches use the conservative paired-write budget',()=>{
+  assert.ok(core.SESSION_BATCH_SIZE<=8);
+  assert.ok(core.STALE_BATCH_SIZE<=8);
+  assert.equal(core.FACULTY_BATCH_SIZE,350);
+});

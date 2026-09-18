@@ -45,6 +45,20 @@ This branch runs the UCVM faculty role/group/history features on the Firebase Sp
 12. Create HICC groups, assign an HICC owner, course numbers and members.
 13. Test with one Administrator, one HICC and one Faculty account before broader rollout.
 
+## Link existing ADC/LAB Authentication users
+
+When an ADC or LAB Firebase Authentication account already exists, link it to the dashboard instead of creating a second Authentication user:
+
+1. Sign in as **Owner / ADFA General** and open **User Management**.
+2. Start a new account profile and choose **ADC** or **LAB**.
+3. Enter the office display name and email address.
+4. Paste the account's existing Firebase Authentication UID into **Existing Firebase Authentication UID**.
+5. Keep **Active** enabled and keep **Require password change on next dashboard sign-in** enabled unless there is an approved exception.
+6. Save the profile. **Do not recreate the Authentication user** when an existing UID is being linked.
+7. Sign in non-destructively with the office account and verify that its calendar and role-scoped tools match the approved ADC/LAB permission matrix.
+
+Do not store the UID or temporary password in this repository, documentation, screenshots, issue comments, or client code. Retrieve the UID from the authorized Firebase Authentication administration view only when it is needed for the Owner linking step.
+
 ## Web deployment
 
 The routine release path uses two different frontend hosts for two different purposes:

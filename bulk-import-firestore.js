@@ -1,12 +1,14 @@
 (function(root,factory){
-  const api=factory();
+  const defaultCalendarSession=typeof module==='object'&&module.exports?require('./calendar-session.js'):root?.UCVM_CALENDAR_SESSION;
+  const api=factory(defaultCalendarSession);
   if(typeof module==='object'&&module.exports)module.exports=api;
   if(root)root.UCVM_BULK_IMPORT_FIRESTORE=api;
-})(typeof window!=='undefined'?window:null,function(){
+})(typeof window!=='undefined'?window:null,function(defaultCalendarSession){
   'use strict';
 
-  function create({db,firebase}){
+  function create({db,firebase,calendarSession=defaultCalendarSession}){
     if(!db)throw Error('Firestore database is required.');
+    if(!calendarSession?.fromSource)throw Error('Calendar session sanitizer is required.');
     const FieldValue=firebase?.firestore?.FieldValue;
     if(!FieldValue?.serverTimestamp||!FieldValue?.delete)throw Error('Firebase Firestore FieldValue helpers are required.');
     const stamp=()=>FieldValue.serverTimestamp();
@@ -15,6 +17,7 @@
     const jobRef=importId=>db.collection('bulk_import_jobs').doc(String(importId));
     const facultyRef=id=>db.collection('faculty').doc(String(id));
     const sessionRef=id=>db.collection('sessions').doc(String(id));
+    const calendarSessionRef=id=>db.collection('calendar_sessions').doc(String(id));
     const summarySettingsRef=()=>db.collection('settings').doc('faculty_summary_2026_27');
     const staleRef=(importId,index)=>jobRef(importId).collection('stale_batches').doc(String(index).padStart(6,'0'));
     const restoreDeleteRef=(importId,index)=>jobRef(importId).collection('restore_delete_batches').doc(String(index).padStart(6,'0'));
@@ -39,7 +42,7 @@
     function checkpointPatch(phase,field,batchIndex,total){return{status:'APPLYING',phase,[field]:Number(batchIndex)+1,[field.replace('Completed','Total')]:Number(total),lastUpdatedAt:stamp()}}
 
     async function commitFacultyBatch({importId,batchIndex,total,writes=[]}){const batch=db.batch();for(const write of writes)batch.set(facultyRef(write.id),write.patch||{},{merge:true});batch.set(jobRef(importId),checkpointPatch('APPLYING_FACULTY','facultyBatchCompleted',batchIndex,total),{merge:true});await batch.commit()}
-    async function commitSessionBatch({importId,batchIndex,total,writes=[]}){const batch=db.batch();for(const write of writes)batch.set(sessionRef(write.id),write.data||{});batch.set(jobRef(importId),checkpointPatch('APPLYING_SESSIONS','sessionBatchCompleted',batchIndex,total),{merge:true});await batch.commit()}
+    async function commitSessionBatch({importId,batchIndex,total,writes=[]}){const batch=db.batch();for(const write of writes){const data=write.data||{};batch.set(sessionRef(write.id),data);batch.set(calendarSessionRef(write.id),calendarSession.fromSource(data,write.id));}batch.set(jobRef(importId),checkpointPatch('APPLYING_SESSIONS','sessionBatchCompleted',batchIndex,total),{merge:true});await batch.commit()}
 
     async function freezeStaleBatches({importId,batches=[]}){
       const batch=db.batch();let expected=0;
@@ -47,10 +50,10 @@
       batch.set(jobRef(importId),{status:'APPLYING',phase:'DELETING_STALE',staleExpected:expected,staleBatchTotal:batches.length,staleBatchCompleted:0,lastUpdatedAt:stamp()},{merge:true});await batch.commit();
     }
     async function loadStaleBatch(importId,index){const snap=await staleRef(importId,index).get();return snap.exists?snap.data():null}
-    async function commitStaleDeleteBatch({importId,batchIndex,total,ids=[]}){const batch=db.batch();for(const id of ids)batch.delete(sessionRef(id));batch.set(jobRef(importId),checkpointPatch('DELETING_STALE','staleBatchCompleted',batchIndex,total),{merge:true});await batch.commit()}
+    async function commitStaleDeleteBatch({importId,batchIndex,total,ids=[]}){const batch=db.batch();for(const id of ids){batch.delete(sessionRef(id));batch.delete(calendarSessionRef(id));}batch.set(jobRef(importId),checkpointPatch('DELETING_STALE','staleBatchCompleted',batchIndex,total),{merge:true});await batch.commit()}
 
     async function commitRestoreFacultyBatch({importId,batchIndex,total,writes=[]}){const batch=db.batch();for(const write of writes)batch.set(facultyRef(write.id),write.patch||{},{merge:true});batch.set(jobRef(importId),checkpointPatch('RESTORING_FACULTY','restoreFacultyBatchCompleted',batchIndex,total),{merge:true});await batch.commit()}
-    async function commitRestoreSessionBatch({importId,batchIndex,total,writes=[]}){const batch=db.batch();for(const write of writes)batch.set(sessionRef(write.id),write.data||{});batch.set(jobRef(importId),checkpointPatch('RESTORING_SESSIONS','restoreSessionBatchCompleted',batchIndex,total),{merge:true});await batch.commit()}
+    async function commitRestoreSessionBatch({importId,batchIndex,total,writes=[]}){const batch=db.batch();for(const write of writes){const data=write.data||{};batch.set(sessionRef(write.id),data);batch.set(calendarSessionRef(write.id),calendarSession.fromSource(data,write.id));}batch.set(jobRef(importId),checkpointPatch('RESTORING_SESSIONS','restoreSessionBatchCompleted',batchIndex,total),{merge:true});await batch.commit()}
 
     async function freezeRestoreDeleteBatches({importId,batches=[]}){
       const batch=db.batch();let expected=0;
@@ -58,7 +61,7 @@
       batch.set(jobRef(importId),{status:'APPLYING',phase:'REMOVING_POST_BACKUP_SESSIONS',restoreDeleteExpected:expected,restoreDeleteBatchTotal:batches.length,restoreDeleteBatchCompleted:0,lastUpdatedAt:stamp()},{merge:true});await batch.commit();
     }
     async function loadRestoreDeleteBatch(importId,index){const snap=await restoreDeleteRef(importId,index).get();return snap.exists?snap.data():null}
-    async function commitRestoreDeleteBatch({importId,batchIndex,total,ids=[]}){const batch=db.batch();for(const id of ids)batch.delete(sessionRef(id));batch.set(jobRef(importId),checkpointPatch('REMOVING_POST_BACKUP_SESSIONS','restoreDeleteBatchCompleted',batchIndex,total),{merge:true});await batch.commit()}
+    async function commitRestoreDeleteBatch({importId,batchIndex,total,ids=[]}){const batch=db.batch();for(const id of ids){batch.delete(sessionRef(id));batch.delete(calendarSessionRef(id));}batch.set(jobRef(importId),checkpointPatch('REMOVING_POST_BACKUP_SESSIONS','restoreDeleteBatchCompleted',batchIndex,total),{merge:true});await batch.commit()}
 
     async function writeSummarySettings({data={},merge=true}={}){await summarySettingsRef().set(data,{merge})}
     async function restoreSummarySettings(snapshot){if(snapshot?.exists)await summarySettingsRef().set(snapshot.data||{});else await summarySettingsRef().delete()}

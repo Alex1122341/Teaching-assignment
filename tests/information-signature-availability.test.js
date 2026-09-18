@@ -23,7 +23,9 @@ test('ADFA queue includes AFC requests and availability lookup cross-checks both
  assert.match(queue,/afc_requests/);assert.match(queue,/AFC requests/);assert.match(queue,/UCVM_AFC_ACTIONS/);
  assert.match(queue,/location\.hash==='#approvals'/);assert.match(admin,/href="index\.html#approvals"/);
  assert.match(queue,/requestsReady=false,afcRequestsReady=false/);
- assert.match(queue,/if\(!openApprovalFromHash\|\|!isApprover\(\)\|\|!requestsReady\|\|!afcRequestsReady\)return/);
+ assert.match(queue,/if\(!openApprovalFromHash\|\|!isOfficeApprover\(\)\|\|!requestsReady\|\|!afcRequestsReady\)return/);
+ assert.match(queue,/const isApprover=isAdfaApprover/);
+ assert.match(queue,/if\(!isAdfaApprover\(\)\)return/);
  assert.match(lookup,/awayFromCampusRecords/);assert.match(lookup,/sessions/);assert.match(lookup,/Available faculty/);
 });
 
