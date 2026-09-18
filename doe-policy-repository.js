@@ -317,10 +317,88 @@
    return clone(row);
   }
 
+  async function saveValidationResult(policyVersionId,{revision,policyChecksum,valid,errorCount=0,warningCount=0,actor={}}={}){
+   const version=requireDraft(policyVersionId,revision);
+   version.lastValidatedRevision=Number(revision);
+   version.rulesChecksum=text(policyChecksum);
+   version.lastValidationPassed=valid===true;
+   version.lastValidationErrorCount=Number(errorCount||0);
+   version.lastValidationWarningCount=Number(warningCount||0);
+   version.lastValidatedAt=now();
+   version.lastValidatedBy=text(actor.uid);
+   stores.versions.set(version.policyVersionId,clone(version));
+   appendAuditInternal({
+    policyVersionId:version.policyVersionId,action:'validation_run',entityType:'policy_version',entityId:version.policyVersionId,
+    beforeSnapshot:null,afterSnapshot:{revision:Number(revision),policyChecksum:text(policyChecksum),valid:valid===true,errorCount:Number(errorCount||0),warningCount:Number(warningCount||0)},
+    ...actorFields(actor)
+   });
+   return clone(version);
+  }
+
+  async function saveImpactEvidence(policyVersionId,{revision,impactRunId,policyChecksum,inputDatasetChecksum,actor={}}={}){
+   const version=requireDraft(policyVersionId,revision);
+   version.lastImpactRunId=text(impactRunId);
+   version.lastImpactRevision=Number(revision);
+   version.lastImpactChecksum=text(policyChecksum);
+   version.lastImpactDatasetChecksum=text(inputDatasetChecksum);
+   version.lastImpactAt=now();
+   version.lastImpactBy=text(actor.uid);
+   stores.versions.set(version.policyVersionId,clone(version));
+   return clone(version);
+  }
+
+  async function publishVersion({policyVersionId,expectedRevision,policyChecksum,impactRunId,inputDatasetChecksum,publication,actor={}}={}){
+   const version=requireDraft(policyVersionId,expectedRevision);
+   if(text(version.rulesChecksum)!==text(policyChecksum)||Number(version.lastValidatedRevision)!==Number(expectedRevision)||version.lastValidationPassed!==true){
+    throw new RepositoryError('VALIDATION_REQUIRED','Current DOE Draft has not passed validation.',{policyVersionId:text(policyVersionId)});
+   }
+   const run=stores.impactRuns.get(text(impactRunId));
+   if(!run||run.status!=='passed'||text(run.policyVersionId)!==text(policyVersionId)||Number(run.policyRevision)!==Number(expectedRevision)||text(run.policyChecksum)!==text(policyChecksum)||text(run.inputDatasetChecksum)!==text(inputDatasetChecksum)){
+    throw new RepositoryError('PREVIEW_STALE','DOE Impact Preview evidence is missing or stale.',{policyVersionId:text(policyVersionId)});
+   }
+   const policy=stores.policies.get(text(version.policyId));
+   if(!policy)throw new RepositoryError('POLICY_NOT_FOUND','DOE policy was not found.',{policyId:text(version.policyId)});
+   const previousId=text(policy.currentActiveVersionId);
+   if(previousId&&previousId!==version.policyVersionId){
+    const previous=stores.versions.get(previousId);
+    if(previous){
+     previous.status='archived';previous.archivedAt=now();previous.archivedBy=text(actor.uid);
+     stores.versions.set(previousId,clone(previous));
+    }
+   }
+   version.status='active';version.publishedAt=now();version.publishedBy=text(actor.uid);
+   stores.versions.set(version.policyVersionId,clone(version));
+   policy.currentActiveVersionId=version.policyVersionId;policy.updatedAt=now();policy.updatedBy=text(actor.uid);
+   stores.policies.set(policy.policyId,clone(policy));
+   const pub=clone(publication||{});
+   const publicationId=requireId('publications',pub);
+   if(stores.publications.has(publicationId))throw new RepositoryError('EVIDENCE_ALREADY_EXISTS','DOE publication record already exists.',{publicationId});
+   stores.publications.set(publicationId,pub);
+   appendAuditInternal({
+    policyVersionId:version.policyVersionId,action:'policy_published',entityType:'policy_version',entityId:version.policyVersionId,
+    beforeSnapshot:{status:'draft'},afterSnapshot:{status:'active',publicationId},...actorFields(actor)
+   });
+   return{version:clone(version),policy:clone(policy),publication:clone(pub),previousActiveVersionId:previousId};
+  }
+
+  async function archiveVersion(policyVersionId,actor={}){
+   const version=requireVersion(policyVersionId);
+   if(version.status!=='active')throw new RepositoryError('POLICY_NOT_ACTIVE','Only an Active DOE policy can be archived.',{policyVersionId:text(policyVersionId)});
+   const policy=stores.policies.get(text(version.policyId));
+   version.status='archived';version.archivedAt=now();version.archivedBy=text(actor.uid);
+   stores.versions.set(version.policyVersionId,clone(version));
+   if(policy&&policy.currentActiveVersionId===version.policyVersionId){
+    policy.currentActiveVersionId='';policy.updatedAt=now();policy.updatedBy=text(actor.uid);stores.policies.set(policy.policyId,clone(policy));
+   }
+   appendAuditInternal({policyVersionId:version.policyVersionId,action:'policy_archived',entityType:'policy_version',entityId:version.policyVersionId,beforeSnapshot:{status:'active'},afterSnapshot:{status:'archived'},...actorFields(actor)});
+   return{version:clone(version),policy:policy?clone(policy):null};
+  }
+
   return Object.freeze({
    listPolicies,getPolicy,listVersions,getVersion,listRules,getRule,
    listSelectors,listParameters,listTiers,listRuleInputs,listExceptions,
    createPolicy,createVersion,replaceVersion,replacePolicy,
+   saveValidationResult,saveImpactEvidence,publishVersion,archiveVersion,
    saveDraftRule,deleteDraftRule,
    saveSelector,saveParameter,saveTier,saveRuleInput,
    deleteSelector,deleteParameter,deleteTier,deleteRuleInput,
