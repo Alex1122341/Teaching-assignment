@@ -307,7 +307,14 @@ service cloud.firestore {
   function validImportJobTakeover(id){return general() && teachingLocked() && get(/databases/$(database)/documents/settings/system_state).data.activeImportId == id && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['previousMaintenanceOwnerUid','previousMaintenanceOwnerName','recoveryTakenOverBy','recoveryTakenOverByName','recoveryTakenOverAt','recoveryTakeoverReason','lastUpdatedAt']) && request.resource.data.recoveryTakenOverBy == request.auth.uid && request.resource.data.recoveryTakeoverReason is string && request.resource.data.recoveryTakeoverReason.size() > 0 && getAfter(/databases/$(database)/documents/settings/system_state).data.maintenanceOwnerUid == request.auth.uid;}
   function doeAdmin(){return ready() && profile().role in ['owner','administrator','admin','adfa_general','adfa_regular'];}
   function doeVersionPath(id){return /databases/$(database)/documents/doe_policy_versions/$(id);}
+  function doePolicyPath(id){return /databases/$(database)/documents/doe_policies/$(id);}
+  function doeImpactPath(id){return /databases/$(database)/documents/doe_impact_runs/$(id);}
   function doeDraftVersion(id){return exists(doeVersionPath(id)) && get(doeVersionPath(id)).data.status == 'draft';}
+  function doeVersionIdentitySame(before,after){
+   return after.policyVersionId == before.policyVersionId && after.policyId == before.policyId
+    && after.academicYear == before.academicYear && after.versionNumber == before.versionNumber
+    && after.revision == before.revision;
+  }
   function doeDraftRevisionUpdate(id){
    let before=resource.data;let after=request.resource.data;
    return doeAdmin() && before.status == 'draft' && after.status == 'draft'
@@ -326,9 +333,71 @@ service cloud.firestore {
     && after.get('lastImpactRunId','') == '' && after.get('lastImpactChecksum','') == ''
     && after.get('lastImpactDatasetChecksum','') == '' && after.get('lastValidatedRevision',null) == null;
   }
+  function doeDraftValidationUpdate(){
+   let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();
+   return doeAdmin() && before.status == 'draft' && after.status == 'draft' && doeVersionIdentitySame(before,after)
+    && changed.hasOnly(['lastValidatedRevision','rulesChecksum','lastValidationPassed','lastValidationErrorCount','lastValidationWarningCount','lastValidatedAt','lastValidatedBy'])
+    && after.lastValidatedRevision == before.revision && after.rulesChecksum is string && after.rulesChecksum.size() > 0
+    && after.lastValidationPassed is bool && after.lastValidationErrorCount is int && after.lastValidationErrorCount >= 0
+    && after.lastValidationWarningCount is int && after.lastValidationWarningCount >= 0
+    && after.lastValidatedBy == request.auth.uid;
+  }
+  function doeDraftImpactEvidenceUpdate(){
+   let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();
+   let runId=after.get('lastImpactRunId','');
+   return doeAdmin() && before.status == 'draft' && after.status == 'draft' && doeVersionIdentitySame(before,after)
+    && changed.hasOnly(['lastImpactRunId','lastImpactRevision','lastImpactChecksum','lastImpactDatasetChecksum','lastImpactAt','lastImpactBy'])
+    && runId is string && runId.size() > 0 && after.lastImpactRevision == before.revision
+    && after.lastImpactChecksum == before.get('rulesChecksum','') && after.lastImpactChecksum.size() > 0
+    && after.lastImpactDatasetChecksum is string && after.lastImpactDatasetChecksum.size() > 0
+    && after.lastImpactBy == request.auth.uid
+    && exists(doeImpactPath(runId))
+    && get(doeImpactPath(runId)).data.policyVersionId == before.policyVersionId
+    && get(doeImpactPath(runId)).data.policyRevision == before.revision
+    && get(doeImpactPath(runId)).data.policyChecksum == after.lastImpactChecksum
+    && get(doeImpactPath(runId)).data.inputDatasetChecksum == after.lastImpactDatasetChecksum
+    && get(doeImpactPath(runId)).data.status == 'passed'
+    && get(doeImpactPath(runId)).data.get('errorCount',0) == 0
+    && get(doeImpactPath(runId)).data.runBy == request.auth.uid;
+  }
+  function doePublishVersion(id){
+   let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();
+   let runId=before.get('lastImpactRunId','');
+   return general() && before.status == 'draft' && after.status == 'active' && doeVersionIdentitySame(before,after)
+    && changed.hasOnly(['status','publishedAt','publishedBy','updatedAt','updatedBy'])
+    && after.publishedBy == request.auth.uid && after.updatedBy == request.auth.uid
+    && before.get('lastValidationPassed',false) == true && before.get('lastValidatedRevision',-1) == before.revision
+    && before.get('rulesChecksum','') is string && before.get('rulesChecksum','').size() > 0
+    && before.get('lastImpactRevision',-1) == before.revision && before.get('lastImpactChecksum','') == before.get('rulesChecksum','')
+    && runId is string && runId.size() > 0 && exists(doeImpactPath(runId))
+    && get(doeImpactPath(runId)).data.status == 'passed' && get(doeImpactPath(runId)).data.get('errorCount',0) == 0
+    && get(doeImpactPath(runId)).data.policyVersionId == id && get(doeImpactPath(runId)).data.policyRevision == before.revision
+    && get(doeImpactPath(runId)).data.policyChecksum == before.get('rulesChecksum','')
+    && get(doeImpactPath(runId)).data.inputDatasetChecksum == before.get('lastImpactDatasetChecksum','')
+    && getAfter(doePolicyPath(before.policyId)).data.currentActiveVersionId == id;
+  }
+  function doeArchiveVersion(id){
+   let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();
+   return general() && before.status == 'active' && after.status == 'archived' && doeVersionIdentitySame(before,after)
+    && changed.hasOnly(['status','archivedAt','archivedBy','updatedAt','updatedBy'])
+    && after.archivedBy == request.auth.uid && after.updatedBy == request.auth.uid
+    && get(doePolicyPath(before.policyId)).data.currentActiveVersionId == id
+    && getAfter(doePolicyPath(before.policyId)).data.currentActiveVersionId != id;
+  }
+  function doePolicyActivePointerUpdate(id){
+   let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();
+   let oldId=before.get('currentActiveVersionId','');let newId=after.get('currentActiveVersionId','');
+   return general() && after.policyId == before.policyId && after.academicYear == before.academicYear
+    && changed.hasOnly(['currentActiveVersionId','updatedAt','updatedBy'])
+    && after.updatedBy == request.auth.uid && oldId != newId
+    && ((newId == '' && oldId != '' && existsAfter(doeVersionPath(oldId)) && getAfter(doeVersionPath(oldId)).data.status == 'archived')
+     || (newId != '' && existsAfter(doeVersionPath(newId)) && getAfter(doeVersionPath(newId)).data.status == 'active'
+      && getAfter(doeVersionPath(newId)).data.policyId == id
+      && (oldId == '' || (existsAfter(doeVersionPath(oldId)) && getAfter(doeVersionPath(oldId)).data.status == 'archived'))));
+  }
   function doeImpactOwner(runId){
-   return doeAdmin() && exists(/databases/$(database)/documents/doe_impact_runs/$(runId))
-    && (get(/databases/$(database)/documents/doe_impact_runs/$(runId)).data.runBy == request.auth.uid || general());
+   return doeAdmin() && exists(doeImpactPath(runId))
+    && (get(doeImpactPath(runId)).data.runBy == request.auth.uid || general());
   }
 
   match /users/{uid} {
@@ -433,13 +502,13 @@ service cloud.firestore {
   match /doe_policies/{id} {
    allow read: if doeAdmin();
    allow create: if doeAdmin() && request.resource.data.policyId == id;
-   allow update: if general() && request.resource.data.policyId == resource.data.policyId && request.resource.data.academicYear == resource.data.academicYear;
+   allow update: if doePolicyActivePointerUpdate(id);
    allow delete: if false;
   }
   match /doe_policy_versions/{id} {
    allow read: if doeAdmin();
    allow create: if doeAdmin() && request.resource.data.policyVersionId == id && request.resource.data.status == 'draft' && request.resource.data.revision is int;
-   allow update: if doeDraftRevisionUpdate(id);
+   allow update: if doeDraftRevisionUpdate(id) || doeDraftValidationUpdate() || doeDraftImpactEvidenceUpdate() || doePublishVersion(id) || doeArchiveVersion(id);
    allow delete: if false;
   }
   match /doe_rules/{id} {
@@ -491,7 +560,12 @@ service cloud.firestore {
   }
   match /doe_publications/{id} {
    allow read: if doeAdmin();
-   allow create: if general() && request.resource.data.publicationId == id && request.resource.data.publishedBy == request.auth.uid;
+   allow create: if general() && request.resource.data.publicationId == id && request.resource.data.publishedBy == request.auth.uid
+    && existsAfter(doeVersionPath(request.resource.data.policyVersionId))
+    && getAfter(doeVersionPath(request.resource.data.policyVersionId)).data.status == 'active'
+    && request.resource.data.policyRevision == getAfter(doeVersionPath(request.resource.data.policyVersionId)).data.revision
+    && request.resource.data.policyChecksum == getAfter(doeVersionPath(request.resource.data.policyVersionId)).data.get('rulesChecksum','')
+    && request.resource.data.impactRunId == getAfter(doeVersionPath(request.resource.data.policyVersionId)).data.get('lastImpactRunId','');
    allow update,delete: if false;
   }
   match /doe_calculation_records/{id} {
