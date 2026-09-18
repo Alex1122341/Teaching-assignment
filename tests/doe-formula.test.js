@@ -5,7 +5,7 @@ const assert=require('node:assert/strict');
 const FORMULA=require('../doe-formula.js');
 
 test('evaluates arithmetic with normal precedence',()=>{
-  assert.equal(FORMULA.evaluate('hours * rate',{hours:6,rate:.30}),1.8);
+  assert.ok(Math.abs(FORMULA.evaluate('hours * rate',{hours:6,rate:.30})-1.8)<1e-12);
   assert.equal(FORMULA.evaluate('2 + 3 * 4',{}),14);
   assert.equal(FORMULA.evaluate('(2 + 3) * 4',{}),20);
   assert.equal(FORMULA.evaluate('-hours + 10',{hours:3}),7);
