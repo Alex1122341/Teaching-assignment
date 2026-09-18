@@ -345,7 +345,7 @@ git commit -m "feat: add canonical DOE policy engine"
 - Produces createFirestoreRepository({db,fieldValue}).
 - Engine receives plain objects and ISO/date strings, never Firestore snapshots or Timestamp objects.
 
-- [ ] **Step 1: Write repository contract tests**
+- [x] **Step 1: Write repository contract tests**
 
 Exercise:
 
@@ -367,7 +367,7 @@ await repo.createCalculationRecord(record);
 
 Assert stable business IDs and normalized timestamps.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ~~~bash
 node --test tests/doe-policy-repository.test.js
@@ -375,7 +375,7 @@ node --test tests/doe-policy-repository.test.js
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement collection mapping**
+- [x] **Step 3: Implement collection mapping**
 
 Use top-level collections:
 
@@ -397,7 +397,7 @@ doe_audit_log
 
 Only the adapter owns Firestore paths/timestamps.
 
-- [ ] **Step 4: Implement optimistic Draft revision control**
+- [x] **Step 4: Implement optimistic Draft revision control**
 
 A Draft write transaction:
 1. loads parent version;
@@ -410,7 +410,7 @@ A Draft write transaction:
 
 Return POLICY_REVISION_CONFLICT on stale edit.
 
-- [ ] **Step 5: Write emulator tests RED**
+- [x] **Step 5: Write emulator tests RED**
 
 Create ADFA General, ADFA Regular, faculty, HICC, VISC, ADC, and LAB users.
 
@@ -424,11 +424,11 @@ Prove:
 - Active/Archived rules are immutable;
 - publication/calculation/audit evidence is append-only.
 
-- [ ] **Step 6: Implement Firestore Rules**
+- [x] **Step 6: Implement Firestore Rules**
 
 Use existing UCVM capability helpers. Authorization must be based on authenticated profile, not policy document role strings.
 
-- [ ] **Step 7: Run tests**
+- [x] **Step 7: Run tests**
 
 ~~~bash
 node --test tests/doe-policy-repository.test.js
@@ -437,12 +437,15 @@ npm run test:emulator
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ~~~bash
 git add doe-policy-repository.js doe-policy-firestore.js firestore.rules tests/doe-policy-repository.test.js tests/doe-policy-security-emulator.test.js
 git commit -m "feat: add DOE repository and security rules"
 ~~~
+
+
+**Task 3 verification:** exact implementation head `9db06a3609a7ca71265bb081bb5da85504674a74` — Test #223 completed successfully. Both `Run static and unit tests` and `Run Firestore and Auth emulator tests` passed. Emulator coverage proves ADFA Regular Draft editing, stale-revision rejection, Active immutability, non-ADFA denial, append-only evidence, and the General validate/publish transaction path.
 
 ---
 
