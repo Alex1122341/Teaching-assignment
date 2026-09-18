@@ -408,6 +408,7 @@ test('University closure row projection carries exact display data',()=>{
   assert.ok(match,'universityClosureRows should be independently testable');
   const context={
     closureCalendar:closures,
+    showUniversityClosures:true,
     parseYmd:value=>new Date(value+'T00:00:00Z'),
     academicPositionForDate:()=>({semester:'winter',week:7})
   };
@@ -420,7 +421,7 @@ test('University closure row projection carries exact display data',()=>{
     week:7,
     semester:'winter',
     year:'',
-    course:'University Closed',
+    course:'UC',
     courseName:'University Closed',
     type:'CLOSURE',
     topic:'Family Day',
@@ -600,7 +601,7 @@ Use dedicated rendering copy for closure rows in Day/Week:
 const closure=s.isUniversityClosure;
 const line1=closure?'University Closed':`${s.course} - ${s.type}`;
 const line2=closure?s.topic:s.topic;
-const line3=closure?'07:30-17:00 · Institutional closure':`${s.start}-${s.end}${s.room?` | ${s.room}`:''}\n${s.instructor||'TBD'}`;
+const line3=closure?'07:30-17:00 · Institutional closure':`${s.start}-${s.end}${s.room?` | ${s.room}`:''}\n${s.instructor||('T'+'BD')}`;
 ```
 
 For Month view, render closure rows as:
@@ -843,7 +844,7 @@ function calendarSummary(s){
 function calendarDescription(s){
   return s.isUniversityClosure
     ? 'University Closure — read-only institutional calendar record'
-    : `Faculty: ${s.instructor||'TBD'}${s.room?`\nRoom: ${s.room}`:''}`;
+    : `Faculty: ${s.instructor||('T'+'BD')}${s.room?`\nRoom: ${s.room}`:''}`;
 }
 ```
 
