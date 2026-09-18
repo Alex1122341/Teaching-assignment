@@ -220,7 +220,7 @@ Expected calculation result shape:
 }
 ~~~
 
-- [ ] **Step 1: Write failing engine tests**
+- [x] **Step 1: Write failing engine tests**
 
 ~~~js
 const bundle={
@@ -251,7 +251,7 @@ Also prove:
 - adjustment result may be signed;
 - declared rule inputs control DOE-relevant edit detection.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ~~~bash
 node --test tests/doe-policy-engine.test.js
@@ -259,7 +259,7 @@ node --test tests/doe-policy-engine.test.js
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement deterministic selector matching**
+- [x] **Step 3: Implement deterministic selector matching**
 
 Supported operators:
 - equals
@@ -273,7 +273,7 @@ Supported operators:
 
 Exception matching is first. Generic rules then use explicit priority. Equal top priority is an error; never use array order as a hidden tie-breaker.
 
-- [ ] **Step 4: Implement structured calculation modes**
+- [x] **Step 4: Implement structured calculation modes**
 
 ~~~text
 fixed                -> fixed
@@ -290,11 +290,11 @@ tiered                -> ordered tier evaluation
 
 Tiered evaluation stays inside the engine rather than generating JavaScript.
 
-- [ ] **Step 5: Implement validatePolicy**
+- [x] **Step 5: Implement validatePolicy**
 
 Return typed errors/warnings for duplicate rule keys, malformed selectors, missing required parameters, unsafe/unknown formula identifiers, tier overlaps/gaps, invalid exceptions, ambiguous matching, circular dependencies, and invalid output rules.
 
-- [ ] **Step 6: Implement DOE-relevant change detection**
+- [x] **Step 6: Implement DOE-relevant change detection**
 
 ~~~js
 assert.equal(
@@ -307,11 +307,11 @@ assert.equal(
 );
 ~~~
 
-- [ ] **Step 7: Preserve faculty-doe.js compatibility**
+- [x] **Step 7: Preserve faculty-doe.js compatibility**
 
 Keep override, contract, effectiveTarget, and targetLabel exports working for existing callers. New policy-aware target evaluation may be added, but do not create a second independent target algorithm.
 
-- [ ] **Step 8: Run tests**
+- [x] **Step 8: Run tests**
 
 ~~~bash
 node --test tests/doe-formula.test.js tests/doe-policy-engine.test.js tests/faculty-doe.test.js tests/doe-canonical-consistency.test.js
@@ -320,12 +320,15 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ~~~bash
 git add doe-policy-engine.js faculty-doe.js tests/doe-policy-engine.test.js tests/faculty-doe.test.js
 git commit -m "feat: add canonical DOE policy engine"
 ~~~
+
+
+**Task 2 verification:** exact implementation head `34d5e210583fd6e081e56760908eadaa0a8dfc83` — Test #221 `Run static and unit tests` completed successfully after the RED run Test #219 failed on the missing `matchRule`, incomplete whole-policy validation, and missing faculty compatibility delegation. Existing `override`, `contract`, `effectiveTarget`, and `targetLabel` callers remain backward-compatible; explicit policy bundles delegate target calculation to the canonical Engine.
 
 ---
 
