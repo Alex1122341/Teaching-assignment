@@ -204,6 +204,160 @@
    });
   }
 
+  async function saveValidationResult(policyVersionId,{revision,policyChecksum,valid,errorCount=0,warningCount=0,actor={}}={}){
+   const versionId=text(policyVersionId),versionRef=ref('versions',versionId);
+   return db.runTransaction(async transaction=>{
+    const snapshot=await transaction.get(versionRef);
+    if(!snapshot.exists)throw new RepositoryError('POLICY_VERSION_NOT_FOUND','DOE policy version was not found.',{policyVersionId:versionId});
+    const version=normalizeDomainObject(snapshot.data());
+    if(version.status!=='draft')throw new RepositoryError('POLICY_NOT_DRAFT','Only a Draft DOE policy can be validated.',{policyVersionId:versionId});
+    if(Number(version.revision||0)!==Number(revision))throw revisionConflict(versionId,revision,version.revision||0);
+    const patch={
+     lastValidatedRevision:Number(revision),
+     rulesChecksum:text(policyChecksum),
+     lastValidationPassed:valid===true,
+     lastValidationErrorCount:Number(errorCount||0),
+     lastValidationWarningCount:Number(warningCount||0),
+     lastValidatedAt:nowIso(),
+     lastValidatedBy:text(actor.uid)
+    };
+    const audit=auditRow({
+     versionId,action:'validation_run',entityType:'policy_version',entityId:versionId,before:null,
+     after:{revision:Number(revision),policyChecksum:text(policyChecksum),valid:valid===true,errorCount:Number(errorCount||0),warningCount:Number(warningCount||0)},actor
+    });
+    transaction.update(versionRef,patch);
+    transaction.set(ref('audit',audit.auditId),audit);
+    return{...version,...patch};
+   });
+  }
+
+  async function saveImpactEvidence(policyVersionId,{revision,impactRunId,policyChecksum,inputDatasetChecksum,actor={}}={}){
+   const versionId=text(policyVersionId),runId=text(impactRunId);
+   const versionRef=ref('versions',versionId),runRef=ref('impactRuns',runId);
+   return db.runTransaction(async transaction=>{
+    const versionSnapshot=await transaction.get(versionRef);
+    const runSnapshot=await transaction.get(runRef);
+    if(!versionSnapshot.exists)throw new RepositoryError('POLICY_VERSION_NOT_FOUND','DOE policy version was not found.',{policyVersionId:versionId});
+    if(!runSnapshot.exists)throw new RepositoryError('IMPACT_RUN_NOT_FOUND','DOE Impact Preview run was not found.',{impactRunId:runId});
+    const version=normalizeDomainObject(versionSnapshot.data()),run=normalizeDomainObject(runSnapshot.data());
+    if(version.status!=='draft')throw new RepositoryError('POLICY_NOT_DRAFT','Only a Draft DOE policy can receive Impact Preview evidence.',{policyVersionId:versionId});
+    if(Number(version.revision||0)!==Number(revision))throw revisionConflict(versionId,revision,version.revision||0);
+    if(
+     text(run.policyVersionId)!==versionId||
+     Number(run.policyRevision)!==Number(revision)||
+     text(run.policyChecksum)!==text(policyChecksum)||
+     text(run.inputDatasetChecksum)!==text(inputDatasetChecksum)||
+     run.status!=='passed'
+    )throw new RepositoryError('PREVIEW_STALE','DOE Impact Preview does not match the current Draft.',{impactRunId:runId,policyVersionId:versionId});
+    const patch={
+     lastImpactRunId:runId,
+     lastImpactRevision:Number(revision),
+     lastImpactChecksum:text(policyChecksum),
+     lastImpactDatasetChecksum:text(inputDatasetChecksum),
+     lastImpactAt:nowIso(),
+     lastImpactBy:text(actor.uid)
+    };
+    const audit=auditRow({
+     versionId,action:'impact_preview_run',entityType:'policy_version',entityId:versionId,before:null,
+     after:{impactRunId:runId,revision:Number(revision),policyChecksum:text(policyChecksum),inputDatasetChecksum:text(inputDatasetChecksum)},actor
+    });
+    transaction.update(versionRef,patch);
+    transaction.set(ref('audit',audit.auditId),audit);
+    return{...version,...patch};
+   });
+  }
+
+  async function publishVersion({policyVersionId,expectedRevision,policyChecksum,impactRunId,inputDatasetChecksum,publication,actor={}}={}){
+   const versionId=text(policyVersionId),runId=text(impactRunId);
+   const versionRef=ref('versions',versionId),runRef=ref('impactRuns',runId);
+   const publicationRow=normalizeDomainObject(publication||{}),publicationId=requireId(publicationRow,'publicationId');
+   const publicationRef=ref('publications',publicationId);
+   return db.runTransaction(async transaction=>{
+    const versionSnapshot=await transaction.get(versionRef);
+    const runSnapshot=await transaction.get(runRef);
+    const publicationSnapshot=await transaction.get(publicationRef);
+    if(!versionSnapshot.exists)throw new RepositoryError('POLICY_VERSION_NOT_FOUND','DOE policy version was not found.',{policyVersionId:versionId});
+    if(!runSnapshot.exists)throw new RepositoryError('IMPACT_RUN_NOT_FOUND','DOE Impact Preview run was not found.',{impactRunId:runId});
+    if(publicationSnapshot.exists)throw new RepositoryError('EVIDENCE_ALREADY_EXISTS','DOE publication record already exists.',{publicationId});
+    const version=normalizeDomainObject(versionSnapshot.data()),run=normalizeDomainObject(runSnapshot.data());
+    if(version.status!=='draft')throw new RepositoryError('POLICY_NOT_DRAFT','Only a Draft DOE policy can be published.',{policyVersionId:versionId});
+    if(Number(version.revision||0)!==Number(expectedRevision))throw revisionConflict(versionId,expectedRevision,version.revision||0);
+    if(
+     Number(version.lastValidatedRevision)!==Number(expectedRevision)||
+     version.lastValidationPassed!==true||
+     text(version.rulesChecksum)!==text(policyChecksum)
+    )throw new RepositoryError('VALIDATION_REQUIRED','Current DOE Draft has not passed validation.',{policyVersionId:versionId});
+    if(
+     text(version.lastImpactRunId)!==runId||
+     Number(version.lastImpactRevision)!==Number(expectedRevision)||
+     text(version.lastImpactChecksum)!==text(policyChecksum)||
+     text(version.lastImpactDatasetChecksum)!==text(inputDatasetChecksum)||
+     run.status!=='passed'||Number(run.errorCount||0)>0||
+     text(run.policyVersionId)!==versionId||
+     Number(run.policyRevision)!==Number(expectedRevision)||
+     text(run.policyChecksum)!==text(policyChecksum)||
+     text(run.inputDatasetChecksum)!==text(inputDatasetChecksum)
+    )throw new RepositoryError('PREVIEW_STALE','DOE Impact Preview evidence is stale.',{policyVersionId:versionId,impactRunId:runId});
+
+    const policyId=text(version.policyId),policyRef=ref('policies',policyId);
+    const policySnapshot=await transaction.get(policyRef);
+    if(!policySnapshot.exists)throw new RepositoryError('POLICY_NOT_FOUND','DOE policy was not found.',{policyId});
+    const policy=normalizeDomainObject(policySnapshot.data()),previousId=text(policy.currentActiveVersionId);
+    let previous=null,previousRef=null;
+    if(previousId&&previousId!==versionId){
+     previousRef=ref('versions',previousId);
+     const previousSnapshot=await transaction.get(previousRef);
+     if(!previousSnapshot.exists)throw new RepositoryError('POLICY_VERSION_NOT_FOUND','Current Active DOE policy version was not found.',{policyVersionId:previousId});
+     previous=normalizeDomainObject(previousSnapshot.data());
+     if(previous.status!=='active')throw new RepositoryError('POLICY_ACTIVE_POINTER_INVALID','Policy currentActiveVersionId does not point to an Active version.',{policyVersionId:previousId});
+    }
+
+    const publishedAt=text(publicationRow.publishedAt)||nowIso();
+    const versionPatch={status:'active',publishedAt,publishedBy:text(actor.uid),updatedAt:publishedAt,updatedBy:text(actor.uid)};
+    const policyPatch={currentActiveVersionId:versionId,updatedAt:publishedAt,updatedBy:text(actor.uid)};
+    transaction.update(versionRef,versionPatch);
+    if(previous&&previousRef){
+     transaction.update(previousRef,{status:'archived',archivedAt:publishedAt,archivedBy:text(actor.uid),updatedAt:publishedAt,updatedBy:text(actor.uid)});
+    }
+    transaction.update(policyRef,policyPatch);
+    transaction.set(publicationRef,publicationRow);
+    const audit=auditRow({
+     versionId,action:'policy_published',entityType:'policy_version',entityId:versionId,
+     before:{status:'draft'},after:{status:'active',publicationId},actor
+    });
+    transaction.set(ref('audit',audit.auditId),audit);
+    return{
+     version:{...version,...versionPatch},
+     policy:{...policy,...policyPatch},
+     publication:publicationRow,
+     previousActiveVersionId:previousId
+    };
+   });
+  }
+
+  async function archiveVersion(policyVersionId,actor={}){
+   const versionId=text(policyVersionId),versionRef=ref('versions',versionId);
+   return db.runTransaction(async transaction=>{
+    const versionSnapshot=await transaction.get(versionRef);
+    if(!versionSnapshot.exists)throw new RepositoryError('POLICY_VERSION_NOT_FOUND','DOE policy version was not found.',{policyVersionId:versionId});
+    const version=normalizeDomainObject(versionSnapshot.data());
+    if(version.status!=='active')throw new RepositoryError('POLICY_NOT_ACTIVE','Only an Active DOE policy can be archived.',{policyVersionId:versionId});
+    const policyId=text(version.policyId),policyRef=ref('policies',policyId);
+    const policySnapshot=await transaction.get(policyRef);
+    if(!policySnapshot.exists)throw new RepositoryError('POLICY_NOT_FOUND','DOE policy was not found.',{policyId});
+    const policy=normalizeDomainObject(policySnapshot.data());
+    if(text(policy.currentActiveVersionId)!==versionId)throw new RepositoryError('POLICY_ACTIVE_POINTER_INVALID','Policy currentActiveVersionId does not match the version being archived.',{policyVersionId:versionId});
+    const archivedAt=nowIso();
+    const versionPatch={status:'archived',archivedAt,archivedBy:text(actor.uid),updatedAt:archivedAt,updatedBy:text(actor.uid)};
+    const policyPatch={currentActiveVersionId:'',updatedAt:archivedAt,updatedBy:text(actor.uid)};
+    transaction.update(versionRef,versionPatch);
+    transaction.update(policyRef,policyPatch);
+    const audit=auditRow({versionId,action:'policy_archived',entityType:'policy_version',entityId:versionId,before:{status:'active'},after:{status:'archived'},actor});
+    transaction.set(ref('audit',audit.auditId),audit);
+    return{version:{...version,...versionPatch},policy:{...policy,...policyPatch}};
+   });
+  }
+
   async function createImpactRun(run){
    const row=normalizeDomainObject(run),id=requireId(row,'impactRunId');
    await ref('impactRuns',id).set(row);
@@ -242,7 +396,8 @@
   return Object.freeze({
    listPolicies,getPolicy,listVersions,getVersion,listRules,getRule,
    listSelectors,listParameters,listTiers,listRuleInputs,listExceptions,
-   createPolicy,createVersion,saveDraftRule,deleteDraftRule,
+   createPolicy,createVersion,saveValidationResult,saveImpactEvidence,publishVersion,archiveVersion,
+   saveDraftRule,deleteDraftRule,
    saveSelector,saveParameter,saveTier,saveRuleInput,saveException,
    createImpactRun,updateImpactRun,saveImpactRows,getImpactRun,listImpactRows,
    createPublication,listPublications,createCalculationRecord,listCalculationRecords,
