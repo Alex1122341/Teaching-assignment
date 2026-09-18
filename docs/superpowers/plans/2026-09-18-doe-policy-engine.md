@@ -524,7 +524,7 @@ git commit -m "feat: add DOE draft and publication service"
 - Root section id="doe-rules-view".
 - Sections: Teaching Rules, Role Rules, Supervision & Complex, Target Rules, Exceptions.
 
-- [ ] **Step 1: Write static/UI tests RED**
+- [x] **Step 1: Write static/UI tests RED**
 
 Assert:
 - DOE Rules tab and section exist;
@@ -533,7 +533,7 @@ Assert:
 - General can see full lifecycle controls;
 - module load order is correct.
 
-- [ ] **Step 2: Add first-class HTML structure**
+- [x] **Step 2: Add first-class HTML structure**
 
 Top controls:
 - Academic Year
@@ -549,11 +549,11 @@ Top controls:
 
 Add rules table, editor root, exceptions table/editor, preview root.
 
-- [ ] **Step 3: Extend faculty-admin.js tab handling**
+- [x] **Step 3: Extend faculty-admin.js tab handling**
 
 Include doe-rules in setTab section switching. Self mode hides it and does not construct repository/service.
 
-- [ ] **Step 4: Implement Rule table**
+- [x] **Step 4: Implement Rule table**
 
 Columns:
 
@@ -572,7 +572,7 @@ Actions
 
 Active/Archived rows read-only.
 
-- [ ] **Step 5: Implement Structured Builder**
+- [x] **Step 5: Implement Structured Builder**
 
 Fields:
 - category
@@ -587,11 +587,11 @@ Fields:
 - source type
 - enabled state
 
-- [ ] **Step 6: Implement Advanced Formula toggle**
+- [x] **Step 6: Implement Advanced Formula toggle**
 
 Formula text is validated only through doe-formula.js and engine validation.
 
-- [ ] **Step 7: Implement Test Rule panel**
+- [x] **Step 7: Implement Test Rule panel**
 
 Example:
 
@@ -604,11 +604,11 @@ Parameters: rate = 0.30
 
 Missing input renders the typed error, never 0%.
 
-- [ ] **Step 8: Implement Exceptions editor**
+- [x] **Step 8: Implement Exceptions editor**
 
 Require defined scope, fixed DOE, reason, source reference, and policy version.
 
-- [ ] **Step 9: Run tests**
+- [x] **Step 9: Run tests**
 
 ~~~bash
 node --test tests/doe-policy-admin.test.js tests/faculty-self-dashboard.test.js
@@ -617,12 +617,15 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ~~~bash
 git add doe-policy-admin.js doe-policy-admin.css faculty-admin.html faculty-admin.js tests/doe-policy-admin.test.js
 git commit -m "feat: add Faculty Dashboard DOE Rules editor"
 ~~~
+
+
+**Task 5 verification:** RED Test #228 failed because `doe-policy-admin.js` did not exist. Exact integrated head `0ea9588ed0936fe515a83a50d78cbad56fee5b41` passed Test #234, including static/unit and Firestore/Auth emulator suites. DOE Rules is a first-class Faculty Dashboard tab; self-service roles cannot initialize it; ADFA Regular may edit Draft/Validate/Preview while General-only controls stay disabled for Regular.
 
 ---
 
