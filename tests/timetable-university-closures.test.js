@@ -4,6 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
+const {spawnSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 const closures=require('../university-closures');
@@ -146,4 +147,40 @@ test('academic week month range includes both Easter Monday closure dates',()=>{
   assert.deepEqual({start:winter.start,end:winter.end},{start:'2027-03-01',end:'2027-03-31'});
   assert.ok(closures.between(spring.start,spring.end).some(row=>row.name==='Easter Monday'&&row.date==='2026-04-06'));
   assert.ok(closures.between(winter.start,winter.end).some(row=>row.name==='Easter Monday'&&row.date==='2027-03-29'));
+});
+
+
+test('Easter Monday projects to Winter Week 13 across Alberta daylight-saving time',()=>{
+  const script=String.raw\`
+    const fs=require('node:fs');
+    const vm=require('node:vm');
+    const closures=require('./university-closures');
+    const source=fs.readFileSync('timetable.js','utf8');
+    const academic=source.match(/  function academicPositionForDate\\([\\s\\S]*?\\n  \\}/);
+    const overlay=source.match(/  function universityClosureRows\\([\\s\\S]*?\\n  \\}/);
+    if(!academic||!overlay)throw new Error('required timetable functions not found');
+    const context={
+      Date,
+      SPRING_BASE_MONDAY:new Date(2026,3,27),
+      FALL_BASE_MONDAY:new Date(2026,7,24),
+      WINTER_BASE_MONDAY:new Date(2027,0,4),
+      WEEK_COUNT:17,
+      addDays:(date,days)=>{const d=new Date(date);d.setDate(d.getDate()+days);return d;},
+      closureCalendar:closures,
+      showUniversityClosures:true,
+      parseYmd:value=>{const [y,m,d]=String(value).split('-').map(Number);return new Date(y,m-1,d);}
+    };
+    vm.runInNewContext(academic[0]+'\\n'+overlay[0]+'\\nresult=universityClosureRows;',context);
+    process.stdout.write(JSON.stringify(context.result('2027-03-29','2027-04-02')));
+  \`;
+  const run=spawnSync(process.execPath,['-e',script],{
+    cwd:root,
+    env:{...process.env,TZ:'America/Edmonton'},
+    encoding:'utf8'
+  });
+  assert.equal(run.status,0,run.stderr);
+  const rows=JSON.parse(run.stdout);
+  const easter=rows.find(row=>row.date==='2027-03-29');
+  assert.ok(easter,'Easter Monday closure should be projected');
+  assert.equal(easter.week,13,'Easter Monday must remain in Winter Week 13 after the DST transition');
 });
