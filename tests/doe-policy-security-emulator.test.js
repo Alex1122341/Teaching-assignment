@@ -157,11 +157,15 @@ check('publication, calculation and audit evidence cannot be rewritten',async()=
  const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
  const general=env.authenticatedContext('general').firestore();
  const stamp=require('firebase/firestore').serverTimestamp;
- await assertSucceeds(general.doc('doe_publications/pub-test').set({
-  publicationId:'pub-test',policyVersionId:'ucvm-workload-2027-28-v1',
-  policyRevision:1,policyChecksum:'checksum',impactRunId:'impact',
-  publishedBy:'general',publishedByName:'General',publishedAt:stamp()
- }));
+
+ await env.withSecurityRulesDisabled(async context=>{
+  await context.firestore().doc('doe_publications/pub-test').set({
+   publicationId:'pub-test',policyVersionId:'ucvm-workload-2027-28-v1',
+   policyRevision:1,policyChecksum:'historical-checksum',impactRunId:'historical-impact',
+   publishedBy:'general',publishedByName:'General',publishedAt:new Date('2026-09-18T20:00:00Z').toISOString()
+  });
+ });
+
  await assertFails(general.doc('doe_publications/pub-test').update({policyChecksum:'changed'}));
  await assertSucceeds(general.doc('doe_calculation_records/calc-test').set({
   calculationId:'calc-test',policyVersionId:'ucvm-workload-2027-28-v1',
