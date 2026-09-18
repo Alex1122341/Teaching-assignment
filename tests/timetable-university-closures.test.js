@@ -151,28 +151,22 @@ test('academic week month range includes both Easter Monday closure dates',()=>{
 
 
 test('Easter Monday projects to Winter Week 13 across Alberta daylight-saving time',()=>{
-  const script=String.raw\`
-    const fs=require('node:fs');
-    const vm=require('node:vm');
-    const closures=require('./university-closures');
-    const source=fs.readFileSync('timetable.js','utf8');
-    const academic=source.match(/  function academicPositionForDate\\([\\s\\S]*?\\n  \\}/);
-    const overlay=source.match(/  function universityClosureRows\\([\\s\\S]*?\\n  \\}/);
-    if(!academic||!overlay)throw new Error('required timetable functions not found');
-    const context={
-      Date,
-      SPRING_BASE_MONDAY:new Date(2026,3,27),
-      FALL_BASE_MONDAY:new Date(2026,7,24),
-      WINTER_BASE_MONDAY:new Date(2027,0,4),
-      WEEK_COUNT:17,
-      addDays:(date,days)=>{const d=new Date(date);d.setDate(d.getDate()+days);return d;},
-      closureCalendar:closures,
-      showUniversityClosures:true,
-      parseYmd:value=>{const [y,m,d]=String(value).split('-').map(Number);return new Date(y,m-1,d);}
-    };
-    vm.runInNewContext(academic[0]+'\\n'+overlay[0]+'\\nresult=universityClosureRows;',context);
-    process.stdout.write(JSON.stringify(context.result('2027-03-29','2027-04-02')));
-  \`;
+  const script=[
+    "const fs=require('node:fs');",
+    "const vm=require('node:vm');",
+    "const closures=require('./university-closures');",
+    "const source=fs.readFileSync('timetable.js','utf8');",
+    "const aStart=source.indexOf('  function academicPositionForDate');",
+    "const aEnd=source.indexOf('\\n  function ',aStart+3);",
+    "const oStart=source.indexOf('  function universityClosureRows');",
+    "const oEnd=source.indexOf('\\n  function ',oStart+3);",
+    "if(aStart<0||aEnd<0||oStart<0||oEnd<0)throw new Error('required timetable functions not found');",
+    "const academic=source.slice(aStart,aEnd);",
+    "const overlay=source.slice(oStart,oEnd);",
+    "const context={Date,SPRING_BASE_MONDAY:new Date(2026,3,27),FALL_BASE_MONDAY:new Date(2026,7,24),WINTER_BASE_MONDAY:new Date(2027,0,4),WEEK_COUNT:17,addDays:(date,days)=>{const d=new Date(date);d.setDate(d.getDate()+days);return d;},closureCalendar:closures,showUniversityClosures:true,parseYmd:value=>{const parts=String(value).split('-').map(Number);return new Date(parts[0],parts[1]-1,parts[2]);}};",
+    "vm.runInNewContext(academic+'\\n'+overlay+'\\nresult=universityClosureRows;',context);",
+    "process.stdout.write(JSON.stringify(context.result('2027-03-29','2027-04-02')));"
+  ].join('\n');
   const run=spawnSync(process.execPath,['-e',script],{
     cwd:root,
     env:{...process.env,TZ:'America/Edmonton'},
