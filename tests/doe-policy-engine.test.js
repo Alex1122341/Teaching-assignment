@@ -138,7 +138,7 @@ test('structured calculation modes share one result contract',()=>{
   assert.equal(calculate('fixed',{},[{name:'fixed',valueNumber:2.5}]),2.5);
   assert.equal(calculate('per_shift',{shifts:3},[{name:'rate',valueNumber:.5}]),1.5);
   assert.equal(calculate('per_week',{weeks:4},[{name:'rate',valueNumber:.75}]),3);
-  assert.equal(calculate('per_trainee',{trainees:3},[{name:'rate',valueNumber:.4}]),1.2);
+  assert.ok(Math.abs(calculate('per_trainee',{trainees:3},[{name:'rate',valueNumber:.4}])-1.2)<1e-12);
   assert.equal(calculate('percentage_of_target',{targetDoe:20},[{name:'rate',valueNumber:.1}]),2);
   assert.equal(calculate('prorated',{baseDoe:8,fte:.5}),4);
   assert.equal(calculate('capped',{baseValue:8},[{name:'cap',valueNumber:5}]),5);
