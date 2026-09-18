@@ -310,6 +310,11 @@
     if (d >= winterStart && d <= winterEnd) return { semester:'winter', week:Math.floor((d-winterStart)/86400000/7)+1 };
     return d < fallStart ? {semester:'spring',week:1} : {semester:'winter',week:1};
   }
+  function calendarYearForMonth(semester,month) {
+    if(semester==='winter')return 2027;
+    if(semester==='spring'||semester==='fall')return 2026;
+    return Number(month)>=4?2026:2027;
+  }
   function setInitialAcademicPeriod() {
     const p = academicPositionForDate(new Date());
     selectedSemester = p.semester; selectedWeek = Math.max(1, Math.min(WEEK_COUNT, p.week));
@@ -369,7 +374,7 @@
       const wstart = weekStart(selectedWeek, selectedSemester);
       const monthChoice = $('filter-month').value;
       const month = monthChoice === 'all' ? wstart.getMonth() : Number(monthChoice);
-      const year = month >= 4 ? 2026 : 2027;
+      const year = calendarYearForMonth(selectedSemester, month);
       return { start:ymd(new Date(year, month, 1)), end:ymd(new Date(year, month + 1, 0)) };
     }
     const start = weekStart(selectedWeek, selectedSemester);
