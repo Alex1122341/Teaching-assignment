@@ -1,7 +1,7 @@
 'use strict';
 window.UCVM_APPROVAL_REQUEST=(()=>{
-  const routing=window.UCVM_APPROVAL_ROUTING;
-  if(!routing)throw Error('UCVM approval routing is required.');
+  const routing=window.UCVM_APPROVAL_ROUTING,scheduling=window.UCVM_SCHEDULING;
+  if(!routing||!scheduling)throw Error('UCVM approval routing and scheduling core are required.');
   const PUBLIC_FIELDS=['course','courseName','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructor'];
   const own=(object,key)=>Object.prototype.hasOwnProperty.call(object||{},key);
   const text=value=>String(value??'').trim();
@@ -61,6 +61,11 @@ window.UCVM_APPROVAL_REQUEST=(()=>{
   function changesFor(base,patch){
     return Object.keys(patch).filter(field=>!same(base?.[field],patch[field])).sort().map(field=>({field,before:base?.[field]??null,after:patch[field]}));
   }
+  function assertTimingPatch(base,patch){
+    const check=scheduling.validateSessionTimingChange(base,patch);
+    if(check.status==='invalid')throw Error(`Invalid session timing (${check.reason}).`);
+    return check;
+  }
 
   function buildRecords({requestId='',requester={},payload={},now=null}={}){
     const id=text(requestId);
@@ -82,6 +87,7 @@ window.UCVM_APPROVAL_REQUEST=(()=>{
         updatedAt:now
       };
     }
+    assertTimingPatch(basePublic,patchPublic);
     const plan=routing.build({base:routeBase,patch:routePatch});
     if(requestType==='faculty_swap')plan.scopeSignatures.adfa=facultyScopeSignature(proposedFacultyName);
     const publicRecord={

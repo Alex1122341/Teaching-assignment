@@ -7,10 +7,10 @@ const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
 function load(){
   const context={window:{}};
-  for(const file of ['approval-routing.js','approval-state.js','approval-lifecycle.js'])vm.runInNewContext(fs.readFileSync(path.join(root,file),'utf8'),context);
+  for(const file of ['scheduling-core.js','approval-routing.js','approval-state.js','approval-lifecycle.js'])vm.runInNewContext(fs.readFileSync(path.join(root,file),'utf8'),context);
   return context.window.UCVM_APPROVAL_LIFECYCLE;
 }
-const request={id:'r1',status:'pending',revision:1,editableFields:[],basePublic:{date:'2027-03-22',topic:'Old',type:'LAB',instructor:'Dr A'},patchPublic:{date:'2027-03-23',topic:'New'}};
+const request={id:'r1',status:'pending',revision:1,editableFields:[],basePublic:{date:'2027-03-22',start:'09:00',end:'10:00',timeUnknown:false,topic:'Old',type:'LAB',instructor:'Dr A'},patchPublic:{date:'2027-03-23',topic:'New'}};
 const workflow={requestId:'r1',revision:1,requiredOffices:['adc','lab'],hasFacultyChange:false,finalType:'LAB',scopes:{adc:['date'],lab:['topic'],adfa:[]},scopeSignatures:{adc:'a',lab:'l',adfa:''}};
 const approvals={adc:{status:'pending',fields:['date'],scopeSignature:'a'},lab:{status:'approved',fields:['topic'],scopeSignature:'l'}};
 
@@ -77,7 +77,7 @@ test('ADFA-returned Faculty replacement resubmission changes display name while 
 
 test('requester resubmission can be planned from public request only and leaves unrelated office approvals untouched',()=>{
   const api=load();
-  const req={id:'r3',requestType:'session_edit',status:'update_required',revision:1,editableFields:['date'],basePublic:{type:'LAB',date:'2027-03-22',topic:'Old',instructor:'Dr A'},patchPublic:{date:'2027-03-23',topic:'Advanced'}};
+  const req={id:'r3',requestType:'session_edit',status:'update_required',revision:1,editableFields:['date'],basePublic:{type:'LAB',date:'2027-03-22',start:'09:00',end:'10:00',timeUnknown:false,topic:'Old',instructor:'Dr A'},patchPublic:{date:'2027-03-23',topic:'Advanced'}};
   const plan=api.planRequesterResubmission({request:req,publicEdits:{date:'2027-03-24'},now:'NOW'});
   assert.equal(plan.publicPatch.revision,2);
   assert.equal(plan.publicPatch.patchPublic.date,'2027-03-24');

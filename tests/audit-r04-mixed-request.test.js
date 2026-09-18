@@ -9,6 +9,7 @@ const root=path.resolve(__dirname,'..');
 function loadRequestApi(){
   const context={window:{}};
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'approval-routing.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'approval-request.js'),'utf8'),context);
   return context.window.UCVM_APPROVAL_REQUEST;
@@ -17,6 +18,7 @@ function loadRequestApi(){
 function loadFinalizer(){
   const context={window:{}};
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'calendar-session.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'approval-finalizer.js'),'utf8'),context);
   return context.window.UCVM_APPROVAL_FINALIZER;
