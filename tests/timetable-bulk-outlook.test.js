@@ -46,5 +46,7 @@ test('Outlook invitation package is filtered, reviewable, and contains attendees
  assert.match(timetable,/ORGANIZER/);
  assert.match(timetable,/ATTENDEE/);
  assert.match(timetable,/exportFilteredRows/);
+ assert.match(timetable,/isUniversityClosure/);
+ assert.match(timetable,/exportOutlookInvites[\s\S]*filter[\s\S]*isUniversityClosure/);
  assert.match(timetable,/does not send|does not silently|review before sending/i);
 });
