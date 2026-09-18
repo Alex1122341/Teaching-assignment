@@ -123,3 +123,23 @@ test('Outlook teaching invitation paths defensively exclude University closures'
   const dialog=js.slice(js.indexOf('async function openOutlookInviteDialog'),js.indexOf('\n  function ',js.indexOf('async function openOutlookInviteDialog')));
   assert.match(dialog,/filter\([^\n]*isUniversityClosure/);
 });
+
+
+test('month calendar resolves April from the selected academic semester so Easter Monday is projected',()=>{
+  const source=read('timetable.js');
+  const match=source.match(/  function calendarYearForMonth\([\s\S]*?\n  \}/);
+  assert.ok(match,'calendarYearForMonth should define the academic-year-aware month year');
+  const context={};
+  vm.runInNewContext(match[0]+'\nresult=calendarYearForMonth;',context);
+  assert.equal(context.result('spring',3),2026);
+  assert.equal(context.result('fall',8),2026);
+  assert.equal(context.result('winter',2),2027);
+
+  const springYear=context.result('spring',3);
+  const winterYear=context.result('winter',2);
+  assert.ok(closures.between(`${springYear}-04-01`,`${springYear}-04-30`).some(row=>row.name==='Easter Monday'&&row.date==='2026-04-06'));
+  assert.ok(closures.between(`${winterYear}-03-01`,`${winterYear}-03-31`).some(row=>row.name==='Easter Monday'&&row.date==='2027-03-29'));
+
+  const renderMonth=source.slice(source.indexOf('function renderMonth()'),source.indexOf('\n  function ',source.indexOf('function renderMonth()')+1));
+  assert.match(renderMonth,/calendarYearForMonth\(selectedSemester, month\)/);
+});
