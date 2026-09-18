@@ -305,6 +305,31 @@ service cloud.firestore {
   function validImportJobCreate(id){return general() && request.resource.data.importId == id && request.resource.data.startedBy == request.auth.uid && request.resource.data.status == 'APPLYING' && existsAfter(/databases/$(database)/documents/settings/system_state) && getAfter(/databases/$(database)/documents/settings/system_state).data.teachingDataWriteLocked == true && getAfter(/databases/$(database)/documents/settings/system_state).data.activeImportId == id && getAfter(/databases/$(database)/documents/settings/system_state).data.maintenanceOwnerUid == request.auth.uid;}
   function validImportJobUpdate(id){return maintenanceOwnerFor(id) && request.resource.data.get('importId','') == resource.data.get('importId','') && request.resource.data.get('sourceFingerprint','') == resource.data.get('sourceFingerprint','') && request.resource.data.get('sourceWorkbook','') == resource.data.get('sourceWorkbook','') && request.resource.data.get('schemaVersion','') == resource.data.get('schemaVersion','') && request.resource.data.get('startedBy','') == resource.data.get('startedBy','') && request.resource.data.get('startedAt',null) == resource.data.get('startedAt',null) && request.resource.data.get('backupFingerprint','') == resource.data.get('backupFingerprint','');}
   function validImportJobTakeover(id){return general() && teachingLocked() && get(/databases/$(database)/documents/settings/system_state).data.activeImportId == id && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['previousMaintenanceOwnerUid','previousMaintenanceOwnerName','recoveryTakenOverBy','recoveryTakenOverByName','recoveryTakenOverAt','recoveryTakeoverReason','lastUpdatedAt']) && request.resource.data.recoveryTakenOverBy == request.auth.uid && request.resource.data.recoveryTakeoverReason is string && request.resource.data.recoveryTakeoverReason.size() > 0 && getAfter(/databases/$(database)/documents/settings/system_state).data.maintenanceOwnerUid == request.auth.uid;}
+  function doeAdmin(){return ready() && profile().role in ['owner','administrator','admin','adfa_general','adfa_regular'];}
+  function doeVersionPath(id){return /databases/$(database)/documents/doe_policy_versions/$(id);}
+  function doeDraftVersion(id){return exists(doeVersionPath(id)) && get(doeVersionPath(id)).data.status == 'draft';}
+  function doeDraftRevisionUpdate(id){
+   let before=resource.data;let after=request.resource.data;
+   return doeAdmin() && before.status == 'draft' && after.status == 'draft'
+    && after.policyVersionId == before.policyVersionId && after.policyId == before.policyId
+    && after.academicYear == before.academicYear && after.versionNumber == before.versionNumber
+    && after.revision == before.revision + 1 && after.updatedBy == request.auth.uid
+    && after.get('lastImpactRunId','') == '' && after.get('lastImpactChecksum','') == ''
+    && after.get('lastImpactDatasetChecksum','') == '' && after.get('lastValidatedRevision',null) == null
+    && after.diff(before).affectedKeys().hasOnly(['revision','lastImpactRunId','lastImpactRevision','lastImpactChecksum','lastImpactDatasetChecksum','lastValidatedRevision','updatedAt','updatedBy']);
+  }
+  function doeDraftChildWrite(versionId){
+   let before=get(doeVersionPath(versionId)).data;let after=getAfter(doeVersionPath(versionId)).data;
+   return doeAdmin() && before.status == 'draft' && after.status == 'draft'
+    && after.policyVersionId == before.policyVersionId && after.policyId == before.policyId
+    && after.revision == before.revision + 1 && after.updatedBy == request.auth.uid
+    && after.get('lastImpactRunId','') == '' && after.get('lastImpactChecksum','') == ''
+    && after.get('lastImpactDatasetChecksum','') == '' && after.get('lastValidatedRevision',null) == null;
+  }
+  function doeImpactOwner(runId){
+   return doeAdmin() && exists(/databases/$(database)/documents/doe_impact_runs/$(runId))
+    && (get(/databases/$(database)/documents/doe_impact_runs/$(runId)).data.runBy == request.auth.uid || general());
+  }
 
   match /users/{uid} {
    allow get: if signedIn() && (request.auth.uid == uid || general() || (facultyMember() && facultyRole(resource.data.role)));
@@ -404,6 +429,80 @@ service cloud.firestore {
     allow create: if maintenanceOwnerFor(importId) && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
     allow update,delete: if false;
    }
+  }
+  match /doe_policies/{id} {
+   allow read: if doeAdmin();
+   allow create: if doeAdmin() && request.resource.data.policyId == id;
+   allow update: if general() && request.resource.data.policyId == resource.data.policyId && request.resource.data.academicYear == resource.data.academicYear;
+   allow delete: if false;
+  }
+  match /doe_policy_versions/{id} {
+   allow read: if doeAdmin();
+   allow create: if doeAdmin() && request.resource.data.policyVersionId == id && request.resource.data.status == 'draft' && request.resource.data.revision is int;
+   allow update: if doeDraftRevisionUpdate(id);
+   allow delete: if false;
+  }
+  match /doe_rules/{id} {
+   allow read: if doeAdmin();
+   allow create: if request.resource.data.ruleId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
+   allow update: if request.resource.data.ruleId == resource.data.ruleId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
+   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+  }
+  match /doe_rule_selectors/{id} {
+   allow read: if doeAdmin();
+   allow create: if request.resource.data.selectorId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
+   allow update: if request.resource.data.selectorId == resource.data.selectorId && request.resource.data.ruleId == resource.data.ruleId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
+   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+  }
+  match /doe_rule_parameters/{id} {
+   allow read: if doeAdmin();
+   allow create: if request.resource.data.parameterId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
+   allow update: if request.resource.data.parameterId == resource.data.parameterId && request.resource.data.ruleId == resource.data.ruleId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
+   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+  }
+  match /doe_rule_tiers/{id} {
+   allow read: if doeAdmin();
+   allow create: if request.resource.data.tierId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
+   allow update: if request.resource.data.tierId == resource.data.tierId && request.resource.data.ruleId == resource.data.ruleId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
+   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+  }
+  match /doe_rule_inputs/{id} {
+   allow read: if doeAdmin();
+   allow create: if request.resource.data.ruleInputId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
+   allow update: if request.resource.data.ruleInputId == resource.data.ruleInputId && request.resource.data.ruleId == resource.data.ruleId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
+   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+  }
+  match /doe_exceptions/{id} {
+   allow read: if doeAdmin();
+   allow create: if request.resource.data.exceptionId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
+   allow update: if request.resource.data.exceptionId == resource.data.exceptionId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
+   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+  }
+  match /doe_impact_runs/{id} {
+   allow read: if doeAdmin();
+   allow create: if doeAdmin() && request.resource.data.impactRunId == id && request.resource.data.runBy == request.auth.uid && doeDraftVersion(request.resource.data.policyVersionId);
+   allow update: if doeAdmin() && resource.data.runBy == request.auth.uid && request.resource.data.runBy == resource.data.runBy && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftVersion(resource.data.policyVersionId);
+   allow delete: if false;
+  }
+  match /doe_impact_rows/{id} {
+   allow read: if doeAdmin();
+   allow create: if request.resource.data.impactRowId == id && doeImpactOwner(request.resource.data.impactRunId);
+   allow update,delete: if false;
+  }
+  match /doe_publications/{id} {
+   allow read: if doeAdmin();
+   allow create: if general() && request.resource.data.publicationId == id && request.resource.data.publishedBy == request.auth.uid;
+   allow update,delete: if false;
+  }
+  match /doe_calculation_records/{id} {
+   allow read: if doeAdmin();
+   allow create: if doeAdmin() && request.resource.data.calculationId == id && request.resource.data.calculatedBy == request.auth.uid;
+   allow update,delete: if false;
+  }
+  match /doe_audit_log/{id} {
+   allow read: if doeAdmin();
+   allow create: if doeAdmin() && request.resource.data.auditId == id && request.resource.data.changedBy == request.auth.uid;
+   allow update,delete: if false;
   }
   match /public_info/{id} {allow read: if ready(); allow create,update: if general() && request.resource.data.messages is list && request.resource.data.messages.size() <= 10 && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time; allow delete: if false;}
   match /public_schedule/{id} {
