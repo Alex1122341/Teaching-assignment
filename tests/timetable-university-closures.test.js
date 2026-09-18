@@ -125,21 +125,25 @@ test('Outlook teaching invitation paths defensively exclude University closures'
 });
 
 
-test('month calendar resolves April from the selected academic semester so Easter Monday is projected',()=>{
+
+test('academic week month range includes both Easter Monday closure dates',()=>{
   const source=read('timetable.js');
-  const match=source.match(/  function calendarYearForMonth\([\s\S]*?\n  \}/);
-  assert.ok(match,'calendarYearForMonth should define the academic-year-aware month year');
-  const context={};
-  vm.runInNewContext(match[0]+'\nresult=calendarYearForMonth;',context);
-  assert.equal(context.result('spring',3),2026);
-  assert.equal(context.result('fall',8),2026);
-  assert.equal(context.result('winter',2),2027);
-
-  const springYear=context.result('spring',3);
-  const winterYear=context.result('winter',2);
-  assert.ok(closures.between(`${springYear}-04-01`,`${springYear}-04-30`).some(row=>row.name==='Easter Monday'&&row.date==='2026-04-06'));
-  assert.ok(closures.between(`${winterYear}-03-01`,`${winterYear}-03-31`).some(row=>row.name==='Easter Monday'&&row.date==='2027-03-29'));
-
-  const renderMonth=source.slice(source.indexOf('function renderMonth()'),source.indexOf('\n  function ',source.indexOf('function renderMonth()')+1));
-  assert.match(renderMonth,/calendarYearForMonth\(selectedSemester, month\)/);
+  const match=source.match(/  function monthRangeForAcademicPosition\([\s\S]*?\n  \}/);
+  assert.ok(match,'monthRangeForAcademicPosition should be independently testable');
+  const context={
+    Date,
+    weekStart:(week,semester)=>{
+      if(semester==='spring')return new Date(2026,3,27);
+      if(semester==='winter')return new Date(2027,2,22);
+      return new Date(2026,8,1);
+    },
+    ymd:d=>d.toISOString().slice(0,10)
+  };
+  vm.runInNewContext(match[0]+'\nresult=monthRangeForAcademicPosition;',context);
+  const spring=JSON.parse(JSON.stringify(context.result('spring',1)));
+  const winter=JSON.parse(JSON.stringify(context.result('winter',12)));
+  assert.deepEqual({start:spring.start,end:spring.end},{start:'2026-04-01',end:'2026-04-30'});
+  assert.deepEqual({start:winter.start,end:winter.end},{start:'2027-03-01',end:'2027-03-31'});
+  assert.ok(closures.between(spring.start,spring.end).some(row=>row.name==='Easter Monday'&&row.date==='2026-04-06'));
+  assert.ok(closures.between(winter.start,winter.end).some(row=>row.name==='Easter Monday'&&row.date==='2027-03-29'));
 });
