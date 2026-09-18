@@ -62,6 +62,12 @@
   if(!changes?.length)return null;const facultyRef=db.collection('settings').doc('faculty_index'),statsRef=db.collection('settings').doc('schedule_stats');
   return db.runTransaction(async transaction=>{const [facultySnap,statsSnap]=await Promise.all([transaction.get(facultyRef),transaction.get(statsRef)]);if(!facultySnap.exists||!statsSnap.exists)throw Error('Derived indexes are not initialized.');const docs=applySessionChanges(facultySnap.data(),statsSnap.data(),changes),stamp=stampValue(),meta={generatedAt:stamp,...actorMeta(actor)};transaction.set(facultyRef,{...docs.facultyIndex,...meta});transaction.set(statsRef,{...docs.scheduleStats,...meta});return docs});
  }
+ async function refreshCoreDerivedIndexes(db,actor={}){
+  const [faculty,sessions]=await Promise.all([loadCollectionRows(db,'faculty'),loadCollectionRows(db,'sessions')]),docs=derivedDocuments(faculty,sessions),stamp=stampValue(),meta={generatedAt:stamp,...actorMeta(actor)},batch=db.batch();
+  batch.set(db.collection('settings').doc('faculty_index'),{...docs.facultyIndex,...meta});
+  batch.set(db.collection('settings').doc('schedule_stats'),{...docs.scheduleStats,...meta});
+  await batch.commit();return docs;
+ }
  const canonical=value=>Array.isArray(value)?value.map(canonical):(value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value);
  const sameCanonical=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
  const withoutGenerationMeta=value=>{const next={...(value||{})};delete next.generatedAt;delete next.generatedBy;delete next.generatedByName;return next};
@@ -185,5 +191,5 @@
   });
   return{...report,errors};
  }
- return{sessionForWrite,sessionPatchForWrite,replaceSession,removeSession,derivedDocuments,applySessionChanges,writeDerivedIndexes,rebuildDerivedIndexes,updateDerivedIndexes,verifyDerivedIndexes,verifyDerivedIndexesProvisional,analyzeSwapIdentity,buildExpectedDerivedIndexes,compareDerivedIndexDocuments,writeFacultySwapIndexes,addFacultySwapUnavailableRange,prepareFacultySwapAfcUpdate};
+ return{sessionForWrite,sessionPatchForWrite,replaceSession,removeSession,derivedDocuments,applySessionChanges,writeDerivedIndexes,rebuildDerivedIndexes,updateDerivedIndexes,refreshCoreDerivedIndexes,verifyDerivedIndexes,verifyDerivedIndexesProvisional,analyzeSwapIdentity,buildExpectedDerivedIndexes,compareDerivedIndexDocuments,writeFacultySwapIndexes,addFacultySwapUnavailableRange,prepareFacultySwapAfcUpdate};
 });
