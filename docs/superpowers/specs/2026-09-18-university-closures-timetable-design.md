@@ -297,19 +297,19 @@ Create:
 
 - `university-closures.js`
 - `tests/university-closures.test.js`
-- focused timetable closure regression test(s), name chosen during planning
+- `tests/timetable-university-closures.test.js`
 
 Modify:
 
 - `afc-workflow.js`
-- `test-support/afc-policy.js` or replace its duplicated closure catalog with the shared module
+- `test-support/afc-policy.js` — remove its duplicated closure catalog and import/use `university-closures.js`
 - `tests/afc-policy.test.js`
 - `index.html`
 - `timetable.js`
 - `timetable.css`
 - `tools/static-assets.json`
 - runtime asset/load-order tests
-- export tests if present / required
+- `tests/timetable-university-closures.test.js` also owns the closure-specific CSV/ICS/Outlook export assertions
 
 No Firestore Rules change is expected.
 
