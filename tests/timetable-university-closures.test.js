@@ -86,8 +86,14 @@ test('closure rows stay in render/export projection and out of core teaching dat
   assert.match(js,/sessions:\(\)=>pageSessions\(\)/);
   const pageData=js.slice(js.indexOf('window.UCVM_PAGE_DATA='),js.indexOf('let scheduleSource'));
   assert.doesNotMatch(pageData,/sessionsWithOverlays|universityClosureRows/);
-  const schedulingReview=js.slice(js.indexOf('function reviewSchedulingChanges'),js.indexOf('function sessionLabel'));
+  const schedulingStart=js.indexOf('function reviewSchedulingChanges');
+  const schedulingEnd=js.indexOf('function confirmSchedulingChanges',schedulingStart);
+  assert.ok(schedulingStart>=0&&schedulingEnd>schedulingStart);
+  const schedulingReview=js.slice(schedulingStart,schedulingEnd);
   assert.doesNotMatch(schedulingReview,/sessionsWithOverlays|universityClosureRows/);
-  const derived=js.slice(js.indexOf('async function updateDerivedIndexes'),js.indexOf('async function ensureFacultyDirectory'));
+  const derivedStart=js.indexOf('async function updateDerivedIndexes');
+  const derivedEnd=js.indexOf('async function ensureFacultyDirectory',derivedStart);
+  assert.ok(derivedStart>=0&&derivedEnd>derivedStart);
+  const derived=js.slice(derivedStart,derivedEnd);
   assert.doesNotMatch(derived,/sessionsWithOverlays|universityClosureRows/);
 });
