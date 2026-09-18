@@ -7,7 +7,7 @@ const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
 function load(){
   const context={window:{}};
-  for(const file of ['approval-routing.js','approval-state.js','approval-lifecycle.js'])vm.runInNewContext(fs.readFileSync(path.join(root,file),'utf8'),context);
+  for(const file of ['scheduling-core.js','approval-routing.js','approval-state.js','approval-lifecycle.js'])vm.runInNewContext(fs.readFileSync(path.join(root,file),'utf8'),context);
   return context.window.UCVM_APPROVAL_LIFECYCLE;
 }
 const request={id:'r1',status:'pending',revision:1,editableFields:[],basePublic:{date:'2027-03-22',topic:'Old',type:'LAB',instructor:'Dr A'},patchPublic:{date:'2027-03-23',topic:'New'}};
