@@ -13,9 +13,13 @@ test('timetable exposes AFC navigation and loads its scripts in dependency order
     assert.match(html, new RegExp(`id="${id}"`));
   }
   const actions = html.indexOf('afc-actions.js');
+  const closures = html.indexOf('university-closures.js');
+  const timetable = html.indexOf('timetable.js');
   const workflow = html.indexOf('afc-workflow.js');
   const panel = html.indexOf('afc-timetable-panel.js');
   assert.ok(actions >= 0 && actions < workflow, 'AFC actions load before the workflow');
+  assert.ok(closures >= 0 && closures < timetable, 'University closures load before timetable');
+  assert.ok(closures < workflow, 'University closures load before AFC workflow');
   assert.ok(workflow < panel, 'AFC workflow loads before the timetable panel');
 
   const loader = read('asset-loader.js');
