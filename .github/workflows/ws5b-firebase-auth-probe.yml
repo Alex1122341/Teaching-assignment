@@ -1,0 +1,33 @@
+name: WS5B Firebase Auth Probe
+
+on:
+  push:
+    branches:
+      - maintenance/ws5b-firebase-auth-probe
+    paths:
+      - ".github/workflows/ws5b-firebase-auth-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report credential availability without revealing values
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_SERVICE_ACCOUNT_TESTER_TEACHING: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TESTER_TEACHING }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${FIREBASE_TOKEN:-}" ]; then
+            echo "FIREBASE_TOKEN=available"
+          else
+            echo "FIREBASE_TOKEN=missing"
+          fi
+          if [ -n "${FIREBASE_SERVICE_ACCOUNT_TESTER_TEACHING:-}" ]; then
+            echo "FIREBASE_SERVICE_ACCOUNT_TESTER_TEACHING=available"
+          else
+            echo "FIREBASE_SERVICE_ACCOUNT_TESTER_TEACHING=missing"
+          fi
