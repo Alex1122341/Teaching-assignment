@@ -22,6 +22,13 @@ test('timetable exposes AFC navigation and loads its scripts in dependency order
   assert.ok(loader.indexOf("loadScriptOnce('afc-form-values.js'") < loader.indexOf("loadScriptOnce('afc-pdf-browser.js'"));
 });
 
+test('AFC runtime delegates workday policy to the shared University closure calendar',()=>{
+  const source=read('afc-workflow.js');
+  assert.match(source,/UCVM_UNIVERSITY_CLOSURES/);
+  assert.match(source,/countWorkingDays/);
+  assert.doesNotMatch(source,/const holidays=new Set/);
+});
+
 test('AFC timetable mount subscribes once and renders teaching sessions as sorted rows', () => {
   let subscriptions = 0;
   const listeners = new Map();
@@ -54,6 +61,7 @@ test('AFC timetable mount subscribes once and renders teaching sessions as sorte
     subscribe: () => { subscriptions += 1; return () => {}; }
   };
 
+  vm.runInNewContext(read('university-closures.js'), context);
   vm.runInNewContext(read('afc-workflow.js'), context);
   context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
   context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
@@ -109,6 +117,7 @@ function submissionHarness(ensureSessionsForRange, initialSessions = []) {
     },
     subscribe: () => () => {}
   };
+  vm.runInNewContext(read('university-closures.js'), context);
   vm.runInNewContext(read('afc-workflow.js'), context);
   context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
   return { api: context.window.UCVM_AFC, form };
