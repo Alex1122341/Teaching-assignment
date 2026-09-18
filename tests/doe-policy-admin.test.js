@@ -132,3 +132,52 @@ test('Exception editor requires fixed DOE reason source and a concrete scope',()
   assert.ok(errors.some(error=>error.code===code),code);
  }
 });
+
+
+test('Impact Preview dataset builder projects live timetable assignments and managed role DOE',()=>{
+ const built=ADMIN.buildImpactDataset({
+  faculty:[{
+   __id:'f1',
+   managedRoles2026_27:[{type:'HICC',assignment:'VTMD 204',action:'add',doeCredit:2.5}]
+  }],
+  sessions:[{
+   id:'s1',date:'2026-09-10',course:'204',type:'LEC',topic:'Lecture',start:'09:00',end:'10:00',
+   assignments:[{ucid:'f1',role:'Lecture',creditedHours:1,doeRate:.3,doeCredit:.3}]
+  }]
+ },'2026-27');
+ assert.equal(built.academicYear,'2026-27');
+ assert.equal(built.calculations.length,2);
+ const teaching=built.calculations.find(row=>row.sourceEntityType==='session_assignment');
+ assert.equal(teaching.facultyId,'f1');
+ assert.equal(teaching.currentDoe,.3);
+ assert.equal(teaching.context.category,'teaching');
+ assert.equal(teaching.context.activityType,'LEC');
+ assert.equal(teaching.context.teachingRole,'Lecture');
+ assert.equal(teaching.context.hours,1);
+ const role=built.calculations.find(row=>row.sourceEntityType==='managed_role');
+ assert.equal(role.currentDoe,2.5);
+ assert.equal(role.context.category,'role');
+ assert.equal(role.context.roleType,'HICC');
+});
+
+test('Impact Preview renderer exposes required summary metrics and per-faculty differences',()=>{
+ const html=ADMIN.impactPreviewHtml({
+  status:'passed',facultyCount:2,calculationCount:4,changedFacultyCount:1,
+  largeIncreaseCount:1,largeDecreaseCount:0,errorCount:0,warningCount:1,
+  policyVersionId:'v2',policyRevision:3,
+  rows:[{
+   facultyId:'f1',currentDoe:10,draftDoe:16,difference:6,
+   affectedRules:['teaching.lecture.standard'],
+   warnings:[{code:'LARGE_INCREASE',message:'Review increase'}],errors:[]
+  }]
+ });
+ assert.match(html,/PASSED/);
+ for(const value of ['Faculty checked','Calculations checked','Faculty changed','Large increases','Large decreases','Errors','Warnings']){
+  assert.match(html,new RegExp(value));
+ }
+ assert.match(html,/f1/);
+ assert.match(html,/10\.00%/);
+ assert.match(html,/16\.00%/);
+ assert.match(html,/\+6\.00%/);
+ assert.match(html,/teaching\.lecture\.standard/);
+});
