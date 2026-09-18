@@ -306,9 +306,11 @@
     const springStart = SPRING_BASE_MONDAY, springEnd = addDays(FALL_BASE_MONDAY, -1);
     const fallStart = FALL_BASE_MONDAY, fallEnd = addDays(WINTER_BASE_MONDAY, -1);
     const winterStart = WINTER_BASE_MONDAY, winterEnd = addDays(WINTER_BASE_MONDAY, WEEK_COUNT * 7 - 1);
-    if (d >= springStart && d <= springEnd) return { semester:'spring', week:Math.floor((d-springStart)/86400000/7)+1 };
-    if (d >= fallStart && d <= fallEnd) return { semester:'fall', week:Math.floor((d-fallStart)/86400000/7)+1 };
-    if (d >= winterStart && d <= winterEnd) return { semester:'winter', week:Math.floor((d-winterStart)/86400000/7)+1 };
+    const calendarDay=value=>Date.UTC(value.getFullYear(),value.getMonth(),value.getDate())/86400000;
+    const academicWeek=start=>Math.floor((calendarDay(d)-calendarDay(start))/7)+1;
+    if (d >= springStart && d <= springEnd) return { semester:'spring', week:academicWeek(springStart) };
+    if (d >= fallStart && d <= fallEnd) return { semester:'fall', week:academicWeek(fallStart) };
+    if (d >= winterStart && d <= winterEnd) return { semester:'winter', week:academicWeek(winterStart) };
     return d < fallStart ? {semester:'spring',week:1} : {semester:'winter',week:1};
   }
   function moveAcademicWeekPosition(semester,week,delta,continuous) {
