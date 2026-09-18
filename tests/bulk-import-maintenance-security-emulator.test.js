@@ -17,6 +17,7 @@ before(async()=>{
   for(const [uid,p]of Object.entries(users))await setDoc(doc(admin,`users/${uid}`),{active:true,email:`${uid}@ucvm.test`,mustChangePassword:false,...p});
   await setDoc(doc(admin,'faculty/f1'),{preferredFullName:'Faculty 1',email:'member@ucvm.test',updatedBy:'general'});
   await setDoc(doc(admin,'sessions/s1'),{course:'301',topic:'Original',date:'2026-09-08',facultyIds:['f1'],assignments:[{ucid:'f1'}],updatedBy:'general'});
+  await setDoc(doc(admin,'calendar_sessions/s1'),{sessionId:'s1',course:'301',courseName:'',year:null,semester:'',week:null,date:'2026-09-08',start:'',end:'',timeUnknown:false,type:'',topic:'Original',room:'',instructorNames:[],instructor:''});
   await setDoc(doc(admin,'change_requests/r1'),{status:'pending',requesterUid:'member',sessionId:'s1'});
  });
 });
@@ -38,12 +39,14 @@ check('ready users can read maintenance system state',async()=>{
 });
 
 check('maintenance lock blocks normal admins and permits only active owner teaching-data recovery writes',async()=>{
- const {assertFails,assertSucceeds}=require('@firebase/rules-unit-testing'),{doc,setDoc,serverTimestamp}=require('firebase/firestore');
+ const {assertFails,assertSucceeds}=require('@firebase/rules-unit-testing'),{doc,setDoc,writeBatch,serverTimestamp}=require('firebase/firestore');
  await seedLocked();
  const regular=env.authenticatedContext('regular').firestore(),general2=env.authenticatedContext('general2').firestore(),general=env.authenticatedContext('general').firestore();
  await assertFails(setDoc(doc(regular,'sessions/s1'),{topic:'blocked',updatedBy:'regular',updatedAt:serverTimestamp()},{merge:true}));
  await assertFails(setDoc(doc(general2,'sessions/s1'),{topic:'blocked',updatedBy:'general2',updatedAt:serverTimestamp()},{merge:true}));
- await assertSucceeds(setDoc(doc(general,'sessions/s1'),{topic:'recovery-preserved'},{merge:true}));
+ await assertFails(setDoc(doc(general,'sessions/s1'),{topic:'unpaired-recovery'},{merge:true}));
+ const paired=writeBatch(general);paired.set(doc(general,'sessions/s1'),{topic:'recovery-preserved'},{merge:true});paired.set(doc(general,'calendar_sessions/s1'),{topic:'recovery-preserved'},{merge:true});
+ await assertSucceeds(paired.commit());
  await assertFails(setDoc(doc(regular,'faculty/f1'),{facultySummaryStatus2026_27:'blocked',updatedBy:'regular'},{merge:true}));
  await assertFails(setDoc(doc(general2,'faculty/f1'),{facultySummaryStatus2026_27:'blocked',updatedBy:'general2'},{merge:true}));
  await assertSucceeds(setDoc(doc(general,'faculty/f1'),{facultySummaryStatus2026_27:'recovery'},{merge:true}));

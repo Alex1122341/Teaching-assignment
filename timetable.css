@@ -142,3 +142,24 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
 @media(max-width:1100px){.cal-toolbar{flex-wrap:wrap}.cal-toolbar-right{width:100%}.faculty-workflow-nav{margin-right:auto}}
 .doe-override-pill{display:inline-flex!important;align-items:center;margin-left:6px;padding:1px 5px;border:1px solid #e2a2aa;border-radius:999px;background:#fff0f1;color:#a6192e;font-size:9px;font-weight:800;white-space:nowrap}
 @media(max-width:700px){.timetable-top-actions{gap:7px}.ucalgary-product{display:none}.faculty-workflow-nav{width:100%;flex-wrap:wrap}.cal-toolbar-right{justify-content:flex-start}.cal-view-toggle{margin-left:auto}.selection-faculty-menu{left:0;right:auto;width:min(320px,80vw)}.afc-timetable-panel{padding:8px}.afc-timetable-shell{max-height:calc(100vh - 16px)}.afc-timetable-content{padding:12px}.afc-teaching-list li{grid-template-columns:1fr 1fr}.afc-teaching-list li span:last-child{grid-column:1/-1}.afc-signature-control,.afc-submit-row{align-items:stretch;flex-direction:column}}
+
+.role-locked-field,
+.role-locked-field:disabled{
+  opacity:.68;
+  background:var(--surface-2,#f3f4f6);
+  cursor:not-allowed;
+}
+
+/* WS5B office workflow notifications */
+.workflow-notifications{position:fixed;top:118px;right:18px;z-index:145;width:min(360px,calc(100vw - 24px));max-height:calc(100vh - 142px);display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border-2);border-top:4px solid var(--uc-red);border-radius:6px;box-shadow:var(--shadow-lg);overflow:hidden}
+.workflow-notifications.hidden{display:none}
+.workflow-notifications-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:3px solid var(--uc-gold);background:var(--surface-2)}
+.workflow-notifications-head button{width:28px;height:28px;border:1px solid var(--border);border-radius:50%;background:var(--surface);color:var(--text-2);font-size:18px;line-height:1;cursor:pointer}
+.workflow-notifications-list{overflow:auto;padding:8px;display:grid;gap:7px}
+.workflow-notification{display:grid;gap:3px;width:100%;padding:9px 10px;text-align:left;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text-2);font-size:10.5px;line-height:1.35;cursor:pointer}
+.workflow-notification:hover{border-color:var(--border-2);background:var(--surface-2)}
+.workflow-notification.unread{border-left:4px solid var(--uc-red);background:#fff8f8}
+.workflow-notification-title{font-weight:850;color:var(--text)}
+.workflow-notification small{color:var(--text-3)}
+.workflow-notification-empty{padding:18px 10px;text-align:center;color:var(--text-3);font-size:11px}
+@media(max-width:700px){.workflow-notifications{top:92px;right:8px;left:8px;width:auto;max-height:calc(100vh - 108px)}}

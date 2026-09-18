@@ -22,14 +22,17 @@
 @media(max-width:760px){.derived-index-health-status{grid-template-columns:repeat(2,minmax(0,1fr))}.derived-index-health-card{margin:12px}}
 `;doc.head.appendChild(style);
  }
- function createRuntime({document:doc,window:win,db,profile,actor,access,indexMaintenance,maintenance}={}){
+ function createRuntime({document:doc,window:win,db,profile,actor,access,indexMaintenance,calendarMaintenance,maintenance}={}){
   if(!doc||!db||!profile||!access||!indexMaintenance)throw Error('Derived index health runtime dependencies are incomplete.');
-  let report=null,busy=false,operationalError='',maintenanceUnsub=null;
+  let report=null,calendarReport=null,busy=false,calendarBusy=false,operationalError='',calendarError='',maintenanceUnsub=null;
   const $=id=>doc.getElementById(id);
   installStyle(doc);
   function render(){
-   const general=canManualRebuild(profile,access),rebuildButton=$('derived-index-rebuild'),verifyButton=$('derived-index-verify'),meta=$('derived-index-health-meta'),status=$('derived-index-health-status'),diffs=$('derived-index-health-diffs');
-   rebuildButton?.classList?.toggle('hidden',!general);
+   const general=canManualRebuild(profile,access),rebuildButton=$('derived-index-rebuild'),verifyButton=$('derived-index-verify'),meta=$('derived-index-health-meta'),status=$('derived-index-health-status'),diffs=$('derived-index-health-diffs'),calendarStatus=$('sanitized-calendar-health-status'),calendarDiffs=$('sanitized-calendar-health-diffs'),calendarVerify=$('sanitized-calendar-verify'),calendarRepair=$('sanitized-calendar-repair');
+   rebuildButton?.classList?.toggle('hidden',!general);calendarRepair?.classList?.toggle('hidden',!general);
+   if(calendarVerify)calendarVerify.disabled=calendarBusy;if(calendarRepair)calendarRepair.disabled=calendarBusy||!general||!calendarReport||calendarReport.ok===true||maintenance?.normalWritesAllowed?.()===false;
+   if(calendarStatus)calendarStatus.textContent=calendarError?'ERROR':(!calendarReport?'NOT CHECKED':(calendarReport.ok?'HEALTHY':'MISMATCH'));
+   if(calendarDiffs){const rows=Array.isArray(calendarReport?.mismatches)?calendarReport.mismatches:[];calendarDiffs.innerHTML=calendarError?`<span class="derived-index-health-critical">${esc(calendarError)}</span>`:rows.slice(0,8).map(row=>`<div><code>${esc(row.id||'session')}</code> · ${esc(row.path||row.field||row.kind||'document')} · ${esc(row.kind||'mismatch')}</div>`).join('');}
    const writesAllowed=maintenance?.normalWritesAllowed?.()!==false;
    if(rebuildButton)rebuildButton.disabled=busy||!report||report.severity!=='mismatch'||!writesAllowed;
    if(verifyButton)verifyButton.disabled=busy;
@@ -65,11 +68,28 @@
    try{report=await indexMaintenance.rebuildDerivedIndexes(db,actor)}catch(error){if(error?.report)report=error.report;operationalError=error?.message||String(error)}finally{busy=false;render()}
    return report;
   }
+
+  async function verifyCalendar(){
+   if(!calendarMaintenance?.verify)return null;calendarBusy=true;calendarError='';render();
+   try{calendarReport=await calendarMaintenance.verify(db)}catch(error){calendarReport=null;calendarError=error?.message||String(error)}finally{calendarBusy=false;render()}
+   return calendarReport;
+  }
+  async function repairCalendar(){
+   if(!calendarMaintenance?.repair||!canManualRebuild(profile,access)||!calendarReport||calendarReport.ok===true)return calendarReport;
+   if(maintenance?.normalWritesAllowed?.()===false)return calendarReport;
+   if(win?.confirm&&!win.confirm('Repair sanitized calendar documents from the current private session source?'))return calendarReport;
+   calendarBusy=true;calendarError='';render();
+   try{calendarReport=await calendarMaintenance.repair(db,calendarReport,actor)}catch(error){calendarError=error?.message||String(error)}finally{calendarBusy=false;render()}
+   return calendarReport;
+  }
+
   $('derived-index-verify')?.addEventListener('click',verify);
   $('derived-index-rebuild')?.addEventListener('click',rebuild);
+  $('sanitized-calendar-verify')?.addEventListener('click',verifyCalendar);
+  $('sanitized-calendar-repair')?.addEventListener('click',repairCalendar);
   if(typeof maintenance?.subscribe==='function')maintenanceUnsub=maintenance.subscribe(()=>render());
   render();
-  return{verify,rebuild,render,currentReport:()=>report,destroy:()=>maintenanceUnsub?.()};
+  return{verify,rebuild,verifyCalendar,repairCalendar,render,currentReport:()=>report,currentCalendarReport:()=>calendarReport,destroy:()=>maintenanceUnsub?.()};
  }
  async function autoStart(){
   if(!root?.document||!root.UCVM||typeof root.firebase==='undefined')return null;
@@ -84,7 +104,7 @@
       if(!profile||profile.active!==true||!root.UCVM.admin(profile))return;
       unsub?.();
       const actor={uid:user.uid,email:user.email||'',name:profile.name||user.displayName||user.email||'Administrator'};
-      resolve(createRuntime({document:root.document,window:root,db,profile,actor,access:root.UCVM,indexMaintenance:root.UCVM_INDEX_MAINTENANCE,maintenance:root.UCVM_MAINTENANCE}));
+      resolve(createRuntime({document:root.document,window:root,db,profile,actor,access:root.UCVM,indexMaintenance:root.UCVM_INDEX_MAINTENANCE,calendarMaintenance:root.UCVM_CALENDAR_SESSION_MAINTENANCE,maintenance:root.UCVM_MAINTENANCE}));
      }catch(error){console.error?.('[derived index health]',error);resolve(null)}
     });
    });

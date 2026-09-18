@@ -1,12 +1,12 @@
 'use strict';
 (()=>{
- const {auth,db}=UCVM.init(),$=id=>document.getElementById(id),e=UCVM.esc,planner=UCVM_ACCOUNT_PLANNER;
+ const {auth,db}=UCVM.init(),$=id=>document.getElementById(id),e=UCVM.esc,planner=UCVM_ACCOUNT_PLANNER,profilePolicy=UCVM_ACCOUNT_PROFILE;
  let me,data={users:[],groups:[],faculty:[]},groupId='',editingUser=null,busy=false,provisionPlan=null,previewRevision='';
  const status=(message,error=false)=>{$('status').textContent=message;$('status').classList.toggle('error',error)};
  const stamp=()=>firebase.firestore.FieldValue.serverTimestamp();
  const normName=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
  const nameKeys=value=>{const out=new Set([normName(value)]),match=String(value||'').match(/^\s*([^,]+),\s*(.+)$/);if(match)out.add(normName(`${match[2]} ${match[1]}`));return out};
- const roleForForm=role=>({adfa_general:'owner',adfa_regular:'administrator',admin:'administrator'}[String(role||'').toLowerCase()]||String(role||'').toLowerCase());
+ const roleForForm=role=>({adfa_general:'owner',adfa_regular:'administrator',admin:'administrator',editor:'faculty',viewer:'faculty'}[String(role||'').toLowerCase()]||String(role||'').toLowerCase());
  const safeUser=doc=>{const profile=doc.data(),accountRole=roleForForm(profile.role);return{uid:doc.id,name:profile.name||'',email:profile.email||'',facultyId:profile.facultyId||'',role:UCVM.role(profile.role),accountRole,facultyRoles:Array.isArray(profile.facultyRoles)?profile.facultyRoles:[],active:profile.active===true,mustChangePassword:profile.mustChangePassword===true}};
  const facultyName=faculty=>String(faculty?.preferredFullName||faculty?.name||faculty?.hrFullName||faculty?.id||'');
  function identityFromFaculty(faculty){return{facultyId:String(faculty?.id||faculty?.__id||faculty?.ucid||''),name:facultyName(faculty),email:String(faculty?.email||'').trim().toLowerCase()}}
@@ -26,26 +26,44 @@
  }
  function selectedFaculty(){return data.faculty.find(faculty=>faculty.id===$('account-faculty').value)||null}
  function renderAccountIdentity(autoRole=false){
-  const faculty=selectedFaculty(),identity=faculty?identityFromFaculty(faculty):(editingUser?{facultyId:editingUser.facultyId,name:editingUser.name,email:editingUser.email}:null),roleList=faculty?planner.facultyRoles(faculty):(editingUser?.facultyRoles||[]);
-  $('account-identity').innerHTML=identity?`<strong>${e(identity.name||'Unnamed account')}</strong><span>${e(identity.email||'No profile email')}</span><span>${identity.facultyId?`UCID ${e(identity.facultyId)}`:'Administrative account'}${roleList.length?` · ${e(roleList.map(UCVM.label).join(', '))}`:''}</span>`:'<span>Select a faculty record to load the profile identity.</span>';
-  if(autoRole&&faculty)$('account-role').value=UCVM_ACCOUNT_PLANNER.primaryRole(roleList);$('account-uid-row').hidden=!editingUser;$('account-uid').textContent=editingUser?.uid||'';$('account-password-row').hidden=!!editingUser;$('account-faculty').required=!editingUser||['faculty','hicc','visc'].includes($('account-role').value);
+  const faculty=selectedFaculty(),roleList=faculty?planner.facultyRoles(faculty):(editingUser?.facultyRoles||[]);
+  if(autoRole&&faculty)$('account-role').value=UCVM_ACCOUNT_PLANNER.primaryRole(roleList);
+  const facultyMode=profilePolicy.facultyFacingRole($('account-role').value),identity=facultyMode?(faculty?identityFromFaculty(faculty):editingUser):{name:$('account-office-name').value.trim(),email:$('account-office-email').value.trim(),facultyId:''};
+  $('account-identity').innerHTML=identity?`<strong>${e(identity.name||'Unnamed account')}</strong><span>${e(identity.email||'No profile email')}</span><span>${facultyMode&&identity.facultyId?`UCID ${e(identity.facultyId)}`:'Office / administrative account'}${facultyMode&&roleList.length?` &middot; ${e(roleList.map(UCVM.label).join(', '))}`:''}</span>`:'<span>Select a faculty record to load the profile identity.</span>';
+  $('account-faculty').required=facultyMode;$('account-faculty').disabled=!facultyMode;
+  $('account-office-identity').hidden=facultyMode;
+  for(const key of ['account-office-name','account-office-email']){$(key).disabled=facultyMode;$(key).required=!facultyMode;}
+  $('account-existing-uid').disabled=facultyMode||!!editingUser;
+  $('account-uid-row').hidden=!editingUser;$('account-uid').textContent=editingUser?.uid||'';
+  const linking=!facultyMode&&$('account-existing-uid').value.trim()!=='';
+  $('account-password-row').hidden=!!editingUser||linking;$('account-password').disabled=!!editingUser||linking;
  }
- function selectAccount(user){editingUser=user||null;$('account-faculty').value=user?.facultyId||'';$('account-role').value=user?.accountRole||'faculty';$('account-active').checked=user?user.active:true;$('account-password-change').checked=user?user.mustChangePassword:true;$('account-password').value='';renderAccountIdentity(false);if(user)$('account-role').focus();else $('account-faculty').focus()}
+ function selectAccount(user){
+  editingUser=user||null;$('account-faculty').value=user?.facultyId||'';$('account-role').value=user?.accountRole||'faculty';
+  $('account-office-name').value=user?.name||'';$('account-office-email').value=user?.email||'';$('account-existing-uid').value='';
+  $('account-active').checked=user?user.active:true;$('account-password-change').checked=user?user.mustChangePassword:true;$('account-password').value='';
+  renderAccountIdentity(false);if(user)$('account-role').focus();else $('account-faculty').focus();
+ }
  function renderAccounts(){
   const query=$('account-search').value.toLowerCase();$('accounts-body').innerHTML=data.users.filter(user=>`${user.name} ${user.email} ${UCVM.label(user.accountRole||user.role)} ${user.facultyRoles.join(' ')} ${user.uid}`.toLowerCase().includes(query)).map(user=>`<tr><td>${e(user.name)}<small>${e(user.email)}</small><small>UID: ${e(user.uid)}</small></td><td>${e(UCVM.label(user.accountRole||user.role))}</td><td>${user.facultyRoles.length?user.facultyRoles.map(role=>`<span class="faculty-role-pill">${e(UCVM.label(role))}</span>`).join(' '):'—'}</td><td>${user.active?'Active':'Disabled'}${user.mustChangePassword?'<small>Password change required</small>':''}</td><td><button data-edit="${e(user.uid)}">Edit</button> <button data-reset="${e(user.uid)}">Send password reset</button></td></tr>`).join('')||'<tr><td colspan="5">No matching accounts.</td></tr>';
   document.querySelectorAll('[data-edit]').forEach(button=>button.onclick=()=>selectAccount(data.users.find(user=>user.uid===button.dataset.edit)));
   document.querySelectorAll('[data-reset]').forEach(button=>button.onclick=async()=>{const user=data.users.find(item=>item.uid===button.dataset.reset);if(!user?.email)return status('This profile has no email address.',true);if(!confirm(`Send a Firebase password-reset email to ${user.email}?`))return;try{await auth.sendPasswordResetEmail(user.email);status(`Password-reset email sent to ${user.email}.`)}catch(error){status(error.message,true)}});
  }
  function profileFields(faculty,role){
-  const identity=faculty?identityFromFaculty(faculty):{facultyId:editingUser?.facultyId||'',name:editingUser?.name||'',email:editingUser?.email||''},base={...identity,role,active:$('account-active').checked,mustChangePassword:editingUser?$('account-password-change').checked:true},facultyRoles=faculty?planner.facultyRoles(faculty):(editingUser?.facultyRoles||[]);
-  if(['faculty','hicc','visc'].includes(role)){if(!identity.facultyId)throw Error('Choose a faculty record for a faculty-facing role.');if(!facultyRoles.includes(role))facultyRoles.unshift(role);base.facultyRoles=[...new Set(facultyRoles)];}else if(facultyRoles.length)base.facultyRoles=facultyRoles;
-  if(!base.name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(base.email))throw Error('The selected faculty profile needs a valid name and email.');return base;
+  return profilePolicy.build({role,faculty,roles:faculty?planner.facultyRoles(faculty):(editingUser?.facultyRoles||[]),current:editingUser,office:{name:$('account-office-name').value,email:$('account-office-email').value},active:$('account-active').checked,mustChangePassword:$('account-password-change').checked});
  }
  function routingWrites(batch,uid,faculty,active){if(!faculty)return 0;const aliases=new Set([...nameKeys(faculty.preferredFullName),...nameKeys(faculty.hrFullName)]),reportees=data.faculty.filter(item=>aliases.has(normName(item.reportsTo)));for(const item of reportees)batch.set(db.doc(`faculty/${item.id}`),{reportToUid:active?uid:firebase.firestore.FieldValue.delete(),updatedBy:auth.currentUser.uid,updatedByName:me.name||auth.currentUser.email||'',updatedAt:stamp()},{merge:true});return reportees.length}
  async function saveAccountProfile(uid,fields,old,actionName){
-  const ref=db.doc(`users/${uid}`),patch={...fields,updatedBy:auth.currentUser.uid,updatedByName:me.name||auth.currentUser.email||'',updatedAt:stamp()};if(!old)patch.createdAt=stamp();if(!fields.facultyRoles)patch.facultyRoles=firebase.firestore.FieldValue.delete();const batch=db.batch();batch.set(ref,patch,{merge:true});const faculty=data.faculty.find(item=>item.id===fields.facultyId),routes=routingWrites(batch,uid,faculty,fields.active);batch.set(db.collection('account_audit').doc(),{action:actionName,targetUid:uid,targetName:fields.name,targetEmail:fields.email,beforeRole:old?.accountRole||old?.role||'',role:fields.role,facultyRoles:fields.facultyRoles||[],active:fields.active,reportToRoutesUpdated:routes,changedBy:auth.currentUser.uid,changedByName:me.name||auth.currentUser.email||'',changedByEmail:auth.currentUser.email||'',changedAt:stamp()});await batch.commit();
+  const ref=db.doc(`users/${uid}`),patch={...fields,updatedBy:auth.currentUser.uid,updatedByName:me.name||auth.currentUser.email||'',updatedAt:stamp()};if(!old)patch.createdAt=stamp();if(!fields.facultyRoles)patch.facultyRoles=firebase.firestore.FieldValue.delete();if(!fields.facultyId)patch.facultyId=firebase.firestore.FieldValue.delete();const batch=db.batch();batch.set(ref,patch,{merge:true});const faculty=data.faculty.find(item=>item.id===fields.facultyId),routes=routingWrites(batch,uid,faculty,fields.active);batch.set(db.collection('account_audit').doc(),{action:actionName,targetUid:uid,targetName:fields.name,targetEmail:fields.email,beforeRole:old?.accountRole||old?.role||'',role:fields.role,facultyRoles:fields.facultyRoles||[],active:fields.active,reportToRoutesUpdated:routes,changedBy:auth.currentUser.uid,changedByName:me.name||auth.currentUser.email||'',changedByEmail:auth.currentUser.email||'',changedAt:stamp()});await batch.commit();
  }
- $('account-form').onsubmit=event=>{event.preventDefault();action(async()=>{if(!UCVM.general(me))throw Error('Owner access is required.');const faculty=selectedFaculty(),role=$('account-role').value,fields=profileFields(faculty,role),old=editingUser;if(old?.uid===auth.currentUser.uid&&(role!=='owner'||!fields.active))throw Error('You cannot demote or disable your own Owner account.');let uid=old?.uid||'';if(!uid){const password=$('account-password').value;if(password.length<8)throw Error('Enter a temporary password with at least 8 characters.');uid=await createAuthenticationUser(fields.email,password)}await saveAccountProfile(uid,fields,old,old?'account_updated':'account_provisioned');selectAccount(null)},'Account saved.')};
+ $('account-form').onsubmit=event=>{event.preventDefault();action(async()=>{
+  if(!UCVM.general(me))throw Error('Owner access is required.');
+  const faculty=selectedFaculty(),role=$('account-role').value,fields=profileFields(faculty,role),old=editingUser;
+  if(old?.uid===auth.currentUser.uid&&(role!=='owner'||!fields.active))throw Error('You cannot demote or disable your own Owner account.');
+  const uid=old?.uid||await profilePolicy.resolveNewUid({existingUid:profilePolicy.facultyFacingRole(role)?'':$('account-existing-uid').value,email:fields.email,password:$('account-password').value,readProfile:id=>db.doc(`users/${id}`).get({source:'server'}),createAuthenticationUser});
+  await saveAccountProfile(uid,fields,old,old?'account_updated':'account_provisioned');selectAccount(null);
+ },'Account saved.')};
+ for(const id of ['account-office-name','account-office-email','account-existing-uid'])$(id).oninput=()=>renderAccountIdentity(false);
  $('account-faculty').onchange=()=>renderAccountIdentity(true);$('account-role').onchange=()=>renderAccountIdentity(false);$('account-clear').onclick=()=>selectAccount(null);$('account-search').oninput=renderAccounts;
  function selectGroup(id){groupId=id;$('group-picker').value=id;const group=data.groups.find(item=>item.id===id);$('group-name').value=group?.name||'';$('group-owner').value=group?.ownerUid||data.users.find(user=>user.role==='hicc'&&user.active)?.uid||'';$('group-courses').value=(group?.courseIds||[]).join(', ');$('group-form').hidden=!group&&!UCVM.general(me);renderMembers(group?.memberUids||[])}
  function renderMembers(selected){const owner=$('group-owner').value;$('group-members').innerHTML=data.users.filter(user=>['faculty','hicc','visc'].includes(user.role)&&(user.active||selected.includes(user.uid))).map(user=>`<label class="check"><input type="checkbox" name="member" value="${e(user.uid)}" ${selected.includes(user.uid)||user.uid===owner?'checked':''} ${user.uid===owner?'disabled':''}>${e(user.name)} · ${e(UCVM.label(user.accountRole||user.role))}${user.active?'':' (disabled; remove to save)'}</label>`).join('')||'<p>No eligible faculty accounts yet.</p>'}

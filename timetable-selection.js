@@ -9,6 +9,16 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
  const canonical=value=>{if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])]));return value};
  const equal=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
  const AUDIT_FIELDS={date:'Date',year:'Year',course:'Course',type:'Type',start:'Start time',end:'End time',topic:'Topic',room:'Room'};
+ const EDIT_FIELDS=['date','year','course','type','start','end','topic','room','faculty'];
+ function editPolicy(role,row={}){
+  role=text(role).toLowerCase();
+  const fields=Object.fromEntries(EDIT_FIELDS.map(field=>[field,false]));
+  const adfa=['owner','administrator','admin','adfa_general','adfa_regular'].includes(role);
+  if(adfa){for(const field of EDIT_FIELDS)fields[field]=true;return{canSelect:true,fields}}
+  if(role==='adc'){for(const field of ['date','year','course','type','start','end','room'])fields[field]=true;fields.topic=text(row?.type).toUpperCase()!=='LAB';return{canSelect:true,fields}}
+  if(role==='lab'){fields.topic=text(row?.type).toUpperCase()==='LAB';return{canSelect:fields.topic,fields}}
+  return{canSelect:false,fields};
+ }
  const assignmentNames=row=>(row?.assignments||[]).map(item=>text(item?.name)||facultyId(item)).filter(Boolean);
  function auditChanges(before,after){
   const out=[];
@@ -30,7 +40,8 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
    const id=facultyId(assignment)||ids[index]||'';
    return{...assignment,ucid:id||null,facultyId:id||null,name:text(assignment.name),role:text(assignment.role||row?.type)};
   });
-  return{date:text(row?.date),week:Number(row?.week),semester:text(row?.semester),year:Number(row?.year),course:text(row?.course),courseName:text(row?.courseName),type:text(row?.type),start:text(row?.start),end:text(row?.end),topic:text(row?.topic),room:text(row?.room),timeUnknown:Boolean(row?.timeUnknown),assignments,facultyIds:ids,instructor:assignments.map(item=>item.name).filter(Boolean).join('; '),labDetails:Array.isArray(row?.labDetails)?clone(row.labDetails):[]};
+  const instructor=assignments.map(item=>item.name).filter(Boolean).join('; ')||text(row?.instructor);
+  return{date:text(row?.date),week:Number(row?.week),semester:text(row?.semester),year:Number(row?.year),course:text(row?.course),courseName:text(row?.courseName),type:text(row?.type),start:text(row?.start),end:text(row?.end),topic:text(row?.topic),room:text(row?.room),timeUnknown:Boolean(row?.timeUnknown),assignments,facultyIds:ids,instructor,labDetails:Array.isArray(row?.labDetails)?clone(row.labDetails):[]};
  }
  function create(max=200){
   const selected=new Set();
@@ -39,7 +50,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
    has:id=>selected.has(text(id)),clear:()=>selected.clear(),ids:()=>[...selected],get size(){return selected.size}
   };
  }
- function validateRow(row,rowNumber,facultyById){
+ function validateRow(row,rowNumber,facultyById,options={}){
   const prefix=`Row ${rowNumber}: `,errors=[],ids=facultyIds(row),timing=scheduling.validateSessionTiming(row);
   if(!scheduling.normalizeDate(row?.date))errors.push(prefix+'date must be a valid YYYY-MM-DD value.');
   if(![1,2,3,4].includes(Number(row?.year)))errors.push(prefix+'year must be 1, 2, 3, or 4.');
@@ -48,38 +59,72 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   const interval=timing.reason==='invalid_date'?scheduling.validateInterval(row?.start,row?.end,{timeUnknown:row?.timeUnknown===true}):timing;
   if(interval.status==='invalid')errors.push(prefix+'end time must be after start time and use a valid timetable time.');
   const known=id=>typeof facultyById?.has==='function'?facultyById.has(id):Boolean(facultyById?.[id]);
-  if(!ids.length||ids.some(id=>!known(id)))errors.push(prefix+'assigned faculty must contain at least one valid faculty record.');
+  if(options.requireFaculty!==false&&(!ids.length||ids.some(id=>!known(id))))errors.push(prefix+'assigned faculty must contain at least one valid faculty record.');
   return errors;
  }
  function selectedRows(source,ids){
   const byId=new Map((source||[]).filter(row=>!row?.isCcc).map(row=>[text(row.id),row]));
   return(ids||[]).map(id=>byId.get(text(id))).filter(Boolean);
  }
- function planChanges(originals,rows,actor,timestamp,facultyById){
-  const originalById=new Map((originals||[]).map(row=>[text(row.id),row])),errors=[];
+ function planChanges(originals,rows,actor,timestamp,facultyById,options={}){
+  const originalById=new Map((originals||[]).map(row=>[text(row.id),row])),errors=[],role=text(options.role||actor?.role).toLowerCase();
   (rows||[]).forEach((row,index)=>{
-   errors.push(...validateRow(row,index+1,facultyById||new Map(facultyIds(row).map(id=>[id,true]))));
+   const policy=role?editPolicy(role,row):{canSelect:true,fields:{faculty:true}};
+   if(role==='lab'&&!policy.canSelect)errors.push(`Row ${index+1}: LAB accounts can edit LAB sessions only.`);
+   errors.push(...validateRow(row,index+1,facultyById||new Map(facultyIds(row).map(id=>[id,true])),{requireFaculty:!role||policy.fields.faculty===true}));
    if(!text(row.id)||!originalById.has(text(row.id)))errors.push(`Row ${index+1}: session does not exist.`);
   });
   if(errors.length)return{updates:[],logs:[],errors};
   const updates=[],logs=[];
   for(const [index,row] of (rows||[]).entries()){
-   const original=originalById.get(text(row.id)),before=editable(original),after=editable(row);
+   const original=originalById.get(text(row.id)),before=editable(original),candidate=editable(row),policy=role?editPolicy(role,candidate):null;
+   let after=candidate,data=candidate;
+   if(policy){
+    after={...before};
+    const publicFields=['date','year','course','type','start','end','topic','room'];
+    for(const field of publicFields)if(policy.fields[field])after[field]=candidate[field];
+    if(role==='adc'){
+     if(policy.fields.date||policy.fields.start||policy.fields.end){after.week=candidate.week;after.semester=candidate.semester;after.timeUnknown=candidate.timeUnknown}
+     if(policy.fields.course)after.courseName=candidate.courseName;
+     if(text(after.type).toUpperCase()==='LAB'&&text(before.type).toUpperCase()!=='LAB')after.topic='TBD';
+     after.instructor=before.instructor;
+    }
+    if(role==='lab')after.instructor=before.instructor;
+    data={};
+    for(const field of publicFields)if(!equal(before[field],after[field]))data[field]=after[field];
+    if(role==='adc'){
+     for(const field of ['week','semester','courseName','timeUnknown'])if(!equal(before[field],after[field]))data[field]=after[field];
+    }
+   }
    if(equal(before,after))continue;
-   updates.push({id:text(row.id),data:after});
+   updates.push({id:text(row.id),data,after});
    logs.push({sessionId:text(row.id),action:'batch_update',changedBy:text(actor?.uid),changedByEmail:text(actor?.email),changedByName:text(actor?.name),changedAt:timestamp,before,after,changes:auditChanges(before,after),course:after.course,date:after.date,topic:after.topic,rowNumber:index+1});
   }
   return{updates,logs,errors:[]};
  }
- async function commitPlan(plan,store){
-  if(plan.errors?.length||!plan.updates?.length)return{committed:false,operations:0,errors:[...(plan.errors||[])]};
+ async function commitPlan(plan,store,options={}){
+  if(plan.errors?.length||!plan.updates?.length)return{committed:false,operations:0,completedRows:0,errors:[...(plan.errors||[])]};
   if(plan.updates.length!==plan.logs?.length)throw Error('Each session update must have one audit log.');
-  const batch=store.batch();
-  for(const update of plan.updates)batch.update(store.sessionRef(update.id),update.data);
-  for(const log of plan.logs)batch.set(store.logRef(),log);
-  await batch.commit();
-  try{await store.afterCommit()}catch(error){error.committed=true;throw error}
-  return{committed:true,operations:plan.updates.length+plan.logs.length,errors:[]};
+  const chunkSize=Number.isInteger(options.chunkSize)&&options.chunkSize>0?options.chunkSize:plan.updates.length;
+  const resumeFrom=Math.max(0,Math.min(Number(options.resumeFrom)||0,plan.updates.length));
+  let completedRows=resumeFrom,operations=0;
+  for(let start=resumeFrom;start<plan.updates.length;start+=chunkSize){
+   const end=Math.min(start+chunkSize,plan.updates.length),batch=store.batch();
+   for(let index=start;index<end;index++){
+    const update=plan.updates[index],log=plan.logs[index];
+    batch.update(store.sessionRef(update.id),update.data);operations++;
+    if(store.calendarRef&&store.calendarFromSource){batch.set(store.calendarRef(update.id),store.calendarFromSource(update.after||update.data,update.id));operations++}
+    batch.set(store.logRef(),log);operations++;
+   }
+   try{await batch.commit()}catch(error){error.partialCommit=completedRows>0;error.completedRows=completedRows;error.resumeFrom=completedRows;throw error}
+   completedRows=end;
+   const progress={completedRows,totalRows:plan.updates.length,batchIndex:Math.floor(start/chunkSize)+1,batchTotal:Math.ceil((plan.updates.length-resumeFrom)/chunkSize)};
+   if(typeof store.onProgress==='function')store.onProgress(progress);
+   try{if(typeof store.afterBatch==='function')await store.afterBatch({start,end,updates:plan.updates.slice(start,end),logs:plan.logs.slice(start,end),progress})}
+   catch(error){error.committed=true;error.partialCommit=true;error.completedRows=completedRows;error.resumeFrom=completedRows;throw error}
+  }
+  try{if(typeof store.afterCommit==='function')await store.afterCommit()}catch(error){error.committed=true;error.partialCommit=true;error.completedRows=completedRows;error.resumeFrom=completedRows;throw error}
+  return{committed:true,operations,completedRows,errors:[]};
  }
- return{create,createViewFlow,validateRow,selectedRows,planChanges,commitPlan};
+ return{create,createViewFlow,editPolicy,validateRow,selectedRows,planChanges,commitPlan};
 })();

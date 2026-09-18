@@ -11,6 +11,8 @@ function sourceObject(){return{schemaVersion:realCore.SOURCE_SCHEMA,sourceWorkbo
 function sourceFile(source=sourceObject()){const text=JSON.stringify(source);return{bytes:enc.encode(text),text}}
 function healthyIndexReport(){return{ok:true,severity:'healthy',documents:{faculty_index:'healthy',schedule_stats:'healthy',faculty_swap_index:'healthy',faculty_swap_map:'healthy'},mismatchCount:0,mismatches:[]}}
 function mismatchReport(){return{ok:false,severity:'mismatch',documents:{faculty_index:'healthy',schedule_stats:'mismatch',faculty_swap_index:'healthy',faculty_swap_map:'healthy'},mismatchCount:1,mismatches:[{document:'schedule_stats',path:'sessionCount',issue:'value-mismatch',expected:3,actual:99,severity:'mismatch'}]}}
+function healthyCalendarReport(){return{ok:true,mismatchCount:0,mismatches:[]}}
+function calendarMismatchReport(){return{ok:false,mismatchCount:1,mismatches:[{id:'s2',kind:'mismatch',path:'room'}]}}
 
 function memoryStore({failOnceAt}={}){
   const state={teachingDataWriteLocked:false,maintenanceMode:'none',activeImportId:'',maintenanceOwnerUid:'',maintenanceOwnerName:''},faculty=new Map([['f1',{__id:'f1',facultySummary2026_27:{old:true}}],['f2',{__id:'f2',facultySummary2026_27:{old:true}}],['f3',{__id:'f3',facultySummary2026_27:{old:true}}]]),sessions=new Map([['s1',{id:'s1',course:'old'}],['old1',{id:'old1',course:'old'}],['old2',{id:'old2',course:'old'}],['old3',{id:'old3',course:'old'}]]);
@@ -42,7 +44,8 @@ function makeController(store,actor={uid:'general',name:'General'},options={}){
    if(failIndexVerify&&mode!=='preflight'){failIndexVerify=false;return mismatchReport()}
    if(failRestoreIndexVerify&&mode==='restore'){failRestoreIndexVerify=false;return mismatchReport()}
    return options.indexReportByMode?.[mode]||healthyIndexReport();
-  }
+  },
+  verifyCalendar:async({mode})=>options.calendarReportByMode?.[mode]||healthyCalendarReport()
  });
 }
 async function createHarness(options={}){const store=memoryStore(options),actor={uid:'general',name:'General'},file=sourceFile(),controller=makeController(store,actor,options),preflight=await controller.preflight(file),recovery=await controller.createRecoveryBackup(preflight);return{store,actor,file,controller,preflight,recovery,startArgs:{preflight,recoveryBackup:recovery.backup,backupConfirmed:true,typedConfirmation:'IMPORT'}}}
@@ -71,6 +74,22 @@ test('source verification failure happens before stale deletion and resumes safe
 test('index rebuild failure keeps the lock and resumes at rebuild phase',async()=>{const h=await createHarness({failOnceAt:'index-rebuild'});await assert.rejects(()=>h.controller.start(h.startArgs),/index-rebuild/i);assert.equal(h.store.job.failedPhase,'REBUILDING_INDEXES');assert.equal(h.store.system.teachingDataWriteLocked,true);await h.controller.resume(h.file);assert.equal(h.store.job.status,'COMPLETED')});
 test('final verification failure keeps the lock and resumes at final verification',async()=>{const h=await createHarness({failOnceAt:'verify-final'});await assert.rejects(()=>h.controller.start(h.startArgs),/verify-final/i);assert.equal(h.store.job.failedPhase,'VERIFYING_FINAL');assert.equal(h.store.system.teachingDataWriteLocked,true);await h.controller.resume(h.file);assert.equal(h.store.job.status,'COMPLETED')});
 test('final structured verifier failure keeps the lock and identifies the mismatch',async()=>{const h=await createHarness({failOnceAt:'index-verify'});await assert.rejects(()=>h.controller.start(h.startArgs),/schedule_stats.*sessionCount/i);assert.equal(h.store.job.failedPhase,'VERIFYING_FINAL');assert.equal(h.store.system.teachingDataWriteLocked,true);await h.controller.resume(h.file);assert.equal(h.store.job.status,'COMPLETED')});
+
+test('final calendar verification mismatch keeps the maintenance lock and reports the public session mismatch',async()=>{
+ const h=await createHarness({calendarReportByMode:{import:calendarMismatchReport()}});
+ await assert.rejects(()=>h.controller.start(h.startArgs),/sanitized calendar.*s2.*room/i);
+ assert.equal(h.store.job.failedPhase,'VERIFYING_FINAL');
+ assert.equal(h.store.system.teachingDataWriteLocked,true);
+});
+
+test('restore final calendar verification mismatch keeps the maintenance lock',async()=>{
+ const h=await createInterruptedHarness();
+ const controller=makeController(h.store,h.actor,{calendarReportByMode:{restore:calendarMismatchReport()}});
+ await assert.rejects(()=>controller.restore(h.recovery.text),/sanitized calendar.*s2.*room/i);
+ assert.equal(h.store.job.failedPhase,'RESTORE_FINAL_VERIFY');
+ assert.equal(h.store.system.teachingDataWriteLocked,true);
+});
+
 test('resume rejects a different source fingerprint',async()=>{const h=await createInterruptedHarness(),text='{"different":true}';await assert.rejects(()=>h.controller.resume({bytes:enc.encode(text),text}),/does not match/i)});
 test('stale deletion resumes and completes',async()=>{const h=await createHarness({failOnceAt:'stale:1'});await assert.rejects(()=>h.controller.start(h.startArgs));await h.controller.resume(h.file);assert.equal(h.store.job.status,'COMPLETED');assert.equal(h.store.system.teachingDataWriteLocked,false);assert.deepEqual([...h.store.sessions.keys()].sort(),['s1','s2','s3'])});
 test('restore rejects a backup for another import',async()=>{const h=await createInterruptedHarness(),wrong=JSON.parse(h.recovery.text);wrong.metadata.importId='different';await assert.rejects(()=>h.controller.restore(JSON.stringify(wrong)),/does not belong/i)});
@@ -78,3 +97,7 @@ test('interrupted restore resumes to the exact backup session set',async()=>{con
 test('restore structured verifier failure keeps the lock and identifies the mismatch',async()=>{const h=await createInterruptedHarness(),controller=makeController(h.store,h.actor,{failOnceAt:'restore-index-verify'});await assert.rejects(()=>controller.restore(h.recovery.text),/schedule_stats.*sessionCount/i);assert.equal(h.store.job.failedPhase,'RESTORE_FINAL_VERIFY');assert.equal(h.store.system.teachingDataWriteLocked,true);await controller.resumeRestore(h.recovery.text);assert.equal(h.store.job.status,'RESTORED');assert.equal(h.store.system.teachingDataWriteLocked,false)});
 test('takeover changes recovery owner but not active import or phase',async()=>{const h=await createInterruptedHarness(),before={id:h.store.system.activeImportId,phase:h.store.job.phase},actor={uid:'general2',name:'General Two'},controller=makeController(h.store,actor);await controller.takeOver('Original administrator unavailable');assert.equal(h.store.system.activeImportId,before.id);assert.equal(h.store.job.phase,before.phase);assert.equal(h.store.system.maintenanceOwnerUid,actor.uid);assert.equal(h.store.events.at(-1).type,'BULK_IMPORT_RECOVERY_TAKEN_OVER')});
 for(const failure of ['restore-faculty:1','restore-delete:0','restore-verify','restore-index-rebuild','restore-final-verify'])test(`restore failure ${failure} remains resumable`,async()=>{const h=await createInterruptedHarness({restoreFailAt:failure});await assert.rejects(()=>h.controller.restore(h.recovery.text),/Injected failure/i);assert.equal(h.store.system.teachingDataWriteLocked,true);await h.controller.resumeRestore(h.recovery.text);assert.equal(h.store.job.status,'RESTORED');assert.deepEqual([...h.store.sessions.keys()].sort(),h.backupSessionIds.slice().sort())});
+
+test('calendar verification formatter reports maintenance field names',()=>{
+ assert.match(controllerModule.formatCalendarVerificationFailure({mismatches:[{id:'s1',kind:'mismatch',field:'room'}]}),/s1\.room/);
+});

@@ -54,3 +54,16 @@ test('setup guide documents reviewed profile-first provisioning without storing 
  assert.match(setup,/Require password change on next dashboard sign-in/);
  assert.doesNotMatch(setup,/ucvm2026/i);
 });
+
+test('office setup exposes ADC/LAB identity and existing UID inputs',()=>{
+ const html=read('user-management.html');
+ for(const role of ['adc','lab'])assert.ok(html.includes(`<option value="${role}">${role.toUpperCase()}</option>`));
+ for(const id of ['account-office-identity','account-office-name','account-office-email','account-existing-uid'])assert.ok(html.includes(`id="${id}"`),id);
+ assert.ok(html.indexOf('account-profile.js')<html.indexOf('user-management.js'));
+});
+test('office profile save clears legacy faculty routing and checks existing UIDs on server',()=>{
+ const source=read('user-management.js');
+ assert.match(source,/UCVM_ACCOUNT_PROFILE/);assert.match(source,/resolveNewUid/);
+ assert.match(source,/readProfile:[^\n]*source:'server'/);
+ assert.match(source,/patch\.facultyId=firebase\.firestore\.FieldValue\.delete\(\)/);
+});

@@ -75,3 +75,25 @@ test('post-rebuild verification failure keeps mismatch details visible',async()=
  assert.match(document.nodes['derived-index-health-diffs'].innerHTML,/schedule_stats/);
  assert.match(document.nodes['derived-index-health-diffs'].innerHTML,/post-rebuild verification is not healthy/i);
 });
+
+test('Faculty Database exposes sanitized calendar verify and General-only repair controls',()=>{
+ const html=read('faculty-admin.html');
+ assert.match(html,/id="sanitized-calendar-health-status"/);
+ assert.match(html,/id="sanitized-calendar-verify"/);
+ assert.match(html,/id="sanitized-calendar-repair"/);
+ assert.ok(html.indexOf('calendar-session-maintenance.js')<html.indexOf('derived-index-health.js'));
+});
+
+test('health runtime verifies sanitized calendar and repairs only with General semantics',async()=>{
+ const document=fakeDocument();
+ for(const id of ['sanitized-calendar-health-status','sanitized-calendar-health-diffs','sanitized-calendar-verify','sanitized-calendar-repair'])document.nodes[id]=fakeNode();
+ let repairs=0;
+ const calendarMaintenance={verify:async()=>({ok:false,mismatchCount:1,mismatches:[{id:'s1',kind:'mismatch',path:'room'}]}),repair:async()=>{repairs++;return{ok:true,mismatchCount:0,mismatches:[]}}};
+ const runtime=ui.createRuntime({document,window:{confirm:()=>true},db:{},profile:{role:'adfa_general'},actor:{uid:'g',name:'General'},access:{general:()=>true},maintenance:{normalWritesAllowed:()=>true,subscribe:()=>()=>{}},indexMaintenance:{verifyDerivedIndexes:async()=>({ok:true,severity:'healthy',documents:{},mismatchCount:0,mismatches:[]}),rebuildDerivedIndexes:async()=>({ok:true})},calendarMaintenance});
+ const report=await runtime.verifyCalendar();
+ assert.equal(report.ok,false);
+ assert.match(document.nodes['sanitized-calendar-health-diffs'].innerHTML,/s1.*room/i);
+ await runtime.repairCalendar();
+ assert.equal(repairs,1);
+ assert.match(document.nodes['sanitized-calendar-health-status'].textContent,/HEALTHY/i);
+});

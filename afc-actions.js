@@ -15,5 +15,16 @@ window.UCVM_AFC_ACTIONS=(()=>{
   } else throw Error('Unsupported AFC decision.');
   batch.set(audit,{action:`afc_${action}`,requestId:request.id,requesterUid:request.requesterUid,reportToUid:request.reportToUid||'',changedBy:user.uid,changedByName:actor,changedAt:stamp()});await batch.commit();
  }
- return{decide};
+ async function withdraw({db,user,profile,request}){
+  if(!db||!user||!request?.id)throw Error('A signed-in requester and AFC request are required.');
+  const ref=db.doc(`afc_requests/${request.id}`),audit=db.collection('afc_audit').doc(),actor=profile?.name||user.email||user.uid;
+  await db.runTransaction(async tx=>{
+   const snap=await tx.get(ref),current=snap.data()||{};
+   if(current.requesterUid!==user.uid)throw Error('Only the requester can withdraw this AFC request.');
+   if(!['pending_report_to','pending_admin'].includes(current.status))throw Error('This AFC request can no longer be withdrawn.');
+   tx.update(ref,{status:'withdrawn',withdrawnBy:user.uid,withdrawnAt:stamp(),updatedAt:stamp()});
+   tx.set(audit,{action:'afc_withdraw',requestId:request.id,requesterUid:user.uid,reportToUid:current.reportToUid||'',changedBy:user.uid,changedByName:actor,changedAt:stamp()});
+  });
+ }
+ return{decide,withdraw};
 })();

@@ -1,9 +1,107 @@
 {
   "indexes": [
-    {"collectionGroup":"sessions","queryScope":"COLLECTION","fields":[{"fieldPath":"facultyIds","arrayConfig":"CONTAINS"},{"fieldPath":"date","order":"ASCENDING"}]},
-    {"collectionGroup":"session_change_log","queryScope":"COLLECTION","fields":[{"fieldPath":"changedBy","order":"ASCENDING"},{"fieldPath":"changedAt","order":"DESCENDING"}]},
-    {"collectionGroup":"faculty_change_log","queryScope":"COLLECTION","fields":[{"fieldPath":"changedBy","order":"ASCENDING"},{"fieldPath":"changedAt","order":"DESCENDING"}]},
-    {"collectionGroup":"account_audit","queryScope":"COLLECTION","fields":[{"fieldPath":"changedBy","order":"ASCENDING"},{"fieldPath":"changedAt","order":"DESCENDING"}]}
+    {
+      "collectionGroup": "sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "facultyIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "session_change_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "changedBy",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "changedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "faculty_change_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "changedBy",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "changedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "account_audit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "changedBy",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "changedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "change_request_approvals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "office",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updatedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "change_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "requesterUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "requestedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "workflow_notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "recipientOffice",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    }
   ],
   "fieldOverrides": []
 }

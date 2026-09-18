@@ -17,3 +17,9 @@ test('Faculty Dashboard loads import modules in dependency order and UI after le
  assert.ok(positions.every(value=>value>=0));
  for(let i=1;i<positions.length;i++)assert.ok(positions[i]>positions[i-1],`${names[i]} should load after ${names[i-1]}`);
 });
+
+test('bulk import final verification includes sanitized calendar health',()=>{
+ const source=fs.readFileSync(path.join(root,'bulk-import-ui.js'),'utf8');
+ assert.match(source,/UCVM_CALENDAR_SESSION_MAINTENANCE/);
+ assert.match(source,/verifyCalendar:\s*\(\{?[^)]*\}?\)?\s*=>\s*calendarMaintenance\.verify\(db\)/);
+});

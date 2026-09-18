@@ -7,8 +7,8 @@
 
   const SOURCE_SCHEMA='ucvm-all-faculty-summaries-v8-synced-2026-27';
   const FACULTY_BATCH_SIZE=350;
-  const SESSION_BATCH_SIZE=300;
-  const STALE_BATCH_SIZE=350;
+  const SESSION_BATCH_SIZE=8;
+  const STALE_BATCH_SIZE=8;
   const PHASES=Object.freeze({
     APPLYING_FACULTY:'APPLYING_FACULTY',
     APPLYING_SESSIONS:'APPLYING_SESSIONS',

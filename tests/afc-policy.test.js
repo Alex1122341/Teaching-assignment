@@ -31,3 +31,10 @@ test('new AFC drafts require bounded contact details', () => {
   assert.throws(() => validateDraft({...valid, contactPhone:' '}), /phone/i);
   assert.throws(() => validateDraft({...valid, contactPhone:'1'.repeat(51)}), /phone/i);
 });
+
+test('AFC requester withdrawal is terminal from either pending state', () => {
+  assert.equal(nextStatus('withdraw', {status:'pending_report_to'}), 'withdrawn');
+  assert.equal(nextStatus('withdraw', {status:'pending_admin'}), 'withdrawn');
+  assert.throws(() => nextStatus('withdraw', {status:'approved'}), /cannot/i);
+  assert.throws(() => nextStatus('approve', {status:'withdrawn'}), /cannot/i);
+});

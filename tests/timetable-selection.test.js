@@ -99,3 +99,81 @@ test('atomic save performs two paired operations per changed session and none fo
  const result=await api.commitPlan(plan,store);
  assert.equal(result.committed,true);assert.equal(result.operations,400);assert.equal(operations.filter(x=>x[0]==='update').length,200);assert.equal(operations.filter(x=>x[0]==='set').length,200);assert.equal(operations.at(-1)[0],'commit');assert.equal(afterCommit,1);
 });
+
+test('ADC and LAB edit policies expose only their owned timetable fields',()=>{
+ const api=load();
+ const adc=plain(api.editPolicy('adc',{type:'LEC'}));
+ assert.equal(adc.canSelect,true);
+ for(const field of ['date','year','course','type','start','end','topic','room'])assert.equal(adc.fields[field],true,field);
+ assert.equal(adc.fields.faculty,false);
+ const adcLab=plain(api.editPolicy('adc',{type:'LAB'}));
+ assert.equal(adcLab.fields.topic,false);
+ const lab=plain(api.editPolicy('lab',{type:'LAB'}));
+ assert.equal(lab.canSelect,true);
+ assert.equal(lab.fields.topic,true);
+ for(const field of ['date','year','course','type','start','end','room','faculty'])assert.equal(lab.fields[field],false,field);
+ const labNonLab=plain(api.editPolicy('lab',{type:'LEC'}));
+ assert.equal(labNonLab.canSelect,false);
+});
+
+test('progressive commit keeps each source calendar and audit row together and reports progress',async()=>{
+ const api=load(),commits=[],progress=[];
+ const store={
+  batch:()=>{const ops=[];return{update:(ref,data)=>ops.push(['update',ref,data]),set:(ref,data)=>ops.push(['set',ref,data]),commit:async()=>commits.push(ops)}} ,
+  sessionRef:id=>`sessions/${id}`,
+  calendarRef:id=>`calendar/${id}`,
+  logRef:()=>`logs/${Math.random()}`,
+  calendarFromSource:(row,id)=>({sessionId:id,topic:row.topic}),
+  onProgress:p=>progress.push(p)
+ };
+ const plan={errors:[],updates:[],logs:[]};
+ for(let i=0;i<45;i++){
+  plan.updates.push({id:`s${i}`,data:{topic:`T${i}`},after:{id:`s${i}`,topic:`T${i}`}});
+  plan.logs.push({sessionId:`s${i}`,action:'batch_update'});
+ }
+ const result=await api.commitPlan(plan,store,{chunkSize:20});
+ assert.equal(result.committed,true);
+ assert.equal(result.completedRows,45);
+ assert.equal(commits.length,3);
+ assert.deepEqual(commits.map(batch=>batch.length),[60,60,15]);
+ assert.equal(commits[0][0][1],'sessions/s0');
+ assert.equal(commits[0][1][1],'calendar/s0');
+ assert.match(commits[0][2][1],/^logs\//);
+ assert.deepEqual(progress.map(p=>p.completedRows),[20,40,45]);
+});
+
+test('progressive commit stops after a failed batch and exposes a resumable row offset',async()=>{
+ const api=load();let attempt=0;
+ const store={
+  batch:()=>{const ops=[];return{update:(ref,data)=>ops.push(['update',ref,data]),set:(ref,data)=>ops.push(['set',ref,data]),commit:async()=>{attempt++;if(attempt===2)throw Error('network')}}},
+  sessionRef:id=>`sessions/${id}`,calendarRef:id=>`calendar/${id}`,logRef:()=>`logs/${Math.random()}`,calendarFromSource:(row,id)=>({sessionId:id,topic:row.topic})
+ };
+ const plan={errors:[],updates:[],logs:[]};for(let i=0;i<25;i++){plan.updates.push({id:`s${i}`,data:{topic:`T${i}`},after:{id:`s${i}`,topic:`T${i}`}});plan.logs.push({sessionId:`s${i}`})}
+ await assert.rejects(()=>api.commitPlan(plan,store,{chunkSize:20}),error=>{
+  assert.equal(error.partialCommit,true);
+  assert.equal(error.completedRows,20);
+  assert.equal(error.resumeFrom,20);
+  return true;
+ });
+});
+
+test('ADC change planning writes only public owned fields and forces LAB topic to TBD',()=>{
+ const api=load(),original={...plain(baseSession),type:'LEC',topic:'Lecture topic',instructor:'Alex Faculty'};
+ const edited={...plain(original),type:'LAB',topic:'should not persist',date:'2026-10-08'};
+ const plan=plain(api.planChanges([original],[edited],{uid:'adc-1',name:'ADC'},123,new Map(),{role:'adc'}));
+ assert.deepEqual(plan.errors,[]);
+ assert.equal(plan.updates.length,1);
+ assert.equal(plan.updates[0].data.type,'LAB');
+ assert.equal(plan.updates[0].data.topic,'TBD');
+ for(const privateField of ['assignments','facultyIds','instructor','labDetails'])assert.equal(Object.hasOwn(plan.updates[0].data,privateField),false,privateField);
+});
+
+test('LAB change planning allows LAB topic only and rejects non-LAB rows',()=>{
+ const api=load(),lab={...plain(baseSession),type:'LAB',topic:'Old',instructor:'Alex Faculty'};
+ const edited={...plain(lab),topic:'New',room:'Blocked'};
+ const plan=plain(api.planChanges([lab],[edited],{uid:'lab-1',name:'LAB'},123,new Map(),{role:'lab'}));
+ assert.deepEqual(plan.errors,[]);
+ assert.deepEqual(plan.updates[0].data,{topic:'New'});
+ const nonLab=plain(api.planChanges([baseSession],[{...plain(baseSession),topic:'Nope'}],{uid:'lab-1'},123,new Map(),{role:'lab'}));
+ assert.ok(nonLab.errors.some(error=>/LAB sessions only/i.test(error)));
+});
