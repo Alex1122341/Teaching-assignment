@@ -73,9 +73,9 @@ window.UCVM_APPROVAL_REQUEST=(()=>{
     if(requestType==='faculty_swap'){
       currentFacultyName=text(payload.fromFaculty?.name)||text(basePublic.instructor).split(';')[Number(payload.assignmentIndex)||0]?.trim()||'';
       proposedFacultyName=text(payload.toFaculty?.name);
-      patchPublic={instructor:proposedFacultyName};
+      patchPublic={...patchPublic,instructor:proposedFacultyName};
       routeBase={...basePublic,assignments:[]};
-      routePatch={assignments:[{name:proposedFacultyName}],instructor:proposedFacultyName};
+      routePatch={...patchPublic,assignments:[{name:proposedFacultyName}]};
       privateRecord={
         requestId:id,requesterUid:text(requester.uid),revision:1,
         assignmentChange:{assignmentIndex:Number.isInteger(Number(payload.assignmentIndex))?Number(payload.assignmentIndex):0,from:privateFacultyRef(payload.fromFaculty),to:privateFacultyRef(payload.toFaculty)},
