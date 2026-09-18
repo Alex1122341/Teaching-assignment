@@ -8,6 +8,7 @@
  const DERIVED_IDS=Object.freeze(['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map']);
  const GENERATION_META=new Set(['generatedAt','generatedBy','generatedByName']);
  function sessionForWrite(session){return{...(session||{}),facultyIds:index.sessionFacultyIds(session)}}
+ function sessionPatchForWrite(session){const next={...(session||{})};if(Object.prototype.hasOwnProperty.call(next,'assignments')||Object.prototype.hasOwnProperty.call(next,'facultyIds'))next.facultyIds=index.sessionFacultyIds(next);return next}
  function replaceSession(rows,next){return[...(rows||[]).filter(row=>String(row.id)!==String(next.id)),sessionForWrite(next)]}
  function removeSession(rows,id){return(rows||[]).filter(row=>String(row.id)!==String(id))}
  function derivedDocuments(faculty,sessions){return{facultyIndex:index.buildFacultyIndex(faculty,sessions),scheduleStats:index.scheduleStats(sessions)}}
