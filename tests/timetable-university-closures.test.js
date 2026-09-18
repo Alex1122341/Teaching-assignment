@@ -97,3 +97,29 @@ test('closure rows stay in render/export projection and out of core teaching dat
   const derived=js.slice(derivedStart,derivedEnd);
   assert.doesNotMatch(derived,/sessionsWithOverlays|universityClosureRows/);
 });
+
+
+test('standard exports label enabled University closures and emit them as all-day calendar events',()=>{
+  const js=read('timetable.js');
+  const filtered=js.slice(js.indexOf('function exportFilteredRows'),js.indexOf('function downloadFile'));
+  assert.match(filtered,/closureCalendar\.entries/);
+  assert.match(filtered,/sessionsWithOverlays/);
+
+  const csv=js.slice(js.indexOf('function exportCsv'),js.indexOf('function icsEscape'));
+  assert.match(csv,/['"]University Closure['"]/);
+  assert.match(csv,/!!s\.isUniversityClosure/);
+
+  const ics=js.slice(js.indexOf('function exportCalendar'),js.indexOf('function outlookAttendeesForSession'));
+  assert.match(ics,/s\.isUniversityClosure\|\|s\.isCcc/);
+  assert.match(ics,/University Closed/);
+  assert.match(ics,/University Closure — read-only institutional calendar record/);
+  assert.match(ics,/DTSTART;VALUE=DATE/);
+});
+
+test('Outlook teaching invitation paths defensively exclude University closures',()=>{
+  const js=read('timetable.js');
+  const exporter=js.slice(js.indexOf('function exportOutlookInvites'),js.indexOf('async function openOutlookInviteDialog'));
+  assert.match(exporter,/filter\([^\n]*isUniversityClosure/);
+  const dialog=js.slice(js.indexOf('async function openOutlookInviteDialog'),js.indexOf('\n  function ',js.indexOf('async function openOutlookInviteDialog')));
+  assert.match(dialog,/filter\([^\n]*isUniversityClosure/);
+});
