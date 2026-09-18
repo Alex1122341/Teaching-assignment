@@ -64,6 +64,12 @@
     return{date,...validateInterval(session.start,session.end,{timeUnknown:session.timeUnknown===true})};
   }
 
+  function validateSessionTimingChange(base={},patch={}){
+    const fields=['date','start','end','timeUnknown'],changedFields=fields.filter(field=>Object.prototype.hasOwnProperty.call(patch||{},field)&&JSON.stringify(base?.[field]??null)!==JSON.stringify(patch?.[field]??null));
+    if(!changedFields.length)return{status:'unchanged',reason:'no_timing_change',changedFields};
+    return{...validateSessionTiming({...base,...patch}),changedFields};
+  }
+
   function findFacultyConflicts({date,start,end,timeUnknown=false,sessions=[],excludeSessionId='',isAssigned=()=>false}){
     const normalizedDate=normalizeDate(date);
     const target=validateInterval(start,end,{timeUnknown});
@@ -87,5 +93,5 @@
     return{status:'clear',conflicts,possibleConflicts,reason:'clear'};
   }
 
-  return{parseTime,formatTime,normalizeDate,validateInterval,durationMinutes,durationHours,intervalsOverlap,validateSessionTiming,findFacultyConflicts};
+  return{parseTime,formatTime,normalizeDate,validateInterval,durationMinutes,durationHours,intervalsOverlap,validateSessionTiming,validateSessionTimingChange,findFacultyConflicts};
 });
