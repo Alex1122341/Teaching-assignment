@@ -957,7 +957,7 @@
     const wstart = weekStart(selectedWeek, selectedSemester);
     const monthChoice = $('filter-month').value;
     const month = monthChoice === 'all' ? wstart.getMonth() : Number(monthChoice);
-    const year = month >= 4 ? 2026 : 2027;
+    const year = calendarYearForMonth(selectedSemester, month);
     const first = new Date(year, month, 1); const last = new Date(year, month + 1, 0);
     $('cal-label').textContent = first.toLocaleDateString('en-CA', { month: 'long', year: 'numeric' });
     let monday = new Date(first);
