@@ -1,8 +1,8 @@
 (() => {
   'use strict';
 
-  const scheduling=window.UCVM_SCHEDULING,approvalScheduling=window.UCVM_APPROVAL_SCHEDULING;
-  if(!scheduling||!approvalScheduling)throw new Error('UCVM scheduling core and approval policy are required.');
+  const scheduling=window.UCVM_SCHEDULING,approvalScheduling=window.UCVM_APPROVAL_SCHEDULING,closureCalendar=window.UCVM_UNIVERSITY_CLOSURES;
+  if(!scheduling||!approvalScheduling||!closureCalendar)throw new Error('UCVM scheduling core, approval policy, and University closure calendar are required.');
 
   const SESSION_COLLECTION = 'sessions';
   const CALENDAR_SESSION_COLLECTION = 'calendar_sessions';
@@ -246,6 +246,7 @@
   let selectedCourses = new Set();
   let courseFilterActive = false;
   let showCcc = false;
+  let showUniversityClosures = false;
   let cccEvents = [];
   let cccLoaded = false;
   let cccLoading = null;
@@ -324,6 +325,7 @@
   function sessionTypeClass(type) {
     const normalized = String(type || '').trim().toLowerCase();
     if (normalized === 'ccc') return 'tg-type-ccc';
+    if (normalized === 'closure') return 'tg-type-closure';
     if (normalized === 'lec') return 'tg-type-lec';
     if (normalized === 'lab') return 'tg-type-lab';
     if (normalized === 'srl') return 'tg-type-srl';
@@ -659,6 +661,7 @@
   }
 
   function roleIsFaculty(profile){ return ['faculty','hicc','visc'].includes(UCVM.role(profile?.role)); }
+  function isReadOnlySynthetic(session){return Boolean(session?.isCcc||session?.isUniversityClosure)}
   function sessionBelongsToCurrentFaculty(s){
     if(!currentUser)return false;
     const facultyId=String(currentUser.profile?.facultyId||'').trim();
@@ -693,7 +696,14 @@
     });
     return rows;
   }
-  function sessionsWithCcc(source,start,end){return [...source,...expandCccEvents(start,end)]}
+  function universityClosureRows(start,end){
+    if(!showUniversityClosures)return[];
+    return closureCalendar.between(start,end).map(entry=>{
+      const position=academicPositionForDate(parseYmd(entry.date));
+      return{id:`closure-${entry.date}`,date:entry.date,week:position.week,semester:position.semester,year:'',course:'UC',courseName:'University Closed',type:'CLOSURE',topic:entry.name,instructor:'',assignments:[],room:'',start:'07:30',end:'17:00',timeUnknown:false,isUniversityClosure:true,sourceSystem:'UCalgary University Closure Calendar'};
+    });
+  }
+  function sessionsWithOverlays(source,start,end){return [...source,...expandCccEvents(start,end),...universityClosureRows(start,end)]}
 
   function renderWeekControls() {
     const r1 = $('week-btn-row-1');
@@ -751,6 +761,7 @@
     $('cal-month-btn').addEventListener('click', () => switchCalendarView('month'));
     $('cal-list-btn').addEventListener('click', () => switchCalendarView('list'));
     $('show-ccc').addEventListener('change', async e=>{showCcc=e.target.checked;if(showCcc){try{await loadCccEvents()}catch{e.target.checked=false;showCcc=false}}populateCourseFilter();render()});
+    $('show-university-closures').addEventListener('change',e=>{showUniversityClosures=e.target.checked;render()});
     $('color-toggle').addEventListener('click', () => { colorsOn = !colorsOn; $('color-toggle').textContent = `Colors: ${colorsOn ? 'On' : 'Off'}`; render(); });
     $('dark-toggle').addEventListener('click', () => { document.documentElement.classList.toggle('dark'); $('dark-toggle').textContent = document.documentElement.classList.contains('dark') ? 'Light' : 'Moon'; });
     initializeScheduleFilters();
@@ -784,7 +795,7 @@
     document.querySelectorAll('[data-year]').forEach(x => x.classList.toggle('active', x.dataset.year === 'all'));
     document.querySelectorAll('[data-semester]').forEach(x => x.classList.toggle('active', x.dataset.semester === 'fall'));
     $('search-input').value = ''; $('filter-month').value = 'all'; $('filter-type').value = 'all';
-    selectedCourses.clear(); courseFilterActive=false; showCcc=false; $('show-ccc').checked=false; populateCourseFilter();
+    selectedCourses.clear(); courseFilterActive=false; showCcc=false; showUniversityClosures=false; $('show-ccc').checked=false; $('show-university-closures').checked=false; populateCourseFilter();
     myTimetableOnly = roleIsFaculty(currentUser); if (currentUser) $('my-timetable-btn').textContent = myTimetableOnly ? 'Show All Timetable' : 'My Timetable';
     selectedWeek = 1; renderWeekControls();
     refreshSessionScope();
@@ -815,6 +826,7 @@
     const month = $('filter-month').value;
     const type = $('filter-type').value;
     return source.filter(s => {
+      if(s.isUniversityClosure)return showUniversityClosures;
       if(String(s.type||'').toUpperCase()==='CCC'&&!showCcc)return false;
       if (!options.ignorePeriod && selectedYear !== 'all' && String(s.year) !== selectedYear) return false;
       if (!options.ignorePeriod && s.semester !== selectedSemester) return false;
@@ -864,10 +876,19 @@
     return `<section class="untimed-sessions"><h3>Time not confirmed - Check needed</h3>${rows.map(session=>`<button class="btn btn-secondary" data-session-id="${escapeHtml(session.id)}">${escapeHtml(session.date)} - ${escapeHtml(session.course)} - ${escapeHtml(session.topic)}</button>`).join('')}</section>`;
   }
 
+  function timetableBlockCopy(s){
+    if(s?.isUniversityClosure)return{line1:'University Closed',line2:s.topic||'University closure',meta:'07:30-17:00 · Institutional closure',sub:''};
+    return{line1:`${s.course} - ${s.type}`,line2:s.topic||'',meta:`${s.start}-${s.end}${s.room?` | ${s.room}`:''}`,sub:s.instructor||'TBD'};
+  }
+  function monthEventCopy(s){
+    if(s?.isUniversityClosure)return{line1:'University Closed',line2:s.topic||'University closure'};
+    return{line1:`${s.course} ${s.type}`,line2:`${s.timeUnknown?'Time not specified':s.start} ${s.topic||''}`};
+  }
+
   function renderDay() {
     const date=addDays(weekStart(selectedWeek,selectedSemester),selectedDayIndex), dateText=ymd(date);
     $('cal-label').textContent=formatLongDate(date);
-    const data=filteredSessions(sessionsWithCcc(sessions,dateText,dateText)).filter(s=>s.date===dateText);
+    const data=filteredSessions(sessionsWithOverlays(sessions,dateText,dateText)).filter(s=>s.date===dateText);
     renderedSessions=data;
     const DAY_START=450,DAY_END=1020,SPAN=DAY_END-DAY_START,marks=[450,480,540,600,660,720,780,840,900,960,1020];
     let html=`<div class="tg-wrap day-single"><div class="tg-corner"></div><div class="tg-day-head"><div class="week-dow">${DAYS[selectedDayIndex]}</div><div class="week-date">${date.getDate()}</div></div></div><div class="tg-body day-single"><div class="tg-time-axis"><div class="tg-track">`;
@@ -877,7 +898,8 @@
     layoutDaySessions(data).forEach(item=>{
       const s=item.session,startM=Math.max(DAY_START,item.startM),endM=Math.min(DAY_END,item.endM);if(endM<=DAY_START||startM>=DAY_END)return;
       const top=((startM-DAY_START)/SPAN)*100,height=Math.max(3.5,((endM-startM)/SPAN)*100),laneWidth=100/item.laneCount,left=item.lane*laneWidth;
-      html+=`<div class="tg-block ${colorsOn?sessionTypeClass(s.type):'colors-off'}" data-session-id="${escapeHtml(s.id)}" style="top:${top}%;height:${height}%;left:calc(${left}% + 2px);right:auto;width:calc(${laneWidth}% - 4px)"><div class="tg-block-l1">${escapeHtml(s.course)} - ${escapeHtml(s.type)}</div><div class="tg-block-l2">${escapeHtml(s.topic)}</div><div class="tg-block-l3">${escapeHtml(s.start)}-${escapeHtml(s.end)}${s.room?` | ${escapeHtml(s.room)}`:''}<br>${escapeHtml(s.instructor||'TBD')}</div></div>`;
+      const copy=timetableBlockCopy(s);
+      html+=`<div class="tg-block ${colorsOn?sessionTypeClass(s.type):'colors-off'}" data-session-id="${escapeHtml(s.id)}" style="top:${top}%;height:${height}%;left:calc(${left}% + 2px);right:auto;width:calc(${laneWidth}% - 4px)"><div class="tg-block-l1">${escapeHtml(copy.line1)}</div><div class="tg-block-l2">${escapeHtml(copy.line2)}</div><div class="tg-block-l3">${escapeHtml(copy.meta)}${copy.sub?`<br>${escapeHtml(copy.sub)}`:''}</div></div>`;
     });
     html+='</div></div>'+unpositionedSessionsHtml(data);$('calendar-body').innerHTML=html;bindSessionBlocks();
   }
@@ -885,7 +907,7 @@
   function renderWeek() {
     const start = weekStart(selectedWeek, selectedSemester); const end = addDays(start, 4);
     $('cal-label').textContent = `${selectedSemester === 'winter' ? 'Winter' : (selectedSemester === 'spring' ? 'Spring' : 'Fall')} Week ${selectedWeek} - ${formatDate(start)} to ${formatDate(end)}, ${end.getFullYear()}`;
-    const data = filteredSessions(sessionsWithCcc(sessions,ymd(start),ymd(end))).filter(s => s.week === selectedWeek);
+    const data = filteredSessions(sessionsWithOverlays(sessions,ymd(start),ymd(end))).filter(s => s.week === selectedWeek);
     renderedSessions=data;
     const DAY_START=450, DAY_END=1020, SPAN=DAY_END-DAY_START; // 7:30am-5:00pm
     let html = '<div class="tg-wrap"><div class="tg-corner"></div>';
@@ -912,10 +934,11 @@
         const top = ((startM - DAY_START) / SPAN) * 100;
         const height = Math.max(3.5, ((endM - startM) / SPAN) * 100);
         const laneWidth=100/item.laneCount, left=item.lane*laneWidth;
+        const copy=timetableBlockCopy(s);
         html += `<div class="tg-block ${colorsOn ? sessionTypeClass(s.type) : 'colors-off'} " data-session-id="${escapeHtml(s.id)}" style="top:${top}%;height:${height}%;left:calc(${left}% + 2px);right:auto;width:calc(${laneWidth}% - 4px)">
-          <div class="tg-block-l1">${escapeHtml(s.course)} - ${escapeHtml(s.type)}</div>
-          <div class="tg-block-l2">${escapeHtml(s.topic)}</div>
-          <div class="tg-block-l3">${escapeHtml(s.start)}-${escapeHtml(s.end)}${s.room ? ` | ${escapeHtml(s.room)}` : ''}<br>${escapeHtml(s.instructor || 'TBD')}</div>
+          <div class="tg-block-l1">${escapeHtml(copy.line1)}</div>
+          <div class="tg-block-l2">${escapeHtml(copy.line2)}</div>
+          <div class="tg-block-l3">${escapeHtml(copy.meta)}${copy.sub?`<br>${escapeHtml(copy.sub)}`:''}</div>
         </div>`;
       });
       html += '</div>';
@@ -936,16 +959,16 @@
     const jsDay = monday.getDay();
     const delta = jsDay === 0 ? -6 : 1 - jsDay;
     monday.setDate(monday.getDate() + delta);
-    const data = filteredSessions(sessionsWithCcc(sessions,ymd(first),ymd(last)));
+    const data = filteredSessions(sessionsWithOverlays(sessions,ymd(first),ymd(last)));
     renderedSessions=data;
     let html = '<div class="cal-month"><div class="cal-dow-header">' + DAYS.map(d => `<div class="cal-dow">${d}</div>`).join('') + '</div><div class="cal-grid">';
     let cursor = new Date(monday);
     while (cursor <= last || cursor.getDay() !== 1) {
       for (let i = 0; i < 5; i++) {
         const cell = addDays(cursor, i); const dateStr = ymd(cell);
-        const events = data.filter(s => s.date === dateStr).slice(0, 4);
+        const events = data.filter(s => s.date === dateStr).sort((a,b)=>Number(Boolean(b.isUniversityClosure))-Number(Boolean(a.isUniversityClosure))).slice(0, 4);
         html += `<div class="cal-cell"><div class="cal-date-num">${cell.getDate()}</div><div class="cal-events">`;
-        events.forEach(s => html += `<div class="cal-event ${colorsOn ? sessionTypeClass(s.type) : 'colors-off'} " data-session-id="${escapeHtml(s.id)}"><div class="cal-event-l1">${escapeHtml(s.course)} ${escapeHtml(s.type)}</div><div class="cal-event-l2">${s.timeUnknown?'Time not specified':escapeHtml(s.start)} ${escapeHtml(s.topic)}</div></div>`);
+        events.forEach(s => {const copy=monthEventCopy(s);html += `<div class="cal-event ${colorsOn ? sessionTypeClass(s.type) : 'colors-off'} " data-session-id="${escapeHtml(s.id)}"><div class="cal-event-l1">${escapeHtml(copy.line1)}</div><div class="cal-event-l2">${escapeHtml(copy.line2)}</div></div>`});
         html += '</div></div>';
       }
       cursor = addDays(cursor, 7);
@@ -960,9 +983,9 @@
     if(reviewingSelection){renderSelectionEditor();return}
     const start=ymd(new Date()),end='9999-12-31';
     $('cal-label').textContent=`${formatLongDate(parseYmd(start))} onward`;
-    const data=filteredSessions(sessionsWithCcc(sessions,start,end),{ignorePeriod:true}).filter(s=>s.date>=start).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.start||'').localeCompare(String(b.start||''))||String(a.course||'').localeCompare(String(b.course||'')));
+    const data=filteredSessions(sessionsWithOverlays(sessions,start,end),{ignorePeriod:true}).filter(s=>s.date>=start).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.start||'').localeCompare(String(b.start||''))||String(a.course||'').localeCompare(String(b.course||'')));
     renderedSessions=data;
-    const rows=data.map(s=>`<tr data-session-id="${escapeHtml(s.id)}"><td>${escapeHtml(s.date)}</td><td>${escapeHtml(s.timeUnknown?'Time TBD':`${s.start||''}-${s.end||''}`)}</td><td><strong>${escapeHtml(s.course)}</strong></td><td>${escapeHtml(s.type)}</td><td>${escapeHtml(s.topic)}</td><td>${escapeHtml(s.instructor||'TBD')}</td><td>${escapeHtml(s.room||'')}</td></tr>`).join('');
+    const rows=data.map(s=>{const closure=s.isUniversityClosure;return `<tr data-session-id="${escapeHtml(s.id)}"><td>${escapeHtml(s.date)}</td><td>${escapeHtml(s.timeUnknown?'Time TBD':`${s.start||''}-${s.end||''}`)}</td><td><strong>${escapeHtml(closure?'University Closed':s.course)}</strong></td><td>${escapeHtml(closure?'Closure':s.type)}</td><td>${escapeHtml(s.topic)}</td><td>${escapeHtml(closure?'':(s.instructor||'TBD'))}</td><td>${escapeHtml(closure?'':(s.room||''))}</td></tr>`}).join('');
     $('calendar-body').innerHTML=`<div class="schedule-list-wrap"><table class="schedule-list"><thead><tr><th>Date</th><th>Time</th><th>Course</th><th>Type</th><th>Topic</th><th>Faculty</th><th>Room</th></tr></thead><tbody>${rows||'<tr><td colspan="7" class="empty-cell">No future sessions match the selected filters.</td></tr>'}</tbody></table></div>`;
     bindSessionBlocks();
   }
@@ -970,11 +993,11 @@
   function bindSessionBlocks() {
     document.querySelectorAll('[data-session-id]').forEach(el => {
       const s=renderedSessions.find(row=>String(row.id)===String(el.dataset.sessionId));
-      el.classList.toggle('selection-candidate',selectionMode&&!s?.isCcc);
+      el.classList.toggle('selection-candidate',selectionMode&&!isReadOnlySynthetic(s));
       el.classList.toggle('selection-selected',sessionSelection.has(el.dataset.sessionId));
       el.addEventListener('click',()=>{
         if(!selectionMode){openSessionDetail(el.dataset.sessionId);return}
-        if(s?.isCcc){toast('CCC records are read-only and cannot be selected.',true);return}
+        if(isReadOnlySynthetic(s)){toast(s?.isUniversityClosure?'University closure records are read-only institutional calendar entries.':'CCC records are read-only and cannot be selected.',true);return}
         if(!window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),s).canSelect){toast('LAB accounts can select LAB sessions only.',true);return}
         try{
           const selected=sessionSelection.toggle(el.dataset.sessionId);
@@ -1083,8 +1106,16 @@
 
   function openSessionDetail(id) {
     const s = renderedSessions.find(x => x.id === id) || sessions.find(x => x.id === id); if (!s) return;
-    const edit = !s.isCcc&&canEdit() ? `<button class="btn btn-primary" id="detail-edit">Edit Session</button>` : '';
-    const swap = !s.isCcc&&isAdmin() ? `<button class="btn btn-primary" id="detail-swap">SWAP Faculty</button>` : '';
+    if(s.isUniversityClosure){
+      showModal(`
+        <div class="modal-header"><div class="modal-title">University Closed - ${escapeHtml(s.topic)}</div><div class="modal-subtitle">${formatLongDate(parseYmd(s.date))}</div></div>
+        <div class="modal-body"><div class="login-cheatsheet"><strong>University Closure — read-only institutional calendar record</strong><br><br>${escapeHtml(s.topic)}<br>07:30-17:00 timetable display block<br><strong>Source:</strong> UCalgary University Closure Calendar</div></div>
+        <div class="modal-footer"><span></span><button class="btn btn-secondary" id="detail-close">Close</button></div>`);
+      $('detail-close').onclick=closeModal;
+      return;
+    }
+    const edit = !isReadOnlySynthetic(s)&&canEdit() ? `<button class="btn btn-primary" id="detail-edit">Edit Session</button>` : '';
+    const swap = !isReadOnlySynthetic(s)&&isAdmin() ? `<button class="btn btn-primary" id="detail-swap">SWAP Faculty</button>` : '';
     const labDetails = Array.isArray(s.labDetails) && s.labDetails.length > 1
       ? `<div class="login-cheatsheet"><strong>Lab stations / activities</strong><br><br>${s.labDetails.map(d => `<div style="margin-bottom:8px"><strong>${escapeHtml(d.topic)}</strong>${d.instructor ? `<br>${escapeHtml(d.instructor)}` : ''}${d.room ? `<br><span style="color:var(--text-3)">${escapeHtml(d.room)}</span>` : ''}</div>`).join('')}</div>`
       : '';
@@ -1724,7 +1755,7 @@
   }
   function exportFilteredRows(all,options){
     const allDates=[...all.map(s=>s.date),...cccEvents.flatMap(e=>[e.startDate,e.endDate])].filter(Boolean).sort();
-    const source=sessionsWithCcc(all,allDates[0]||'2026-01-01',allDates[allDates.length-1]||'2027-12-31');
+    const source=sessionsWithOverlays(all,allDates[0]||'2026-01-01',allDates[allDates.length-1]||'2027-12-31');
     return filteredSessions(source,{ignorePeriod:true}).filter(s=>{
       if(options.scope!=='academic'&&selectedYear!=='all'&&String(s.year)!==selectedYear)return false;
       if(options.scope==='date')return s.date>=options.start&&s.date<=options.end;
