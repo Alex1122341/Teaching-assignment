@@ -13,13 +13,24 @@ test('timetable exposes AFC navigation and loads its scripts in dependency order
     assert.match(html, new RegExp(`id="${id}"`));
   }
   const actions = html.indexOf('afc-actions.js');
+  const closures = html.indexOf('university-closures.js');
+  const timetable = html.indexOf('timetable.js');
   const workflow = html.indexOf('afc-workflow.js');
   const panel = html.indexOf('afc-timetable-panel.js');
   assert.ok(actions >= 0 && actions < workflow, 'AFC actions load before the workflow');
+  assert.ok(closures >= 0 && closures < timetable, 'University closures load before timetable');
+  assert.ok(closures < workflow, 'University closures load before AFC workflow');
   assert.ok(workflow < panel, 'AFC workflow loads before the timetable panel');
 
   const loader = read('asset-loader.js');
   assert.ok(loader.indexOf("loadScriptOnce('afc-form-values.js'") < loader.indexOf("loadScriptOnce('afc-pdf-browser.js'"));
+});
+
+test('AFC runtime delegates workday policy to the shared University closure calendar',()=>{
+  const source=read('afc-workflow.js');
+  assert.match(source,/UCVM_UNIVERSITY_CLOSURES/);
+  assert.match(source,/countWorkingDays/);
+  assert.doesNotMatch(source,/const holidays=new Set/);
 });
 
 test('AFC timetable mount subscribes once and renders teaching sessions as sorted rows', () => {
@@ -54,6 +65,7 @@ test('AFC timetable mount subscribes once and renders teaching sessions as sorte
     subscribe: () => { subscriptions += 1; return () => {}; }
   };
 
+  vm.runInNewContext(read('university-closures.js'), context);
   vm.runInNewContext(read('afc-workflow.js'), context);
   context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
   context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
@@ -109,6 +121,7 @@ function submissionHarness(ensureSessionsForRange, initialSessions = []) {
     },
     subscribe: () => () => {}
   };
+  vm.runInNewContext(read('university-closures.js'), context);
   vm.runInNewContext(read('afc-workflow.js'), context);
   context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
   return { api: context.window.UCVM_AFC, form };

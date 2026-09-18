@@ -3,6 +3,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
  const scheduling=window.UCVM_SCHEDULING;
  if(!scheduling)throw new Error('UCVM scheduling core is required.');
  const text=value=>String(value??'').trim();
+ const isReadOnlySynthetic=row=>Boolean(row?.isCcc||row?.isUniversityClosure);
  const facultyId=assignment=>text(assignment?.facultyId||assignment?.ucid);
  const facultyIds=row=>[...new Set((Array.isArray(row?.facultyIds)&&row.facultyIds.length?row.facultyIds:(row?.assignments||[]).map(facultyId)).map(text).filter(Boolean))];
  const clone=value=>JSON.parse(JSON.stringify(value??null));
@@ -13,6 +14,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
  function editPolicy(role,row={}){
   role=text(role).toLowerCase();
   const fields=Object.fromEntries(EDIT_FIELDS.map(field=>[field,false]));
+  if(isReadOnlySynthetic(row))return{canSelect:false,fields};
   const adfa=['owner','administrator','admin','adfa_general','adfa_regular'].includes(role);
   if(adfa){for(const field of EDIT_FIELDS)fields[field]=true;return{canSelect:true,fields}}
   if(role==='adc'){for(const field of ['date','year','course','type','start','end','room'])fields[field]=true;fields.topic=text(row?.type).toUpperCase()!=='LAB';return{canSelect:true,fields}}
@@ -63,7 +65,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   return errors;
  }
  function selectedRows(source,ids){
-  const byId=new Map((source||[]).filter(row=>!row?.isCcc).map(row=>[text(row.id),row]));
+  const byId=new Map((source||[]).filter(row=>!isReadOnlySynthetic(row)).map(row=>[text(row.id),row]));
   return(ids||[]).map(id=>byId.get(text(id))).filter(Boolean);
  }
  function planChanges(originals,rows,actor,timestamp,facultyById,options={}){

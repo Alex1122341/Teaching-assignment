@@ -39,4 +39,6 @@ test('CSV and calendar exports use filters and support date, academic, and all s
  for(const scope of ['date','academic','all'])assert.match(html,new RegExp(`value="${scope}"`));
  assert.match(html,/ensureAllSessions/);
  assert.match(html,/exportFilteredRows/);
+ assert.match(html,/University Closure/);
+ assert.match(html,/sessionsWithOverlays/);
 });
