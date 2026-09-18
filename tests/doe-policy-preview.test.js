@@ -87,6 +87,7 @@ function make(options={}){
 test('Impact Preview compares current DOE to Draft DOE without mutating the source dataset',async()=>{
  const {repo,service}=make();
  const source=dataset(),before=JSON.parse(JSON.stringify(source));
+ await service.validateDraft('ucvm-workload-2027-28-v2');
  const result=await service.runImpactPreview('ucvm-workload-2027-28-v2',source);
 
  assert.equal(result.status,'passed');
@@ -110,13 +111,16 @@ test('Impact Preview compares current DOE to Draft DOE without mutating the sour
  assert.equal((await repo.listImpactRows(result.impactRunId)).length,2);
 });
 
-test('validation errors prevent a passed preview and do not create publishable preview evidence',async()=>{
+test('Impact Preview requires a successful validation for the exact Draft revision',async()=>{
  const {repo,service}=make({invalid:true});
- const result=await service.runImpactPreview('ucvm-workload-2027-28-v2',dataset());
+ const validation=await service.validateDraft('ucvm-workload-2027-28-v2');
+ assert.equal(validation.valid,false);
+ assert.ok(validation.errors.some(error=>error.code==='PARAMETER_MISSING'));
 
- assert.equal(result.status,'failed');
- assert.ok(result.errorCount>0);
- assert.ok(result.errors.some(error=>error.code==='PARAMETER_MISSING'));
+ await assert.rejects(
+  ()=>service.runImpactPreview('ucvm-workload-2027-28-v2',dataset()),
+  error=>error&&error.code==='VALIDATION_REQUIRED'
+ );
  const version=await repo.getVersion('ucvm-workload-2027-28-v2');
  assert.equal(version.lastImpactRunId,'');
 });
@@ -124,6 +128,7 @@ test('validation errors prevent a passed preview and do not create publishable p
 test('calculation errors are blocking and are surfaced on the affected faculty row',async()=>{
  const {repo,service}=make();
  const source=dataset();
+ await service.validateDraft('ucvm-workload-2027-28-v2');
  source.calculations[0].context={activityType:'LEC'};
  const result=await service.runImpactPreview('ucvm-workload-2027-28-v2',source);
 
@@ -136,6 +141,7 @@ test('calculation errors are blocking and are surfaced on the affected faculty r
 
 test('large DOE variance is review-warning only and does not block an otherwise valid preview',async()=>{
  const {service}=make({rate:4});
+ await service.validateDraft('ucvm-workload-2027-28-v2');
  const result=await service.runImpactPreview('ucvm-workload-2027-28-v2',dataset({current1:.5,current2:.75}));
 
  assert.equal(result.status,'passed');
@@ -163,6 +169,7 @@ test('dataset checksum includes DOE-relevant inputs and ignores unrelated UI/det
 
 test('Draft mutation after preview invalidates the stored preview evidence',async()=>{
  const {repo,service}=make();
+ await service.validateDraft('ucvm-workload-2027-28-v2');
  const preview=await service.runImpactPreview('ucvm-workload-2027-28-v2',dataset());
  assert.equal(preview.status,'passed');
 
@@ -175,6 +182,7 @@ test('Draft mutation after preview invalidates the stored preview evidence',asyn
 
 test('relevant source data changes produce a new dataset checksum and therefore stale preview evidence',async()=>{
  const {service}=make();
+ await service.validateDraft('ucvm-workload-2027-28-v2');
  const first=await service.runImpactPreview('ucvm-workload-2027-28-v2',dataset());
  const bundle=await service.loadPolicyBundle('ucvm-workload-2027-28-v2');
  const changedChecksum=await service.previewDatasetChecksum(bundle,dataset({hours1:5}));
@@ -183,6 +191,7 @@ test('relevant source data changes produce a new dataset checksum and therefore 
 
 test('preview IDs and row ordering are deterministic for a stable run input ordering-independent dataset',async()=>{
  const {service}=make();
+ await service.validateDraft('ucvm-workload-2027-28-v2');
  const source=dataset();
  source.calculations.reverse();
  const result=await service.runImpactPreview('ucvm-workload-2027-28-v2',source);
