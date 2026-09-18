@@ -86,7 +86,7 @@
 - Produces UCVM_DOE_FORMULA.evaluate(sourceOrAst,scope)
 - Typed errors include FORMULA_PARSE_ERROR, FORMULA_IDENTIFIER_NOT_ALLOWED, FORMULA_FUNCTION_NOT_ALLOWED, FORMULA_DIVIDE_BY_ZERO, OUTPUT_NON_FINITE.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ~~~js
 'use strict';
@@ -126,7 +126,7 @@ test('fails closed on divide by zero',()=>{
 });
 ~~~
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ~~~bash
 node --test tests/doe-formula.test.js
@@ -134,7 +134,7 @@ node --test tests/doe-formula.test.js
 
 Expected: FAIL because doe-formula.js does not exist.
 
-- [ ] **Step 3: Implement a recursive-descent parser**
+- [x] **Step 3: Implement a recursive-descent parser**
 
 The AST is restricted to these node types:
 
@@ -162,11 +162,11 @@ const SAFE_FUNCTIONS=Object.freeze({
 
 Do not implement strings, member access, brackets, assignment, loops, object construction, or function declarations.
 
-- [ ] **Step 4: Implement identifier validation and evaluation**
+- [x] **Step 4: Implement identifier validation and evaluation**
 
 Validation walks the AST and rejects every identifier not present in allowedIdentifiers. Evaluation resolves values only from the supplied scope and rejects non-finite values.
 
-- [ ] **Step 5: Run GREEN**
+- [x] **Step 5: Run GREEN**
 
 ~~~bash
 node --test tests/doe-formula.test.js
@@ -175,12 +175,15 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ~~~bash
 git add doe-formula.js tests/doe-formula.test.js
 git commit -m "feat: add safe DOE formula engine"
 ~~~
+
+
+**Task 1 verification:** exact branch head `887f816e7193d35e61854ababddb911f42875c7c` — Test #216 `Run static and unit tests` completed successfully. The formula module remains UMD/CommonJS-compatible and exposes `parse`, `validate`, and `evaluate` with typed fail-closed errors.
 
 ---
 
