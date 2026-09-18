@@ -1,0 +1,48 @@
+#doe-rules-view{display:block}
+#doe-rules-view.hidden{display:none}
+.doe-policy-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:14px}
+.doe-policy-field{display:flex;flex-direction:column;gap:5px;min-width:170px}
+.doe-policy-field .form-label{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#5f6368}
+.doe-policy-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.doe-policy-status{display:inline-flex;align-items:center;min-height:36px;padding:0 12px;border:1px solid #d8dbe0;border-radius:8px;background:#f8f9fa;font-size:12px;font-weight:700;color:#3c4043}
+.doe-policy-status[data-tone="draft"]{border-color:#d7a400;background:#fff9df;color:#785800}
+.doe-policy-status[data-tone="active"]{border-color:#81b29a;background:#edf8f1;color:#24543c}
+.doe-policy-status[data-tone="archived"]{border-color:#c9cdd2;background:#f2f3f4;color:#62676d}
+.doe-section-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 14px}
+.doe-section-tab{border:1px solid #cfd3d8;background:#fff;border-radius:999px;padding:8px 13px;font-weight:700;cursor:pointer}
+.doe-section-tab.active{background:#d6001c;border-color:#d6001c;color:#fff}
+.doe-section-tab:focus-visible{outline:3px solid rgba(214,0,28,.2);outline-offset:2px}
+.doe-rules-table td{vertical-align:top}
+.doe-rules-table code{font-size:11px;white-space:normal;word-break:break-word}
+.doe-formula-cell{max-width:240px;white-space:normal;word-break:break-word}
+.doe-status-badge{display:inline-flex;padding:3px 8px;border-radius:999px;background:#f1f3f4;font-size:11px;font-weight:700;text-transform:uppercase}
+.doe-panel-note{margin:8px 0 14px;padding:11px 13px;border-left:4px solid #ffcd00;background:#fff8d7;color:#4e4e4e;font-size:13px;line-height:1.45}
+.doe-table-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0}
+.doe-table-head h2{margin:0;font-size:18px}
+.doe-impact-preview{margin-top:14px;border:1px solid #d8dbe0;border-radius:10px;background:#fafafa;padding:14px;min-height:70px;white-space:pre-wrap;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:auto}
+.doe-preview-empty{font-family:inherit;color:#646a70}
+.doe-editor-card{width:min(1040px,94vw);max-height:92vh;overflow:auto}
+.doe-editor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.doe-editor-grid .full{grid-column:1/-1}
+.doe-editor-section{margin-top:16px;padding-top:14px;border-top:1px solid #e0e2e5}
+.doe-editor-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.doe-editor-section-head h3{margin:0;font-size:14px}
+.doe-builder-list{display:flex;flex-direction:column;gap:8px}
+.doe-builder-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:9px;border:1px solid #e1e3e6;border-radius:8px;background:#fbfbfc}
+.doe-selector-row{grid-template-columns:1.1fr 1fr 1.5fr}
+.doe-input-row{grid-template-columns:1fr .7fr 1fr .8fr}
+.doe-parameter-row{grid-template-columns:1fr 1fr 1fr}
+.doe-tier-row{grid-template-columns:repeat(4,minmax(90px,1fr))}
+.doe-check{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600}
+.doe-formula-editor{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.doe-test-panel{padding:12px;border:1px solid #dadde1;border-radius:8px;background:#f7f8f9}
+.doe-test-output{margin-top:8px;min-height:28px;white-space:pre-wrap;font-size:12px;color:#303438}
+.doe-exception-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.doe-exception-grid .full{grid-column:1/-1}
+#doe-rules-view button:disabled,#doe-rule-editor button:disabled,#doe-exception-editor button:disabled{cursor:not-allowed;opacity:.48}
+@media(max-width:850px){
+ .doe-editor-grid,.doe-exception-grid{grid-template-columns:1fr}
+ .doe-editor-grid .full,.doe-exception-grid .full{grid-column:auto}
+ .doe-builder-row,.doe-selector-row,.doe-input-row,.doe-parameter-row,.doe-tier-row{grid-template-columns:1fr}
+ .doe-policy-field{min-width:140px;flex:1}
+}
