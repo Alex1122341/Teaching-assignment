@@ -1,0 +1,45 @@
+--- a/tests/bulk-import-maintenance-security-emulator.test.js
++++ b/tests/bulk-import-maintenance-security-emulator.test.js
+@@ -17,6 +17,7 @@
+   for(const [uid,p]of Object.entries(users))await setDoc(doc(admin,`users/${uid}`),{active:true,email:`${uid}@ucvm.test`,mustChangePassword:false,...p});
+   await setDoc(doc(admin,'faculty/f1'),{preferredFullName:'Faculty 1',email:'member@ucvm.test',updatedBy:'general'});
+   await setDoc(doc(admin,'sessions/s1'),{course:'301',topic:'Original',date:'2026-09-08',facultyIds:['f1'],assignments:[{ucid:'f1'}],updatedBy:'general'});
++  await setDoc(doc(admin,'calendar_sessions/s1'),{sessionId:'s1',course:'301',courseName:'',year:null,semester:'',week:null,date:'2026-09-08',start:'',end:'',timeUnknown:false,type:'',topic:'Original',room:'',instructorNames:[],instructor:''});
+   await setDoc(doc(admin,'change_requests/r1'),{status:'pending',requesterUid:'member',sessionId:'s1'});
+  });
+ });
+@@ -38,12 +39,14 @@
+ });
+ 
+ check('maintenance lock blocks normal admins and permits only active owner teaching-data recovery writes',async()=>{
+- const {assertFails,assertSucceeds}=require('@firebase/rules-unit-testing'),{doc,setDoc,serverTimestamp}=require('firebase/firestore');
++ const {assertFails,assertSucceeds}=require('@firebase/rules-unit-testing'),{doc,setDoc,writeBatch,serverTimestamp}=require('firebase/firestore');
+  await seedLocked();
+  const regular=env.authenticatedContext('regular').firestore(),general2=env.authenticatedContext('general2').firestore(),general=env.authenticatedContext('general').firestore();
+  await assertFails(setDoc(doc(regular,'sessions/s1'),{topic:'blocked',updatedBy:'regular',updatedAt:serverTimestamp()},{merge:true}));
+  await assertFails(setDoc(doc(general2,'sessions/s1'),{topic:'blocked',updatedBy:'general2',updatedAt:serverTimestamp()},{merge:true}));
+- await assertSucceeds(setDoc(doc(general,'sessions/s1'),{topic:'recovery-preserved'},{merge:true}));
++ await assertFails(setDoc(doc(general,'sessions/s1'),{topic:'unpaired-recovery'},{merge:true}));
++ const paired=writeBatch(general);paired.set(doc(general,'sessions/s1'),{topic:'recovery-preserved'},{merge:true});paired.set(doc(general,'calendar_sessions/s1'),{topic:'recovery-preserved'},{merge:true});
++ await assertSucceeds(paired.commit());
+  await assertFails(setDoc(doc(regular,'faculty/f1'),{facultySummaryStatus2026_27:'blocked',updatedBy:'regular'},{merge:true}));
+  await assertFails(setDoc(doc(general2,'faculty/f1'),{facultySummaryStatus2026_27:'blocked',updatedBy:'general2'},{merge:true}));
+  await assertSucceeds(setDoc(doc(general,'faculty/f1'),{facultySummaryStatus2026_27:'recovery'},{merge:true}));
+--- a/tests/office-timetable-security-emulator.test.js
++++ b/tests/office-timetable-security-emulator.test.js
+@@ -1,12 +1,13 @@
+ 'use strict';
+-const {test,before,after}=require('node:test');
++const {test,before,beforeEach,after}=require('node:test');
+ const fs=require('node:fs');
+ const path=require('node:path');
+ const enabled=!!process.env.FIRESTORE_EMULATOR_HOST;let env;
+ const check=(name,fn)=>test('office timetable: '+name,{skip:!enabled},fn);
+ const source={course:'505',courseName:'Clinical Skills III',year:3,semester:'winter',week:8,date:'2027-03-22',start:'14:45',end:'16:15',timeUnknown:false,type:'LAB',topic:'Suturing',room:'CSB 116',instructor:'Jane Smith',assignments:[{ucid:'f1',name:'Jane Smith',doeCredit:.5}],sourceSystem:'Test'};
+ const calendar={sessionId:'s1',course:'505',courseName:'Clinical Skills III',year:3,semester:'winter',week:8,date:'2027-03-22',start:'14:45',end:'16:15',timeUnknown:false,type:'LAB',topic:'Suturing',room:'CSB 116',instructor:'Jane Smith',instructorNames:['Jane Smith']};
+-before(async()=>{if(!enabled)return;const {initializeTestEnvironment}=require('@firebase/rules-unit-testing');env=await initializeTestEnvironment({projectId:'demo-ucvm-office-timetable',firestore:{rules:fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8')}});await env.clearFirestore();await env.withSecurityRulesDisabled(async ctx=>{const db=ctx.firestore();for(const [uid,role] of [['adc','adc'],['lab','lab'],['adfa','adfa_regular']])await db.doc(`users/${uid}`).set({role,active:true,mustChangePassword:false,email:uid+'@example.test'});await db.doc('sessions/s1').set(source);await db.doc('calendar_sessions/s1').set(calendar);});});
++before(async()=>{if(!enabled)return;const {initializeTestEnvironment}=require('@firebase/rules-unit-testing');env=await initializeTestEnvironment({projectId:'demo-ucvm-office-timetable',firestore:{rules:fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8')}});await env.clearFirestore();await env.withSecurityRulesDisabled(async ctx=>{const db=ctx.firestore();for(const [uid,role] of [['adc','adc'],['lab','lab'],['adfa','adfa_regular']])await db.doc(`users/${uid}`).set({role,active:true,mustChangePassword:false,email:uid+'@example.test'});});});
++beforeEach(async()=>{if(!enabled)return;await env.withSecurityRulesDisabled(async ctx=>{const db=ctx.firestore();await db.doc('sessions/s1').set(source);await db.doc('calendar_sessions/s1').set(calendar);});});
+ after(async()=>{if(env)await env.cleanup();});
+ function pairedUpdate(db,sourcePatch,calendarPatch){const {serverTimestamp}=require('firebase/firestore');const batch=db.batch(),stamp=serverTimestamp();batch.update(db.doc('sessions/s1'),{...sourcePatch,updatedBy:'adc',updatedByName:'ADC',updatedAt:stamp});batch.set(db.doc('calendar_sessions/s1'),{...calendar,...calendarPatch});batch.set(db.collection('session_change_log').doc(),{action:'update',sessionId:'s1',course:String(calendarPatch.course||calendar.course),date:String(calendarPatch.date||calendar.date),topic:String(calendarPatch.topic||calendar.topic),instructors:[],changes:[],changedBy:'adc',changedByName:'ADC',changedByEmail:'',changedAt:stamp});return batch.commit();}
+ check('ADC may update owned public fields only when source calendar and audit are paired',async()=>{const {assertSucceeds}=require('@firebase/rules-unit-testing'),db=env.authenticatedContext('adc').firestore();await assertSucceeds(pairedUpdate(db,{room:'CSB 117'},{room:'CSB 117'}));});
