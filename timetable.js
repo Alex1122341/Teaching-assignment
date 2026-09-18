@@ -240,6 +240,7 @@
   let selectedWeek = 1;
   let selectedYear = 'all';
   let selectedSemester = 'fall';
+  let semesterScope = 'all';
   let viewMode = 'week';
   let lastFacultyTeachingView = 'day';
   let selectedDayIndex = 0;
@@ -305,16 +306,49 @@
     const springStart = SPRING_BASE_MONDAY, springEnd = addDays(FALL_BASE_MONDAY, -1);
     const fallStart = FALL_BASE_MONDAY, fallEnd = addDays(WINTER_BASE_MONDAY, -1);
     const winterStart = WINTER_BASE_MONDAY, winterEnd = addDays(WINTER_BASE_MONDAY, WEEK_COUNT * 7 - 1);
-    if (d >= springStart && d <= springEnd) return { semester:'spring', week:Math.floor((d-springStart)/86400000/7)+1 };
-    if (d >= fallStart && d <= fallEnd) return { semester:'fall', week:Math.floor((d-fallStart)/86400000/7)+1 };
-    if (d >= winterStart && d <= winterEnd) return { semester:'winter', week:Math.floor((d-winterStart)/86400000/7)+1 };
+    const calendarDay=value=>Date.UTC(value.getFullYear(),value.getMonth(),value.getDate())/86400000;
+    const academicWeek=start=>Math.floor((calendarDay(d)-calendarDay(start))/7)+1;
+    if (d >= springStart && d <= springEnd) return { semester:'spring', week:academicWeek(springStart) };
+    if (d >= fallStart && d <= fallEnd) return { semester:'fall', week:academicWeek(fallStart) };
+    if (d >= winterStart && d <= winterEnd) return { semester:'winter', week:academicWeek(winterStart) };
     return d < fallStart ? {semester:'spring',week:1} : {semester:'winter',week:1};
+  }
+  function moveAcademicWeekPosition(semester,week,delta,continuous) {
+    const order=['spring','fall','winter'];
+    let currentSemester=order.includes(semester)?semester:'fall';
+    let currentWeek=Math.max(1,Math.min(WEEK_COUNT,Number(week)||1));
+    const amount=Math.trunc(Number(delta)||0);
+    if(amount===0)return{semester:currentSemester,week:currentWeek};
+    const step=amount<0?-1:1;
+    for(let remaining=Math.abs(amount);remaining>0;remaining--){
+      if(step>0){
+        if(currentWeek<WEEK_COUNT)currentWeek++;
+        else if(continuous){
+          const index=order.indexOf(currentSemester);
+          if(index<order.length-1){currentSemester=order[index+1];currentWeek=1}
+        }
+      }else{
+        if(currentWeek>1)currentWeek--;
+        else if(continuous){
+          const index=order.indexOf(currentSemester);
+          if(index>0){currentSemester=order[index-1];currentWeek=WEEK_COUNT}
+        }
+      }
+    }
+    return{semester:currentSemester,week:currentWeek};
+  }
+  function monthRangeForAcademicPosition(semester,week) {
+    const anchor=weekStart(week,semester);
+    const first=new Date(anchor.getFullYear(),anchor.getMonth(),1);
+    const last=new Date(anchor.getFullYear(),anchor.getMonth()+1,0);
+    return{first,last,start:ymd(first),end:ymd(last)};
   }
   function setInitialAcademicPeriod() {
     const p = academicPositionForDate(new Date());
     selectedSemester = p.semester; selectedWeek = Math.max(1, Math.min(WEEK_COUNT, p.week));
     selectedDayIndex = Math.max(0, Math.min(4, (new Date().getDay() || 1) - 1));
-    document.querySelectorAll('[data-semester]').forEach(x => x.classList.toggle('active', x.dataset.semester === selectedSemester));
+    semesterScope='all';
+    syncSemesterUI();
   }
   function parseYmd(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
   function formatDate(d) { return d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }); }
@@ -366,11 +400,8 @@
 
   function visibleSessionRange() {
     if (viewMode === 'month') {
-      const wstart = weekStart(selectedWeek, selectedSemester);
-      const monthChoice = $('filter-month').value;
-      const month = monthChoice === 'all' ? wstart.getMonth() : Number(monthChoice);
-      const year = month >= 4 ? 2026 : 2027;
-      return { start:ymd(new Date(year, month, 1)), end:ymd(new Date(year, month + 1, 0)) };
+      const range=monthRangeForAcademicPosition(selectedSemester,selectedWeek);
+      return {start:range.start,end:range.end};
     }
     const start = weekStart(selectedWeek, selectedSemester);
     if (viewMode === 'day') {
@@ -727,6 +758,10 @@
     $('week-mobile-select').value = String(selectedWeek);
   }
 
+  function syncSemesterUI() {
+    document.querySelectorAll('[data-semester]').forEach(x=>x.classList.toggle('active',x.dataset.semester===semesterScope));
+  }
+
   function bindControls() {
     $('year-btn-row').addEventListener('click', e => {
       const b = e.target.closest('[data-year]'); if (!b) return;
@@ -736,26 +771,18 @@
     });
     $('semester-btn-row').addEventListener('click', e => {
       const b = e.target.closest('[data-semester]'); if (!b) return;
-      selectedSemester = b.dataset.semester;
-      document.querySelectorAll('[data-semester]').forEach(x => x.classList.toggle('active', x === b));
-      $('filter-month').value = 'all';
+      semesterScope=b.dataset.semester;
+      if(semesterScope!=='all')selectedSemester=semesterScope;
+      syncSemesterUI();
       renderWeekControls();
       refreshSessionScope();
     });
     $('week-mobile-select').addEventListener('change', e => { selectedWeek = Number(e.target.value); syncWeekUI(); refreshSessionScope(); });
     ['search-input','filter-type'].forEach(id => $(id).addEventListener(id === 'search-input' ? 'input' : 'change', render));
-    $('filter-month').addEventListener('change', e => {
-      if (e.target.value !== 'all') {
-        { const m=Number(e.target.value); selectedSemester = m>=7 ? 'fall' : (m<=3 ? 'winter' : 'spring'); }
-        document.querySelectorAll('[data-semester]').forEach(x => x.classList.toggle('active', x.dataset.semester === selectedSemester));
-        renderWeekControls();
-      }
-      refreshSessionScope();
-    });
     $('reset-filters').addEventListener('click', resetFilters);
     $('cal-prev').addEventListener('click', () => moveCalendar(-1));
     $('cal-next').addEventListener('click', () => moveCalendar(1));
-    $('cal-today').addEventListener('click', () => { setInitialAcademicPeriod(); $('filter-month').value='all'; renderWeekControls(); syncWeekUI(); refreshSessionScope(); toast('Moved to the current academic week.'); });
+    $('cal-today').addEventListener('click', () => { setInitialAcademicPeriod(); renderWeekControls(); syncWeekUI(); refreshSessionScope(); toast('Moved to the current academic week.'); });
     $('cal-day-btn').addEventListener('click', () => switchCalendarView('day'));
     $('cal-week-btn').addEventListener('click', () => switchCalendarView('week'));
     $('cal-month-btn').addEventListener('click', () => switchCalendarView('month'));
@@ -791,10 +818,10 @@
   }
 
   function resetFilters() {
-    selectedYear = 'all'; selectedSemester = 'fall';
+    selectedYear = 'all'; selectedSemester = 'fall'; semesterScope='all';
     document.querySelectorAll('[data-year]').forEach(x => x.classList.toggle('active', x.dataset.year === 'all'));
-    document.querySelectorAll('[data-semester]').forEach(x => x.classList.toggle('active', x.dataset.semester === 'fall'));
-    $('search-input').value = ''; $('filter-month').value = 'all'; $('filter-type').value = 'all';
+    syncSemesterUI();
+    $('search-input').value = ''; $('filter-type').value = 'all';
     selectedCourses.clear(); courseFilterActive=false; showCcc=false; showUniversityClosures=false; $('show-ccc').checked=false; $('show-university-closures').checked=false; populateCourseFilter();
     myTimetableOnly = roleIsFaculty(currentUser); if (currentUser) $('my-timetable-btn').textContent = myTimetableOnly ? 'Show All Timetable' : 'My Timetable';
     selectedWeek = 1; renderWeekControls();
@@ -811,26 +838,28 @@
 
   function moveCalendar(delta){
     if(viewMode==='list')return;
+    const step=delta<0?-1:1,continuous=semesterScope==='all';
     if(viewMode==='day'){
-      let date=addDays(weekStart(selectedWeek,selectedSemester),selectedDayIndex);
-      do{date=addDays(date,delta)}while(date.getDay()===0||date.getDay()===6);
-      const position=academicPositionForDate(date); selectedSemester=position.semester; selectedWeek=Math.max(1,Math.min(WEEK_COUNT,position.week)); selectedDayIndex=date.getDay()-1;
-      document.querySelectorAll('[data-semester]').forEach(x=>x.classList.toggle('active',x.dataset.semester===selectedSemester));
-      renderWeekControls();syncWeekUI();refreshSessionScope();return;
+      if(step>0&&selectedDayIndex<4){selectedDayIndex++;refreshSessionScope();return}
+      if(step<0&&selectedDayIndex>0){selectedDayIndex--;refreshSessionScope();return}
+      const next=moveAcademicWeekPosition(selectedSemester,selectedWeek,step,continuous);
+      if(next.semester===selectedSemester&&next.week===selectedWeek)return;
+      selectedSemester=next.semester;selectedWeek=next.week;selectedDayIndex=step>0?0:4;
+      syncSemesterUI();renderWeekControls();syncWeekUI();refreshSessionScope();return;
     }
-    selectedWeek=Math.max(1,Math.min(WEEK_COUNT,selectedWeek+delta));syncWeekUI();refreshSessionScope();
+    const next=moveAcademicWeekPosition(selectedSemester,selectedWeek,step,continuous);
+    selectedSemester=next.semester;selectedWeek=next.week;
+    syncSemesterUI();renderWeekControls();syncWeekUI();refreshSessionScope();
   }
 
   function filteredSessions(source=sessions, options={}) {
     const q = $('search-input').value.trim().toLowerCase();
-    const month = $('filter-month').value;
     const type = $('filter-type').value;
     return source.filter(s => {
       if(s.isUniversityClosure)return showUniversityClosures;
       if(String(s.type||'').toUpperCase()==='CCC'&&!showCcc)return false;
       if (!options.ignorePeriod && selectedYear !== 'all' && String(s.year) !== selectedYear) return false;
-      if (!options.ignorePeriod && s.semester !== selectedSemester) return false;
-      if (!options.ignorePeriod && month !== 'all' && String(parseYmd(s.date).getMonth()) !== month) return false;
+      if (!options.ignorePeriod && semesterScope !== 'all' && s.semester !== semesterScope) return false;
       if (courseFilterActive && !selectedCourses.has(String(s.course))) return false;
       if (type !== 'all' && s.type !== type) return false;
       if (myTimetableOnly && currentUser && !sessionBelongsToCurrentFaculty(s)) return false;
@@ -949,11 +978,8 @@
   }
 
   function renderMonth() {
-    const wstart = weekStart(selectedWeek, selectedSemester);
-    const monthChoice = $('filter-month').value;
-    const month = monthChoice === 'all' ? wstart.getMonth() : Number(monthChoice);
-    const year = month >= 4 ? 2026 : 2027;
-    const first = new Date(year, month, 1); const last = new Date(year, month + 1, 0);
+    const range=monthRangeForAcademicPosition(selectedSemester,selectedWeek);
+    const first=range.first,last=range.last,month=first.getMonth();
     $('cal-label').textContent = first.toLocaleDateString('en-CA', { month: 'long', year: 'numeric' });
     let monday = new Date(first);
     const jsDay = monday.getDay();

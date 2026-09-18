@@ -4,6 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
+const {spawnSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 const closures=require('../university-closures');
@@ -122,4 +123,58 @@ test('Outlook teaching invitation paths defensively exclude University closures'
   assert.match(exporter,/filter\([^\n]*isUniversityClosure/);
   const dialog=js.slice(js.indexOf('async function openOutlookInviteDialog'),js.indexOf('\n  function ',js.indexOf('async function openOutlookInviteDialog')));
   assert.match(dialog,/filter\([^\n]*isUniversityClosure/);
+});
+
+
+
+test('academic week month range includes both Easter Monday closure dates',()=>{
+  const source=read('timetable.js');
+  const match=source.match(/  function monthRangeForAcademicPosition\([\s\S]*?\n  \}/);
+  assert.ok(match,'monthRangeForAcademicPosition should be independently testable');
+  const context={
+    Date,
+    weekStart:(week,semester)=>{
+      if(semester==='spring')return new Date(2026,3,27);
+      if(semester==='winter')return new Date(2027,2,22);
+      return new Date(2026,8,1);
+    },
+    ymd:d=>d.toISOString().slice(0,10)
+  };
+  vm.runInNewContext(match[0]+'\nresult=monthRangeForAcademicPosition;',context);
+  const spring=JSON.parse(JSON.stringify(context.result('spring',1)));
+  const winter=JSON.parse(JSON.stringify(context.result('winter',12)));
+  assert.deepEqual({start:spring.start,end:spring.end},{start:'2026-04-01',end:'2026-04-30'});
+  assert.deepEqual({start:winter.start,end:winter.end},{start:'2027-03-01',end:'2027-03-31'});
+  assert.ok(closures.between(spring.start,spring.end).some(row=>row.name==='Easter Monday'&&row.date==='2026-04-06'));
+  assert.ok(closures.between(winter.start,winter.end).some(row=>row.name==='Easter Monday'&&row.date==='2027-03-29'));
+});
+
+
+test('Easter Monday projects to Winter Week 13 across Alberta daylight-saving time',()=>{
+  const script=[
+    "const fs=require('node:fs');",
+    "const vm=require('node:vm');",
+    "const closures=require('./university-closures');",
+    "const source=fs.readFileSync('timetable.js','utf8');",
+    "const aStart=source.indexOf('  function academicPositionForDate');",
+    "const aEnd=source.indexOf('\\n  function ',aStart+3);",
+    "const oStart=source.indexOf('  function universityClosureRows');",
+    "const oEnd=source.indexOf('\\n  function ',oStart+3);",
+    "if(aStart<0||aEnd<0||oStart<0||oEnd<0)throw new Error('required timetable functions not found');",
+    "const academic=source.slice(aStart,aEnd);",
+    "const overlay=source.slice(oStart,oEnd);",
+    "const context={Date,SPRING_BASE_MONDAY:new Date(2026,3,27),FALL_BASE_MONDAY:new Date(2026,7,24),WINTER_BASE_MONDAY:new Date(2027,0,4),WEEK_COUNT:17,addDays:(date,days)=>{const d=new Date(date);d.setDate(d.getDate()+days);return d;},closureCalendar:closures,showUniversityClosures:true,parseYmd:value=>{const parts=String(value).split('-').map(Number);return new Date(parts[0],parts[1]-1,parts[2]);}};",
+    "vm.runInNewContext(academic+'\\n'+overlay+'\\nresult=universityClosureRows;',context);",
+    "process.stdout.write(JSON.stringify(context.result('2027-03-29','2027-04-02')));"
+  ].join('\n');
+  const run=spawnSync(process.execPath,['-e',script],{
+    cwd:root,
+    env:{...process.env,TZ:'America/Edmonton'},
+    encoding:'utf8'
+  });
+  assert.equal(run.status,0,run.stderr);
+  const rows=JSON.parse(run.stdout);
+  const easter=rows.find(row=>row.date==='2027-03-29');
+  assert.ok(easter,'Easter Monday closure should be projected');
+  assert.equal(easter.week,13,'Easter Monday must remain in Winter Week 13 after the DST transition');
 });
