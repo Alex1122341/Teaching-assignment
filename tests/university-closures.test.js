@@ -2,6 +2,10 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const closures=require('../university-closures');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('University closure catalog is sorted unique and carries display names',()=>{
   const dates=closures.entries.map(row=>row.date);
@@ -33,4 +37,20 @@ test('working days exclude weekends and catalog closures exactly once',()=>{
   assert.equal(closures.countWorkingDays('2027-02-16','2027-02-16'),1);
   assert.equal(closures.countWorkingDays('','2027-02-16'),0);
   assert.equal(closures.countWorkingDays('2027-02-17','2027-02-16'),0);
+});
+
+
+test('shared closure module ships in the static deployment allowlist',()=>{
+  const assets=JSON.parse(read('tools/static-assets.json'));
+  assert.ok(assets.includes('university-closures.js'));
+});
+
+test('timetable loads closure calendar before both timetable and AFC consumers',()=>{
+  const html=read('index.html');
+  const closure=html.indexOf('university-closures.js');
+  const timetable=html.indexOf('timetable.js');
+  const afc=html.indexOf('afc-workflow.js');
+  assert.ok(closure>=0);
+  assert.ok(closure<timetable,'closure calendar loads before timetable.js');
+  assert.ok(closure<afc,'closure calendar loads before afc-workflow.js');
 });
