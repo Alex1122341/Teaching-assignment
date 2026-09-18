@@ -256,6 +256,12 @@
   return winners[0];
  }
 
+ function matchRule(bundle,context={},category=''){
+  const exception=chooseException(bundle,context,category);
+  if(exception)return{source:'exception',exception,rule:null};
+  return{source:'rule',exception:null,rule:chooseRule(bundle,context,category)};
+ }
+
  function exceptionResult(bundle,exception,context){
   const value=validateResult(exception?.fixedDoe,exception?.resultKind||'credit');
   return{
@@ -281,10 +287,10 @@
  }
 
  function calculateInternal(bundle,context={},category=''){
-  const exception=chooseException(bundle,context,category);
-  if(exception)return exceptionResult(bundle,exception,context);
+  const match=matchRule(bundle,context,category);
+  if(match.source==='exception')return exceptionResult(bundle,match.exception,context);
 
-  const rule=chooseRule(bundle,context,category);
+  const rule=match.rule;
   const required=(Array.isArray(rule?.inputs)?rule.inputs:[]).filter(input=>typeof input==='string'||input?.required!==false);
   const capturedInputs={};
   for(const item of required){
@@ -369,6 +375,47 @@
   }
  }
 
+ function requiredParameterNames(mode){
+  if(mode==='fixed')return['fixed'];
+  if(['per_hour','per_shift','per_week','per_trainee','percentage_of_target'].includes(mode))return['rate'];
+  if(mode==='capped')return['cap'];
+  if(mode==='minimum')return['minimum'];
+  return[];
+ }
+
+ function validateDependencies(rules,errors){
+  const byKey=new Map();
+  for(const rule of rules){
+   const key=text(rule?.ruleKey);
+   if(key)byKey.set(key,rule);
+  }
+  const visiting=new Set(),visited=new Set(),reported=new Set();
+  function visit(key,path=[]){
+   if(visiting.has(key)){
+    const start=Math.max(0,path.indexOf(key));
+    const cycle=[...path.slice(start),key];
+    const signature=[...new Set(cycle)].sort().join('|');
+    if(!reported.has(signature)){
+     reported.add(signature);
+     pushError(errors,'CIRCULAR_DEPENDENCY','DOE rules contain a circular dependency.',{ruleKeys:cycle});
+    }
+    return;
+   }
+   if(visited.has(key))return;
+   const rule=byKey.get(key);
+   if(!rule)return;
+   visiting.add(key);
+   const nextPath=[...path,key];
+   for(const dependency of Array.isArray(rule?.dependsOnRuleKeys)?rule.dependsOnRuleKeys:[]){
+    const dependencyKey=text(dependency);
+    if(dependencyKey&&byKey.has(dependencyKey))visit(dependencyKey,nextPath);
+   }
+   visiting.delete(key);
+   visited.add(key);
+  }
+  for(const key of byKey.keys())visit(key,[]);
+ }
+
  function validatePolicy(bundle={}){
   const errors=[],warnings=[];
   const rules=Array.isArray(bundle?.rules)?bundle.rules:[];
@@ -381,8 +428,30 @@
    else if(seenKeys.has(ruleKey))pushError(errors,'DUPLICATE_RULE_KEY','DOE ruleKey must be unique.',{ruleKey,ruleIds:[seenKeys.get(ruleKey),ruleId]});
    else seenKeys.set(ruleKey,ruleId);
 
-   if(!CALCULATION_MODES.has(text(rule?.calculationMode))){
-    pushError(errors,'CALCULATION_MODE_INVALID','DOE calculation mode is invalid.',{ruleId,calculationMode:text(rule?.calculationMode)});
+   const calculationMode=text(rule?.calculationMode);
+   if(!CALCULATION_MODES.has(calculationMode)){
+    pushError(errors,'CALCULATION_MODE_INVALID','DOE calculation mode is invalid.',{ruleId,calculationMode});
+   }
+
+   if(number(rule?.priority)===null){
+    pushError(errors,'PRIORITY_INVALID','DOE rule priority must be a finite number.',{ruleId,priority:rule?.priority});
+   }
+
+   const parameters=parameterMap(rule);
+   for(const parameter of Array.isArray(rule?.parameters)?rule.parameters:[]){
+    const name=text(parameter?.name);
+    if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)){
+     pushError(errors,'PARAMETER_NAME_INVALID','DOE parameter name must be a valid identifier.',{ruleId,parameterName:name});
+    }
+   }
+   for(const requiredName of requiredParameterNames(calculationMode)){
+    if(!own(parameters,requiredName)){
+     pushError(errors,'PARAMETER_MISSING','DOE rule is missing a required parameter.',{ruleId,parameterName:requiredName});
+    }
+   }
+
+   if(text(rule?.category)==='target'&&text(rule?.resultKind)!=='target'){
+    pushError(errors,'TARGET_RESULT_KIND_INVALID','Target DOE rules must use resultKind "target".',{ruleId,resultKind:text(rule?.resultKind)});
    }
 
    for(const selector of Array.isArray(rule?.selectors)?rule.selectors:[]){
@@ -419,6 +488,7 @@
    }
   }
 
+  validateDependencies(rules,errors);
   return{valid:errors.length===0,errors,warnings};
  }
 
@@ -436,6 +506,7 @@
   selectorMatches,
   ruleMatches,
   exceptionMatches,
+  matchRule,
   validatePolicy,
   calculate,
   calculateTarget,
