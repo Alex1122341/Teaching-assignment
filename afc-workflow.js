@@ -1,10 +1,11 @@
 'use strict';
 (()=>{
  const $=id=>document.getElementById(id),e=s=>UCVM.esc(String(s??'')),{db}=UCVM.init(),auth=firebase.auth(),stamp=()=>firebase.firestore.FieldValue.serverTimestamp();
- const holidays=new Set(['2026-01-01','2026-02-16','2026-04-03','2026-04-06','2026-05-18','2026-07-01','2026-08-03','2026-09-07','2026-09-30','2026-10-12','2026-11-11','2026-12-25','2026-12-28','2026-12-29','2026-12-30','2026-12-31','2027-01-01','2027-02-15','2027-03-26','2027-03-29','2027-05-24','2027-07-01','2027-08-02','2027-09-06','2027-09-30','2027-10-11','2027-11-11','2027-12-27','2027-12-28','2027-12-29','2027-12-30','2027-12-31']);
+ const closures=window.UCVM_UNIVERSITY_CLOSURES;
+ if(!closures)throw Error('UCVM University closure calendar is required.');
  let loaded=false,busy=false,requests=[],applicantSignature=null,panelId='afc-panel',mode='dashboard',dataSubscription=null,subscribedSource=null,rangeLoading='',rangeLoaded='',rangeError=null;
  const data=()=>mode==='timetable'?window.UCVM_PAGE_DATA:window.UCVM_FACULTY_DATA,panel=()=>$(panelId),me=()=>data()?.profile?.()||{},uid=()=>auth.currentUser?.uid||'',adfa=()=>['adfa_general','adfa_regular'].includes(UCVM.role(me().role));
- function workDays(a,b){if(!a||!b||a>b)return 0;let n=0,d=new Date(`${a}T12:00:00`),z=new Date(`${b}T12:00:00`);for(;d<=z;d.setDate(d.getDate()+1)){const k=d.toISOString().slice(0,10);if(d.getDay()>0&&d.getDay()<6&&!holidays.has(k))n++}return n}
+ function workDays(a,b){return closures.countWorkingDays(a,b)}
  const facultyName=f=>f?.preferredFullName||f?.hrFullName||f?.name||'';
  function sortTeaching(a,b){return String(a.date||'').localeCompare(String(b.date||''))||String(a.start||'').localeCompare(String(b.start||''))||String(a.course||'').localeCompare(String(b.course||''))||String(a.topic||a.type||'').localeCompare(String(b.topic||b.type||''))}
  function matchingSessions(a,b){const f=data()?.faculty?.();if(!f)return[];const ids=new Set([f.id,f.ucid,me().facultyId].map(String)),names=new Set([f.preferredFullName,f.hrFullName,f.name].filter(Boolean).map(x=>String(x).toLowerCase()));return(data()?.sessions?.()||[]).filter(s=>s.date>=a&&s.date<=b&&(s.assignments||[]).some(x=>ids.has(String(x.ucid||x.facultyId||''))||names.has(String(x.name||'').toLowerCase()))).sort(sortTeaching)}
