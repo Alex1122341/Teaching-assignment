@@ -135,6 +135,73 @@
   },sample);
  }
 
+ function assignmentDoe(assignment={}){
+  const direct=number(assignment.doeCredit);
+  if(direct!==null)return direct;
+  const rate=number(assignment.doeRate),hours=number(assignment.creditedHours);
+  return rate!==null&&hours!==null?rate*hours:null;
+ }
+
+ function buildImpactDataset(data={},academicYear=''){
+  const calculations=[];
+  const sessions=Array.isArray(data?.sessions)?data.sessions:[];
+  for(const session of sessions){
+   const assignments=Array.isArray(session?.assignments)?session.assignments:[];
+   assignments.forEach((assignment,index)=>{
+    const facultyId=text(assignment?.ucid||assignment?.facultyId);
+    if(!facultyId)return;
+    const hours=number(assignment?.creditedHours);
+    const role=text(assignment?.role);
+    calculations.push({
+     sourceEntityType:'session_assignment',
+     sourceEntityId:`${text(session?.id)||'session'}--assignment--${index+1}`,
+     sessionId:text(session?.id),
+     assignmentId:text(assignment?.assignmentId)||`${text(session?.id)||'session'}--assignment--${index+1}`,
+     facultyId,
+     currentDoe:assignmentDoe(assignment),
+     context:{
+      category:'teaching',activityType:text(session?.type),teachingRole:role,role,
+      hours,shifts:1,course:text(session?.course),date:text(session?.date),topic:text(session?.topic),
+      semester:text(session?.semester),week:number(session?.week)
+     }
+    });
+   });
+  }
+  const faculty=Array.isArray(data?.faculty)?data.faculty:[];
+  for(const person of faculty){
+   const facultyId=text(person?.__id||person?.ucid||person?.id);
+   if(!facultyId)continue;
+   const roles=Array.isArray(person?.managedRoles2026_27)?person.managedRoles2026_27:[];
+   roles.forEach((managed,index)=>{
+    const credit=Math.abs(number(managed?.doeCredit)??0);
+    if(!credit&&!text(managed?.assignment)&&!text(managed?.type))return;
+    const signed=text(managed?.action).toLowerCase()==='remove'?-credit:credit;
+    calculations.push({
+     sourceEntityType:'managed_role',sourceEntityId:`${facultyId}--managed-role--${index+1}`,facultyId,currentDoe:signed,
+     context:{category:'role',roleType:text(managed?.type),assignment:text(managed?.assignment),action:text(managed?.action)||'add'}
+    });
+   });
+  }
+  return{academicYear:text(academicYear),calculations};
+ }
+
+ const pct=value=>number(value)===null?'—':`${Number(value).toFixed(2)}%`;
+ const signedPct=value=>{const parsed=number(value);if(parsed===null)return'—';return`${parsed>0?'+':''}${parsed.toFixed(2)}%`};
+
+ function impactPreviewHtml(result={}){
+  const status=text(result.status||'not run').toUpperCase();
+  const metrics=[
+   ['Faculty checked',Number(result.facultyCount||0)],['Calculations checked',Number(result.calculationCount||0)],
+   ['Faculty changed',Number(result.changedFacultyCount||0)],['Large increases',Number(result.largeIncreaseCount||0)],
+   ['Large decreases',Number(result.largeDecreaseCount||0)],['Errors',Number(result.errorCount||0)],['Warnings',Number(result.warningCount||0)]
+  ];
+  const rows=Array.isArray(result.rows)?result.rows:[];
+  return `<div class="doe-preview-head"><div><strong>Impact Preview ${esc(status)}</strong><div class="doe-preview-meta">${esc(result.policyVersionId||'')} · revision ${esc(result.policyRevision??'—')}</div></div></div>
+   <div class="doe-preview-summary">${metrics.map(([label,value])=>`<div class="doe-preview-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('')}</div>
+   <div class="table-wrap"><table class="data-table doe-preview-table"><thead><tr><th>Faculty</th><th>Current DOE</th><th>Draft DOE</th><th>Difference</th><th>Affected Rules</th><th>Warnings / Errors</th></tr></thead><tbody>
+    ${rows.map(row=>{const issues=[...(row.warnings||[]),...(row.errors||[])].map(issue=>`${issue.code?issue.code+': ':''}${issue.message||''}`).join('; ');return`<tr><td>${esc(row.facultyId||'—')}</td><td>${esc(pct(row.currentDoe))}</td><td>${esc(pct(row.draftDoe))}</td><td>${esc(signedPct(row.difference))}</td><td>${esc((row.affectedRules||[]).join(', ')||'—')}</td><td>${esc(issues||'—')}</td></tr>`}).join('')||'<tr><td colspan="6" class="empty">No DOE-bearing records were found in the preview dataset.</td></tr>'}
+   </tbody></table></div>`;
+ }
  const state={
   initialized:false,
   db:null,
@@ -646,6 +713,8 @@
   normalizeRuleDraft,
   validateExceptionDraft,
   testRule,
+  buildImpactDataset,
+  impactPreviewHtml,
   init,
   destroy,
   load,
