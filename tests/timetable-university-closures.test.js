@@ -92,7 +92,7 @@ test('closure rows stay in render/export projection and out of core teaching dat
   const schedulingReview=js.slice(schedulingStart,schedulingEnd);
   assert.doesNotMatch(schedulingReview,/sessionsWithOverlays|universityClosureRows/);
   const derivedStart=js.indexOf('async function updateDerivedIndexes');
-  const derivedEnd=js.indexOf('async function ensureFacultyDirectory',derivedStart);
+  const derivedEnd=js.indexOf('function ensureFacultyDirectory',derivedStart);
   assert.ok(derivedStart>=0&&derivedEnd>derivedStart);
   const derived=js.slice(derivedStart,derivedEnd);
   assert.doesNotMatch(derived,/sessionsWithOverlays|universityClosureRows/);
