@@ -466,7 +466,7 @@ git commit -m "feat: add DOE repository and security rules"
 - calculateSession
 - recordCalculation
 
-- [ ] **Step 1: Write lifecycle tests RED**
+- [x] **Step 1: Write lifecycle tests RED**
 
 Prove:
 - Regular may clone/edit/validate/preview;
@@ -477,19 +477,19 @@ Prove:
 - previous Active becomes Archived while new version becomes Active;
 - Active cannot be edited.
 
-- [ ] **Step 2: Implement capability gates**
+- [x] **Step 2: Implement capability gates**
 
 Browser wiring uses existing UCVM.admin and UCVM.general. Pure tests inject capability functions.
 
-- [ ] **Step 3: Implement canonical checksums**
+- [x] **Step 3: Implement canonical checksums**
 
 Canonicalize and sort policy records by stable IDs before hashing. Hash exact policy revision and relevant dataset projection; do not hash UI state.
 
-- [ ] **Step 4: Implement lifecycle state guards**
+- [x] **Step 4: Implement lifecycle state guards**
 
 Publish compares policyVersionId, revision, policyChecksum, inputDatasetChecksum, and passed impact status before state change.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ~~~bash
 node --test tests/doe-policy-publication.test.js tests/doe-policy-engine.test.js tests/doe-policy-repository.test.js
@@ -498,12 +498,15 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ~~~bash
 git add doe-policy-service.js tests/doe-policy-publication.test.js
 git commit -m "feat: add DOE draft and publication service"
 ~~~
+
+
+**Task 4 verification:** RED Test #225 failed only because `cloneAsDraft`, `calculateSession`, and `recordCalculation` were absent. Exact implementation head `1ffd31a14377855f3e2b9b9bf7cca1aff2b26749` passed Test #226 `Run static and unit tests`. Earlier Test #223 also proved the General validation/publication lifecycle against the Firestore emulator.
 
 ---
 
