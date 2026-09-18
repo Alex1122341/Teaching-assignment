@@ -22,23 +22,48 @@ function seed(){
     lastImpactRunId:'',lastValidatedRevision:null,rulesChecksum:''
    }
   ],
-  rules:[{
-   ruleId:'r-v2-lecture',policyVersionId:'ucvm-workload-2027-28-v2',
-   ruleKey:'teaching.lecture.standard',category:'teaching',name:'Standard Lecture',
-   calculationMode:'per_hour',resultKind:'credit',priority:100,enabled:true
-  }],
-  selectors:[{
-   selectorId:'sel-v2-lecture',ruleId:'r-v2-lecture',policyVersionId:'ucvm-workload-2027-28-v2',
-   field:'activityType',operator:'equals',valueText:'LEC',order:1
-  }],
-  parameters:[{
-   parameterId:'param-v2-rate',ruleId:'r-v2-lecture',policyVersionId:'ucvm-workload-2027-28-v2',
-   name:'rate',valueNumber:.30,unit:'percent_per_hour',required:true,order:1
-  }],
-  inputs:[{
-   ruleInputId:'input-v2-hours',ruleId:'r-v2-lecture',policyVersionId:'ucvm-workload-2027-28-v2',
-   inputName:'hours',inputType:'number',required:true,source:'session',unit:'hours'
-  }],
+  rules:[
+   {
+    ruleId:'r-v1-lecture',policyVersionId:'ucvm-workload-2027-28-v1',
+    ruleKey:'teaching.lecture.standard',category:'teaching',name:'Standard Lecture',
+    calculationMode:'per_hour',resultKind:'credit',priority:100,enabled:true
+   },
+   {
+    ruleId:'r-v2-lecture',policyVersionId:'ucvm-workload-2027-28-v2',
+    ruleKey:'teaching.lecture.standard',category:'teaching',name:'Standard Lecture',
+    calculationMode:'per_hour',resultKind:'credit',priority:100,enabled:true
+   }
+  ],
+  selectors:[
+   {
+    selectorId:'sel-v1-lecture',ruleId:'r-v1-lecture',policyVersionId:'ucvm-workload-2027-28-v1',
+    field:'activityType',operator:'equals',valueText:'LEC',order:1
+   },
+   {
+    selectorId:'sel-v2-lecture',ruleId:'r-v2-lecture',policyVersionId:'ucvm-workload-2027-28-v2',
+    field:'activityType',operator:'equals',valueText:'LEC',order:1
+   }
+  ],
+  parameters:[
+   {
+    parameterId:'param-v1-rate',ruleId:'r-v1-lecture',policyVersionId:'ucvm-workload-2027-28-v1',
+    name:'rate',valueNumber:.25,unit:'percent_per_hour',required:true,order:1
+   },
+   {
+    parameterId:'param-v2-rate',ruleId:'r-v2-lecture',policyVersionId:'ucvm-workload-2027-28-v2',
+    name:'rate',valueNumber:.30,unit:'percent_per_hour',required:true,order:1
+   }
+  ],
+  inputs:[
+   {
+    ruleInputId:'input-v1-hours',ruleId:'r-v1-lecture',policyVersionId:'ucvm-workload-2027-28-v1',
+    inputName:'hours',inputType:'number',required:true,source:'session',unit:'hours'
+   },
+   {
+    ruleInputId:'input-v2-hours',ruleId:'r-v2-lecture',policyVersionId:'ucvm-workload-2027-28-v2',
+    inputName:'hours',inputType:'number',required:true,source:'session',unit:'hours'
+   }
+  ],
   exceptions:[]
  };
 }
@@ -205,4 +230,63 @@ test('canonical policy checksum is stable across rule and child ordering',async(
  };
  const b=await service.policyChecksum(shuffled);
  assert.equal(a,b);
+});
+
+
+test('ADFA Regular can clone an existing policy version into the next Draft version',async()=>{
+ const {repo,service}=create('adfa_regular');
+ const cloned=await service.cloneAsDraft('ucvm-workload-2027-28-v1');
+ assert.equal(cloned.version.policyVersionId,'ucvm-workload-2027-28-v3');
+ assert.equal(cloned.version.versionNumber,3);
+ assert.equal(cloned.version.status,'draft');
+ assert.equal(cloned.version.clonedFromVersionId,'ucvm-workload-2027-28-v1');
+
+ const bundle=await service.loadPolicyBundle(cloned.version.policyVersionId);
+ assert.equal(bundle.rules.length,1);
+ assert.equal(bundle.rules[0].ruleKey,'teaching.lecture.standard');
+ assert.equal(bundle.rules[0].parameters[0].valueNumber,.25);
+ assert.notEqual(bundle.rules[0].ruleId,'r-v1-lecture');
+ assert.equal((await repo.getPolicy('ucvm-workload-2027-28')).currentActiveVersionId,'ucvm-workload-2027-28-v1');
+});
+
+test('calculateSession always uses the policy current Active version for the requested academic year',async()=>{
+ const {service}=create('adfa_regular');
+ const result=await service.calculateSession({
+  academicYear:'2027-28',
+  facultyId:'f1',
+  sessionId:'s1',
+  activityType:'LEC',
+  hours:2
+ });
+ assert.equal(result.policyVersionId,'ucvm-workload-2027-28-v1');
+ assert.ok(Math.abs(result.resultDoe-.5)<1e-12);
+ assert.equal(result.ruleKey,'teaching.lecture.standard');
+});
+
+test('recordCalculation stores immutable provenance without changing the calculation result',async()=>{
+ const {repo,service}=create('adfa_regular');
+ const result=await service.calculateSession({
+  academicYear:'2027-28',
+  facultyId:'f1',
+  sessionId:'s1',
+  assignmentId:'a1',
+  activityType:'LEC',
+  hours:2
+ });
+ const record=await service.recordCalculation(result,{
+  calculationId:'calc-service-1',
+  facultyId:'f1',
+  sessionId:'s1',
+  assignmentId:'a1',
+  trigger:'session_created'
+ });
+ assert.equal(record.calculationId,'calc-service-1');
+ assert.equal(record.policyVersionId,'ucvm-workload-2027-28-v1');
+ assert.equal(record.ruleKey,'teaching.lecture.standard');
+ assert.deepEqual(record.inputsSnapshot,{hours:2});
+ assert.deepEqual(record.parametersSnapshot,{rate:.25});
+ assert.equal(record.resultDoe,.5);
+ assert.equal(record.calculatedBy,'regular');
+ assert.equal(record.trigger,'session_created');
+ assert.equal((await repo.listCalculationRecords({calculationId:'calc-service-1'})).length,1);
 });
