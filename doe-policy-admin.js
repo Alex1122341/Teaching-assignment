@@ -249,15 +249,17 @@
  }
 
  function applyPermissions(){
-  const cap=capabilities(state.profile),draft=isDraft();
+  const cap=capabilities(state.profile),version=selectedVersion(),draft=version?.status==='draft',revision=Number(version?.revision||0);
+  const validationCurrent=draft&&version?.lastValidationPassed===true&&Number(version?.lastValidatedRevision)===revision&&!!text(version?.rulesChecksum);
+  const previewCurrent=validationCurrent&&!!text(version?.lastImpactRunId)&&Number(version?.lastImpactRevision)===revision&&text(version?.lastImpactChecksum)===text(version?.rulesChecksum)&&!!text(version?.lastImpactDatasetChecksum);
   const map={
    'doe-new-year':cap.editDraft,
    'doe-clone-draft':cap.editDraft,
    'doe-validate':cap.validate&&draft,
-   'doe-preview':cap.preview&&draft,
-   'doe-publish':cap.publish&&draft,
-   'doe-archive':cap.archive&&selectedVersion()?.status==='active',
-   'doe-recalculate':cap.recalculate&&selectedVersion()?.status==='active',
+   'doe-preview':cap.preview&&validationCurrent,
+   'doe-publish':cap.publish&&previewCurrent,
+   'doe-archive':cap.archive&&version?.status==='active',
+   'doe-recalculate':cap.recalculate&&version?.status==='active',
    'doe-add-rule':cap.editDraft&&draft,
    'doe-add-exception':cap.editDraft&&draft
   };
@@ -267,6 +269,10 @@
    element.disabled=!enabled;
    element.setAttribute('aria-disabled',String(!enabled));
   }
+  const previewButton=$('doe-preview');
+  if(previewButton&&draft&&!validationCurrent)previewButton.title='Validate the current Draft revision first';
+  const publishButton=$('doe-publish');
+  if(publishButton&&cap.publish&&draft&&!previewCurrent)publishButton.title='A current passing Impact Preview is required';
   for(const id of ['doe-publish','doe-archive','doe-recalculate']){
    const element=$(id);
    if(element&&!cap.publish)element.title='ADFA General / Owner only';
@@ -341,11 +347,38 @@
   renderSection();
  }
 
+ function previewMessage(message,kind=''){
+  const target=$('doe-impact-preview');
+  if(!target)return;
+  target.innerHTML=`<div class="doe-preview-empty ${esc(kind)}">${esc(message)}</div>`;
+ }
+
+ function markPreviewOutdated(){
+  previewMessage('Impact Preview OUTDATED — validate this Draft revision again, then run a new Impact Preview.','outdated');
+ }
+
+ async function renderStoredPreview(){
+  const version=state.bundle?.version,target=$('doe-impact-preview');
+  if(!version||!target)return;
+  const runId=text(version.lastImpactRunId);
+  if(!runId){
+   if(version.status==='draft'&&version.lastValidationPassed===true&&Number(version.lastValidatedRevision)===Number(version.revision||0))previewMessage('Validation is current. Run Impact Preview before Publish.');
+   else if(version.status==='draft')previewMessage('Validate this Draft revision before running Impact Preview.');
+   else previewMessage('No stored Impact Preview for this policy version.');
+   return;
+  }
+  const run=await state.repository.getImpactRun(runId);
+  if(!run){previewMessage('Stored Impact Preview evidence could not be loaded.','outdated');return}
+  const rows=await state.repository.listImpactRows(runId);
+  target.innerHTML=impactPreviewHtml({...run,rows});
+ }
+
  async function loadBundle(versionId){
   if(!versionId){state.bundle=null;renderBundle();return}
   setStatus('Loading DOE policy…');
   state.bundle=await state.service.loadPolicyBundle(versionId);
   renderBundle();
+  await renderStoredPreview();
  }
 
  async function loadVersions(){
@@ -537,6 +570,7 @@
   }
   closeRuleEditor();
   await loadBundle(draft.policyVersionId);
+  markPreviewOutdated();
   say('DOE Draft rule saved. Impact Preview is now outdated.');
  }
 
@@ -592,6 +626,7 @@
   await state.repository.saveException(row,Number(version.revision||0),actor());
   closeExceptionEditor();
   await loadBundle(version.policyVersionId);
+  markPreviewOutdated();
   say('Policy Exception saved. Impact Preview is now outdated.');
  }
 
@@ -623,16 +658,18 @@
   const message=result.valid?`Validation passed · ${result.warnings.length} warning(s).`:`Validation failed · ${result.errors.length} error(s).`;
   say(message,!result.valid);
   await loadBundle(version.policyVersionId);
+  if(result.valid)previewMessage('Validation is current. Run Impact Preview before Publish.');
+  else previewMessage(`Validation failed: ${result.errors.map(error=>error.message).join(' ')}`,'outdated');
  }
 
  async function preview(){
-  if(typeof state.service.runImpactPreview!=='function'){
-   $('doe-impact-preview').innerHTML='<div class="doe-preview-empty">Impact Preview simulation is enabled in the next implementation stage. Draft validation is available now.</div>';
-   return;
-  }
-  const result=await state.service.runImpactPreview(selectedVersion().policyVersionId);
-  $('doe-impact-preview').textContent=JSON.stringify(result,null,2);
-  await loadBundle(selectedVersion().policyVersionId);
+  const version=selectedVersion();if(!version)return;
+  previewMessage('Running Impact Preview…');
+  const result=await state.service.runImpactPreview(version.policyVersionId);
+  $('doe-impact-preview').innerHTML=impactPreviewHtml(result);
+  await loadBundle(version.policyVersionId);
+  $('doe-impact-preview').innerHTML=impactPreviewHtml(result);
+  say(result.status==='passed'?'Impact Preview passed.':'Impact Preview contains blocking errors.',result.status!=='passed');
  }
 
  async function publish(){
@@ -696,7 +733,11 @@
   state.service=serviceFactory.createService({
    repository:state.repository,
    engine,
-   actorProvider:actor
+   actorProvider:actor,
+   datasetProvider:async bundle=>buildImpactDataset({
+    faculty:root?.UCVM_ADMIN_DATA?.faculty?.()||[],
+    sessions:root?.UCVM_ADMIN_DATA?.sessions?.()||[]
+   },bundle?.version?.academicYear)
   });
   state.initialized=true;
   wire();
