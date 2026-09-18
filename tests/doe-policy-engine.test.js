@@ -248,3 +248,117 @@ test('declared rule inputs determine whether an edit is DOE relevant',()=>{
     true
   );
 });
+
+
+test('matchRule exposes deterministic exception and rule precedence',()=>{
+  const bundle=lectureBundle();
+  const normal=ENGINE.matchRule(bundle,{activityType:'LEC',hours:2,facultyId:'f1',sessionId:'s1'});
+  assert.equal(normal.source,'rule');
+  assert.equal(normal.rule.ruleId,'r-lecture');
+  assert.equal(normal.exception,null);
+
+  bundle.exceptions.push({
+    exceptionId:'ex-match',
+    facultyId:'f1',
+    scopeType:'session',
+    scopeKey:'s1',
+    fixedDoe:2.25,
+    reason:'Approved operational exception',
+    sourceReference:'Workload record',
+    enabled:true,
+    priority:500
+  });
+  const excepted=ENGINE.matchRule(bundle,{activityType:'LEC',hours:2,facultyId:'f1',sessionId:'s1'});
+  assert.equal(excepted.source,'exception');
+  assert.equal(excepted.exception.exceptionId,'ex-match');
+  assert.equal(excepted.rule,null);
+});
+
+test('validatePolicy checks required parameters, priority, target outputs, parameter names, and dependency cycles',()=>{
+  const bundle={
+    version:{policyVersionId:'validation-v1',academicYear:'2027-28',status:'draft'},
+    rules:[
+      {
+        ruleId:'fixed-missing',
+        ruleKey:'role.fixed.missing',
+        category:'role',
+        calculationMode:'fixed',
+        resultKind:'credit',
+        priority:10,
+        enabled:true,
+        selectors:[{field:'roleType',operator:'equals',valueText:'HICC'}],
+        inputs:[],
+        parameters:[]
+      },
+      {
+        ruleId:'bad-priority',
+        ruleKey:'role.bad.priority',
+        category:'role',
+        calculationMode:'per_week',
+        resultKind:'credit',
+        priority:'high',
+        enabled:true,
+        selectors:[{field:'roleType',operator:'equals',valueText:'VISC'}],
+        inputs:[{inputName:'weeks',required:true}],
+        parameters:[{name:'rate',valueNumber:.5}]
+      },
+      {
+        ruleId:'bad-param-name',
+        ruleKey:'role.bad.param',
+        category:'role',
+        calculationMode:'fixed',
+        resultKind:'credit',
+        priority:20,
+        enabled:true,
+        selectors:[{field:'roleType',operator:'equals',valueText:'CCC'}],
+        inputs:[],
+        parameters:[{name:'bad name',valueNumber:2},{name:'fixed',valueNumber:2}]
+      },
+      {
+        ruleId:'bad-target',
+        ruleKey:'target.contract.bad',
+        category:'target',
+        calculationMode:'fixed',
+        resultKind:'credit',
+        priority:30,
+        enabled:true,
+        selectors:[],
+        inputs:[],
+        parameters:[{name:'fixed',valueNumber:40}]
+      },
+      {
+        ruleId:'cycle-a',
+        ruleKey:'dependency.a',
+        category:'adjustment',
+        calculationMode:'fixed',
+        resultKind:'adjustment',
+        priority:40,
+        enabled:true,
+        selectors:[{field:'kind',operator:'equals',valueText:'a'}],
+        inputs:[],
+        parameters:[{name:'fixed',valueNumber:1}],
+        dependsOnRuleKeys:['dependency.b']
+      },
+      {
+        ruleId:'cycle-b',
+        ruleKey:'dependency.b',
+        category:'adjustment',
+        calculationMode:'fixed',
+        resultKind:'adjustment',
+        priority:40,
+        enabled:true,
+        selectors:[{field:'kind',operator:'equals',valueText:'b'}],
+        inputs:[],
+        parameters:[{name:'fixed',valueNumber:1}],
+        dependsOnRuleKeys:['dependency.a']
+      }
+    ],
+    exceptions:[]
+  };
+
+  const validation=ENGINE.validatePolicy(bundle);
+  assert.equal(validation.valid,false);
+  for(const code of ['PARAMETER_MISSING','PRIORITY_INVALID','PARAMETER_NAME_INVALID','TARGET_RESULT_KIND_INVALID','CIRCULAR_DEPENDENCY']){
+    assert.ok(validation.errors.some(error=>error.code===code),code);
+  }
+});
