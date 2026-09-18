@@ -535,7 +535,7 @@ function universityClosureRows(start,end){
       week:position.week,
       semester:position.semester,
       year:'',
-      course:'University Closed',
+      course:'UC',
       courseName:'University Closed',
       type:'CLOSURE',
       topic:entry.name,
