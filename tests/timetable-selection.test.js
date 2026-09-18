@@ -89,6 +89,19 @@ test('selected rows ignore normal filters, preserve selection order, and exclude
  assert.deepEqual(plain(rows.map(row=>row.id)),['future-hidden','visible']);
 });
 
+test('read-only synthetic records cannot be selected by any office role',()=>{
+ const api=load();
+ for(const role of ['adfa_general','adc','lab']){
+  assert.equal(api.editPolicy(role,{isUniversityClosure:true,type:'CLOSURE'}).canSelect,false);
+  assert.equal(api.editPolicy(role,{isCcc:true,type:'CCC'}).canSelect,false);
+ }
+ const rows=api.selectedRows(
+  [{id:'normal'},{id:'ccc',isCcc:true},{id:'closed',isUniversityClosure:true}],
+  ['normal','ccc','closed']
+ );
+ assert.deepEqual(plain(rows.map(row=>row.id)),['normal']);
+});
+
 test('atomic save performs two paired operations per changed session and none for invalid plans',async()=>{
  const api=load(),operations=[],batch={update:(ref,data)=>operations.push(['update',ref,data]),set:(ref,data)=>operations.push(['set',ref,data]),commit:async()=>operations.push(['commit'])};
  let afterCommit=0;
