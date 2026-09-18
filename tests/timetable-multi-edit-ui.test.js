@@ -21,10 +21,12 @@ test('faculty choices use effective DOE and visibly label overrides',()=>{
  assert.doesNotMatch(js,/Contract Teaching DOE is shown when it exists/);
 });
 
-test('selection mode routes every rendered session through stable IDs and blocks CCC selection',()=>{
+test('selection mode routes rendered sessions through stable IDs and blocks all read-only synthetic rows',()=>{
  const js=read('timetable.js');
  assert.match(js,/function bindSessionBlocks[\s\S]*sessionSelection\.toggle/);
- assert.match(js,/if\s*\(s\?\.isCcc\)[\s\S]*return/);
+ assert.match(js,/function isReadOnlySynthetic/);
+ assert.match(js,/isReadOnlySynthetic\(s\)[\s\S]*return/);
+ assert.match(js,/University closure records are read-only|read-only institutional/i);
  assert.match(js,/selectedRows\([\s\S]*selection.*ids\(\)/);
  assert.match(js,/selectionViewFlow\.review\(\)/);
 });
