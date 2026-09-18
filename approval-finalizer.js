@@ -42,9 +42,11 @@ window.UCVM_APPROVAL_FINALIZER=(()=>{
     if(kind==='sessional'||kind==='other'||resolved.special===true){incoming.ucid='';delete incoming.facultyId;incoming.category=kind==='sessional'?'Sessional':'Other';}
     else{const id=text(resolved.facultyId);if(!id)throw Error('The replacement Faculty identity could not be resolved.');incoming.ucid=id;delete incoming.facultyId;incoming.category='Faculty';}
     assignments[index]=incoming;
-    const instructor=assignments.map(a=>text(a.name)).filter(Boolean).join('; '),sourcePatch={assignments,facultyIds:facultyIds(assignments),instructor};
+    const publicChanged=changedFields(request).filter(field=>field!=='instructor'),publicPatch={};
+    for(const field of publicChanged)publicPatch[field]=request.patchPublic[field];
+    const instructor=assignments.map(a=>text(a.name)).filter(Boolean).join('; '),sourcePatch={...publicPatch,assignments,facultyIds:facultyIds(assignments),instructor};
     const next={...source,...sourcePatch};
-    return{changedFields:['assignments','facultyIds','instructor'],sourcePatch,calendar:calendarApi.fromSource(next,text(request.sessionId||source.id))};
+    return{changedFields:[...new Set([...publicChanged,'assignments','facultyIds','instructor'])],sourcePatch,calendar:calendarApi.fromSource(next,text(request.sessionId||source.id))};
   }
   return{changedFields,assertPublicBase,planPublicApply,planFacultySwap};
 })();
