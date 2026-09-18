@@ -7,6 +7,8 @@ const path=require('node:path');
 const enabled=!!process.env.FIRESTORE_EMULATOR_HOST;
 const check=(name,fn)=>test('DOE policy security: '+name,{skip:!enabled},fn);
 const FIRESTORE_ADAPTER=enabled?require('../doe-policy-firestore.js'):null;
+const DOE_ENGINE=enabled?require('../doe-policy-engine.js'):null;
+const DOE_SERVICE=enabled?require('../doe-policy-service.js'):null;
 let env;
 
 before(async()=>{
@@ -48,6 +50,36 @@ before(async()=>{
    ruleId:'r-draft',policyVersionId:'ucvm-workload-2027-28-v2',
    ruleKey:'teaching.lecture.standard',category:'teaching',calculationMode:'per_hour',
    resultKind:'credit',priority:100,enabled:true
+  });
+  await db.doc('doe_policies/ucvm-workload-2028-29').set({
+   policyId:'ucvm-workload-2028-29',academicYear:'2028-29',name:'UCVM Workload Policy 2028-29',
+   currentActiveVersionId:'ucvm-workload-2028-29-v1'
+  });
+  await db.doc('doe_policy_versions/ucvm-workload-2028-29-v1').set({
+   policyVersionId:'ucvm-workload-2028-29-v1',policyId:'ucvm-workload-2028-29',
+   academicYear:'2028-29',versionNumber:1,status:'active',revision:1
+  });
+  await db.doc('doe_policy_versions/ucvm-workload-2028-29-v2').set({
+   policyVersionId:'ucvm-workload-2028-29-v2',policyId:'ucvm-workload-2028-29',
+   academicYear:'2028-29',versionNumber:2,status:'draft',revision:1,
+   lastImpactRunId:'',lastValidatedRevision:null,rulesChecksum:''
+  });
+  await db.doc('doe_rules/r-2028-lecture').set({
+   ruleId:'r-2028-lecture',policyVersionId:'ucvm-workload-2028-29-v2',
+   ruleKey:'teaching.lecture.standard',category:'teaching',calculationMode:'per_hour',
+   resultKind:'credit',priority:100,enabled:true
+  });
+  await db.doc('doe_rule_selectors/sel-2028-lecture').set({
+   selectorId:'sel-2028-lecture',ruleId:'r-2028-lecture',policyVersionId:'ucvm-workload-2028-29-v2',
+   field:'activityType',operator:'equals',valueText:'LEC',order:1
+  });
+  await db.doc('doe_rule_parameters/param-2028-rate').set({
+   parameterId:'param-2028-rate',ruleId:'r-2028-lecture',policyVersionId:'ucvm-workload-2028-29-v2',
+   name:'rate',valueNumber:.3,unit:'percent_per_hour',required:true,order:1
+  });
+  await db.doc('doe_rule_inputs/input-2028-hours').set({
+   ruleInputId:'input-2028-hours',ruleId:'r-2028-lecture',policyVersionId:'ucvm-workload-2028-29-v2',
+   inputName:'hours',inputType:'number',required:true,source:'session',unit:'hours'
   });
  });
 });
@@ -141,4 +173,44 @@ check('publication, calculation and audit evidence cannot be rewritten',async()=
   action:'validation_run',changedBy:'general',changedByName:'General',changedByEmail:'general@example.test',changedAt:stamp()
  }));
  await assertFails(general.doc('doe_audit_log/audit-test').update({action:'changed'}));
+});
+
+
+check('General can validate and publish a current Draft atomically through the Firestore repository',async()=>{
+ const db=env.authenticatedContext('general').firestore();
+ const repo=FIRESTORE_ADAPTER.createFirestoreRepository({db});
+ const service=DOE_SERVICE.createService({
+  repository:repo,
+  engine:DOE_ENGINE,
+  actorProvider:()=>({uid:'general',name:'General Admin',email:'general@example.test',role:'adfa_general'}),
+  clock:()=>new Date('2026-09-18T21:00:00Z'),
+  datasetChecksumProvider:async()=>'dataset-security'
+ });
+ const validation=await service.validateDraft('ucvm-workload-2028-29-v2');
+ assert.equal(validation.valid,true);
+
+ await repo.createImpactRun({
+  impactRunId:'impact-security',
+  policyVersionId:'ucvm-workload-2028-29-v2',
+  policyRevision:1,
+  policyChecksum:validation.policyChecksum,
+  inputDatasetChecksum:'dataset-security',
+  status:'passed',
+  runBy:'general',
+  errorCount:0,warningCount:0
+ });
+ await repo.saveImpactEvidence('ucvm-workload-2028-29-v2',{
+  revision:1,
+  impactRunId:'impact-security',
+  policyChecksum:validation.policyChecksum,
+  inputDatasetChecksum:'dataset-security',
+  actor:{uid:'general',name:'General Admin',email:'general@example.test'}
+ });
+
+ const published=await service.publish('ucvm-workload-2028-29-v2');
+ assert.equal(published.version.status,'active');
+ assert.equal((await db.doc('doe_policy_versions/ucvm-workload-2028-29-v1').get()).data().status,'archived');
+ assert.equal((await db.doc('doe_policies/ucvm-workload-2028-29').get()).data().currentActiveVersionId,'ucvm-workload-2028-29-v2');
+ const publications=await db.collection('doe_publications').where('policyVersionId','==','ucvm-workload-2028-29-v2').get();
+ assert.equal(publications.size,1);
 });
