@@ -7,7 +7,7 @@ const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
 function load(){
  const context={window:{}};
- for(const file of ['calendar-session.js','approval-finalizer.js'])vm.runInNewContext(fs.readFileSync(path.join(root,file),'utf8'),context);
+ for(const file of ['scheduling-core.js','calendar-session.js','approval-finalizer.js'])vm.runInNewContext(fs.readFileSync(path.join(root,file),'utf8'),context);
  return context.window.UCVM_APPROVAL_FINALIZER;
 }
 
