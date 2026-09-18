@@ -47,6 +47,7 @@ jobs:
           echo "a7f50592f1170be097c0863b06ca948e0e69c0728f60f8429986a4e7d1ef624e  $RUNNER_TEMP/ws5b-final.patch" | sha256sum -c -
           cp tools/ws5b-fixture-fix.patch "$RUNNER_TEMP/ws5b-fixture-fix.patch"
           cp tools/ws5b-emulator-fix.patch "$RUNNER_TEMP/ws5b-emulator-fix.patch"
+          cp tools/ws5b-emulator-test-isolation-fix.patch "$RUNNER_TEMP/ws5b-emulator-test-isolation-fix.patch"
 
       - name: Apply patch to WS5B feature branch
         shell: bash
@@ -59,6 +60,7 @@ jobs:
           git apply "$RUNNER_TEMP/ws5b-final.patch"
           git apply "$RUNNER_TEMP/ws5b-fixture-fix.patch"
           git apply "$RUNNER_TEMP/ws5b-emulator-fix.patch"
+          git apply "$RUNNER_TEMP/ws5b-emulator-test-isolation-fix.patch"
           # RED from run 35287913396 proved this old hard-coded count is stale.
           # The following assertion in the same test already compares the staged output to the manifest exactly.
           sed -i '/assert\.equal(manifest\.length,47);/d' tests/hosting-boundary.test.js
