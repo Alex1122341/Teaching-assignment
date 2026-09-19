@@ -113,7 +113,7 @@ Firebase API key pattern or the legacy project id reappears in a runtime file.
 | No hard-coded project config in runtime sources | `tests/firebase-config.test.js` |
 | Config loads before the shared Firebase helper | `tests/firebase-config.test.js` |
 | Deploy default is the lab project | `.firebaserc` + `tests/firebase-config.test.js` |
-| Mirror/preview safety | `docs/MIRROR.md` |
+| Mirror/preview safety | the `MIRROR.md` policy document, which lives in the `Mirror-Teaching-` repository rather than this one |
 | Rule evaluation budget | `tests/rules-evaluation-budget.test.js` |
 
 ---
