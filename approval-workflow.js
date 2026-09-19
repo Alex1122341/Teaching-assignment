@@ -119,8 +119,13 @@
  async function ensureReplacementPeople(){
   if(people.length)return people;
   if(peopleLoading)return peopleLoading;
-  peopleLoading=db.collection('users').where('role','in',['faculty','hicc','visc']).get().then(q=>{
-    people=q.docs.map(d=>({uid:d.id,...d.data(),role:UCVM.role(d.data().role)})).filter(p=>p.active===true);
+  // Reads the sanitized people index instead of listing /users. The index
+  // carries only uid, display name, role, facultyId and normalised aliases, and
+  // contains active accounts only - so no email, account state or office field
+  // is exposed to a faculty-role reader.
+  peopleLoading=db.doc('settings/people_index').get().then(snap=>{
+    const entries=Array.isArray(snap.data()?.entries)?snap.data().entries:[];
+    people=entries.filter(entry=>entry&&entry.uid).map(entry=>({...entry,role:UCVM.role(entry.role)}));
     peopleByUid=new Map(people.map(p=>[p.uid,p]));
     rebuildHiccScope();queueDecorate();return people;
   }).catch(e=>{console.warn('[workflow people]',e);return[]}).finally(()=>{peopleLoading=null});
@@ -208,7 +213,7 @@
   if(gt.some(t=>st.some(v=>v===t||v.includes(t)||t.includes(v))))return true;
   const memberProfiles=(g.memberUids||[]).map(uid=>peopleByUid.get(uid)).filter(Boolean);
   const facultyIds=new Set(memberProfiles.map(p=>String(p.facultyId||'').trim()).filter(Boolean));
-  const aliases=new Set(memberProfiles.flatMap(p=>[p.name,p.email?.split('@')[0]].map(norm).filter(Boolean)));
+  const aliases=new Set(memberProfiles.flatMap(p=>[p.name,...(p.aliases||[])].map(norm).filter(Boolean)));
   return assignedArray(s).some(a=>facultyIds.has(String(a.ucid||'').trim())||aliases.has(norm(a.name)));
  }
  function rebuildHiccScope(){
@@ -314,7 +319,7 @@
 
  async function openHiccSwap(s,g){
   await ensureReplacementPeople();
-  const arr=assignedArray(s),members=(g.memberUids||[]).map(uid=>peopleByUid.get(uid)).filter(p=>p?.active&&p.facultyId),existing=new Set(arr.map(a=>String(a.ucid||'')).filter(Boolean));
+  const arr=assignedArray(s),members=(g.memberUids||[]).map(uid=>peopleByUid.get(uid)).filter(p=>p?.facultyId),existing=new Set(arr.map(a=>String(a.ucid||'')).filter(Boolean));
   if(!arr.length)return toast('This session has no assigned faculty to swap.',true);
   showModal(`<div class="modal-header"><div class="modal-title">Request HICC faculty swap</div><div class="modal-subtitle">${esc(g.name)} · group-member replacement · ADFA approval required</div></div><form id="workflow-hicc-swap-form"><div class="modal-body">${sessionSummary(s)}<label class="form-field"><span class="form-label">Replace current instructor</span><select class="form-select" name="out">${arr.map((a,i)=>`<option value="${i}">${esc(a.name||'Unknown')}</option>`).join('')}</select></label><label class="form-field"><span class="form-label">With HICC group member</span><select class="form-select" name="to">${optionPeople(members,existing)}</select></label><label class="form-field"><span class="form-label">Reason / note</span><input class="form-input" name="reason" placeholder="Optional"></label><div class="workflow-note">Only active dashboard accounts that are members of this HICC group are shown as HICC replacement candidates.</div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-workflow-close>Cancel</button><button class="btn btn-primary" type="submit">Submit for approval</button></div></form>`);
   $('workflow-hicc-swap-form').onsubmit=async ev=>{ev.preventDefault();const f=new FormData(ev.currentTarget),idx=Number(f.get('out')),incoming=peopleByUid.get(String(f.get('to')||'')),out=arr[idx];if(!out||!incoming)return toast('Select both faculty members.',true);try{await createSwapRequest(s,out,idx,incoming,'hicc',g,String(f.get('reason')||''))}catch(e){toast(e.message,true)}};

@@ -34,7 +34,14 @@ test('session mutations update derived settings from exact before and after reco
 
 test('derived settings writes are limited to administrators',()=>{
  const rules=read('firestore.rules');
- assert.match(rules,/id in \['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map'\].*admin\(\)/s);
+ assert.match(rules,/id in \['faculty_index','schedule_stats','faculty_swap_map'\].*admin\(\)/s);
+ // The sanitized projections are additionally pinned to a document envelope, so
+ // a writer cannot smuggle private fields into a document that ordinary faculty
+ // accounts are allowed to read.
+ assert.match(rules,/id == 'faculty_swap_index' && swapIndexShapeValid\(request\.resource\.data\) && \(\(teachingWritesOpen\(\) && admin\(\)\)/);
+ assert.match(rules,/id == 'people_index' && peopleIndexShapeValid\(request\.resource\.data\) && admin\(\)/);
+ assert.match(rules,/function swapIndexShapeValid\(d\)\{return d\.keys\(\)\.hasOnly\(\['schemaVersion','entries','generatedAt'\]\)/);
+ assert.match(rules,/function peopleIndexShapeValid\(d\)\{return d\.keys\(\)\.hasOnly\(\['schemaVersion','entries','generatedAt'\]\)/);
 });
 
 test('session deltas update totals, courses, faculty counts, and assigned DOE',()=>{

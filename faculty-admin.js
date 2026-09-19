@@ -1,5 +1,5 @@
 (() => {'use strict';
-const FIREBASE_CONFIG={apiKey:"AIzaSyDS9VE2zTXv0656_Mh0uDXB67-mZ5Y_LkY",authDomain:"tester-teaching.firebaseapp.com",projectId:"tester-teaching",storageBucket:"tester-teaching.firebasestorage.app",messagingSenderId:"566638053186",appId:"1:566638053186:web:90e04b52251c4b859baadb",measurementId:"G-F7HW5XX4JE"};
+const FIREBASE_CONFIG=window.UCVM_FIREBASE_CONFIG;
 const COLLECTION='faculty', LOG_COLLECTION='faculty_change_log', AUX_DOC='faculty_summary_2026_27', SESSION_COLLECTION='sessions', SESSION_LOG_COLLECTION='session_change_log';
 let auth=null,db=null,currentUser=null,currentProfile=null,faculty=[],auxiliary=[],sessions=[],selectedId=null,facultyUnsubscribe=null,sessionUnsubscribe=null,editingOriginalId=null,currentTab='lookup',auxLoaded=false,auxLoading=null,selfMode=false;
 let facultyLoaded=false,sessionsLoaded=false,facultyLoading=null,sessionsLoading=null,detailLoadToken=0,scheduleStats={},derivedIndexTimer=null;

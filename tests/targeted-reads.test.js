@@ -42,10 +42,23 @@ test('approval workflow fetches only sessions referenced by requests',()=>{
 test('replacement accounts and change-history pages load only when requested',()=>{
  const workflow=read('approval-workflow.js'),access=read('faculty-access.js');
  assert.match(workflow,/function ensureReplacementPeople/);
- assert.match(workflow,/where\('role','in',\['faculty','hicc','visc'\]\)\.get\(\)/);
+ // The people picker reads the sanitized projection, never the account collection.
+ assert.match(workflow,/db\.doc\('settings\/people_index'\)\.get\(\)/);
+ assert.doesNotMatch(workflow,/db\.collection\('users'\)/);
  assert.doesNotMatch(workflow,/listenPeople\(\)/);
  assert.match(access,/const PAGE_SIZE=20/);
  assert.match(access,/\.limit\(PAGE_SIZE\)/);
+});
+
+test('user management separates full accounts from the sanitized people projection',()=>{
+ const source=read('user-management.js');
+ // Full account records remain Owner-only.
+ assert.match(source,/if\(isGeneral\)jobs\.push\(db\.collection\('users'\)\.get\(\)\)/);
+ // Group member and owner selectors read the sanitized projection for every role.
+ assert.match(source,/db\.doc\('settings\/people_index'\)\.get\(\)/);
+ assert.match(source,/data\.people\.filter\(person=>\['faculty','hicc','visc'\]\.includes\(person\.role\)\)/);
+ assert.match(source,/data\.people\.filter\(person=>person\.role==='hicc'\)/);
+ assert.doesNotMatch(source,/data\.users\.filter\(user=>\['faculty','hicc','visc'\]\.includes\(user\.role\)\)/);
 });
 
 test('User Management uses the lightweight faculty index until an Owner requests bulk provisioning',()=>{
