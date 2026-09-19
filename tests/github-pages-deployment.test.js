@@ -17,6 +17,7 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/contents:\s*read/);
   assert.match(workflow,/pages:\s*write/);
   assert.match(workflow,/id-token:\s*write/);
+  assert.match(workflow,/uses:\s*actions\/checkout@v4\s*\n\s*with:\s*\n\s*ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
   assert.match(workflow,/npm ci/);
   assert.match(workflow,/npm test/);
   assert.match(workflow,/npm run test:emulator/);
@@ -24,7 +25,7 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
   assert.match(workflow,/--pr\s+["']?\$\{\{ github\.event\.pull_request\.number \}\}["']?/);
   assert.match(workflow,/--head-sha\s+["']?\$\{\{ github\.event\.pull_request\.head\.sha \}\}["']?/);
-  assert.match(workflow,/--build-sha\s+["']?\$\{\{ github\.sha \}\}["']?/);
+  assert.match(workflow,/--build-sha\s+["']?\$\{\{ github\.event\.pull_request\.head\.sha \}\}["']?/);
   assert.match(workflow,/actions\/configure-pages@v6/);
   assert.match(workflow,/actions\/upload-pages-artifact@v5/);
   assert.match(workflow,/path:\s*\.deploy-static/);
@@ -38,6 +39,7 @@ test('Pages workflow leaves the independent Test workflow in place',()=>{
   const workflow=read('.github/workflows/test.yml');
   assert.match(workflow,/name:\s*Test/);
   assert.match(workflow,/pull_request:/);
+  assert.match(workflow,/uses:\s*actions\/checkout@v4\s*\n\s*with:\s*\n\s*ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/);
   assert.match(workflow,/push:\s*\n\s+branches:\s*\n\s+- main/);
 });
 
