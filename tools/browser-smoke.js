@@ -207,9 +207,16 @@ async function run(){
   if(stderr.trim())process.stderr.write(`Chrome stderr (tail):\n${stderr.slice(-5000)}\n`);
   throw error;
  }finally{
-  child.kill('SIGTERM');await wait(200);if(child.exitCode===null)child.kill('SIGKILL');
+  if(child.exitCode===null){
+   child.kill('SIGTERM');
+   for(let i=0;i<20&&child.exitCode===null;i++)await wait(100);
+   if(child.exitCode===null){
+    child.kill('SIGKILL');
+    for(let i=0;i<20&&child.exitCode===null;i++)await wait(100);
+   }
+  }
   await new Promise(resolve=>server.close(resolve));
-  fs.rmSync(userDataDir,{recursive:true,force:true});
+  fs.rmSync(userDataDir,{recursive:true,force:true,maxRetries:8,retryDelay:100});
  }
 }
 if(require.main===module)run().catch(error=>{console.error(error.stack||error);process.exit(1)});
