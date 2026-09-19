@@ -3,7 +3,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const {
- PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,safeStaticPath,contentType,chromeCandidates,localAssetFailure
+ PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,emulatorOrigin,safeStaticPath,contentType,chromeCandidates,localAssetFailure
 }=require('../tools/browser-smoke.js');
 
 test('browser smoke covers every generated application page',()=>{
@@ -35,4 +35,12 @@ test('Chrome discovery keeps environment overrides ahead of runner defaults',()=
  const candidates=chromeCandidates({CHROME_PATH:'/custom/chrome',CHROME_BIN:'/custom/bin'});
  assert.deepEqual(candidates.slice(0,2),['/custom/chrome','/custom/bin']);
  assert.ok(candidates.includes('google-chrome'));
+});
+
+test('authenticated smoke fixture is isolated and uses an allowed UCVM email',()=>{
+ assert.equal(AUTH_FIXTURE.projectId,'vista-teaching-lab');
+ assert.match(AUTH_FIXTURE.email,/@ucalgary\.ca$/);
+ assert.ok(AUTH_FIXTURE.password.length>=12);
+ assert.equal(emulatorOrigin('127.0.0.1:9099'),'http://127.0.0.1:9099');
+ assert.equal(emulatorOrigin('http://localhost:8080/'),'http://localhost:8080');
 });
