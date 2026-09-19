@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.js",
+    "test:static": "node tools/test-static.js",
     "test:emulator": "firebase emulators:exec --only firestore,auth --project demo-ucvm-access \"node --test tests/*.test.js\""
   },
   "devDependencies": {

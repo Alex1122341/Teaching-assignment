@@ -417,13 +417,14 @@ service cloud.firestore {
   match /session_change_log/{id} {
    allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid);
    allow create: if teachingWritesOpen() && ((admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time) || officeSessionAuditCreate());
-   allow update: if teachingWritesOpen() && admin() && resource.data.changedBy == request.auth.uid && request.resource.data.changedBy == resource.data.changedBy && request.resource.data.changedAt == resource.data.changedAt && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['changes','changedByEmail','changedByName']);
+   allow update: if false;
    allow delete: if false;
   }
   match /faculty_change_log/{id} {
    allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid);
    allow create: if teachingWritesOpen() && admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
-   allow update: if teachingWritesOpen() && admin() && resource.data.changedBy == request.auth.uid && request.resource.data.changedBy == resource.data.changedBy && request.resource.data.changedAt == resource.data.changedAt && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['changes','facultyName','changedByEmail','changedByName']);
+   // Audit history is append-only: a correction is a new event, never an edit of an existing one.
+   allow update: if false;
    allow delete: if false;
   }
   match /account_audit/{id} {
