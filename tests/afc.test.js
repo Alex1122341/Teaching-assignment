@@ -155,10 +155,18 @@ test('timetable exposes the AFC request panel', () => {
   assert.match(html, /afc-workflow\.js/);
 });
 
-test('AFC UI collects dates, conditional details, coverage, and electronic signature', () => {
+test('AFC UI collects dates, conditional details, terms acceptance, and electronic signature', () => {
   const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
-  for (const field of ['startDate','endDate','reason','purposeDestination','coverage','applicantSignature','UCVM_SIGNATURE']) assert.match(source, new RegExp(field));
+  for (const field of ['startDate','endDate','reason','purposeDestination','coverage','applicantSignature','UCVM_SIGNATURE','afc-view-terms','afc-terms-accepted','termsAcceptedAt','termsVersion','termsSource']) assert.match(source, new RegExp(field));
+  assert.match(source,/Open the AFC Terms & Conditions before signing/);
+  assert.match(source,/absence-from-campus-app\.pdf#page=2/);
   assert.match(fs.readFileSync(path.join(root, 'afc-actions.js'), 'utf8'), /pdf_chunks/);
+});
+
+test('approved AFC PDF removes the Terms page and records the accepted terms version in metadata', () => {
+  const source=fs.readFileSync(path.join(root,'afc-pdf-browser.js'),'utf8');
+  assert.match(source,/while\(pdf\.getPageCount\(\)>1\)pdf\.removePage\(pdf\.getPageCount\(\)-1\)/);
+  assert.match(source,/terms accepted:/);
 });
 
 test('AFC UI requires contact details for each new request', () => {
@@ -218,5 +226,12 @@ test('Firestore rules permit only the legal requester withdrawal field set',()=>
  assert.match(rules,/withdrawnBy == request\.auth\.uid/);
  assert.match(rules,/affectedKeys\(\)\.hasOnly\(\['status','withdrawnBy','withdrawnAt','updatedAt'\]\)/);
  assert.match(rules,/afc_requests[^]*allow update:[^]*afcWithdraw\(\)/);
+});
+
+test('Firestore AFC create rule requires versioned Terms & Conditions evidence',()=>{
+ assert.match(rules,/termsAccepted == true/);
+ assert.match(rules,/termsVersion == 'ucvm-afc-terms-page2-v1'/);
+ assert.match(rules,/termsSource == 'absence-from-campus-app\.pdf#page=2'/);
+ assert.match(rules,/termsAcceptedAt == request\.time/);
 });
 })();

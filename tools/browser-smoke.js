@@ -276,13 +276,13 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
   const approvalAsset=bundlePaths.get('bundles/approval-workflow.lazy.bundle.js');
   if(!afcAsset||!approvalAsset)throw Error('Authenticated smoke is missing hashed lazy bundle mappings.');
   const afcLazy=await cdp.send('Runtime.evaluate',{
-   expression:`(async()=>{const api=await window.UCVM_ASSETS.ensureAfcPdf();const expected=${JSON.stringify(afcAsset)};const scripts=[...document.scripts].filter(script=>String(script.src||'').endsWith('/'+expected));return{ok:!!api,values:!!window.UCVM_AFC_FORM_VALUES,pdf:!!window.UCVM_AFC_PDF,scripts:scripts.length}})()`,
+   expression:`(async()=>{const api=await window.UCVM_ASSETS.ensureAfcPdf();const expected=${JSON.stringify(afcAsset)};const scripts=[...document.scripts].filter(script=>String(script.src||'').endsWith('/'+expected));const bytes=await api.render({facultySnapshot:{ucid:'f1'},facultyId:'f1',facultyName:'Browser Smoke Owner',workDays:1,startDate:'2026-10-01',endDate:'2026-10-01',reason:'vacation',contactAddress:'2500 University Drive NW',contactPhone:'403-555-1212',termsVersion:'ucvm-afc-terms-page2-v1',applicantSignature:{mode:'typed',name:'Browser Smoke Owner',uid:${JSON.stringify(fixture.uid)},email:${JSON.stringify(fixture.email)},account:${JSON.stringify(fixture.email)},signedAt:new Date().toISOString(),fingerprint:'browser-smoke'}});const doc=await PDFLib.PDFDocument.load(bytes);return{ok:!!api,values:!!window.UCVM_AFC_FORM_VALUES,pdf:!!window.UCVM_AFC_PDF,scripts:scripts.length,pages:doc.getPageCount()}})()`,
    returnByValue:true,
    awaitPromise:true
   });
   if(afcLazy.exceptionDetails)throw Error(`AFC lazy bundle failed: ${exceptionText(afcLazy.exceptionDetails)}`);
   if(!afcLazy.result?.value?.ok||!afcLazy.result?.value?.values||!afcLazy.result?.value?.pdf)throw Error('AFC lazy bundle did not expose the expected runtime globals.');
-  if(afcLazy.result?.value?.scripts!==1)throw Error(`AFC hashed lazy bundle loaded ${afcLazy.result?.value?.scripts||0} times; expected exactly once.`);
+  if(afcLazy.result?.value?.scripts!==1)throw Error(`AFC hashed lazy bundle loaded ${afcLazy.result?.value?.scripts||0} times; expected exactly once.`);if(afcLazy.result?.value?.pages!==1)throw Error(`Approved AFC PDF contains ${afcLazy.result?.value?.pages||0} pages; expected exactly one form page.`);
 
   const approvalLazy=await cdp.send('Runtime.evaluate',{
    expression:`(async()=>{await window.UCVM_ASSETS.ensureApprovalWorkflow();const expected=${JSON.stringify(approvalAsset)};const scripts=[...document.scripts].filter(script=>String(script.src||'').endsWith('/'+expected));return{handoff:window.UCVM_SAFE_SWAP_HANDOFF?.mode||'',scripts:scripts.length}})()`,

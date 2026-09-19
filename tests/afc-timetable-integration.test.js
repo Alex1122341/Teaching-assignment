@@ -90,7 +90,7 @@ function submissionHarness(ensureSessionsForRange, initialSessions = []) {
   let sessions = initialSessions;
   const form = { values: {
     startDate: '2026-10-07', endDate: '2026-10-07', reason: 'vacation',
-    purposeDestination: '', coverage: '', contactAddress: '2500 University Drive NW', contactPhone: '403-555-1212'
+    purposeDestination: '', coverage: '', contactAddress: '2500 University Drive NW', contactPhone: '403-555-1212', termsAccepted: 'on'
   } };
   const context = {
     console,
