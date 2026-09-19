@@ -33,13 +33,13 @@ const config=window.UCVM_FIREBASE_CONFIG;
   new MutationObserver(m=>{if(m.some(x=>[...x.addedNodes].some(n=>n.nodeType===1&&(n.matches?.('.tg-day-col,.tg-block')||n.querySelector?.('.tg-day-col,.tg-block')))))queue()}).observe(document.documentElement,{childList:true,subtree:true});
  }
  installStableWeekLanes();
- let persistenceStarted=false;
+ let persistenceStarted=false,emulatorConfigured=false;
  function init(){
   if(!firebase.apps.length)firebase.initializeApp(config);
   const db=firebase.firestore(),auth=firebase.auth();
   // Local development talks to the Emulator Suite, so a fresh clone runs against
   // the seeded local database with no cloud project and no credentials.
-  if(window.UCVM_FIREBASE_EMULATOR){db.useEmulator('127.0.0.1',8080);auth.useEmulator('http://127.0.0.1:9099');}
+  if(window.UCVM_FIREBASE_EMULATOR&&!emulatorConfigured){db.useEmulator('127.0.0.1',8080);auth.useEmulator('http://127.0.0.1:9099');emulatorConfigured=true;}
   if(!persistenceStarted&&!window.UCVM_FIREBASE_EMULATOR){
    persistenceStarted=true;
    db.enablePersistence({synchronizeTabs:true}).catch(e=>{
