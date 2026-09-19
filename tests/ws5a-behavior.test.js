@@ -14,10 +14,10 @@ test('calendar layout never positions unknown, reversed, or malformed intervals'
  assert.deepEqual(Array.from(rows,r=>r.session.id),['valid','adjacent']);assert.ok(rows.every(row=>row.laneCount===1&&Number.isFinite(row.startM)&&Number.isFinite(row.endM)));
 });
 test('duration fallback preserves null and explicit credited hours including zero',()=>{
- const api=timetable(['blockHours','swapNumeric','swapAssignmentHours','defaultTeachingRole','doeRateForRole','finalizeInstructorAssignments']);
+ const api=timetable(['blockHours','swapNumeric','swapAssignmentHours','defaultTeachingRole','finalizeInstructorAssignments']);
  assert.equal(api.blockHours('bad','10:00'),null);assert.equal(api.blockHours('09:00','10:00',{timeUnknown:true}),null);
  assert.equal(api.swapAssignmentHours({},{start:'bad',end:'10:00'}),null);assert.equal(api.swapAssignmentHours({creditedHours:0},{timeUnknown:true}),0);assert.equal(api.swapAssignmentHours({creditedHours:2},{start:'09:00',end:'10:00'}),2);
- const unrated=api.finalizeInstructorAssignments([{name:'Faculty',creditedHours:null}],'LEC','bad','10:00','Topic')[0];assert.equal(unrated.creditedHours,null);assert.equal(unrated.doeCredit,null);
+ const unrated=api.finalizeInstructorAssignments([{name:'Faculty',creditedHours:null}],'LEC','bad','10:00','Topic')[0];assert.equal(unrated.creditedHours,null);assert.equal(unrated.doeCredit,undefined);
  assert.equal(api.finalizeInstructorAssignments([{name:'Faculty',creditedHours:2}],'LEC','09:00','10:00','Topic')[0].creditedHours,2);
 });
 test('candidate assessment never reports Available for unknown or reversed timing',()=>{
@@ -43,7 +43,7 @@ test('single, bulk and multi-edit writers invoke the common deliberate conflict 
 test('multi-edit save passes stable session ids into conflict review',async()=>{
  const window={UCVM_SCHEDULING:loadCore()};vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),{window});
  const original={...changedRow('stable-id','09:00','10:00'),year:1,type:'LEC',topic:'Topic',facultyIds:['f1']},changed={...original,start:'09:30',end:'10:30'};let reviewed;
- const api=timetable(['saveSelectedChanges'],{window,canEdit:()=>true,canSelectSessions:()=>true,capabilities:()=>({canEditInstructor:true}),selectionRole:()=> 'adfa_regular',$:()=>({}),selectedSessionOriginals:new Map([['stable-id',original]]),sessionSelection:{ids:()=>['stable-id']},readSelectionRows:()=>[changed],facultyDirectory:[{__id:'f1'}],firebase:{firestore:{FieldValue:{serverTimestamp:()=> 'SERVER'}}},ensureSessionsForDates:async()=>{},currentUser:{uid:'admin1'},confirmSchedulingChanges:rows=>{reviewed=rows;return null},toast:()=>{}});await api.saveSelectedChanges();assert.deepEqual(Array.from(reviewed,row=>row.id),['stable-id']);
+ const api=timetable(['saveSelectedChanges'],{window,canEdit:()=>true,canSelectSessions:()=>true,capabilities:()=>({canEditInstructor:true}),selectionRole:()=> 'adfa_regular',$:()=>({}),selectedSessionOriginals:new Map([['stable-id',original]]),sessionSelection:{ids:()=>['stable-id']},readSelectionRows:()=>[changed],facultyDirectory:[{__id:'f1'}],firebase:{firestore:{FieldValue:{serverTimestamp:()=> 'SERVER'}}},ensureSessionsForDates:async()=>{},currentUser:{uid:'admin1'},getTimetableDoeRuntime:()=>({adapter:{prepareSession:async(_before,after)=>({session:after,calculationRecords:[],doeChanges:[]})},repository:{stageCalculationRecord:()=>{}}}),doeAuditChanges:()=>[],confirmSchedulingChanges:rows=>{reviewed=rows;return null},toast:()=>{}});await api.saveSelectedChanges();assert.deepEqual(Array.from(reviewed,row=>row.id),['stable-id']);
 });
 test('force-refresh reloads cached approval dates and removes stale sessions',async()=>{
  let reads=0;const state={SESSIONS:'sessions',sessions:new Map([['old',{id:'old',date:'2026-10-01'}]]),approvalSessionDatesLoaded:new Set(['2026-10-01']),ymd:v=>String(v||'').slice(0,10),db:{collection:()=>({where:()=>({get:async()=>{reads++;return{docs:[{id:'new',data:()=>({date:'2026-10-01'})}]}}})})}};
@@ -54,6 +54,6 @@ test('force-refresh reloads AFC details instead of prior hydrated objects',async
  vm.createContext(state);vm.runInContext(sourceFunction('approval-workflow.js','ensureApprovalFaculty'),state);await state.ensureApprovalFaculty([],true);assert.equal(reads,1);assert.equal(state.approvalFacultyById.get('f1').awayFromCampusRecords.length,1);
 });
 test('instructor finalization retains explicit DOE credit and unknown inferred hours',()=>{
- const api=timetable(['blockHours','swapNumeric','defaultTeachingRole','doeRateForRole','finalizeInstructorAssignments']);assert.equal(api.finalizeInstructorAssignments([{name:'Faculty',creditedHours:2,doeCredit:8}],'LEC','09:00','10:00','Topic')[0].doeCredit,8);
- const unknown=api.finalizeInstructorAssignments([{name:'Faculty'}],'LEC','09:00','10:00','Topic',{timeUnknown:true})[0];assert.equal(unknown.creditedHours,null);assert.equal(unknown.doeCredit,null);
+ const api=timetable(['blockHours','swapNumeric','defaultTeachingRole','finalizeInstructorAssignments']);assert.equal(api.finalizeInstructorAssignments([{name:'Faculty',creditedHours:2,doeCredit:8}],'LEC','09:00','10:00','Topic')[0].doeCredit,8);
+ const unknown=api.finalizeInstructorAssignments([{name:'Faculty'}],'LEC','09:00','10:00','Topic',{timeUnknown:true})[0];assert.equal(unknown.creditedHours,null);assert.equal(unknown.doeCredit,undefined);
 });

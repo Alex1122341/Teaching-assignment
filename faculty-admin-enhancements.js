@@ -2,7 +2,7 @@
 (()=>{
  'use strict';
  const page=(location.pathname.split('/').pop()||'').toLowerCase();
- if(page!=='faculty-admin.html'||!window.UCVM||!window.UCVM_FACULTY_DOE||typeof firebase==='undefined')return;
+ if(page!=='faculty-admin.html'||!window.UCVM||!window.UCVM_FACULTY_DOE||!window.UCVM_DATA_INDEX||typeof firebase==='undefined')return;
  const {auth,db}=UCVM.init(),$=id=>document.getElementById(id),esc=UCVM.esc;
  const YEAR='2026-27';
  const ROLE_TYPES=['Course Coordinator','HICC','VISC','Course Coordinator / HICC','Rotation / Week Lead','CCC','Trainee / Supervision','Special Project','Other'];
@@ -12,25 +12,17 @@
  const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
  const summary=f=>f?.facultySummary2026_27&&typeof f.facultySummary2026_27==='object'?f.facultySummary2026_27:null;
  const facultyName=f=>String(f?.preferredFullName||f?.hrFirstLast||f?.hrFullName||summary(f)?.displayName||f?.__id||'');
- const aliases=f=>{const s=new Set();[facultyName(f),f?.preferredFullName,f?.hrFirstLast,f?.hrFullName,f?.teachingAssignmentName,summary(f)?.displayName].forEach(v=>{const k=norm(v);if(k)s.add(k)});if(f?.firstName&&f?.lastName)s.add(norm(`${f.firstName} ${f.lastName}`));return s};
- const managedRoles=f=>window.UCVM_ACCOUNT_PLANNER?.normalizedManagedRoles(f)||(Array.isArray(f?.managedRoles2026_27)?f.managedRoles2026_27:[]);
- const roleEffect=r=>{const d=Math.abs(num(r?.doeCredit)||0);return String(r?.action||'add')==='remove'?-d:d};
- const managedRoleDOE=f=>managedRoles(f).reduce((n,r)=>n+roleEffect(r),0);
- const assignmentCredit=a=>{const c=num(a?.doeCredit);if(c!==null)return c;const rate=num(a?.doeRate),h=num(a?.creditedHours);return rate!==null&&h!==null?rate*h:0};
- function buildScheduledDoe(){
-  const out=new Map(),aliasMap=new Map();
-  faculty.forEach(f=>{out.set(String(f.__id),0);aliases(f).forEach(a=>{if(!aliasMap.has(a))aliasMap.set(a,String(f.__id))})});
-  sessions.forEach(s=>(Array.isArray(s.assignments)?s.assignments:[]).forEach(a=>{let id=String(a?.ucid||'').trim();if(!id)id=aliasMap.get(norm(a?.name))||'';if(id&&out.has(id))out.set(id,out.get(id)+assignmentCredit(a))}));
-  return out;
- }
- function doeRow(f,scheduled){
-  const s=summary(f),fixed=num(s?.sourceNonTimetableTeachingDOE),sourceAssigned=num(s?.assignedTeachingDOE),sched=scheduled.get(String(f.__id))||0,base=fixed!==null?fixed+sched:sourceAssigned,roleAdj=managedRoleDOE(f),assigned=base===null?(roleAdj?roleAdj:null):base+roleAdj,targetInfo=window.UCVM_FACULTY_DOE.effectiveTarget(f),contract=window.UCVM_FACULTY_DOE.contract(f),ov=targetInfo.source==='override'?targetInfo.value:null,target=targetInfo.value,diff=target!==null&&assigned!==null?target-assigned:null;
-  let status='no-target';if(diff!==null)status=Math.abs(diff)<=.25?'within':diff>0?'remaining':'over';
-  return{f,sched,fixed,base,roleAdj,assigned,contract,override:ov,target,diff,status};
+ function buildDoeRows(){
+  const built=window.UCVM_DATA_INDEX.buildFacultyIndex(faculty,sessions),entries=new Map((built.entries||[]).map(row=>[String(row.id),row]));
+  return faculty.filter(f=>f.active!==false).map(f=>{
+   const entry=entries.get(String(f.__id))||window.UCVM_DATA_INDEX.facultyEntry(String(f.__id),f,{}),diff=entry.remainingDOE;
+   let status=entry.calculationStatus==='error'?'error':'no-target';if(status!=='error'&&diff!==null)status=Math.abs(diff)<=.25?'within':diff>0?'remaining':'over';
+   return{f,entry,roleAdj:entry.managedRoleDOE,assigned:entry.calculationStatus==='error'?null:entry.assignedTeachingDOE,contract:entry.contractTeachingDOE,override:entry.overrideDOE,target:entry.effectiveTargetDOE,diff,status,policyVersionId:entry.policyVersionId||'—',calculationStatus:entry.calculationStatus||'unavailable'};
+  });
  }
  const pct=(v,d=2)=>v===null?'—':`${Number(v).toFixed(d)}%`;
  function specialty(f){const v=f?.teachingAreaEmphasis||f?.teachingArea||f?.boardSpecialties||f?.boardCertification||'';return String(v).split(/\n|;/)[0].trim()}
- function statusText(r){if(r.diff===null)return'No target';if(r.status==='within')return'Within target';if(r.status==='remaining')return`${pct(r.diff)} remaining`;return`${pct(Math.abs(r.diff))} over`}
+ function statusText(r){if(r.status==='error')return'DOE unavailable';if(r.diff===null)return'No target';if(r.status==='within')return'Within target';if(r.status==='remaining')return`${pct(r.diff)} remaining`;return`${pct(Math.abs(r.diff))} over`}
  function overrideNote(f){const o=window.UCVM_FACULTY_DOE.override(f);if(o.value===null)return'—';return [o.reason,o.notes].filter(Boolean).join(' · ')||'Office override'}
  function managedRolesText(f){const rs=managedRoles(f);return rs.length?rs.map(r=>`${r.action==='remove'?'Remove':'Add'} ${r.type}${r.assignment?` — ${r.assignment}`:''} (${roleEffect(r)>=0?'+':''}${pct(roleEffect(r))})`).join('; '):'—'}
 
@@ -38,7 +30,7 @@
  #doe-list-view .doe-filter-grid{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px;border-bottom:1px solid var(--border)}
  #doe-list-view .doe-filter-grid .input{min-width:220px;flex:1}#doe-list-view .doe-filter-grid .select{min-width:150px}
  #doe-list-view .doe-status-pill{display:inline-flex;padding:3px 7px;border-radius:999px;font-size:10px;font-weight:800;border:1px solid var(--border)}
- #doe-list-view .doe-status-pill.within{background:#ecfdf3;color:#166534;border-color:#a7d7b5}#doe-list-view .doe-status-pill.remaining{background:#fff8e6;color:#8a5d00;border-color:#ebcd83}#doe-list-view .doe-status-pill.over{background:#fff1f2;color:#b91c1c;border-color:#f3b4ba}#doe-list-view .doe-status-pill.no-target{background:#f3f4f6;color:#6b7280}
+ #doe-list-view .doe-status-pill.within{background:#ecfdf3;color:#166534;border-color:#a7d7b5}#doe-list-view .doe-status-pill.remaining{background:#fff8e6;color:#8a5d00;border-color:#ebcd83}#doe-list-view .doe-status-pill.over,#doe-list-view .doe-status-pill.error{background:#fff1f2;color:#b91c1c;border-color:#f3b4ba}#doe-list-view .doe-status-pill.no-target{background:#f3f4f6;color:#6b7280}
  #doe-list-view .doe-override{font-weight:800;color:var(--navy)}#doe-list-view .doe-note-cell{max-width:260px;white-space:normal;line-height:1.35}
  .ucvm-role-help{margin:0 0 10px;padding:10px 12px;border:1px solid #dbe4f3;border-radius:7px;background:#f7faff;font-size:11px;line-height:1.5;color:var(--text2)}
  .ucvm-managed-role-row{display:grid;grid-template-columns:1.15fr 1.25fr .75fr .7fr 1.4fr auto;gap:7px;align-items:end;padding:8px;border:1px solid var(--border);border-radius:7px;margin-bottom:7px;background:var(--surface2)}
@@ -59,7 +51,7 @@
   const tabs=document.querySelector('.tabs');if(!tabs||$('doe-list-tab'))return;
   const tab=document.createElement('button');tab.className='tab';tab.id='doe-list-tab';tab.type='button';tab.textContent='DOE List';const rolesTab=[...tabs.querySelectorAll('.tab')].find(x=>x.dataset.tab==='roles');(rolesTab||tabs.lastElementChild)?.insertAdjacentElement('afterend',tab);
   const main=document.querySelector('main.shell');if(!main)return;
-  const sec=document.createElement('section');sec.id='doe-list-view';sec.className='panel hidden';sec.innerHTML=`<div class="doe-filter-grid"><input class="input" id="doe-list-search" placeholder="Search faculty, specialty, role or notes…"><select class="select" id="doe-rank-filter"><option value="">All ranks</option></select><select class="select" id="doe-specialty-filter"><option value="">All specialties</option></select><select class="select" id="doe-status-filter"><option value="">All DOE status</option><option value="within">Within target</option><option value="remaining">Remaining / under</option><option value="over">Overage</option><option value="no-target">No target</option></select><button class="btn" id="doe-list-reset">Reset</button></div><div class="doe-note">DOE List uses the live timetable. <strong>Assigned DOE</strong> = synchronized Assigned Teaching DOE + managed role DOE adjustments. <strong>Effective target</strong> uses the office Override DOE when present; otherwise Contract DOE.</div><div class="table-wrap"><table class="data-table"><thead><tr><th>Faculty</th><th>Rank</th><th>Specialty</th><th>Contract DOE</th><th>Override DOE</th><th>Special notes</th><th>Managed role DOE</th><th>Assigned DOE</th><th>Remaining / Overage</th><th>Actions</th></tr></thead><tbody id="doe-list-body"></tbody></table></div>`;main.appendChild(sec);
+  const sec=document.createElement('section');sec.id='doe-list-view';sec.className='panel hidden';sec.innerHTML=`<div class="doe-filter-grid"><input class="input" id="doe-list-search" placeholder="Search faculty, specialty, role or notes…"><select class="select" id="doe-rank-filter"><option value="">All ranks</option></select><select class="select" id="doe-specialty-filter"><option value="">All specialties</option></select><select class="select" id="doe-status-filter"><option value="">All DOE status</option><option value="within">Within target</option><option value="remaining">Remaining / under</option><option value="over">Overage</option><option value="error">Calculation error</option><option value="no-target">No target</option></select><button class="btn" id="doe-list-reset">Reset</button></div><div class="doe-note">DOE List uses the canonical derived DOE index. <strong>Assigned DOE</strong> sums persisted DOE credits plus source-reconciled non-timetable and approved managed-role adjustments. Missing DOE is shown as unavailable rather than inferred from a legacy rate. <strong>Effective target</strong> preserves Contract and approved Override sources.</div><div class="table-wrap"><table class="data-table"><thead><tr><th>Faculty</th><th>Rank</th><th>Specialty</th><th>Contract DOE</th><th>Override DOE</th><th>Special notes</th><th>Managed role DOE</th><th>Assigned DOE</th><th>Remaining / Overage</th><th>Policy Version</th><th>Calculation status</th><th>Actions</th></tr></thead><tbody id="doe-list-body"></tbody></table></div>`;main.appendChild(sec);
   tab.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===tab));['lookup','summary','roles','database','history'].forEach(id=>$(`${id}-view`)?.classList.add('hidden'));sec.classList.remove('hidden');renderDoeList()};
   document.querySelectorAll('.tab').forEach(t=>{if(t===tab)return;t.addEventListener('click',()=>sec.classList.add('hidden'))});
   ['doe-list-search','doe-rank-filter','doe-specialty-filter','doe-status-filter'].forEach(id=>$(id)?.addEventListener(id==='doe-list-search'?'input':'change',renderDoeList));
@@ -68,9 +60,9 @@
  }
  function updateDoeFilters(){if(!$('doe-rank-filter'))return;const ranks=[...new Set(faculty.map(f=>String(f.rank||f.currentTitle||'').trim()).filter(Boolean))].sort(),specs=[...new Set(faculty.map(specialty).filter(Boolean))].sort();const fill=(id,vals,label)=>{const e=$(id),old=e.value;e.innerHTML=`<option value="">${label}</option>`+vals.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');if(vals.includes(old))e.value=old};fill('doe-rank-filter',ranks,'All ranks');fill('doe-specialty-filter',specs,'All specialties')}
  function renderDoeList(){
-  if(!$('doe-list-body'))return;const scheduled=buildScheduledDoe(),q=norm($('doe-list-search')?.value),rank=$('doe-rank-filter')?.value||'',spec=$('doe-specialty-filter')?.value||'',status=$('doe-status-filter')?.value||'';
-  const rows=faculty.filter(f=>f.active!==false).map(f=>doeRow(f,scheduled)).filter(r=>{const f=r.f,blob=norm([facultyName(f),f.rank,f.currentTitle,specialty(f),f.boardSpecialties,managedRolesText(f),overrideNote(f)].join(' '));return(!q||blob.includes(q))&&(!rank||String(f.rank||f.currentTitle||'')===rank)&&(!spec||specialty(f)===spec)&&(!status||r.status===status)});
-  $('doe-list-body').innerHTML=rows.map(r=>`<tr><td><strong>${esc(facultyName(r.f))}</strong><div class="muted">${esc(r.f.__id||'')}</div></td><td>${esc(r.f.rank||r.f.currentTitle||'—')}</td><td>${esc(specialty(r.f)||'—')}</td><td>${pct(r.contract)}</td><td>${r.override===null?'—':`<span class="doe-override">${pct(r.override)}</span>`}</td><td class="doe-note-cell">${esc(overrideNote(r.f))}</td><td>${r.roleAdj?`${r.roleAdj>0?'+':''}${pct(r.roleAdj)}`:'—'}<div class="muted">${esc(managedRolesText(r.f))}</div></td><td><strong>${pct(r.assigned)}</strong></td><td><span class="doe-status-pill ${r.status}">${esc(statusText(r))}</span><div class="muted">Effective target ${pct(r.target)}</div></td><td><button class="btn btn-small" data-doe-edit="${esc(r.f.__id)}">Edit Faculty</button></td></tr>`).join('')||'<tr><td colspan="10" class="empty">No faculty match these filters.</td></tr>';
+  if(!$('doe-list-body'))return;const q=norm($('doe-list-search')?.value),rank=$('doe-rank-filter')?.value||'',spec=$('doe-specialty-filter')?.value||'',status=$('doe-status-filter')?.value||'';
+  const rows=buildDoeRows().filter(r=>{const f=r.f,blob=norm([facultyName(f),f.rank,f.currentTitle,specialty(f),f.boardSpecialties,managedRolesText(f),overrideNote(f)].join(' '));return(!q||blob.includes(q))&&(!rank||String(f.rank||f.currentTitle||'')===rank)&&(!spec||specialty(f)===spec)&&(!status||r.status===status)});
+  $('doe-list-body').innerHTML=rows.map(r=>`<tr><td><strong>${esc(facultyName(r.f))}</strong><div class="muted">${esc(r.f.__id||'')}</div></td><td>${esc(r.f.rank||r.f.currentTitle||'—')}</td><td>${esc(specialty(r.f)||'—')}</td><td>${pct(r.contract)}</td><td>${r.override===null?'—':`<span class="doe-override">${pct(r.override)}</span>`}</td><td class="doe-note-cell">${esc(overrideNote(r.f))}</td><td>${r.roleAdj?`${r.roleAdj>0?'+':''}${pct(r.roleAdj)}`:'—'}<div class="muted">${esc(managedRolesText(r.f))}</div></td><td><strong>${r.calculationStatus==='error'?'Unavailable':pct(r.assigned)}</strong></td><td><span class="doe-status-pill ${r.status}">${esc(statusText(r))}</span><div class="muted">Effective target ${pct(r.target)}</div></td><td>${esc(r.policyVersionId)}</td><td>${esc(r.calculationStatus)}</td><td><button class="btn btn-small" data-doe-edit="${esc(r.f.__id)}">Edit Faculty</button></td></tr>`).join('')||'<tr><td colspan="12" class="empty">No faculty match these filters.</td></tr>';
   document.querySelectorAll('[data-doe-edit]').forEach(b=>b.onclick=()=>openBaseEditor(b.dataset.doeEdit));
  }
  function openBaseEditor(id){const tab=[...document.querySelectorAll('.tab')].find(x=>x.dataset.tab==='database');tab?.click();setTimeout(()=>{const b=[...document.querySelectorAll('[data-edit]')].find(x=>x.dataset.edit===id);if(b)b.click()},60)}

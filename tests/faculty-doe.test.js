@@ -2,6 +2,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const DOE=require('../faculty-doe.js');
+const ENGINE=require('../doe-policy-engine.js');
 
 test('override DOE wins over contract DOE',()=>{
  assert.deepEqual(
@@ -22,4 +23,42 @@ test('effective target recognizes indexed faculty values',()=>{
 test('missing DOE has an unavailable label',()=>{
  assert.deepEqual(DOE.effectiveTarget({}),{value:null,source:'none',reason:''});
  assert.equal(DOE.targetLabel({}),'DOE unavailable');
+});
+
+
+test('explicit policy bundle delegates target calculation to the canonical DOE engine',()=>{
+ const bundle={
+  version:{policyVersionId:'target-v2',academicYear:'2027-28',status:'active'},
+  rules:[{
+   ruleId:'target-prorated',
+   ruleKey:'target.contract.prorated',
+   category:'target',
+   calculationMode:'prorated',
+   resultKind:'target',
+   priority:100,
+   enabled:true,
+   selectors:[],
+   inputs:[{inputName:'baseDoe',required:true},{inputName:'fte',required:true}],
+   parameters:[]
+  }],
+  exceptions:[]
+ };
+ const target=DOE.effectiveTarget(
+  {doe:{teaching:40},fte:.75},
+  {policyBundle:bundle,engine:ENGINE}
+ );
+ assert.equal(target.value,30);
+ assert.equal(target.source,'policy');
+ assert.equal(target.policyVersionId,'target-v2');
+ assert.equal(target.ruleKey,'target.contract.prorated');
+ assert.equal(DOE.targetLabel({doe:{teaching:40},fte:.75},{policyBundle:bundle,engine:ENGINE}),'Policy DOE 30.00%');
+});
+
+test('compatibility target evaluation is delegated to the DOE policy engine rather than branch arithmetic',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const source=fs.readFileSync(path.join(__dirname,'../faculty-doe.js'),'utf8');
+ assert.match(source,/calculateTarget\(/);
+ assert.doesNotMatch(source,/if\(approved\.value!==null\)return\{value:approved\.value/);
+ const target=DOE.effectiveTarget({doe:{teaching:40},doeOverride2026_27:{value:25,reason:'RSL'}});
+ assert.deepEqual(target,{value:25,source:'override',reason:'RSL'});
 });

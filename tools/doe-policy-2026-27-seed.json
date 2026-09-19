@@ -1,0 +1,163 @@
+{
+  "policy": {
+    "policyId": "ucvm-workload-2026-27",
+    "academicYear": "2026-27",
+    "name": "UCVM Workload 2026-27"
+  },
+  "version": {
+    "policyVersionId": "ucvm-workload-2026-27-v1",
+    "policyId": "ucvm-workload-2026-27",
+    "academicYear": "2026-27",
+    "versionNumber": 1,
+    "name": "2026-27 migration baseline",
+    "status": "draft",
+    "revision": 0
+  },
+  "rules": [
+    {
+      "ruleId": "doe-2026-27-teaching-lecture-standard",
+      "ruleKey": "teaching.lecture.standard",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "teaching",
+      "name": "Standard Lecture",
+      "calculationMode": "per_hour",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "migration",
+      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "selectors": [
+        {"selectorId": "doe-2026-27-lecture-type", "field": "activityType", "operator": "equals", "valueText": "LEC", "order": 1},
+        {"selectorId": "doe-2026-27-lecture-role", "field": "teachingRole", "operator": "equals", "valueText": "Lecture", "order": 2}
+      ],
+      "inputs": [
+        {"ruleInputId": "doe-2026-27-lecture-hours", "inputName": "hours", "required": true, "order": 1}
+      ],
+      "parameters": [
+        {"parameterId": "doe-2026-27-lecture-rate", "name": "rate", "valueNumber": 0.30, "unit": "percent_per_hour", "required": true, "order": 1}
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-teaching-srl-standard",
+      "ruleKey": "teaching.srl.standard",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "teaching",
+      "name": "Standard SRL",
+      "calculationMode": "per_hour",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "migration",
+      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "selectors": [
+        {"selectorId": "doe-2026-27-srl-type", "field": "activityType", "operator": "equals", "valueText": "SRL", "order": 1},
+        {"selectorId": "doe-2026-27-srl-role", "field": "teachingRole", "operator": "equals", "valueText": "SRL", "order": 2}
+      ],
+      "inputs": [
+        {"ruleInputId": "doe-2026-27-srl-hours", "inputName": "hours", "required": true, "order": 1}
+      ],
+      "parameters": [
+        {"parameterId": "doe-2026-27-srl-rate", "name": "rate", "valueNumber": 0.30, "unit": "percent_per_hour", "required": true, "order": 1}
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-teaching-lab-lead",
+      "ruleKey": "teaching.lab.lead",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "teaching",
+      "name": "Lab Lead",
+      "calculationMode": "per_hour",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "migration",
+      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "selectors": [
+        {"selectorId": "doe-2026-27-lab-lead-type", "field": "activityType", "operator": "equals", "valueText": "LAB", "order": 1},
+        {"selectorId": "doe-2026-27-lab-lead-role", "field": "teachingRole", "operator": "equals", "valueText": "Lab Lead", "order": 2}
+      ],
+      "inputs": [
+        {"ruleInputId": "doe-2026-27-lab-lead-hours", "inputName": "hours", "required": true, "order": 1}
+      ],
+      "parameters": [
+        {"parameterId": "doe-2026-27-lab-lead-rate", "name": "rate", "valueNumber": 0.21, "unit": "percent_per_hour", "required": true, "order": 1}
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-teaching-lab-primary",
+      "ruleKey": "teaching.lab.primary",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "teaching",
+      "name": "Lab Primary",
+      "calculationMode": "per_hour",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "migration",
+      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "selectors": [
+        {"selectorId": "doe-2026-27-lab-primary-type", "field": "activityType", "operator": "equals", "valueText": "LAB", "order": 1},
+        {"selectorId": "doe-2026-27-lab-primary-role", "field": "teachingRole", "operator": "equals", "valueText": "Lab Primary", "order": 2}
+      ],
+      "inputs": [
+        {"ruleInputId": "doe-2026-27-lab-primary-hours", "inputName": "hours", "required": true, "order": 1}
+      ],
+      "parameters": [
+        {"parameterId": "doe-2026-27-lab-primary-rate", "name": "rate", "valueNumber": 0.21, "unit": "percent_per_hour", "required": true, "order": 1}
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-teaching-lab-support",
+      "ruleKey": "teaching.lab.support",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "teaching",
+      "name": "Lab Support",
+      "calculationMode": "per_hour",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "migration",
+      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "selectors": [
+        {"selectorId": "doe-2026-27-lab-support-type", "field": "activityType", "operator": "equals", "valueText": "LAB", "order": 1},
+        {"selectorId": "doe-2026-27-lab-support-role", "field": "teachingRole", "operator": "equals", "valueText": "Lab Support", "order": 2}
+      ],
+      "inputs": [
+        {"ruleInputId": "doe-2026-27-lab-support-hours", "inputName": "hours", "required": true, "order": 1}
+      ],
+      "parameters": [
+        {"parameterId": "doe-2026-27-lab-support-rate", "name": "rate", "valueNumber": 0.19, "unit": "percent_per_hour", "required": true, "order": 1}
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-teaching-lab-secondary",
+      "ruleKey": "teaching.lab.secondary",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "teaching",
+      "name": "Lab Secondary",
+      "calculationMode": "per_hour",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "migration",
+      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "selectors": [
+        {"selectorId": "doe-2026-27-lab-secondary-type", "field": "activityType", "operator": "equals", "valueText": "LAB", "order": 1},
+        {"selectorId": "doe-2026-27-lab-secondary-role", "field": "teachingRole", "operator": "equals", "valueText": "Lab Secondary", "order": 2}
+      ],
+      "inputs": [
+        {"ruleInputId": "doe-2026-27-lab-secondary-hours", "inputName": "hours", "required": true, "order": 1}
+      ],
+      "parameters": [
+        {"parameterId": "doe-2026-27-lab-secondary-rate", "name": "rate", "valueNumber": 0.19, "unit": "percent_per_hour", "required": true, "order": 1}
+      ],
+      "tiers": []
+    }
+  ],
+  "exceptions": []
+}
