@@ -139,5 +139,14 @@
         "user-management.html"
       ]
     }
+  ],
+  "lazyBundles": [
+    {
+      "output": "bundles/afc-pdf.lazy.bundle.js",
+      "sources": [
+        "afc-form-values.js",
+        "afc-pdf-browser.js"
+      ]
+    }
   ]
 }

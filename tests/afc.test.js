@@ -73,12 +73,12 @@ test('AFC form values normalize allowlisted dropdown values and contact details'
   assert.equal(contact.phone, '403-555-1212');
 });
 
-test('AFC PDF loader loads canonical form values before the renderer', () => {
+test('AFC PDF loader uses one lazy helper bundle with canonical values before the renderer', () => {
   const loader = fs.readFileSync(path.join(root, 'asset-loader.js'), 'utf8');
-  const valuesPosition = loader.indexOf("loadScriptOnce('afc-form-values.js'");
-  const rendererPosition = loader.indexOf("loadScriptOnce('afc-pdf-browser.js'");
-  assert.ok(valuesPosition >= 0, 'loader includes canonical AFC form values');
-  assert.ok(rendererPosition > valuesPosition, 'canonical values load before PDF renderer');
+  const bundles = JSON.parse(fs.readFileSync(path.join(root, 'tools/runtime-bundles.json'), 'utf8'));
+  const afc = bundles.lazyBundles.find(bundle => bundle.output === 'bundles/afc-pdf.lazy.bundle.js');
+  assert.deepEqual(afc.sources, ['afc-form-values.js','afc-pdf-browser.js']);
+  assert.match(loader, /loadScriptOnce\('bundles\/afc-pdf\.lazy\.bundle\.js','UCVM_AFC_PDF'\)/);
   assert.ok(JSON.parse(fs.readFileSync(path.join(root, 'tools/static-assets.json'), 'utf8')).includes('afc-form-values.js'));
 });
 })();

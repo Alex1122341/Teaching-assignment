@@ -68,18 +68,20 @@ test('Azure stages its redirect after the same generated lightweight build',()=>
  const metadata=JSON.parse(fs.readFileSync(metadataPath,'utf8'));
  assert.equal(metadata.schemaVersion,'ucvm-static-deployment-v1');
  assert.equal(metadata.sourceAssetCount,62);
- assert.equal(metadata.deploymentAssetCount,32);
- assert.equal(metadata.deployedJsCount,22);
- assert.equal(metadata.bundles.length,10);
+ assert.equal(metadata.deploymentAssetCount,31);
+ assert.equal(metadata.deployedJsCount,21);
+ assert.equal(metadata.bundles.length,11);
 
  const actual=recursiveFiles(output).filter(name=>name!=='staticwebapp.config.json').sort();
  const expected=metadata.assets.map(row=>row.path).sort();
  assert.deepEqual(actual,expected);
 
- for(const name of ['afc-form-values.js','afc-pdf-browser.js','approval-workflow.js','faculty-swap-handoff.js','faculty-admin-enhancements.js']){
+ for(const name of ['approval-workflow.js','faculty-swap-handoff.js','faculty-admin-enhancements.js']){
   assert.ok(actual.includes(name),name);
   assert.deepEqual(fs.readFileSync(path.join(output,name)),fs.readFileSync(path.join(root,name)),name);
  }
+ for(const name of ['afc-form-values.js','afc-pdf-browser.js'])assert.equal(actual.includes(name),false,name);
+ assert.ok(actual.includes('bundles/afc-pdf.lazy.bundle.js'));
  for(const name of ['faculty-doe.js','data-index.js','firebase-config.js','faculty-access.js'])assert.equal(actual.includes(name),false,name);
  for(const name of ['bundles/shared-auth.bundle.js','bundles/shared-approval-request.bundle.js','bundles/timetable-app.bundle.js','bundles/faculty-runtime-main.bundle.js','bundles/user-management.bundle.js'])assert.ok(actual.includes(name),name);
 

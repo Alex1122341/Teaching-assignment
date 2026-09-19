@@ -18,18 +18,21 @@ function localScripts(html){
   .map(match=>match[1].split(/[?#]/)[0])
   .filter(value=>value&&!/^https?:/i.test(value));
 }
+function startupBundles(config){return Array.isArray(config.bundles)?config.bundles:[]}
+function lazyBundles(config){return Array.isArray(config.lazyBundles)?config.lazyBundles:[]}
+function allBundles(config){return [...startupBundles(config),...lazyBundles(config)]}
 function bundleForPage(config,page){
- return(config.bundles||[]).filter(bundle=>bundle.pages.includes(page));
+ return startupBundles(config).filter(bundle=>bundle.pages.includes(page));
 }
 function validateBundleConfig({root:rootDir=root,sourceManifest,config}){
  if(!Array.isArray(sourceManifest)||!sourceManifest.length)throw Error('Static source manifest must be a non-empty array.');
  if(new Set(sourceManifest).size!==sourceManifest.length)throw Error('Static source manifest contains duplicates.');
  if(!config||config.version!==1||!Array.isArray(config.bundles)||!config.bundles.length)throw Error('Runtime bundle manifest version 1 with bundles is required.');
- const sourceSet=new Set(sourceManifest),dynamic=new Set(config.dynamicSources||[]),outputs=new Set();
+ const sourceSet=new Set(sourceManifest),dynamic=new Set(config.dynamicSources||[]),outputs=new Set(),lazyClaimed=new Set();
  for(const item of dynamic){
   if(!sourceSet.has(item))throw Error(`Dynamic runtime source is not in static source manifest: ${item}`);
  }
- for(const bundle of config.bundles){
+ for(const bundle of startupBundles(config)){
   if(!safeRelative(bundle.output)||!bundle.output.startsWith('bundles/')||!bundle.output.endsWith('.bundle.js'))throw Error(`Unsafe bundle output: ${bundle.output}`);
   if(outputs.has(bundle.output)||sourceSet.has(bundle.output))throw Error(`Duplicate/colliding bundle output: ${bundle.output}`);
   outputs.add(bundle.output);
@@ -45,7 +48,21 @@ function validateBundleConfig({root:rootDir=root,sourceManifest,config}){
    if(!safeRelative(page)||!page.endsWith('.html')||!sourceSet.has(page))throw Error(`Bundle page is not a source HTML asset: ${bundle.output} -> ${page}`);
   }
  }
- const pageNames=[...new Set(config.bundles.flatMap(bundle=>bundle.pages))];
+ for(const bundle of lazyBundles(config)){
+  if(!safeRelative(bundle.output)||!bundle.output.startsWith('bundles/')||!bundle.output.endsWith('.bundle.js'))throw Error(`Unsafe lazy bundle output: ${bundle.output}`);
+  if(outputs.has(bundle.output)||sourceSet.has(bundle.output))throw Error(`Duplicate/colliding bundle output: ${bundle.output}`);
+  outputs.add(bundle.output);
+  if(!Array.isArray(bundle.sources)||bundle.sources.length<2||new Set(bundle.sources).size!==bundle.sources.length)throw Error(`Lazy bundle must contain at least two unique sources: ${bundle.output}`);
+  for(const source of bundle.sources){
+   if(!safeRelative(source)||!sourceSet.has(source))throw Error(`Lazy bundle source is not in static source manifest: ${bundle.output} -> ${source}`);
+   if(!dynamic.has(source))throw Error(`Lazy bundle source must be declared dynamic: ${source}`);
+   if(lazyClaimed.has(source))throw Error(`Dynamic source may belong to only one lazy bundle: ${source}`);
+   lazyClaimed.add(source);
+   const absolute=path.resolve(rootDir,source);
+   if(!absolute.startsWith(rootDir+path.sep)||!fs.existsSync(absolute)||!fs.statSync(absolute).isFile())throw Error(`Lazy bundle source is missing: ${source}`);
+  }
+ }
+ const pageNames=[...new Set(startupBundles(config).flatMap(bundle=>bundle.pages))];
  for(const page of pageNames){
   const html=fs.readFileSync(path.resolve(rootDir,page),'utf8'),scripts=localScripts(html),claimed=new Set();
   for(const bundle of bundleForPage(config,page)){
@@ -89,16 +106,21 @@ function deploymentPlan({root:rootDir=root,sourceManifest,config}){
    directPages.get(source).add(page);
   }
  }
- const dynamic=new Set(config.dynamicSources||[]),bundledSources=new Set(config.bundles.flatMap(bundle=>bundle.sources));
+ const dynamic=new Set(config.dynamicSources||[]),bundledSources=new Set(startupBundles(config).flatMap(bundle=>bundle.sources));
  const covered=(source,page)=>bundleForPage(config,page).some(bundle=>bundle.sources.includes(source));
- const omittedSources=[...bundledSources].filter(source=>{
+ const startupOmitted=[...bundledSources].filter(source=>{
   if(dynamic.has(source))return false;
   const pages=[...(directPages.get(source)||[])];
   return pages.length>0&&pages.every(page=>covered(source,page));
- }).sort();
+ });
+ const lazyOmitted=lazyBundles(config).flatMap(bundle=>bundle.sources);
+ for(const source of lazyOmitted){
+  if((directPages.get(source)||new Set()).size)throw Error(`Lazy bundle source is still directly loaded by source HTML: ${source}`);
+ }
+ const omittedSources=[...new Set([...startupOmitted,...lazyOmitted])].sort();
  const omitted=new Set(omittedSources);
  const copyAssets=sourceManifest.filter(asset=>!omitted.has(asset));
- const generatedBundles=config.bundles.map(bundle=>bundle.output);
+ const generatedBundles=allBundles(config).map(bundle=>bundle.output);
  const deployedJsCount=copyAssets.filter(asset=>asset.endsWith('.js')).length+generatedBundles.filter(asset=>asset.endsWith('.js')).length;
  return{copyAssets,omittedSources,generatedBundles,deployedJsCount};
 }
@@ -129,11 +151,12 @@ function buildStatic({rootDir=root,outputDir=path.join(root,'.deploy-static'),so
   else write(relative,fs.readFileSync(source));
  }
  const bundleDetails=[];
- for(const bundle of config.bundles){
+ for(const bundle of allBundles(config)){
   const parts=bundle.sources.map(source=>({source,content:fs.readFileSync(path.resolve(rootDir,source),'utf8')}));
   const content=bundleText(parts);
   write(bundle.output,content);
-  bundleDetails.push({output:bundle.output,sources:bundle.sources,pages:bundle.pages,bytes:Buffer.byteLength(content)});
+  const kind=startupBundles(config).includes(bundle)?'startup':'lazy';
+  bundleDetails.push({output:bundle.output,kind,sources:bundle.sources,pages:kind==='startup'?bundle.pages:[],bytes:Buffer.byteLength(content)});
  }
  const bytes=written.reduce((sum,row)=>sum+row.bytes,0);
  const metadata={
@@ -156,4 +179,4 @@ if(require.main===module){
  const output=path.resolve(outputArg>=0?process.argv[outputArg+1]:path.join(root,'.deploy-static'));
  buildStatic({outputDir:output});
 }
-module.exports={safeRelative,localScripts,validateBundleConfig,bundleText,rewriteHtmlForPage,deploymentPlan,buildStatic};
+module.exports={safeRelative,localScripts,startupBundles,lazyBundles,allBundles,validateBundleConfig,bundleText,rewriteHtmlForPage,deploymentPlan,buildStatic};
