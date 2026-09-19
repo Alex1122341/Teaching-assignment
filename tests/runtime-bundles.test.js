@@ -1,0 +1,74 @@
+'use strict';
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+
+const root=path.resolve(__dirname,'..');
+const read=name=>fs.readFileSync(path.join(root,name),'utf8');
+const config=JSON.parse(read('tools/runtime-bundles.json'));
+const sourceManifest=JSON.parse(read('tools/static-assets.json'));
+const build=require('../tools/build-static.js');
+
+const localScripts=html=>[...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*><\/script>/gi)]
+ .map(match=>match[1].split(/[?#]/)[0])
+ .filter(value=>value&&!/^https?:/i.test(value));
+
+test('runtime bundle build exports deterministic pure helpers',()=>{
+ for(const name of ['validateBundleConfig','bundleText','rewriteHtmlForPage','deploymentPlan'])assert.equal(typeof build[name],'function',name);
+});
+
+test('bundle configuration uses safe generated paths and source allowlist entries',()=>{
+ assert.equal(config.version,1);
+ assert.ok(Array.isArray(config.bundles)&&config.bundles.length>0);
+ const outputs=new Set();
+ for(const bundle of config.bundles){
+  assert.match(bundle.output,/^bundles\/[a-z0-9-]+\.bundle\.js$/);
+  assert.equal(outputs.has(bundle.output),false,bundle.output);
+  outputs.add(bundle.output);
+  assert.ok(Array.isArray(bundle.sources)&&bundle.sources.length>=2,bundle.output);
+  assert.ok(Array.isArray(bundle.pages)&&bundle.pages.length>=1,bundle.output);
+  for(const source of bundle.sources)assert.ok(sourceManifest.includes(source),`${bundle.output}: ${source}`);
+  for(const page of bundle.pages)assert.ok(sourceManifest.includes(page),`${bundle.output}: ${page}`);
+ }
+});
+
+test('startup bundles exclude true lazy and compatibility runtime sources',()=>{
+ const bundled=new Set(config.bundles.flatMap(bundle=>bundle.sources));
+ for(const source of config.dynamicSources)assert.equal(bundled.has(source),false,source);
+ for(const source of ['afc-form-values.js','afc-pdf-browser.js','approval-workflow.js','faculty-swap-handoff.js','faculty-admin-enhancements.js'])assert.ok(sourceManifest.includes(source),source);
+});
+
+test('bundle source sequences are contiguous and non-overlapping on each declared page',()=>{
+ assert.doesNotThrow(()=>build.validateBundleConfig({root,sourceManifest,config}));
+});
+
+test('generated page HTML reduces direct scripts without changing source HTML',()=>{
+ const expected={'index.html':9,'faculty-admin.html':11,'user-management.html':6,'password.html':3};
+ for(const [page,count] of Object.entries(expected)){
+  const source=read(page);
+  const generated=build.rewriteHtmlForPage(source,page,config);
+  assert.equal(localScripts(generated).length,count,page);
+  assert.equal(read(page),source,`${page} source must stay unchanged`);
+  assert.doesNotMatch(generated,/src=["'](?:faculty-doe|data-index|firebase-config)\.js["']/,`${page} should use bundles`);
+ }
+});
+
+test('bundle output preserves source order and adds auditable source markers',()=>{
+ const bundle=config.bundles.find(item=>item.output==='bundles/shared-faculty-scheduling.bundle.js');
+ const text=build.bundleText(bundle.sources.map(source=>({source,content:read(source)})));
+ const first=text.indexOf('/* SOURCE: faculty-doe.js */');
+ const second=text.indexOf('/* SOURCE: scheduling-core.js */');
+ assert.ok(first>=0&&second>first);
+ assert.ok(text.includes(read('faculty-doe.js')));
+ assert.ok(text.includes(read('scheduling-core.js')));
+});
+
+test('deployment plan keeps lazy assets while replacing fully covered direct sources',()=>{
+ const plan=build.deploymentPlan({root,sourceManifest,config});
+ assert.equal(plan.generatedBundles.length,9);
+ assert.equal(plan.deployedJsCount,21);
+ for(const lazy of config.dynamicSources)assert.ok(plan.copyAssets.includes(lazy),lazy);
+ for(const source of ['faculty-doe.js','scheduling-core.js','data-index.js','index-maintenance.js','audit-details.js','firebase-config.js','faculty-access.js'])assert.equal(plan.copyAssets.includes(source),false,source);
+ for(const page of ['index.html','faculty-admin.html','user-management.html','password.html'])assert.ok(plan.copyAssets.includes(page),page);
+});

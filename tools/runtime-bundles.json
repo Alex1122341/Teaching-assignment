@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "dynamicSources": [
+    "afc-form-values.js",
+    "afc-pdf-browser.js",
+    "approval-workflow.js",
+    "faculty-swap-safe.js",
+    "faculty-swap-handoff.js",
+    "faculty-admin-enhancements.js"
+  ],
+  "bundles": [
+    {
+      "output": "bundles/shared-faculty-scheduling.bundle.js",
+      "sources": [
+        "faculty-doe.js",
+        "scheduling-core.js"
+      ],
+      "pages": [
+        "index.html",
+        "faculty-admin.html",
+        "user-management.html"
+      ]
+    },
+    {
+      "output": "bundles/shared-index-audit.bundle.js",
+      "sources": [
+        "data-index.js",
+        "index-maintenance.js",
+        "audit-details.js"
+      ],
+      "pages": [
+        "index.html",
+        "faculty-admin.html",
+        "user-management.html"
+      ]
+    },
+    {
+      "output": "bundles/shared-auth.bundle.js",
+      "sources": [
+        "firebase-config.js",
+        "faculty-access.js"
+      ],
+      "pages": [
+        "index.html",
+        "faculty-admin.html",
+        "user-management.html",
+        "password.html"
+      ]
+    },
+    {
+      "output": "bundles/timetable-approval.bundle.js",
+      "sources": [
+        "approval-routing.js",
+        "approval-request.js",
+        "approval-state.js",
+        "approval-office-view.js",
+        "approval-lifecycle.js",
+        "calendar-session.js",
+        "approval-finalizer.js"
+      ],
+      "pages": [
+        "index.html"
+      ]
+    },
+    {
+      "output": "bundles/timetable-app.bundle.js",
+      "sources": [
+        "office-capabilities.js",
+        "workflow-notifications.js",
+        "maintenance-state.js",
+        "asset-loader.js",
+        "signature-capture.js",
+        "afc-form-state.js",
+        "afc-actions.js",
+        "information-center.js",
+        "availability-lookup.js",
+        "timetable-selection.js",
+        "timetable.js",
+        "afc-workflow.js",
+        "afc-timetable-panel.js"
+      ],
+      "pages": [
+        "index.html"
+      ]
+    },
+    {
+      "output": "bundles/faculty-doe-admin.bundle.js",
+      "sources": [
+        "doe-worksheet-view.js",
+        "doe-rulebook-admin.js",
+        "doe-policy-admin.js"
+      ],
+      "pages": [
+        "faculty-admin.html"
+      ]
+    },
+    {
+      "output": "bundles/faculty-runtime-main.bundle.js",
+      "sources": [
+        "maintenance-state.js",
+        "calendar-session.js",
+        "calendar-session-maintenance.js",
+        "bulk-import-core.js",
+        "bulk-import-backup.js",
+        "bulk-import-firestore.js",
+        "bulk-import-controller.js",
+        "faculty-admin.js",
+        "approval-routing.js",
+        "approval-request.js"
+      ],
+      "pages": [
+        "faculty-admin.html"
+      ]
+    },
+    {
+      "output": "bundles/faculty-runtime-tail.bundle.js",
+      "sources": [
+        "bulk-import-ui.js",
+        "derived-index-health.js"
+      ],
+      "pages": [
+        "faculty-admin.html"
+      ]
+    },
+    {
+      "output": "bundles/user-management.bundle.js",
+      "sources": [
+        "account-profile.js",
+        "user-management.js"
+      ],
+      "pages": [
+        "user-management.html"
+      ]
+    }
+  ]
+}
