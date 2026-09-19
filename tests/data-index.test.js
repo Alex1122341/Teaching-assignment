@@ -61,3 +61,31 @@ test('date query chunks normalize, sort, deduplicate and stay within Firestore l
  assert.equal(chunks[0].length,30);
  assert.equal(chunks[1].length,1);
 });
+
+test('faculty index aggregates only persisted DOE credit and marks missing assignment DOE as error instead of zero',()=>{
+ const api=require(modulePath);
+ const faculty=[{__id:'1001',preferredFullName:'Alpha',doe:{teaching:40},facultySummary2026_27:{sourceNonTimetableTeachingDOE:3}}];
+ const sessions=[
+  {id:'s1',assignments:[{ucid:'1001',doeCredit:.6,doePolicyVersionId:'policy-v1'}]},
+  {id:'s2',assignments:[{ucid:'1001',creditedHours:2,doeRate:.3}]}
+ ];
+ const entry=api.buildFacultyIndex(faculty,sessions).entries[0];
+ assert.equal(entry.scheduledDOE,.6);
+ assert.equal(entry.assignedTeachingDOE,3.6);
+ assert.equal(entry.missingDoeCount,1);
+ assert.equal(entry.calculationStatus,'error');
+ assert.equal(entry.policyVersionId,'policy-v1');
+});
+
+test('faculty index includes persisted managed-role adjustments and canonical target comparison',()=>{
+ const api=require(modulePath);
+ const faculty=[{__id:'1001',preferredFullName:'Alpha',doe:{teaching:10},doeOverride2026_27:{value:8,reason:'RSL'},managedRoles2026_27:[{action:'add',doeCredit:1.5},{action:'remove',doeCredit:.5}],facultySummary2026_27:{sourceNonTimetableTeachingDOE:2}}];
+ const sessions=[{id:'s1',assignments:[{ucid:'1001',doeCredit:2,doePolicyVersionId:'policy-v1'}]}];
+ const entry=api.buildFacultyIndex(faculty,sessions).entries[0];
+ assert.equal(entry.managedRoleDOE,1);
+ assert.equal(entry.assignedTeachingDOE,5);
+ assert.equal(entry.effectiveTargetDOE,8);
+ assert.equal(entry.targetSource,'override');
+ assert.equal(entry.remainingDOE,3);
+ assert.equal(entry.calculationStatus,'policy');
+});

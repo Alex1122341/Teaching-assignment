@@ -309,7 +309,17 @@ service cloud.firestore {
   function doeVersionPath(id){return /databases/$(database)/documents/doe_policy_versions/$(id);}
   function doePolicyPath(id){return /databases/$(database)/documents/doe_policies/$(id);}
   function doeImpactPath(id){return /databases/$(database)/documents/doe_impact_runs/$(id);}
+  function doeRecalculationBatchPath(id){return /databases/$(database)/documents/doe_recalculation_batches/$(id);}
   function doeDraftVersion(id){return exists(doeVersionPath(id)) && get(doeVersionPath(id)).data.status == 'draft';}
+  function doeActiveVersion(id){return exists(doeVersionPath(id)) && get(doeVersionPath(id)).data.status == 'active' && exists(doePolicyPath(get(doeVersionPath(id)).data.policyId)) && get(doePolicyPath(get(doeVersionPath(id)).data.policyId)).data.currentActiveVersionId == id;}
+  function doeRecalculationMarkerChanged(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['doeRecalculationBatchId','doeRecalculationPolicyVersionId','doeRecalculatedBy','doeRecalculatedAt']);}
+  function doeRecalculationSourceBase(){let after=request.resource.data;let batchId=after.get('doeRecalculationBatchId','');let versionId=after.get('doeRecalculationPolicyVersionId','');return general() && batchId is string && batchId.size() > 0 && versionId is string && versionId.size() > 0 && after.get('doeRecalculatedBy','') == request.auth.uid && after.get('doeRecalculatedAt',null) == request.time && after.get('updatedBy','') == request.auth.uid && after.get('updatedAt',null) == request.time && existsAfter(doeRecalculationBatchPath(batchId)) && getAfter(doeRecalculationBatchPath(batchId)).data.policyVersionId == versionId && getAfter(doeRecalculationBatchPath(batchId)).data.changedBy == request.auth.uid && doeActiveVersion(versionId);}
+  function doeRecalculationSessionWrite(){let changed=request.resource.data.diff(resource.data).affectedKeys();return doeRecalculationSourceBase() && changed.hasOnly(['assignments','doeRecalculationBatchId','doeRecalculationPolicyVersionId','doeRecalculatedBy','doeRecalculatedAt','updatedBy','updatedByName','updatedAt']);}
+  function doeRecalculationFacultyWrite(){let changed=request.resource.data.diff(resource.data).affectedKeys();return doeRecalculationSourceBase() && changed.hasOnly(['managedRoles2026_27','facultySummary2026_27','doeRecalculationBatchId','doeRecalculationPolicyVersionId','doeRecalculatedBy','doeRecalculatedAt','updatedBy','updatedByName','updatedAt']);}
+  function doeRecalculationEvidenceCreate(){let batchId=request.resource.data.get('recalculationBatchId','');return batchId == '' ? doeAdmin() : (general() && existsAfter(doeRecalculationBatchPath(batchId)) && getAfter(doeRecalculationBatchPath(batchId)).data.policyVersionId == request.resource.data.policyVersionId && getAfter(doeRecalculationBatchPath(batchId)).data.changedBy == request.auth.uid);}
+  function doeRecalculationAuditCreate(){let action=request.resource.data.get('action','');return action in ['recalculation_started','recalculation_completed'] ? general() : doeAdmin();}
+  function doeRecalculationBatchCreate(id){let d=request.resource.data;return general() && d.recalculationBatchId == id && d.changedBy == request.auth.uid && d.updatedAt == request.time && d.status == 'running' && d.completedRows is int && d.completedRows >= 0 && d.totalRows is int && d.totalRows >= d.completedRows && doeActiveVersion(d.policyVersionId);}
+  function doeRecalculationBatchUpdate(id){let before=resource.data;let after=request.resource.data;return general() && before.recalculationBatchId == id && after.recalculationBatchId == before.recalculationBatchId && after.policyVersionId == before.policyVersionId && after.academicYear == before.academicYear && after.changedBy == before.changedBy && after.changedBy == request.auth.uid && after.updatedAt == request.time && after.status in ['running','completed'] && after.completedRows is int && after.completedRows >= before.completedRows && after.totalRows == before.totalRows && after.diff(before).affectedKeys().hasOnly(['status','completedRows','changedByName','updatedAt']) && doeActiveVersion(after.policyVersionId);}
   function doeVersionIdentitySame(before,after){
    return after.policyVersionId == before.policyVersionId && after.policyId == before.policyId
     && after.academicYear == before.academicYear && after.versionNumber == before.versionNumber
@@ -422,14 +432,14 @@ service cloud.firestore {
   match /sessions/{id} {
    allow read: if privateReader();
    allow create: if adcSessionCreate(id) || (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
-   allow update: if adcSessionUpdate(id) || labSessionUpdate(id) || routedSessionApply(id) || (teachingWritesOpen() && admin() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
+   allow update: if adcSessionUpdate(id) || labSessionUpdate(id) || routedSessionApply(id) || (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || doeRecalculationSessionWrite() || maintenanceSessionWrite(id);
    allow delete: if (teachingWritesOpen() && admin() && !existsAfter(calendarPath(id))) || maintenanceSessionDelete(id);
   }
   match /faculty/{id} {
    allow get: if admin() || ownFacultyId(id);
    allow list: if admin();
    allow create: if teachingWritesOpen() && admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportCreate() || general());
-   allow update: if (teachingWritesOpen() && admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportChange() || general())) || maintenanceFacultyUpdate();
+   allow update: if (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportChange() || general())) || doeRecalculationFacultyWrite() || maintenanceFacultyUpdate();
    allow delete: if teachingWritesOpen() && admin();
   }
   match /change_requests/{id} {
@@ -568,14 +578,20 @@ service cloud.firestore {
     && request.resource.data.impactRunId == getAfter(doeVersionPath(request.resource.data.policyVersionId)).data.get('lastImpactRunId','');
    allow update,delete: if false;
   }
+  match /doe_recalculation_batches/{id} {
+   allow read: if doeAdmin();
+   allow create: if doeRecalculationBatchCreate(id);
+   allow update: if doeRecalculationBatchUpdate(id);
+   allow delete: if false;
+  }
   match /doe_calculation_records/{id} {
    allow read: if doeAdmin();
-   allow create: if doeAdmin() && request.resource.data.calculationId == id && request.resource.data.calculatedBy == request.auth.uid;
+   allow create: if doeRecalculationEvidenceCreate() && request.resource.data.calculationId == id && request.resource.data.calculatedBy == request.auth.uid;
    allow update,delete: if false;
   }
   match /doe_audit_log/{id} {
    allow read: if doeAdmin();
-   allow create: if doeAdmin() && request.resource.data.auditId == id && request.resource.data.changedBy == request.auth.uid;
+   allow create: if doeRecalculationAuditCreate() && request.resource.data.auditId == id && request.resource.data.changedBy == request.auth.uid;
    allow update,delete: if false;
   }
   match /public_info/{id} {allow read: if ready(); allow create,update: if general() && request.resource.data.messages is list && request.resource.data.messages.size() <= 10 && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time; allow delete: if false;}

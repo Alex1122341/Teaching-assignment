@@ -62,3 +62,32 @@ test('approval routing and state engines load before timetable workflow consumer
  const loader=read('asset-loader.js');
  assert.ok(loader.includes("loadScriptOnce('approval-workflow.js')"));
 });
+
+test('DOE runtime modules deploy and load before their Faculty and Timetable consumers',()=>{
+ const manifest=JSON.parse(read('tools/static-assets.json'));
+ const deployable=['doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js','doe-policy-admin.js','doe-policy-admin.css'];
+ assert.equal(manifest.length,63);
+ for(const name of deployable)assert.ok(manifest.includes(name),name);
+
+ const faculty=read('faculty-admin.html');
+ assert.ok(faculty.includes('<link rel="stylesheet" href="doe-policy-admin.css">'));
+ for(const name of ['doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js','doe-policy-admin.js']){
+  assert.ok(faculty.includes(`<script src="${name}"></script>`),`faculty-admin.html -> ${name}`);
+ }
+ assert.ok(faculty.indexOf('doe-formula.js')<faculty.indexOf('doe-policy-engine.js'));
+ assert.ok(faculty.indexOf('doe-policy-repository.js')<faculty.indexOf('doe-policy-service.js'));
+ assert.ok(faculty.indexOf('doe-policy-firestore.js')<faculty.indexOf('doe-policy-service.js'));
+ assert.ok(faculty.indexOf('doe-policy-service.js')<faculty.indexOf('doe-policy-admin.js'));
+ assert.ok(faculty.indexOf('doe-policy-service.js')<faculty.indexOf('faculty-admin.js'));
+
+ const timetable=read('index.html');
+ for(const name of ['doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js']){
+  assert.ok(timetable.includes(`<script src="${name}"></script>`),`index.html -> ${name}`);
+ }
+ assert.doesNotMatch(timetable,/doe-policy-admin\.js|doe-policy-admin\.css/);
+ assert.ok(timetable.indexOf('doe-formula.js')<timetable.indexOf('doe-policy-engine.js'));
+ assert.ok(timetable.indexOf('doe-policy-repository.js')<timetable.indexOf('doe-policy-service.js'));
+ assert.ok(timetable.indexOf('doe-policy-firestore.js')<timetable.indexOf('doe-policy-service.js'));
+ assert.ok(timetable.indexOf('doe-policy-service.js')<timetable.indexOf('timetable-selection.js'));
+ assert.ok(timetable.indexOf('doe-policy-service.js')<timetable.indexOf('timetable.js'));
+});

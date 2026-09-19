@@ -91,6 +91,7 @@ test('Impact Preview compares current DOE to Draft DOE without mutating the sour
  const result=await service.runImpactPreview('ucvm-workload-2027-28-v2',source);
 
  assert.equal(result.status,'passed');
+ assert.equal(result.activeVersionIdAtPreview,'ucvm-workload-2027-28-v1');
  assert.equal(result.facultyCount,2);
  assert.equal(result.calculationCount,2);
  assert.equal(result.changedFacultyCount,2);

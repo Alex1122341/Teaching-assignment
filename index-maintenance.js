@@ -30,12 +30,30 @@
   if(!publicSnap.exists||!mapSnap.exists)return null;return{ref:publicRef,data:addFacultySwapUnavailableRange(publicSnap.data(),mapSnap.data(),facultyId,startDate,endDate)};
  }
  const number=value=>{const parsed=Number(value);return Number.isFinite(parsed)?parsed:0};
- function contribution(session){const rows=new Map();for(const assignment of session?.assignments||[]){const id=String(assignment?.ucid||assignment?.facultyId||'').trim();if(!id)continue;const value=rows.get(id)||{count:0,doe:0};value.count++;value.doe+=number(assignment?.doeCredit);rows.set(id,value)}return rows}
+ const finiteOrNull=value=>{if(value===null||value===undefined||value==='')return null;const parsed=Number(value);return Number.isFinite(parsed)?parsed:null};
+ function contribution(session){
+  const rows=new Map();
+  for(const assignment of session?.assignments||[]){
+   const id=String(assignment?.ucid||assignment?.facultyId||'').trim();if(!id)continue;
+   const value=rows.get(id)||{count:0,doe:0,missingDoeCount:0,legacyDoeCount:0,policyVersionCounts:{}};value.count++;
+   const credit=finiteOrNull(assignment?.doeCredit),version=String(assignment?.doePolicyVersionId||'').trim();
+   if(credit===null)value.missingDoeCount++;else{value.doe+=credit;if(version)value.policyVersionCounts[version]=(value.policyVersionCounts[version]||0)+1;else value.legacyDoeCount++}
+   rows.set(id,value);
+  }
+  return rows;
+ }
  function applySessionChanges(facultyIndex,scheduleStats,changes){
   const faculty=JSON.parse(JSON.stringify(facultyIndex||{entries:[]})),stats=JSON.parse(JSON.stringify(scheduleStats||{})),entries=Array.isArray(faculty.entries)?faculty.entries:[];
   faculty.entries=entries;stats.sessionCount=number(stats.sessionCount);stats.courseCounts={...(stats.courseCounts||{})};
   const adjustCourse=(course,delta)=>{course=String(course||'').trim();if(!course)return;const next=number(stats.courseCounts[course])+delta;if(next>0)stats.courseCounts[course]=next;else delete stats.courseCounts[course]};
-  const adjustFaculty=(session,sign)=>{for(const[id,value]of contribution(session)){const entry=entries.find(row=>String(row.id)===id);if(!entry)continue;entry.sessionCount=Math.max(0,number(entry.sessionCount)+sign*value.count);entry.assignedTeachingDOE=Number((number(entry.assignedTeachingDOE)+sign*value.doe).toFixed(6))}};
+  const adjustFaculty=(session,sign)=>{for(const[id,value]of contribution(session)){const entry=entries.find(row=>String(row.id)===id);if(!entry)continue;entry.sessionCount=Math.max(0,number(entry.sessionCount)+sign*value.count);
+   const canonical=Object.prototype.hasOwnProperty.call(entry,'scheduledDOE')||Object.prototype.hasOwnProperty.call(entry,'missingDoeCount')||Object.prototype.hasOwnProperty.call(entry,'policyVersionCounts');
+   if(!canonical&&value.missingDoeCount===0){entry.assignedTeachingDOE=Number((number(entry.assignedTeachingDOE)+sign*value.doe).toFixed(6));continue}
+   if(!canonical){entry.sourceAssignedTeachingDOE=finiteOrNull(entry.assignedTeachingDOE);entry.sourceScheduledTeachingDOE=0;entry.scheduledDOE=0;entry.managedRoleDOE=0;entry.missingDoeCount=0;entry.legacyDoeCount=0;entry.policyVersionCounts={};entry.effectiveTargetDOE=finiteOrNull(entry.effectiveTargetDOE)}
+   entry.scheduledDOE=Number((number(entry.scheduledDOE)+sign*value.doe).toFixed(6));entry.missingDoeCount=Math.max(0,number(entry.missingDoeCount)+sign*value.missingDoeCount);entry.legacyDoeCount=Math.max(0,number(entry.legacyDoeCount)+sign*value.legacyDoeCount);entry.policyVersionCounts={...(entry.policyVersionCounts||{})};
+   for(const [version,count] of Object.entries(value.policyVersionCounts||{})){const next=number(entry.policyVersionCounts[version])+sign*count;if(next>0)entry.policyVersionCounts[version]=next;else delete entry.policyVersionCounts[version]}
+   Object.assign(entry,index.recomputeFacultyDoe(entry));
+  }};
   for(const change of changes||[]){const before=change?.before||null,after=change?.after||null;if(before){stats.sessionCount=Math.max(0,stats.sessionCount-1);adjustCourse(before.course,-1);adjustFaculty(before,-1)}if(after){stats.sessionCount++;adjustCourse(after.course,1);adjustFaculty(after,1)}}
   stats.assignedFacultyCount=entries.filter(row=>number(row.sessionCount)>0).length;
   return{facultyIndex:faculty,scheduleStats:stats};

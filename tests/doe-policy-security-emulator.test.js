@@ -199,6 +199,7 @@ check('General can validate and publish a current Draft atomically through the F
   policyRevision:1,
   policyChecksum:validation.policyChecksum,
   inputDatasetChecksum:'dataset-security',
+  activeVersionIdAtPreview:'ucvm-workload-2028-29-v1',
   status:'passed',
   runBy:'general',
   errorCount:0,warningCount:0
@@ -217,4 +218,40 @@ check('General can validate and publish a current Draft atomically through the F
  assert.equal((await db.doc('doe_policies/ucvm-workload-2028-29').get()).data().currentActiveVersionId,'ucvm-workload-2028-29-v2');
  const publications=await db.collection('doe_publications').where('policyVersionId','==','ucvm-workload-2028-29-v2').get();
  assert.equal(publications.size,1);
+});
+
+check('ADFA Regular cannot forge the General-only administrative recalculation path',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
+ const stamp=require('firebase/firestore').serverTimestamp;
+ const regular=env.authenticatedContext('regular').firestore();
+ const general=env.authenticatedContext('general').firestore();
+
+ await env.withSecurityRulesDisabled(async context=>{
+  const db=context.firestore();
+  await db.doc('sessions/recalc-s1').set({
+   id:'recalc-s1',course:'VTMD 999',date:'2027-01-10',type:'LEC',assignments:[{assignmentId:'a1',ucid:'f1',role:'Lecture',doeCredit:.3}],facultyIds:['f1'],updatedBy:'seed'
+  });
+  await db.doc('calendar_sessions/recalc-s1').set({course:'VTMD 999',date:'2027-01-10',type:'LEC',facultyIds:['f1']});
+ });
+
+ await assertFails(regular.doc('doe_recalculation_batches/recalc-security').set({
+  recalculationBatchId:'recalc-security',academicYear:'2027-28',policyVersionId:'ucvm-workload-2027-28-v1',status:'running',completedRows:0,totalRows:1,changedBy:'regular',changedByName:'Regular',updatedAt:stamp()
+ }));
+ await assertFails(regular.doc('sessions/recalc-s1').update({
+  assignments:[{assignmentId:'a1',ucid:'f1',role:'Lecture',doeCredit:.6}],
+  doeRecalculationBatchId:'recalc-security',doeRecalculationPolicyVersionId:'ucvm-workload-2027-28-v1',doeRecalculatedBy:'regular',doeRecalculatedAt:stamp(),updatedBy:'regular',updatedByName:'Regular',updatedAt:stamp()
+ }));
+
+ const batch=general.batch();
+ batch.set(general.doc('doe_recalculation_batches/recalc-security'),{
+  recalculationBatchId:'recalc-security',academicYear:'2027-28',policyVersionId:'ucvm-workload-2027-28-v1',status:'running',completedRows:1,totalRows:1,changedBy:'general',changedByName:'General',updatedAt:stamp()
+ });
+ batch.update(general.doc('sessions/recalc-s1'),{
+  assignments:[{assignmentId:'a1',ucid:'f1',role:'Lecture',doeCredit:.6,doePolicyVersionId:'ucvm-workload-2027-28-v1',doeRuleId:'r-active',doeRuleKey:'teaching.lecture.standard',doeCalculationId:'calc-recalc-security'}],
+  doeRecalculationBatchId:'recalc-security',doeRecalculationPolicyVersionId:'ucvm-workload-2027-28-v1',doeRecalculatedBy:'general',doeRecalculatedAt:stamp(),updatedBy:'general',updatedByName:'General',updatedAt:stamp()
+ });
+ batch.set(general.doc('doe_calculation_records/calc-recalc-security'),{
+  calculationId:'calc-recalc-security',policyVersionId:'ucvm-workload-2027-28-v1',facultyId:'f1',sessionId:'recalc-s1',assignmentId:'a1',resultDoe:.6,recalculationBatchId:'recalc-security',trigger:'administrative_recalculation',calculatedBy:'general',calculatedAt:stamp()
+ });
+ await assertSucceeds(batch.commit());
 });

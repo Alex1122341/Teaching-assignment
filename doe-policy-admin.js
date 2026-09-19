@@ -144,6 +144,7 @@
 
  function buildImpactDataset(data={},academicYear=''){
   const calculations=[];
+  const scheduledByFaculty=new Map();
   const sessions=Array.isArray(data?.sessions)?data.sessions:[];
   for(const session of sessions){
    const assignments=Array.isArray(session?.assignments)?session.assignments:[];
@@ -152,13 +153,16 @@
     if(!facultyId)return;
     const hours=number(assignment?.creditedHours);
     const role=text(assignment?.role);
+    const currentDoe=assignmentDoe(assignment);
+    if(currentDoe!==null)scheduledByFaculty.set(facultyId,(scheduledByFaculty.get(facultyId)||0)+currentDoe);
     calculations.push({
      sourceEntityType:'session_assignment',
      sourceEntityId:`${text(session?.id)||'session'}--assignment--${index+1}`,
      sessionId:text(session?.id),
      assignmentId:text(assignment?.assignmentId)||`${text(session?.id)||'session'}--assignment--${index+1}`,
      facultyId,
-     currentDoe:assignmentDoe(assignment),
+     currentDoe,
+     currentPolicyVersionId:text(assignment?.doePolicyVersionId),
      context:{
       category:'teaching',activityType:text(session?.type),teachingRole:role,role,
       hours,shifts:1,course:text(session?.course),date:text(session?.date),topic:text(session?.topic),
@@ -171,18 +175,124 @@
   for(const person of faculty){
    const facultyId=text(person?.__id||person?.ucid||person?.id);
    if(!facultyId)continue;
+   const summary=person?.facultySummary2026_27&&typeof person.facultySummary2026_27==='object'?person.facultySummary2026_27:{};
+   const fixed=number(summary.sourceNonTimetableTeachingDOE),sourceAssigned=number(summary.assignedTeachingDOE);
+   const reconciliation=fixed!==null?fixed:(sourceAssigned!==null?sourceAssigned-(scheduledByFaculty.get(facultyId)||0):null);
+   if(reconciliation!==null){
+    const assignmentId=`${facultyId}--source-non-timetable-teaching`,assignment='Source non-timetable teaching DOE';
+    calculations.push({
+     sourceEntityType:'source_reconciliation',sourceEntityId:assignmentId,assignmentId,facultyId,currentDoe:reconciliation,
+     currentPolicyVersionId:text(summary.sourceNonTimetableTeachingDOEPolicyVersionId),
+     context:{category:'teaching',activityType:'SOURCE_RECONCILIATION',teachingRole:'Source Reconciliation',assignment}
+    });
+   }
    const roles=Array.isArray(person?.managedRoles2026_27)?person.managedRoles2026_27:[];
    roles.forEach((managed,index)=>{
     const credit=Math.abs(number(managed?.doeCredit)??0);
     if(!credit&&!text(managed?.assignment)&&!text(managed?.type))return;
     const signed=text(managed?.action).toLowerCase()==='remove'?-credit:credit;
+    const assignmentId=`${facultyId}--managed-role--${index+1}`;
     calculations.push({
-     sourceEntityType:'managed_role',sourceEntityId:`${facultyId}--managed-role--${index+1}`,facultyId,currentDoe:signed,
+     sourceEntityType:'managed_role',sourceEntityId:assignmentId,assignmentId,facultyId,currentDoe:signed,
+     currentPolicyVersionId:text(managed?.doePolicyVersionId),
      context:{category:'role',roleType:text(managed?.type),assignment:text(managed?.assignment),action:text(managed?.action)||'add'}
     });
    });
   }
   return{academicYear:text(academicYear),calculations};
+ }
+
+ function recalculationConfirmationText(version={},preview={}){
+  return `Recalculate DOE for Academic Year ${text(version.academicYear)||'—'} using Active policy ${text(version.policyVersionId)||'—'}? This will update ${Number(preview.assignmentsAffected||0)} DOE source row(s); ${Number(preview.changedDoeCount||0)} currently differ from the Active policy. Calculation evidence will be preserved and derived indexes refreshed.`;
+ }
+
+ function sourceOrdinal(sourceEntityId,label){
+  const match=text(sourceEntityId).match(new RegExp(`--${label}--(\\d+)$`));
+  return match?Number(match[1])-1:-1;
+ }
+
+ function applyRecalculationRowsToSource(source={},rows=[],calculationRecords=[]){
+  const next={...source};
+  if(Array.isArray(source.assignments))next.assignments=source.assignments.map(row=>({...row}));
+  if(Array.isArray(source.managedRoles2026_27))next.managedRoles2026_27=source.managedRoles2026_27.map(row=>({...row}));
+  if(source.facultySummary2026_27&&typeof source.facultySummary2026_27==='object')next.facultySummary2026_27={...source.facultySummary2026_27};
+  rows.forEach((row,index)=>{
+   const record=calculationRecords[index]||{};
+   const provenance={
+    doeCredit:Number(row.resultDoe),doePolicyVersionId:text(row.policyVersionId),doeRuleId:text(row.ruleId),doeRuleKey:text(row.ruleKey),doeCalculationId:text(record.calculationId)
+   };
+   if(row.sourceEntityType==='session_assignment'){
+    const assignments=next.assignments||[];
+    let at=text(row.assignmentId)?assignments.findIndex(item=>text(item?.assignmentId)===text(row.assignmentId)):-1;
+    if(at<0)at=sourceOrdinal(row.sourceEntityId,'assignment');
+    if(at<0||at>=assignments.length){const error=Error('DOE recalculation could not locate the source session assignment.');error.code='RECALCULATION_SOURCE_NOT_FOUND';throw error}
+    assignments[at]={...assignments[at],...provenance};
+    return;
+   }
+   if(row.sourceEntityType==='managed_role'){
+    const roles=next.managedRoles2026_27||[];
+    const at=sourceOrdinal(row.sourceEntityId,'managed-role');
+    if(at<0||at>=roles.length){const error=Error('DOE recalculation could not locate the source managed role.');error.code='RECALCULATION_SOURCE_NOT_FOUND';throw error}
+    roles[at]={...roles[at],...provenance};
+    return;
+   }
+   if(row.sourceEntityType==='source_reconciliation'){
+    const summary={...(next.facultySummary2026_27||{})};
+    summary.sourceNonTimetableTeachingDOE=Number(row.resultDoe);
+    summary.sourceNonTimetableTeachingDOEPolicyVersionId=text(row.policyVersionId);
+    summary.sourceNonTimetableTeachingDOERuleId=text(row.ruleId);
+    summary.sourceNonTimetableTeachingDOERuleKey=text(row.ruleKey);
+    summary.sourceNonTimetableTeachingDOECalculationId=text(record.calculationId);
+    next.facultySummary2026_27=summary;
+    return;
+   }
+   const error=Error(`Unsupported DOE recalculation source type: ${text(row.sourceEntityType)||'unknown'}`);error.code='RECALCULATION_SOURCE_UNSUPPORTED';throw error;
+  });
+  return next;
+ }
+
+ function createFirestoreRecalculationWriter({db,repository,actorProvider=()=>({}),serverTimestamp}={}){
+  if(!db||!repository?.stageCalculationRecord)throw new Error('Firestore DOE recalculation writer requires db and repository staging support.');
+  const timestamp=typeof serverTimestamp==='function'?serverTimestamp:()=>root?.firebase?.firestore?.FieldValue?.serverTimestamp?.()||new Date().toISOString();
+  return async payload=>{
+   const current=payload.actor||actorProvider()||{},batchId=text(payload.batchId);
+   if(!batchId)throw new Error('DOE recalculation batchId is required.');
+   const groups=new Map();
+   (payload.rows||[]).forEach((row,index)=>{
+    const isSession=row.sourceEntityType==='session_assignment';
+    const collection=isSession?'sessions':'faculty';
+    const id=isSession?text(row.sessionId):text(row.facultyId);
+    if(!id){const error=Error('DOE recalculation source document ID is required.');error.code='RECALCULATION_SOURCE_NOT_FOUND';throw error}
+    const key=`${collection}/${id}`;
+    if(!groups.has(key))groups.set(key,{collection,id,rows:[],records:[]});
+    groups.get(key).rows.push(row);groups.get(key).records.push((payload.calculationRecords||[])[index]);
+   });
+   const loaded=[];
+   for(const group of groups.values()){
+    const ref=db.collection(group.collection).doc(group.id);
+    let snapshot;try{snapshot=await ref.get({source:'server'})}catch(_){snapshot=await ref.get()}
+    if(!snapshot?.exists){const error=Error(`DOE recalculation source ${group.collection}/${group.id} was not found.`);error.code='RECALCULATION_SOURCE_NOT_FOUND';throw error}
+    loaded.push({...group,ref,source:snapshot.data()});
+   }
+   const stamp=timestamp(),batch=db.batch();
+   for(const group of loaded){
+    const next=applyRecalculationRowsToSource(group.source,group.rows,group.records);
+    next.doeRecalculationBatchId=batchId;
+    next.doeRecalculationPolicyVersionId=text(payload.policyVersionId);
+    next.doeRecalculatedBy=text(current.uid);
+    next.doeRecalculatedAt=stamp;
+    next.updatedBy=text(current.uid);
+    next.updatedByName=text(current.name);
+    next.updatedAt=stamp;
+    batch.set(group.ref,next);
+   }
+   for(const record of payload.calculationRecords||[])repository.stageCalculationRecord(batch,record);
+   batch.set(db.collection('doe_recalculation_batches').doc(batchId),{
+    recalculationBatchId:batchId,academicYear:text(payload.academicYear),policyVersionId:text(payload.policyVersionId),status:'running',
+    completedRows:Number(payload.end||0),totalRows:Number(payload.totalRows||0),changedBy:text(current.uid),changedByName:text(current.name),updatedAt:stamp
+   },{merge:true});
+   await batch.commit();
+  };
  }
 
  const pct=value=>number(value)===null?'—':`${Number(value).toFixed(2)}%`;
@@ -247,6 +357,9 @@
   el.textContent=message||'No policy selected';
   el.dataset.tone=tone;
  }
+ function setRecalculateStatus(message,tone=''){
+  const el=$('doe-recalculate-status');if(!el)return;el.textContent=message||'';el.dataset.tone=tone;
+ }
 
  function applyPermissions(){
   const cap=capabilities(state.profile),version=selectedVersion(),draft=version?.status==='draft',revision=Number(version?.revision||0);
@@ -277,6 +390,9 @@
    const element=$(id);
    if(element&&!cap.publish)element.title='ADFA General / Owner only';
   }
+  if(!cap.recalculate)setRecalculateStatus('Administrative recalculation is ADFA General / Owner only.');
+  else if(version?.status==='active')setRecalculateStatus('Run a dry-run preview before executing recalculation.');
+  else setRecalculateStatus('Select the Active policy version to recalculate.');
  }
 
  function categoryForSection(section){
@@ -681,8 +797,37 @@
   await state.service.archive(version.policyVersionId);say('DOE Policy archived.');await load();
  }
  async function recalculate(){
-  if(typeof state.service.runRecalculate!=='function'){say('Recalculate will be enabled after the recalculation workflow is installed.',true);return}
-  await state.service.runRecalculate({academicYear:selectedVersion().academicYear,policyVersionId:selectedVersion().policyVersionId});
+  const version=selectedVersion(),cap=capabilities(state.profile);
+  if(!version)return;
+  if(!cap.recalculate){setRecalculateStatus('Administrative recalculation is ADFA General / Owner only.','error');say('Administrative DOE recalculation is ADFA General / Owner only.',true);return}
+  if(version.status!=='active'){setRecalculateStatus('Select the Active policy version before recalculating.','error');return}
+  if(typeof state.service.previewRecalculate!=='function'||typeof state.service.runRecalculate!=='function'){say('Recalculate workflow is unavailable.',true);return}
+  setRecalculateStatus('Running recalculation dry run…');
+  const dryRun=await state.service.previewRecalculate({academicYear:version.academicYear,policyVersionId:version.policyVersionId,scope:'all'});
+  setRecalculateStatus(`Dry run: ${dryRun.assignmentsAffected} source row(s), ${dryRun.changedDoeCount} changed, ${dryRun.errors.length} error(s), ${dryRun.warnings.length} warning(s).`);
+  if(dryRun.errors.length){say('Recalculation dry run contains blocking errors.',true);return}
+  const confirmation=recalculationConfirmationText(version,dryRun);
+  if(typeof root?.confirm==='function'&&!root.confirm(confirmation))return;
+  const execute=async options=>state.service.runRecalculate({
+   academicYear:version.academicYear,policyVersionId:version.policyVersionId,scope:'all',...(options||{}),
+   onProgress:progress=>setRecalculateStatus(progress.status==='completed'?`Recalculation complete: ${progress.completedRows}/${progress.totalRows}.`:`Recalculating DOE: ${progress.completedRows}/${progress.totalRows}…`)
+  });
+  try{
+   const result=await execute();
+   setRecalculateStatus(`Recalculation complete: ${result.completedRows}/${result.totalRows}. Derived indexes refreshed.`,'success');
+   say('DOE recalculation completed.');
+  }catch(error){
+   if(error?.partialCommit&&Number.isFinite(Number(error.resumeFrom))){
+    setRecalculateStatus(`Recalculation stopped after ${error.completedRows} committed row(s). Resume is available with batch ${error.batchId}.`,'error');
+    const resumeMessage=`DOE recalculation partially committed ${error.completedRows} row(s). Resume batch ${error.batchId} from row ${error.resumeFrom}?`;
+    if(typeof root?.confirm==='function'&&root.confirm(resumeMessage)){
+     const result=await execute({resumeFrom:error.resumeFrom,batchId:error.batchId});
+     setRecalculateStatus(`Recalculation complete: ${result.completedRows}/${result.totalRows}. Derived indexes refreshed.`,'success');
+     say('DOE recalculation resumed and completed.');return;
+    }
+   }
+   throw error;
+  }
  }
 
  function addRow(containerId,renderer){
@@ -734,10 +879,23 @@
    repository:state.repository,
    engine,
    actorProvider:actor,
-   datasetProvider:async bundle=>buildImpactDataset({
-    faculty:root?.UCVM_ADMIN_DATA?.faculty?.()||[],
-    sessions:root?.UCVM_ADMIN_DATA?.sessions?.()||[]
-   },bundle?.version?.academicYear)
+   datasetProvider:async bundle=>{
+    const fresh=await root?.UCVM_ADMIN_DATA?.refresh?.();
+    return buildImpactDataset(fresh||{
+     faculty:root?.UCVM_ADMIN_DATA?.faculty?.()||[],
+     sessions:root?.UCVM_ADMIN_DATA?.sessions?.()||[]
+    },bundle?.version?.academicYear);
+   },
+   recalculationWriter:createFirestoreRecalculationWriter({db,repository:state.repository,actorProvider:actor}),
+   derivedIndexRefresh:async progress=>{
+    const maintenance=root?.UCVM_INDEX_MAINTENANCE;
+    if(!maintenance?.refreshCoreDerivedIndexes)throw new Error('Derived-index refresh is unavailable.');
+    await maintenance.refreshCoreDerivedIndexes(db,actor());
+    const stamp=root?.firebase?.firestore?.FieldValue?.serverTimestamp?.()||new Date().toISOString();
+    await db.collection('doe_recalculation_batches').doc(progress.batchId).set({
+     status:'completed',completedRows:Number(progress.completedRows||0),totalRows:Number(progress.totalRows||0),changedBy:text(actor().uid),changedByName:text(actor().name),updatedAt:stamp
+    },{merge:true});
+   }
   });
   state.initialized=true;
   wire();
@@ -756,6 +914,9 @@
   testRule,
   buildImpactDataset,
   impactPreviewHtml,
+  recalculationConfirmationText,
+  applyRecalculationRowsToSource,
+  createFirestoreRecalculationWriter,
   init,
   destroy,
   load,

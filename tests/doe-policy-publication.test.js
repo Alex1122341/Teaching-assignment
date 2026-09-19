@@ -123,7 +123,7 @@ test('publish rejects preview evidence from an older Draft revision',async()=>{
  await repo.createImpactRun({
   impactRunId:'impact-old',policyVersionId:'ucvm-workload-2027-28-v2',
   policyRevision:1,policyChecksum:validation.policyChecksum,inputDatasetChecksum:'dataset-1',
-  status:'passed',runBy:'general'
+  activeVersionIdAtPreview:'ucvm-workload-2027-28-v1',status:'passed',runBy:'general'
  });
  const version=await repo.getVersion('ucvm-workload-2027-28-v2');
  await repo.replaceVersion({
@@ -148,7 +148,7 @@ test('publish rejects when the source dataset changed after preview',async()=>{
  await repo.createImpactRun({
   impactRunId:'impact-1',policyVersionId:'ucvm-workload-2027-28-v2',
   policyRevision:1,policyChecksum:validation.policyChecksum,inputDatasetChecksum:'dataset-1',
-  status:'passed',runBy:'general'
+  activeVersionIdAtPreview:'ucvm-workload-2027-28-v1',status:'passed',runBy:'general'
  });
  const version=await repo.getVersion('ucvm-workload-2027-28-v2');
  await repo.replaceVersion({
@@ -166,13 +166,36 @@ test('publish rejects when the source dataset changed after preview',async()=>{
  );
 });
 
+test('publish rejects when another Draft changed the Active version after preview',async()=>{
+ const {repo,service}=create('adfa_general');
+ const validation=await service.validateDraft('ucvm-workload-2027-28-v2');
+ await repo.createImpactRun({
+  impactRunId:'impact-active-v1',policyVersionId:'ucvm-workload-2027-28-v2',
+  policyRevision:1,policyChecksum:validation.policyChecksum,inputDatasetChecksum:'dataset-1',
+  activeVersionIdAtPreview:'ucvm-workload-2027-28-v1',status:'passed',errorCount:0
+ });
+ const version=await repo.getVersion('ucvm-workload-2027-28-v2');
+ await repo.replaceVersion({...version,lastImpactRunId:'impact-active-v1',lastImpactRevision:1,lastImpactChecksum:validation.policyChecksum,lastImpactDatasetChecksum:'dataset-1'});
+ await repo.createVersion({
+  policyVersionId:'ucvm-workload-2027-28-v3',policyId:'ucvm-workload-2027-28',
+  academicYear:'2027-28',versionNumber:3,status:'active',revision:1
+ });
+ await repo.replaceVersion({...await repo.getVersion('ucvm-workload-2027-28-v1'),status:'archived'});
+ await repo.replacePolicy({...await repo.getPolicy('ucvm-workload-2027-28'),currentActiveVersionId:'ucvm-workload-2027-28-v3'});
+
+ await assert.rejects(
+  ()=>service.publish('ucvm-workload-2027-28-v2'),
+  error=>error&&error.code==='PREVIEW_STALE'
+ );
+});
+
 test('successful publish archives the old Active version and records immutable publication evidence',async()=>{
  const {repo,service}=create('adfa_general');
  const validation=await service.validateDraft('ucvm-workload-2027-28-v2');
  await repo.createImpactRun({
   impactRunId:'impact-good',policyVersionId:'ucvm-workload-2027-28-v2',
   policyRevision:1,policyChecksum:validation.policyChecksum,inputDatasetChecksum:'dataset-1',
-  status:'passed',runBy:'general',
+  activeVersionIdAtPreview:'ucvm-workload-2027-28-v1',status:'passed',runBy:'general',
   facultyCount:100,calculationCount:500,changedFacultyCount:12,errorCount:0,warningCount:2
  });
  const version=await repo.getVersion('ucvm-workload-2027-28-v2');
@@ -199,7 +222,7 @@ test('published versions remain immutable through Draft editing APIs',async()=>{
  await repo.createImpactRun({
   impactRunId:'impact-good',policyVersionId:'ucvm-workload-2027-28-v2',
   policyRevision:1,policyChecksum:validation.policyChecksum,inputDatasetChecksum:'dataset-1',
-  status:'passed',runBy:'general'
+  activeVersionIdAtPreview:'ucvm-workload-2027-28-v1',status:'passed',runBy:'general'
  });
  const version=await repo.getVersion('ucvm-workload-2027-28-v2');
  await repo.replaceVersion({...version,lastImpactRunId:'impact-good',lastImpactRevision:1,lastImpactChecksum:validation.policyChecksum,lastImpactDatasetChecksum:'dataset-1'});

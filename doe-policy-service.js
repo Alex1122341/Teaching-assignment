@@ -64,6 +64,122 @@
   });
  }
 
+ function migrationNumber(value){
+  if(value===null||value===undefined||value==='')return null;
+  const parsed=Number(value);
+  return Number.isFinite(parsed)?parsed:null;
+ }
+
+ function roundedDoe(value){
+  const numeric=Number(value);
+  return Number.isFinite(numeric)?Number(numeric.toFixed(6)):0;
+ }
+
+ function migrationExceptionId(row,index){
+  const stableParts=[row?.migrationId,row?.facultyId,row?.category,row?.assignment,row?.sourceReference].map(text);
+  const source=stableParts.some(Boolean)?stableParts.join('|'):`row-${index}`;
+  let hash=2166136261;
+  for(let offset=0;offset<source.length;offset++){
+   hash^=source.charCodeAt(offset);
+   hash=Math.imul(hash,16777619);
+  }
+  return`migration-exception-${(hash>>>0).toString(16).padStart(8,'0')}`;
+ }
+
+ function planMigrationExceptions(rows,{policyVersionId=''}={}){
+  const generalRuleRecords=[],exceptions=[],reviewErrors=[];
+  const safeClassifications=new Set(['safe_general_rule','general_rule']);
+  const exceptionClassifications=new Set(['fixed','prorated','source_reconciled']);
+
+  for(const [index,raw] of (Array.isArray(rows)?rows:[]).entries()){
+   const row=raw&&typeof raw==='object'?raw:{};
+   const classification=text(row.classification).toLowerCase().replace(/[\s-]+/g,'_');
+   if(safeClassifications.has(classification)){
+    generalRuleRecords.push({...row});
+    continue;
+   }
+   if(exceptionClassifications.has(classification)){
+    const required={
+     facultyId:text(row.facultyId),category:text(row.category),assignment:text(row.assignment),
+     fixedDoe:migrationNumber(row.fixedDoe),reason:text(row.reason),sourceReference:text(row.sourceReference)
+    };
+    const missing=Object.entries(required).filter(([,value])=>value===null||value==='').map(([key])=>key);
+    if(missing.length){
+     reviewErrors.push({
+      code:'MIGRATION_EXCEPTION_INVALID',message:'Migration Exception requires faculty, category, assignment, fixed DOE, reason, and source reference.',
+      migrationId:text(row.migrationId),missing
+     });
+     continue;
+    }
+    exceptions.push({
+     exceptionId:migrationExceptionId(row,index),policyVersionId:text(policyVersionId),
+     facultyId:required.facultyId,category:required.category,assignment:required.assignment,
+     fixedDoe:required.fixedDoe,reason:required.reason,sourceReference:required.sourceReference,
+     scopeType:'assignment',scopeKey:text(row.assignmentId)||required.assignment,
+     resultKind:text(row.resultKind)||'credit',priority:migrationNumber(row.priority)??500,
+     enabled:true,migrationClassification:classification
+    });
+    continue;
+   }
+   reviewErrors.push({
+    code:classification==='unresolved'?'MIGRATION_CLASSIFICATION_UNRESOLVED':'MIGRATION_CLASSIFICATION_REQUIRED',
+    message:classification==='unresolved'?'Migration source remains unresolved and requires authorized review.':'Migration source must be explicitly classified; a formula is never inferred from observed values.',
+    migrationId:text(row.migrationId),facultyId:text(row.facultyId),category:text(row.category),assignment:text(row.assignment)
+   });
+  }
+
+  return{
+   policyVersionId:text(policyVersionId),generalRuleRecords,exceptions,reviewErrors,
+   accepted:reviewErrors.length===0
+  };
+ }
+
+ function buildShadowParityReport(rows,{tolerance=.01}={}){
+  const numericTolerance=migrationNumber(tolerance);
+  const effectiveTolerance=numericTolerance===null||numericTolerance<0?.01:numericTolerance;
+  const groups=new Map();
+  for(const raw of Array.isArray(rows)?rows:[]){
+   const facultyId=text(raw?.facultyId);
+   if(!groups.has(facultyId))groups.set(facultyId,{facultyId,oldTotal:0,engineTotal:0,ruleExplainedAmount:0,exceptionExplainedAmount:0,unresolvedAmount:0});
+   const group=groups.get(facultyId),oldDoe=migrationNumber(raw?.oldDoe),engineDoe=migrationNumber(raw?.engineDoe);
+   const oldValue=oldDoe??0,engineValue=engineDoe??0,delta=roundedDoe(engineValue-oldValue);
+   group.oldTotal=roundedDoe(group.oldTotal+oldValue);
+   group.engineTotal=roundedDoe(group.engineTotal+engineValue);
+   const classification=text(raw?.classification).toLowerCase().replace(/[\s-]+/g,'_');
+   if(oldDoe===null||engineDoe===null){
+    group.unresolvedAmount=roundedDoe(group.unresolvedAmount+delta);
+   }else if(classification==='rule'){
+    group.ruleExplainedAmount=roundedDoe(group.ruleExplainedAmount+delta);
+   }else if(classification==='exception'&&text(raw?.reason)&&text(raw?.sourceReference)&&approvedMigrationDifference(raw?.approval)){
+    group.exceptionExplainedAmount=roundedDoe(group.exceptionExplainedAmount+delta);
+   }else{
+    group.unresolvedAmount=roundedDoe(group.unresolvedAmount+delta);
+   }
+  }
+
+  const faculty=[...groups.values()].sort((a,b)=>a.facultyId.localeCompare(b.facultyId)).map(group=>{
+   const difference=roundedDoe(group.engineTotal-group.oldTotal);
+   const unresolvedAmount=roundedDoe(difference-group.ruleExplainedAmount-group.exceptionExplainedAmount);
+   return{
+    facultyId:group.facultyId,oldTotal:group.oldTotal,engineTotal:group.engineTotal,difference,
+    ruleExplainedAmount:group.ruleExplainedAmount,exceptionExplainedAmount:group.exceptionExplainedAmount,
+    unresolvedAmount,accepted:Math.abs(unresolvedAmount)<=effectiveTolerance
+   };
+  });
+  const blockingFacultyIds=faculty.filter(row=>!row.accepted).map(row=>row.facultyId);
+  return{tolerance:effectiveTolerance,accepted:blockingFacultyIds.length===0,blockingFacultyIds,faculty};
+ }
+
+ function approvedMigrationDifference(approval={}){
+  const approvedAt=text(approval?.approvedAt);
+  return Boolean(
+   text(approval?.approvedBy)&&
+   role(approval?.approvedByRole)==='adfa_general'&&
+   approvedAt&&!Number.isNaN(Date.parse(approvedAt))&&
+   text(approval?.approvalReference)
+  );
+ }
+
  function canonicalPolicy(bundle={}){
   const rules=sortByStableId(bundle.rules,['ruleId','ruleKey']).map(raw=>{
    const rule=stripVolatile(raw);
@@ -108,7 +224,10 @@
   clock=()=>new Date(),
   datasetProvider=null,
   datasetChecksumProvider=null,
-  previewReviewThreshold=5
+  previewReviewThreshold=5,
+  recalculationWriter=null,
+  derivedIndexRefresh=null,
+  recalculationChunkSize=200
  }={}){
   if(!repository)throw new Error('DOE policy repository is required.');
   if(!engine)throw new Error('DOE policy engine is required.');
@@ -265,6 +384,9 @@
    if(version.status!=='draft')throw new DoeServiceError('POLICY_NOT_DRAFT','Impact Preview requires a Draft DOE policy.',{policyVersionId:text(policyVersionId)});
 
    const revision=Number(version.revision||0);
+   const policy=await repository.getPolicy(version.policyId);
+   if(!policy)throw new DoeServiceError('POLICY_NOT_FOUND','DOE policy was not found.',{policyId:text(version.policyId)});
+   const activeVersionIdAtPreview=text(policy.currentActiveVersionId);
    const checksum=await policyChecksum(bundle);
    const validation=engine.validatePolicy(bundle);
    const validationCurrent=
@@ -359,6 +481,7 @@
     policyRevision:revision,
     policyChecksum:checksum,
     inputDatasetChecksum,
+    activeVersionIdAtPreview,
     status,
     facultyCount:rows.length,
     calculationCount:projection.calculations.length,
@@ -398,12 +521,17 @@
    if(!run)throw new DoeServiceError('PREVIEW_REQUIRED','The required Impact Preview record was not found.',{impactRunId:runId});
    const checksum=await policyChecksum(bundle);
    const revision=Number(version.revision||0);
+   const policy=await repository.getPolicy(version.policyId);
+   if(!policy)throw new DoeServiceError('POLICY_NOT_FOUND','DOE policy was not found.',{policyId:text(version.policyId)});
+   const expectedActiveVersionId=text(run.activeVersionIdAtPreview);
    if(
     text(run.policyVersionId)!==text(policyVersionId)||
     Number(run.policyRevision)!==revision||
     text(run.policyChecksum)!==checksum||
     Number(version.lastImpactRevision)!==revision||
-    text(version.lastImpactChecksum)!==checksum
+    text(version.lastImpactChecksum)!==checksum||
+    !expectedActiveVersionId||
+    text(policy.currentActiveVersionId)!==expectedActiveVersionId
    ){
     throw new DoeServiceError('PREVIEW_STALE','Impact Preview is stale for the current Draft revision.',{impactRunId:runId});
    }
@@ -427,6 +555,7 @@
     policyChecksum:checksum,
     impactRunId:runId,
     inputDatasetChecksum:datasetChecksum,
+    activeVersionIdAtPreview:expectedActiveVersionId,
     publishedAt,
     publishedBy:text(current.uid),
     publishedByName:text(current.name),
@@ -444,6 +573,7 @@
     policyChecksum:checksum,
     impactRunId:runId,
     inputDatasetChecksum:datasetChecksum,
+    expectedActiveVersionId,
     publication,
     actor:current
    });
@@ -614,12 +744,12 @@
    return`calculation-${safeTime}-${source}`;
   }
 
-  async function recordCalculation(result,metadata={}){
+  function buildCalculationRecord(result,metadata={}){
    const current=actor();
    if(!result||result.ok!==true||!Number.isFinite(Number(result.resultDoe))){
     throw new DoeServiceError('CALCULATION_RESULT_INVALID','A successful finite DOE calculation result is required.');
    }
-   const record={
+   return{
     calculationId:calculationId(metadata,current),
     academicYear:text(result.academicYear||metadata.academicYear),
     policyVersionId:text(result.policyVersionId),
@@ -637,17 +767,151 @@
     ruleSnapshot:{...(result.ruleSnapshot||{})},
     resultDoe:Number(result.resultDoe),
     trigger:text(metadata.trigger),
+    recalculationBatchId:text(metadata.recalculationBatchId),
     calculatedAt:timestamp(),
     calculatedBy:text(current.uid),
     calculatedByName:text(current.name),
     calculatedByEmail:text(current.email)
    };
-   return repository.createCalculationRecord(record);
+  }
+
+  async function recordCalculation(result,metadata={}){
+   return repository.createCalculationRecord(buildCalculationRecord(result,metadata));
+  }
+
+  function recalculationBatchId(value,academicYear,policyVersionId){
+   if(text(value))return text(value);
+   const uuid=nodeCrypto?.randomUUID?.()||webCrypto?.randomUUID?.();
+   if(uuid)return`recalc-${text(academicYear)}-${uuid}`;
+   return`recalc-${text(academicYear)}-${text(policyVersionId)}-${timestamp().replace(/[^0-9]/g,'').slice(0,17)}`;
+  }
+
+  function recalculationScopeMatches(item,scope){
+   if(!scope||scope==='all')return true;
+   const context=item?.context&&typeof item.context==='object'?item.context:{};
+   if(typeof scope==='string')return text(context.category)===text(scope);
+   if(typeof scope!=='object')return true;
+   const includes=(values,value)=>!Array.isArray(values)||!values.length||values.map(text).includes(text(value));
+   return includes(scope.facultyIds,item?.facultyId)
+    &&includes(scope.categories,context.category)
+    &&includes(scope.sourceEntityTypes,item?.sourceEntityType)
+    &&includes(scope.sourceEntityIds,item?.sourceEntityId);
+  }
+
+  async function recalculationPlan({academicYear,policyVersionId,scope='all'}={}){
+   const year=text(academicYear);
+   if(!year)throw new DoeServiceError('ACADEMIC_YEAR_REQUIRED','Academic Year is required for DOE recalculation.');
+   const selectedId=text(policyVersionId);
+   if(!selectedId)throw new DoeServiceError('POLICY_VERSION_REQUIRED','Policy Version is required for DOE recalculation.');
+   const {policy,bundle}=await activePolicyForYear(year);
+   if(text(bundle.version.policyVersionId)!==selectedId||text(policy.currentActiveVersionId)!==selectedId){
+    throw new DoeServiceError('ACTIVE_POLICY_REQUIRED','Administrative DOE recalculation must use the current Active policy version.',{academicYear:year,policyVersionId:selectedId,activePolicyVersionId:text(policy.currentActiveVersionId)});
+   }
+   if(typeof datasetProvider!=='function')throw new DoeServiceError('DATASET_PROVIDER_REQUIRED','DOE recalculation requires an authoritative dataset provider.');
+   const dataset=await datasetProvider(bundle);
+   const raw=Array.isArray(dataset?.calculations)?dataset.calculations:Array.isArray(dataset?.items)?dataset.items:[];
+   const items=raw.filter(item=>recalculationScopeMatches(item,scope)).sort((a,b)=>
+    text(a?.facultyId).localeCompare(text(b?.facultyId))||
+    text(a?.sourceEntityType).localeCompare(text(b?.sourceEntityType))||
+    text(a?.sourceEntityId).localeCompare(text(b?.sourceEntityId))||
+    text(a?.assignmentId).localeCompare(text(b?.assignmentId))
+   );
+   const rows=[],errors=[],warnings=[];
+   const facultyIds=new Set(),oldVersions=new Set();
+   let changedDoeCount=0,roleSupervisionAffected=0;
+   for(const item of items){
+    const context={...(item?.context||{}),academicYear:year};
+    for(const key of ['facultyId','sessionId','assignmentId'])if(!text(context[key])&&text(item?.[key]))context[key]=text(item[key]);
+    const category=text(context.category);
+    if(['role','supervision'].includes(category))roleSupervisionAffected+=1;
+    if(text(item?.facultyId))facultyIds.add(text(item.facultyId));
+    if(text(item?.currentPolicyVersionId))oldVersions.add(text(item.currentPolicyVersionId));
+    try{
+     const result=engine.calculate(calculationBundleForItem(bundle,item),context);
+     const currentDoe=Number(item?.currentDoe),hasCurrent=Number.isFinite(currentDoe),nextDoe=Number(result.resultDoe);
+     const changed=!hasCurrent||Math.abs(nextDoe-currentDoe)>1e-9;
+     if(changed)changedDoeCount+=1;
+     if(!hasCurrent)warnings.push({code:'CURRENT_DOE_MISSING',message:'Current DOE is unavailable; recalculation will establish a canonical value.',sourceEntityType:text(item?.sourceEntityType),sourceEntityId:text(item?.sourceEntityId),facultyId:text(item?.facultyId)});
+     rows.push({
+      sourceEntityType:text(item?.sourceEntityType),sourceEntityId:text(item?.sourceEntityId),sessionId:text(item?.sessionId),assignmentId:text(item?.assignmentId),facultyId:text(item?.facultyId),
+      category,currentDoe:hasCurrent?currentDoe:null,currentPolicyVersionId:text(item?.currentPolicyVersionId),
+      resultDoe:nextDoe,policyVersionId:text(result.policyVersionId),ruleId:text(result.ruleId),ruleKey:text(result.ruleKey),exceptionId:text(result.exceptionId),source:text(result.source),
+      context:{...(item?.context||{})},changed,_calculationResult:result
+     });
+    }catch(error){
+     errors.push(previewError(error,item));
+    }
+   }
+   return{
+    bundle,rows,
+    preview:{academicYear:year,policyVersionId:selectedId,scope,facultyAffected:facultyIds.size,assignmentsAffected:rows.length+errors.length,roleSupervisionAffected,oldPolicyVersions:[...oldVersions].sort(),newActiveVersion:selectedId,changedDoeCount,errors,warnings}
+   };
+  }
+
+  async function previewRecalculate(options={}){
+   const current=actor();
+   if(!canRecalculate(current))deny('preview administrative recalculation for');
+   return (await recalculationPlan(options)).preview;
+  }
+
+  async function runRecalculate({academicYear,policyVersionId,scope='all',resumeFrom=0,batchId='',onProgress}={}){
+   const current=actor();
+   if(!canRecalculate(current))deny('execute administrative recalculation for');
+   if(typeof recalculationWriter!=='function')throw new DoeServiceError('RECALCULATION_WRITER_REQUIRED','DOE recalculation requires an atomic canonical writer.');
+   const plan=await recalculationPlan({academicYear,policyVersionId,scope});
+   if(plan.preview.errors.length){
+    throw new DoeServiceError('RECALCULATION_PREVIEW_FAILED','DOE recalculation contains blocking calculation errors.',{preview:plan.preview});
+   }
+   const rows=plan.rows,batch=recalculationBatchId(batchId,academicYear,policyVersionId);
+   const totalRows=rows.length,startIndex=Math.min(Math.max(0,Number(resumeFrom)||0),totalRows);
+   const chunkSize=Math.max(1,Math.min(200,Number(recalculationChunkSize)||200));
+   let completedRows=startIndex;
+   if(typeof repository.appendAudit==='function')await repository.appendAudit({
+    policyVersionId:text(policyVersionId),action:'recalculation_started',entityType:'policy_version',entityId:text(policyVersionId),
+    recalculationBatchId:batch,academicYear:text(academicYear),scope,completedRows:startIndex,totalRows,
+    changedBy:text(current.uid),changedByName:text(current.name),changedByEmail:text(current.email),changedAt:timestamp()
+   });
+   try{
+    if(typeof onProgress==='function')onProgress({batchId:batch,status:'running',completedRows,totalRows,resumeFrom:startIndex});
+    for(let start=startIndex;start<totalRows;start+=chunkSize){
+     const end=Math.min(totalRows,start+chunkSize),chunk=rows.slice(start,end);
+     const calculationRecords=chunk.map(row=>buildCalculationRecord(row._calculationResult,{
+      facultyId:row.facultyId,sessionId:row.sessionId,assignmentId:row.assignmentId,sourceEntityType:row.sourceEntityType,sourceEntityId:row.sourceEntityId,
+      trigger:'administrative_recalculation',recalculationBatchId:batch
+     }));
+     const publicRows=chunk.map(({_calculationResult,...row})=>row);
+     await recalculationWriter({academicYear:text(academicYear),policyVersionId:text(policyVersionId),scope,batchId:batch,start,end,totalRows,rows:publicRows,calculationRecords,actor:current});
+     completedRows=end;
+     if(typeof onProgress==='function')onProgress({batchId:batch,status:'running',completedRows,totalRows,resumeFrom:completedRows});
+    }
+   }catch(error){
+    error.partialCommit=completedRows>startIndex||startIndex>0;
+    error.completedRows=completedRows;
+    error.resumeFrom=completedRows;
+    error.batchId=batch;
+    throw error;
+   }
+   try{
+    if(typeof derivedIndexRefresh==='function')await derivedIndexRefresh({academicYear:text(academicYear),policyVersionId:text(policyVersionId),scope,batchId:batch,completedRows,totalRows});
+   }catch(error){
+    error.partialCommit=completedRows>0;
+    error.completedRows=completedRows;
+    error.resumeFrom=completedRows;
+    error.batchId=batch;
+    throw error;
+   }
+   if(typeof repository.appendAudit==='function')await repository.appendAudit({
+    policyVersionId:text(policyVersionId),action:'recalculation_completed',entityType:'policy_version',entityId:text(policyVersionId),
+    recalculationBatchId:batch,academicYear:text(academicYear),scope,completedRows,totalRows,
+    changedBy:text(current.uid),changedByName:text(current.name),changedByEmail:text(current.email),changedAt:timestamp()
+   });
+   if(typeof onProgress==='function')onProgress({batchId:batch,status:'completed',completedRows,totalRows,resumeFrom:null});
+   return{...plan.preview,batchId:batch,totalRows,completedRows,resumeFrom:null};
   }
 
   return Object.freeze({
    loadPolicyBundle,policyChecksum,previewDatasetProjection,previewDatasetChecksum,validateDraft,runImpactPreview,publish,createPolicyYear,cloneAsDraft,archive,
-   activePolicyForYear,calculateSession,recordCalculation,
+   activePolicyForYear,calculateSession,buildCalculationRecord,recordCalculation,previewRecalculate,runRecalculate,
    capabilities:()=>({canEditDraft:canEditDraft(actor()),canPublish:canPublish(actor()),canRecalculate:canRecalculate(actor())})
   });
  }
@@ -660,6 +924,8 @@
   canRecalculate,
   canonicalPolicy,
   sha256,
+  planMigrationExceptions,
+  buildShadowParityReport,
   createService
  };
 });

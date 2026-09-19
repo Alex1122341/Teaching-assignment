@@ -174,3 +174,17 @@ test('writeDerivedIndexes commits all four settings documents in one batch',asyn
  assert.equal(db.commits.length,1);
  assert.deepEqual(db.commits[0].map(row=>row.id).sort(),['faculty_index','faculty_swap_index','faculty_swap_map','schedule_stats']);
 });
+
+test('incremental derived DOE maintenance preserves missing-credit error state instead of treating it as zero',()=>{
+ const api=require(path.join(root,'index-maintenance.js'));
+ const dataIndex=require(path.join(root,'data-index.js'));
+ const faculty=[{__id:'1001',preferredFullName:'Alex',facultySummary2026_27:{sourceNonTimetableTeachingDOE:2}}];
+ const before={id:'s1',assignments:[{ucid:'1001',doeCredit:1,doePolicyVersionId:'policy-v1'}]};
+ const initial=dataIndex.buildFacultyIndex(faculty,[before]);
+ const after={id:'s1',assignments:[{ucid:'1001',creditedHours:4,doeRate:.3}]};
+ const result=api.applySessionChanges(initial,{sessionCount:1,assignedFacultyCount:1,courseCounts:{}},[{before,after}]);
+ const entry=result.facultyIndex.entries[0];
+ assert.equal(entry.missingDoeCount,1);
+ assert.equal(entry.calculationStatus,'error');
+ assert.equal(entry.assignedTeachingDOE,2);
+});

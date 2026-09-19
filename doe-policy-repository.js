@@ -347,7 +347,7 @@
    return clone(version);
   }
 
-  async function publishVersion({policyVersionId,expectedRevision,policyChecksum,impactRunId,inputDatasetChecksum,publication,actor={}}={}){
+  async function publishVersion({policyVersionId,expectedRevision,policyChecksum,impactRunId,inputDatasetChecksum,expectedActiveVersionId,publication,actor={}}={}){
    const version=requireDraft(policyVersionId,expectedRevision);
    if(text(version.rulesChecksum)!==text(policyChecksum)||Number(version.lastValidatedRevision)!==Number(expectedRevision)||version.lastValidationPassed!==true){
     throw new RepositoryError('VALIDATION_REQUIRED','Current DOE Draft has not passed validation.',{policyVersionId:text(policyVersionId)});
@@ -358,6 +358,9 @@
    }
    const policy=stores.policies.get(text(version.policyId));
    if(!policy)throw new RepositoryError('POLICY_NOT_FOUND','DOE policy was not found.',{policyId:text(version.policyId)});
+   if(!text(expectedActiveVersionId)||text(run.activeVersionIdAtPreview)!==text(expectedActiveVersionId)||text(policy.currentActiveVersionId)!==text(expectedActiveVersionId)){
+    throw new RepositoryError('PREVIEW_STALE','DOE policy Active version changed after Impact Preview.',{policyVersionId:text(policyVersionId),impactRunId:text(impactRunId)});
+   }
    const previousId=text(policy.currentActiveVersionId);
    if(previousId&&previousId!==version.policyVersionId){
     const previous=stores.versions.get(previousId);

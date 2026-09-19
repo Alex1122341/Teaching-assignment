@@ -138,11 +138,11 @@ test('Impact Preview dataset builder projects live timetable assignments and man
  const built=ADMIN.buildImpactDataset({
   faculty:[{
    __id:'f1',
-   managedRoles2026_27:[{type:'HICC',assignment:'VTMD 204',action:'add',doeCredit:2.5}]
+   managedRoles2026_27:[{type:'HICC',assignment:'VTMD 204',action:'add',doeCredit:2.5,doePolicyVersionId:'policy-role-v0'}]
   }],
   sessions:[{
    id:'s1',date:'2026-09-10',course:'204',type:'LEC',topic:'Lecture',start:'09:00',end:'10:00',
-   assignments:[{ucid:'f1',role:'Lecture',creditedHours:1,doeRate:.3,doeCredit:.3}]
+   assignments:[{ucid:'f1',role:'Lecture',creditedHours:1,doeRate:.3,doeCredit:.3,doePolicyVersionId:'policy-teaching-v0'}]
   }]
  },'2026-27');
  assert.equal(built.academicYear,'2026-27');
@@ -154,10 +154,34 @@ test('Impact Preview dataset builder projects live timetable assignments and man
  assert.equal(teaching.context.activityType,'LEC');
  assert.equal(teaching.context.teachingRole,'Lecture');
  assert.equal(teaching.context.hours,1);
+ assert.equal(teaching.currentPolicyVersionId,'policy-teaching-v0');
  const role=built.calculations.find(row=>row.sourceEntityType==='managed_role');
  assert.equal(role.currentDoe,2.5);
  assert.equal(role.context.category,'role');
  assert.equal(role.context.roleType,'HICC');
+ assert.equal(role.currentPolicyVersionId,'policy-role-v0');
+});
+
+test('Impact Preview dataset includes source-reconciled non-timetable DOE exactly once',()=>{
+ const built=ADMIN.buildImpactDataset({
+  faculty:[{__id:'f1',facultySummary2026_27:{sourceNonTimetableTeachingDOE:2.75,sourceNonTimetableTeachingDOEPolicyVersionId:'policy-source-v0',assignedTeachingDOE:9}}],
+  sessions:[{id:'s1',type:'LEC',assignments:[{ucid:'f1',role:'Lecture',creditedHours:2,doeCredit:.6}]}]
+ },'2026-27');
+ const source=built.calculations.filter(row=>row.sourceEntityType==='source_reconciliation');
+ assert.equal(source.length,1);
+ assert.equal(source[0].currentDoe,2.75);
+ assert.equal(source[0].currentPolicyVersionId,'policy-source-v0');
+ assert.equal(source[0].assignmentId,'f1--source-non-timetable-teaching');
+ assert.equal(source[0].context.assignment,'Source non-timetable teaching DOE');
+ assert.equal(built.calculations.reduce((sum,row)=>sum+Number(row.currentDoe||0),0),3.35);
+});
+
+test('production Impact Preview provider refreshes authoritative Faculty and Timetable data',()=>{
+ const source=fs.readFileSync(path.join(__dirname,'..','doe-policy-admin.js'),'utf8');
+ const facultyAdmin=fs.readFileSync(path.join(__dirname,'..','faculty-admin.js'),'utf8');
+ assert.match(source,/UCVM_ADMIN_DATA\?\.refresh\?\.\(\)/);
+ assert.match(facultyAdmin,/refresh:\s*refreshAdminDataset/);
+ assert.match(facultyAdmin,/source:\s*['"]server['"]/);
 });
 
 test('Impact Preview renderer exposes required summary metrics and per-faculty differences',()=>{

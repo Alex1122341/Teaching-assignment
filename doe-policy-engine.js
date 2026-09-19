@@ -97,10 +97,10 @@
  function exceptionScopeValue(exception,context){
   const type=text(exception?.scopeType).toLowerCase();
   if(!type||type==='global')return'global';
+  if(type==='assignment')return context?.assignmentId??context?.assignment;
   const mapping={
    faculty:'facultyId',
    session:'sessionId',
-   assignment:'assignmentId',
    course:'course',
    role:'roleType',
    source_entity:'sourceEntityId'

@@ -53,3 +53,12 @@ test('explicit policy bundle delegates target calculation to the canonical DOE e
  assert.equal(target.ruleKey,'target.contract.prorated');
  assert.equal(DOE.targetLabel({doe:{teaching:40},fte:.75},{policyBundle:bundle,engine:ENGINE}),'Policy DOE 30.00%');
 });
+
+test('compatibility target evaluation is delegated to the DOE policy engine rather than branch arithmetic',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const source=fs.readFileSync(path.join(__dirname,'../faculty-doe.js'),'utf8');
+ assert.match(source,/calculateTarget\(/);
+ assert.doesNotMatch(source,/if\(approved\.value!==null\)return\{value:approved\.value/);
+ const target=DOE.effectiveTarget({doe:{teaching:40},doeOverride2026_27:{value:25,reason:'RSL'}});
+ assert.deepEqual(target,{value:25,source:'override',reason:'RSL'});
+});

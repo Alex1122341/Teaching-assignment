@@ -788,7 +788,7 @@ git commit -m "feat: seed 2026-27 DOE policy with parity checks"
 - Persisted assignment retains doeCredit plus doePolicyVersionId, doeRuleId, doeRuleKey, doeCalculationId.
 - Full immutable snapshot is appended to doe_calculation_records.
 
-- [ ] **Step 1: Write integration tests RED**
+- [x] **Step 1: Write integration tests RED**
 
 Prove:
 1. New Lecture uses Active policy instead of a local 0.30 map.
@@ -800,7 +800,7 @@ Prove:
 
 Add a static assertion that the private hard-coded timetable rate map is removed after cutover.
 
-- [ ] **Step 2: Add a small timetable DOE adapter**
+- [x] **Step 2: Add a small timetable DOE adapter**
 
 Responsibilities:
 - resolve Academic Year;
@@ -811,7 +811,7 @@ Responsibilities:
 
 It must not know Firestore DOE collection names.
 
-- [ ] **Step 3: Replace local rate calculations in all assignment writers**
+- [x] **Step 3: Replace local rate calculations in all assignment writers**
 
 Cover:
 - single editor reconciliation;
@@ -821,17 +821,17 @@ Cover:
 
 Existing stored assignments stay readable.
 
-- [ ] **Step 4: Apply DOE-relevant change detection**
+- [x] **Step 4: Apply DOE-relevant change detection**
 
 Current teaching rules declare duration/credited-hours/role/type inputs. Room/Topic/Notes are not relevant unless a future rule explicitly declares them.
 
-- [ ] **Step 5: Pair canonical DOE write with evidence**
+- [x] **Step 5: Pair canonical DOE write with evidence**
 
 Where existing transaction/batch flow permits, write session update, calendar update, session audit, and DOE calculation record together.
 
 Do not create a new calculation record for a non-DOE edit.
 
-- [ ] **Step 6: Remove doeRateForRole hard-coded map after parity is green**
+- [x] **Step 6: Remove doeRateForRole hard-coded map after parity is green**
 
 The rates live in policy data.
 
@@ -871,7 +871,7 @@ git commit -m "feat: calculate timetable DOE from active policy"
 - Assigned DOE is canonical persisted earned/role/supervision/exception/adjustment DOE.
 - Target DOE comes through canonical target evaluation while preserving Contract and Override source values.
 
-- [ ] **Step 1: Write canonical consistency tests RED**
+- [x] **Step 1: Write canonical consistency tests RED**
 
 Assert:
 - DOE List does not own a separate calculation algorithm;
@@ -880,11 +880,11 @@ Assert:
 - historical explanation uses stored calculation snapshot;
 - missing rule/input is unavailable/error, not zero.
 
-- [ ] **Step 2: Move target evaluation behind engine/service**
+- [x] **Step 2: Move target evaluation behind engine/service**
 
 Keep faculty-doe.js as compatibility facade only. Do not erase original Contract DOE or override record.
 
-- [ ] **Step 3: Update DOE List**
+- [x] **Step 3: Update DOE List**
 
 Display:
 - Assigned DOE;
@@ -893,11 +893,11 @@ Display:
 - Policy Version;
 - Calculation status.
 
-- [ ] **Step 4: Update faculty profile explanation**
+- [x] **Step 4: Update faculty profile explanation**
 
 Show policy, rule, inputs, parameters, result, calculated time, trigger from historical calculation record.
 
-- [ ] **Step 5: Keep indexes derived**
+- [x] **Step 5: Keep indexes derived**
 
 data-index.js and index-maintenance.js aggregate persisted canonical doeCredit. They do not parse/evaluate formula text.
 
@@ -932,7 +932,7 @@ git commit -m "feat: unify faculty DOE reporting on policy engine"
 - previewRecalculate({academicYear,policyVersionId,scope})
 - runRecalculate({academicYear,policyVersionId,scope,resumeFrom,batchId,onProgress})
 
-- [ ] **Step 1: Write recalculate tests RED**
+- [x] **Step 1: Write recalculate tests RED**
 
 Prove:
 - Regular cannot execute;
@@ -943,19 +943,19 @@ Prove:
 - resume skips committed rows;
 - derived index refresh follows successful canonical writes.
 
-- [ ] **Step 2: Implement dry-run planner**
+- [x] **Step 2: Implement dry-run planner**
 
 Return faculty affected, assignments affected, role/supervision affected, old versions, new Active version, changed DOE count, errors, warnings.
 
-- [ ] **Step 3: Implement chunked execution**
+- [x] **Step 3: Implement chunked execution**
 
 Follow existing resumable batch patterns. Use stable recalculationBatchId and record it on committed calculation records.
 
-- [ ] **Step 4: Wire General-only UI**
+- [x] **Step 4: Wire General-only UI**
 
 Require explicit confirmation showing Academic Year and Active version. Regular can see permission explanation but cannot execute.
 
-- [ ] **Step 5: Extend emulator security**
+- [x] **Step 5: Extend emulator security**
 
 Prove Regular cannot write the administrative recalculation path.
 
@@ -990,7 +990,7 @@ git commit -m "feat: add resumable DOE recalculation workflow"
 - New runtime modules deploy on GitHub Pages and Azure build.
 - Dependencies load before consumers.
 
-- [ ] **Step 1: Write runtime asset test RED**
+- [x] **Step 1: Write runtime asset test RED**
 
 Require:
 - doe-formula.js
@@ -1003,11 +1003,11 @@ Require:
 
 Current manifest count is 56. Seven new deployable assets means expected count 63 unless implementation deliberately removes/adds another runtime asset; if so, make the test assert the exact resulting graph and document the delta.
 
-- [ ] **Step 2: Assert script order**
+- [x] **Step 2: Assert script order**
 
 Formula before Engine; repository/firestore before service; service before timetable/admin consumers. Timetable must not load the DOE Rules admin controller.
 
-- [ ] **Step 3: Update manifest and HTML**
+- [x] **Step 3: Update manifest and HTML**
 
 Add stylesheet only to Faculty Dashboard. Add calculation/service modules to pages that consume them.
 
@@ -1057,11 +1057,11 @@ npm run test:emulator
 
 Expected: zero failures.
 
-- [ ] **Step 3: Verify hard-coded Timetable DOE map is gone**
+- [x] **Step 3: Verify hard-coded Timetable DOE map is gone**
 
 Search source for the old Lecture 0.30 / Lab 0.21 / 0.19 calculation map. Expected: canonical values are policy data; UI code calls Engine/service.
 
-- [ ] **Step 4: Verify permission evidence**
+- [x] **Step 4: Verify permission evidence**
 
 Confirm tests demonstrate:
 - Regular edits Draft;

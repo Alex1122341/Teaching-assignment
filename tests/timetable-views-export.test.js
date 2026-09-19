@@ -28,7 +28,9 @@ test('CCC records are opt-in and sourced from the sanitized public schedule docu
  const rules=fs.readFileSync(path.join(root,'firestore.rules'),'utf8');
  assert.match(rules,/match \/public_schedule\/\{id\}/);
  const admin=fs.readFileSync(path.join(root,'faculty-admin.js'),'utf8');
- assert.match(admin,/function syncCccPublicSchedule/);
+ for(const helper of ['afcRecordsOf','cccScheduleId','syncCccPublicSchedule','todayDateOnly','afcState','afcDateRange']){
+  assert.match(admin,new RegExp(`function ${helper}\\b`));
+ }
  assert.match(admin,/await syncCccPublicSchedule\(p\)/);
 });
 
