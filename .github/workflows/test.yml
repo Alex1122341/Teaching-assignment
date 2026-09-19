@@ -39,3 +39,10 @@ jobs:
 
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator
+
+      - name: Build lightweight deployment
+        run: node tools/build-static.js
+
+      - name: Report lightweight metrics
+        shell: bash
+        run: node tools/report-lightweight.js | tee -a "$GITHUB_STEP_SUMMARY"
