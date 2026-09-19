@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Faculty Dashboard</title>
 <link rel="stylesheet" href="faculty-admin.css">
+<link rel="stylesheet" href="doe-policy-admin.css">
 
 </head>
 <body>
@@ -29,7 +30,7 @@
 <main class="shell">
   <div class="headline"><div><h1>Faculty Dashboard</h1><p>2026-27 teaching comes from <strong>2026-09-03 - All Faculty Summaries.xlsx</strong>. Role-level DOE is explained using the <strong>UCVM Workload Guidelines</strong> and the approved 2026-27 operational MASTER source. Away-from-campus availability comes from <strong>AFC Tracker Lookup (1).xlsx</strong>.</p></div><div class="status" id="sync-status">Waiting for authorization…</div></div>
   <div class="summary-source-banner"><strong>Source policy:</strong> Teaching remains synchronized from <strong>2026-09-03 - All Faculty Summaries.xlsx</strong>. Away-from-campus availability is a separate admin-only HR source imported from <strong>AFC Tracker Lookup (1).xlsx</strong> and stored on faculty records so the dashboard and timetable assignment tools use the same availability data.</div>
-  <div class="tabs"><button class="tab active" data-tab="lookup">Lookup</button><button class="tab" data-tab="summary">Teaching Summary</button><button class="tab" data-tab="roles">Roles & Appointments</button><button class="tab" data-tab="sessional">Sessional / Other</button><button class="tab" data-tab="database">Faculty Database</button><button class="tab" data-tab="history">Change History</button><a class="btn" href="index.html#approvals">AFC Requests</a><a class="btn hidden" id="user-management-link" href="user-management.html">User Management</a><a class="btn" href="password.html">Change password</a></div>
+  <div class="tabs"><button class="tab active" data-tab="lookup">Lookup</button><button class="tab" data-tab="summary">Teaching Summary</button><button class="tab" data-tab="roles">Roles & Appointments</button><button class="tab" data-tab="doe-rules">DOE Rules</button><button class="tab" data-tab="sessional">Sessional / Other</button><button class="tab" data-tab="database">Faculty Database</button><button class="tab" data-tab="history">Change History</button><a class="btn" href="index.html#approvals">AFC Requests</a><a class="btn hidden" id="user-management-link" href="user-management.html">User Management</a><a class="btn" href="password.html">Change password</a></div>
   <div class="kpis"><div class="kpi"><div class="kpi-label">Current Faculty</div><div class="kpi-value" id="kpi-total">0</div></div><div class="kpi"><div class="kpi-label">Source Summaries</div><div class="kpi-value" id="kpi-summary">0</div></div><div class="kpi"><div class="kpi-label">Assigned DOE Records</div><div class="kpi-value" id="kpi-doe">0</div></div><div class="kpi"><div class="kpi-label">Coordinator / HICC</div><div class="kpi-value" id="kpi-hicc">0</div></div><div class="kpi"><div class="kpi-label">VISC</div><div class="kpi-value" id="kpi-visc">0</div></div><div class="kpi"><div class="kpi-label">Live Timetable Sessions</div><div class="kpi-value" id="kpi-activities">0</div></div></div>
 
   <section id="lookup-view" class="panel">
@@ -46,6 +47,88 @@
   <section id="roles-view" class="panel hidden">
     <div class="toolbar"><input class="input search" id="roles-search" placeholder="Search faculty, role, appointment, rotation, project…"><select class="select" id="role-type-filter"><option value="">All role types</option></select></div>
     <div class="aux-note">Source roles are preserved exactly, while V9.7 links them to the 2026-27 workload breakdown. <strong>Policy-covered</strong> calculations use the UCVM Workload Guidelines; <strong>Operational</strong> values (for example CCC per-shift credit) are clearly labelled when the provided guideline does not state that rate.</div><div class="table-wrap"><table class="data-table"><thead><tr><th>Faculty</th><th>Role type</th><th>Assignment</th><th>Workload amount</th><th>DOE credit</th><th>Policy / basis</th><th>Details</th></tr></thead><tbody id="roles-body"></tbody></table></div>
+  </section>
+
+  <section id="doe-rules-view" class="panel hidden" aria-labelledby="doe-rules-heading">
+    <div class="doe-table-head doe-rulebook-heading">
+      <div><div class="section-kicker">Annual workload policy</div><h2 id="doe-rules-heading">DOE Rules</h2><p>Define and review the annual Teaching DOE Rule Book from the approved UCVM Workload Guidelines.</p></div>
+      <div class="doe-policy-actions"><button type="button" class="btn" id="doe-copy-previous-year">Copy from Previous Year</button><button type="button" class="btn" id="doe-rulebook-validate">Validate Rule Book</button></div>
+    </div>
+    <div class="doe-panel-note">One Active Rule Book is authoritative for each Academic Year. Copied rules and mappings must be reviewed before publication. Deterministic DOE values are calculated from assignment facts; missing rules or mappings are shown as Needs Review rather than assumed to be zero.</div>
+    <div class="doe-policy-toolbar">
+      <label class="doe-policy-field"><span class="form-label">Academic Year</span><select class="select" id="doe-policy-year"></select></label>
+      <label class="doe-policy-field"><span class="form-label">Policy Version</span><select class="select" id="doe-policy-version"></select></label>
+      <span class="doe-policy-status" id="doe-policy-status" aria-live="polite">No policy selected</span>
+      <div class="doe-policy-actions">
+        <button type="button" class="btn" id="doe-new-year">New Policy Year</button>
+        <button type="button" class="btn" id="doe-clone-draft">Clone as Draft</button>
+        <button type="button" class="btn" id="doe-validate">Validate</button>
+        <button type="button" class="btn" id="doe-preview">Impact Preview</button>
+        <button type="button" class="btn btn-primary" id="doe-publish">Publish</button>
+        <button type="button" class="btn" id="doe-archive">Archive</button>
+        <button type="button" class="btn" id="doe-recalculate">Recalculate</button>
+      </div>
+    </div>
+    <div class="doe-rulebook-tabs" role="tablist" aria-label="Annual DOE Rule Book">
+      <button type="button" class="doe-rulebook-tab active" data-doe-rulebook-tab="rules">Rule Book</button>
+      <button type="button" class="doe-rulebook-tab" data-doe-rulebook-tab="course-mapping">Course Mapping</button>
+      <button type="button" class="doe-rulebook-tab" data-doe-rulebook-tab="visc-subjects">VISC Subjects</button>
+      <button type="button" class="doe-rulebook-tab" data-doe-rulebook-tab="preview">Preview &amp; Validate</button>
+      <button type="button" class="doe-rulebook-tab" data-doe-rulebook-tab="history">History</button>
+    </div>
+    <div class="doe-rulebook-shell">
+      <div class="doe-rulebook-main">
+        <div data-doe-rulebook-panel="rules">
+          <div class="doe-rulebook-groups" aria-label="DOE rule groups">
+            <div class="doe-rulebook-group"><strong>1. Assigned Teaching</strong><span>Lecture, SRL, Laboratory</span></div>
+            <div class="doe-rulebook-group"><strong>2. Course Coordination</strong><span>Unit-based tiers</span></div>
+            <div class="doe-rulebook-group"><strong>3. Clinical Rotations</strong><span>Participant &amp; Coordinator</span></div>
+            <div class="doe-rulebook-group"><strong>4. Supervision</strong><span>All trainee types</span></div>
+            <div class="doe-rulebook-group"><strong>5. HICC / VISC</strong><span>Course &amp; subject mapping</span></div>
+            <div class="doe-rulebook-group"><strong>6. Reserve Logic</strong><span id="doe-reserve-summary">Assigned Teaching &amp; Trainee Reserve</span><button type="button" class="btn btn-small" id="doe-edit-reserve">Edit Reserve</button></div>
+            <div class="doe-rulebook-group"><strong>7. Other / Approved Activities</strong><span>Capped and approved allocations</span></div>
+          </div>
+          <div class="doe-section-tabs" role="tablist" aria-label="DOE rule editor categories">
+            <button type="button" class="doe-section-tab active" data-doe-section="teaching">Teaching Rules</button>
+            <button type="button" class="doe-section-tab" data-doe-section="role">Role Rules</button>
+            <button type="button" class="doe-section-tab" data-doe-section="supervision">Supervision &amp; Complex</button>
+            <button type="button" class="doe-section-tab" data-doe-section="target">Target Rules</button>
+            <button type="button" class="doe-section-tab" data-doe-section="exceptions">Exceptions</button>
+          </div>
+          <div id="doe-rules-table-wrap">
+            <div class="doe-table-head"><h2>Rules</h2><button type="button" class="btn btn-primary" id="doe-add-rule">+ Add Rule</button></div>
+            <div class="table-wrap"><table class="data-table doe-rules-table"><thead><tr><th>Rule ID</th><th>Name</th><th>Applies To</th><th>Calculation Mode</th><th>Rate / Parameters</th><th>Cap</th><th>Formula</th><th>Guideline Reference</th><th>Effective Status</th><th>Actions</th></tr></thead><tbody id="doe-rules-body"></tbody></table></div>
+          </div>
+          <div id="doe-exceptions-wrap" class="hidden">
+            <div class="doe-table-head"><h2>Policy Exceptions / Fixed Operational Credits</h2><button type="button" class="btn btn-primary" id="doe-add-exception">+ Add Exception</button></div>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th>Faculty</th><th>Scope</th><th>Scope Key</th><th>Fixed DOE</th><th>Reason</th><th>Source Reference</th><th>Actions</th></tr></thead><tbody id="doe-exceptions-body"></tbody></table></div>
+          </div>
+        </div>
+        <div class="hidden" data-doe-rulebook-panel="course-mapping">
+          <div class="doe-table-head"><div><h2>Course &amp; Role Mapping</h2><p>Course units are annual assignment facts used by HICC and Course Coordination rules.</p></div><button type="button" class="btn btn-primary" id="doe-add-course-mapping">+ Add Course</button></div>
+          <div class="table-wrap"><table class="data-table"><thead><tr><th>Course</th><th>Units</th><th>Reference</th><th>Annual Review</th><th>Admin Note</th><th>Actions</th></tr></thead><tbody id="doe-course-mapping-body"><tr><td colspan="6" class="empty">Select a Draft Policy Version to review course mappings.</td></tr></tbody></table></div>
+        </div>
+        <div class="hidden" data-doe-rulebook-panel="visc-subjects">
+          <div class="doe-table-head"><div><h2>VISC Subjects</h2><p>Map each VISC subject to its curriculum stage for the selected Academic Year.</p></div><button type="button" class="btn btn-primary" id="doe-add-visc-mapping">+ Add Subject</button></div>
+          <div class="table-wrap"><table class="data-table"><thead><tr><th>Subject</th><th>Curriculum Stage</th><th>Reference</th><th>Annual Review</th><th>Admin Note</th><th>Actions</th></tr></thead><tbody id="doe-visc-mapping-body"><tr><td colspan="6" class="empty">Select a Draft Policy Version to review VISC subject mappings.</td></tr></tbody></table></div>
+        </div>
+        <div class="hidden" data-doe-rulebook-panel="preview">
+          <div class="doe-table-head"><div><h2>Preview &amp; Validate</h2><p>Validation uses authoritative server-side Faculty and Timetable assignment facts.</p></div></div>
+          <div class="doe-panel-note" id="doe-rulebook-api-status" aria-live="polite">Annual Rule Book validation has not been run.</div>
+          <div class="doe-panel-note" id="doe-recalculate-status" aria-live="polite">Administrative recalculation is available on the Active policy to ADFA General / Owner only.</div>
+          <div class="doe-impact-preview" id="doe-impact-preview" aria-live="polite"><div class="doe-preview-empty">Run Impact Preview on a validated Draft to review proposed DOE changes.</div></div>
+        </div>
+        <div class="hidden" data-doe-rulebook-panel="history">
+          <div class="doe-table-head"><div><h2>Rule Book History</h2><p>Annual copy, review, validation, publication, archive, and recalculation events.</p></div></div>
+          <div class="table-wrap"><table class="data-table"><thead><tr><th>Date</th><th>Academic Year</th><th>Category</th><th>Change</th><th>By</th></tr></thead><tbody id="doe-rulebook-history-body"><tr><td colspan="5" class="empty">Select a policy to view its audit history.</td></tr></tbody></table></div>
+        </div>
+      </div>
+      <aside class="doe-rulebook-aside" id="doe-reference-panel">
+        <div class="doe-reference-card"><div class="section-title">Workload Guidelines</div><div class="doe-reference-body"><strong>Structured References</strong><div class="muted">Section, Table, Page, effective date, and annual review are stored separately from Admin Notes.</div><div id="doe-reference-list" class="doe-reference-list"></div><button type="button" class="btn btn-small" id="doe-add-reference">+ Reference</button><div class="doe-reference-line" id="doe-reference-line">Select a rule to see its linked Reference.</div></div></div>
+        <div class="doe-reference-card"><div class="section-title">Annual review</div><div class="doe-reference-body">Reference is a required policy field and is stored separately from the optional Admin Note. Missing references block publication.</div></div>
+        <div class="doe-reference-card"><div class="section-title">Calculation authority</div><div class="doe-reference-body">Rates, tiers, mappings, and policy parameters are stored in the database. Final deterministic DOE is calculated by the Azure DOE API.</div></div>
+      </aside>
+    </div>
   </section>
 
   <section id="sessional-view" class="panel hidden">
@@ -67,9 +150,106 @@
     <div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>UCID</th><th>Email</th><th>Rank / Title</th><th>Teaching Area</th><th>Board Specialty</th><th>FTE</th><th>Campus</th><th>Reports To / AD</th><th>Actions</th></tr></thead><tbody id="db-body"></tbody></table></div>
   </section>
 </main>
+<div class="modal hidden" id="doe-rule-editor" role="dialog" aria-modal="true" aria-labelledby="doe-rule-editor-title">
+  <div class="modal-card doe-editor-card">
+    <div class="modal-head"><div><div class="modal-title" id="doe-rule-editor-title">DOE Rule</div><div class="modal-sub">Structured Rule Builder is the default. Advanced Formula uses the restricted DOE expression language only.</div></div><button type="button" class="btn" id="doe-rule-close">Close</button></div>
+    <div class="modal-body">
+      <div class="doe-editor-grid">
+        <label class="form-field"><span class="form-label">Rule key</span><input class="input" id="doe-rule-key" placeholder="teaching.lecture.standard"></label>
+        <label class="form-field"><span class="form-label">Name</span><input class="input" id="doe-rule-name" placeholder="Standard Lecture"></label>
+        <label class="form-field"><span class="form-label">Category</span><select class="select" id="doe-rule-category"><option value="teaching">Teaching</option><option value="role">Role</option><option value="supervision">Supervision &amp; Complex</option><option value="target">Target</option><option value="adjustment">Adjustment</option></select></label>
+        <label class="form-field"><span class="form-label">Calculation mode</span><select class="select" id="doe-rule-mode"><option value="fixed">Fixed</option><option value="per_hour">Per Hour</option><option value="per_shift">Per Shift</option><option value="per_week">Per Week</option><option value="per_trainee">Per Trainee</option><option value="tiered">Tiered</option><option value="capped">Cap</option><option value="minimum">Minimum</option><option value="percentage_of_target">Percentage of Target</option><option value="prorated">Prorated</option></select></label>
+        <label class="form-field"><span class="form-label">Result kind</span><select class="select" id="doe-rule-result-kind"><option value="credit">Credit</option><option value="adjustment">Adjustment</option><option value="target">Target</option></select></label>
+        <label class="form-field"><span class="form-label">Priority</span><input class="input" id="doe-rule-priority" type="number" step="1" value="100"></label>
+        <label class="form-field"><span class="form-label">Reference ID</span><input class="input" id="doe-rule-reference-id" placeholder="wg-6-2-t1"></label>
+        <label class="form-field"><span class="form-label">Guideline reference</span><input class="input" id="doe-rule-guideline" placeholder="Section / page / policy reference"></label>
+        <label class="form-field"><span class="form-label">Source type</span><input class="input" id="doe-rule-source-type" placeholder="Workload Guideline / Operational"></label>
+        <label class="form-field"><span class="form-label">Mapping requirement</span><select class="select" id="doe-rule-mapping-requirement"><option value="">None</option><option value="course">Course Mapping</option><option value="subject">VISC Subject Mapping</option></select></label>
+        <label class="form-field"><span class="form-label">Annual review</span><select class="select" id="doe-rule-review-status"><option value="needs_review">Needs Review</option><option value="confirmed_unchanged">Confirmed Unchanged</option><option value="updated">Updated</option><option value="new">New</option><option value="retired">Retired</option></select></label>
+        <label class="form-field full"><span class="form-label">Admin note</span><textarea class="textarea" id="doe-rule-admin-note" rows="2" placeholder="Optional administrative note; Reference is stored separately."></textarea></label>
+        <label class="doe-check"><input type="checkbox" id="doe-rule-enabled" checked> Enabled</label>
+        <label class="doe-check"><input type="checkbox" id="doe-rule-advanced"> Advanced Formula</label>
+        <label class="form-field full hidden" id="doe-rule-formula-wrap"><span class="form-label">Advanced Formula</span><textarea class="textarea doe-formula-editor" id="doe-rule-formula" rows="3" placeholder="min(trainees * rate, cap)"></textarea></label>
+      </div>
+
+      <div class="doe-editor-section"><div class="doe-editor-section-head"><h3>Selectors — Applies To</h3><button type="button" class="btn btn-small" id="doe-add-selector">+ Selector</button></div><div class="doe-builder-list" id="doe-selector-rows"></div></div>
+      <div class="doe-editor-section"><div class="doe-editor-section-head"><h3>Declared Inputs</h3><button type="button" class="btn btn-small" id="doe-add-input">+ Input</button></div><div class="doe-builder-list" id="doe-input-rows"></div></div>
+      <div class="doe-editor-section"><div class="doe-editor-section-head"><h3>Parameters</h3><button type="button" class="btn btn-small" id="doe-add-parameter">+ Parameter</button></div><div class="doe-builder-list" id="doe-parameter-rows"></div></div>
+      <div class="doe-editor-section"><div class="doe-editor-section-head"><h3>Tiers</h3><button type="button" class="btn btn-small" id="doe-add-tier">+ Tier</button></div><div class="doe-builder-list" id="doe-tier-rows"></div></div>
+      <div class="doe-editor-section doe-test-panel"><div class="doe-editor-section-head"><h3>Test Rule</h3><button type="button" class="btn" id="doe-rule-test">Run Test</button></div><label class="form-field"><span class="form-label">Sample inputs (JSON)</span><textarea class="textarea doe-formula-editor" id="doe-test-inputs" rows="3" placeholder='{"hours":6}'></textarea></label><div class="doe-test-output" id="doe-test-output" aria-live="polite"></div></div>
+    </div>
+    <div class="modal-footer"><div class="help">Saving any Draft rule change invalidates its previous Impact Preview.</div><div><button type="button" class="btn" id="doe-rule-cancel">Cancel</button> <button type="button" class="btn btn-primary" id="doe-rule-save">Save Draft Rule</button></div></div>
+  </div>
+</div>
+<div class="modal hidden" id="doe-exception-editor" role="dialog" aria-modal="true" aria-labelledby="doe-exception-editor-title">
+  <div class="modal-card doe-editor-card">
+    <div class="modal-head"><div><div class="modal-title" id="doe-exception-editor-title">Policy Exception</div><div class="modal-sub">Use an exception only when the operational/source value cannot be represented by a defensible general rule.</div></div><button type="button" class="btn" id="doe-exception-close">Close</button></div>
+    <div class="modal-body"><input type="hidden" id="doe-exception-id"><div class="doe-exception-grid">
+      <label class="form-field"><span class="form-label">Faculty ID (optional)</span><input class="input" id="doe-exception-faculty"></label>
+      <label class="form-field"><span class="form-label">Scope type</span><select class="select" id="doe-exception-scope-type"><option value="global">Global</option><option value="faculty">Faculty</option><option value="session">Session</option><option value="assignment">Assignment</option><option value="course">Course</option><option value="role">Role</option><option value="source_entity">Source Entity</option></select></label>
+      <label class="form-field"><span class="form-label">Scope key</span><input class="input" id="doe-exception-scope-key" placeholder="Required for non-global scope"></label>
+      <label class="form-field"><span class="form-label">Fixed DOE %</span><input class="input" id="doe-exception-fixed" type="number" step="0.01"></label>
+      <label class="form-field full"><span class="form-label">Reason</span><input class="input" id="doe-exception-reason" placeholder="Why this value cannot use a general rule"></label>
+      <label class="form-field full"><span class="form-label">Source reference</span><input class="input" id="doe-exception-source" placeholder="MASTER row / approved record / policy reference"></label>
+    </div></div>
+    <div class="modal-footer"><div class="help">Reason and source reference are mandatory.</div><div><button type="button" class="btn" id="doe-exception-cancel">Cancel</button> <button type="button" class="btn btn-primary" id="doe-exception-save">Save Exception</button></div></div>
+  </div>
+</div>
+<div class="modal hidden" id="doe-reference-editor" role="dialog" aria-modal="true" aria-labelledby="doe-reference-editor-title">
+  <div class="modal-card doe-editor-card">
+    <div class="modal-head"><div><div class="modal-title" id="doe-reference-editor-title">DOE Reference</div><div class="modal-sub">Reference is policy provenance. Admin Note is optional and is not used as the citation itself.</div></div><button type="button" class="btn" id="doe-reference-close">Close</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <label class="form-field"><span class="form-label">Reference ID</span><input class="input" id="doe-reference-id" placeholder="wg-2027-6-4-t3"></label>
+      <label class="form-field span2"><span class="form-label">Document title</span><input class="input" id="doe-reference-title" placeholder="UCVM Workload Guidelines"></label>
+      <label class="form-field"><span class="form-label">Version / updated date</span><input class="input" id="doe-reference-version-date" type="date"></label>
+      <label class="form-field"><span class="form-label">Section</span><input class="input" id="doe-reference-section" placeholder="6.4"></label>
+      <label class="form-field"><span class="form-label">Table</span><input class="input" id="doe-reference-table" placeholder="Table 3"></label>
+      <label class="form-field"><span class="form-label">Page</span><input class="input" id="doe-reference-page" type="number" min="1" step="1"></label>
+      <label class="form-field"><span class="form-label">Effective date</span><input class="input" id="doe-reference-effective-date" type="date"></label>
+      <label class="form-field"><span class="form-label">Annual review</span><select class="select" id="doe-reference-review-status"><option value="needs_review">Needs Review</option><option value="confirmed_unchanged">Confirmed Unchanged</option><option value="updated">Updated</option><option value="new">New</option><option value="retired">Retired</option></select></label>
+      <label class="form-field full"><span class="form-label">Document link (optional)</span><input class="input" id="doe-reference-document-link" placeholder="Approved internal/published reference URL"></label>
+      <label class="form-field full"><span class="form-label">Admin note</span><textarea class="textarea" id="doe-reference-admin-note" rows="2" placeholder="Optional administrative explanation"></textarea></label>
+    </div></div>
+    <div class="modal-footer"><div class="help">A referenced rule cannot be published without a complete structured Reference.</div><div><button type="button" class="btn" id="doe-reference-cancel">Cancel</button> <button type="button" class="btn btn-primary" id="doe-reference-save">Save Reference</button></div></div>
+  </div>
+</div>
+<div class="modal hidden" id="doe-reserve-editor" role="dialog" aria-modal="true" aria-labelledby="doe-reserve-editor-title">
+  <div class="modal-card doe-editor-card">
+    <div class="modal-head"><div><div class="modal-title" id="doe-reserve-editor-title">Teaching / Trainee Reserve Logic</div><div class="modal-sub">These annual parameters are read by the server Worksheet engine; they are not frontend constants.</div></div><button type="button" class="btn" id="doe-reserve-close">Close</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <label class="form-field"><span class="form-label">Split threshold DOE %</span><input class="input" id="doe-reserve-split-threshold" type="number" step="0.01"></label>
+      <label class="form-field"><span class="form-label">Initial trainee share (0–1)</span><input class="input" id="doe-reserve-split-ratio" type="number" min="0" max="1" step="0.01"></label>
+      <label class="form-field"><span class="form-label">High-teaching trainee ceiling %</span><input class="input" id="doe-reserve-high-ceiling" type="number" min="0" step="0.01"></label>
+      <label class="form-field"><span class="form-label">Teaching-focused trainee ceiling %</span><input class="input" id="doe-reserve-teaching-focused-ceiling" type="number" min="0" step="0.01"></label>
+      <label class="form-field"><span class="form-label">Rolling average years</span><input class="input" id="doe-reserve-rolling-years" type="number" min="1" step="1"></label>
+      <label class="form-field"><span class="form-label">Reference</span><select class="select" id="doe-reserve-reference-id"></select></label>
+      <label class="form-field"><span class="form-label">Annual review</span><select class="select" id="doe-reserve-review-status"><option value="needs_review">Needs Review</option><option value="confirmed_unchanged">Confirmed Unchanged</option><option value="updated">Updated</option><option value="new">New</option><option value="retired">Retired</option></select></label>
+    </div></div>
+    <div class="modal-footer"><div class="help">Changing Reserve Logic invalidates prior validation and Impact Preview for this Draft.</div><div><button type="button" class="btn" id="doe-reserve-cancel">Cancel</button> <button type="button" class="btn btn-primary" id="doe-reserve-save">Save Reserve Logic</button></div></div>
+  </div>
+</div>
+<div class="modal hidden" id="doe-mapping-editor" role="dialog" aria-modal="true" aria-labelledby="doe-mapping-editor-title">
+  <div class="modal-card doe-editor-card">
+    <div class="modal-head"><div><div class="modal-title" id="doe-mapping-editor-title">DOE Mapping</div><div class="modal-sub">Annual mapping facts are stored in the Draft Rule Book. Academic Year and Policy Version are assigned by the server.</div></div><button type="button" class="btn" id="doe-mapping-close">Close</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="doe-mapping-id"><input type="hidden" id="doe-mapping-type">
+      <div class="form-grid">
+        <label class="form-field" id="doe-mapping-course-code-wrap"><span class="form-label">Course code</span><input class="input" id="doe-mapping-course-code" placeholder="VTMD 204"></label>
+        <label class="form-field" id="doe-mapping-unit-count-wrap"><span class="form-label">Course units</span><input class="input" id="doe-mapping-unit-count" type="number" min="0.01" step="0.01"></label>
+        <label class="form-field hidden" id="doe-mapping-subject-key-wrap"><span class="form-label">VISC subject key</span><input class="input" id="doe-mapping-subject-key" placeholder="anatomy"></label>
+        <label class="form-field hidden" id="doe-mapping-curriculum-stage-wrap"><span class="form-label">Curriculum stage</span><input class="input" id="doe-mapping-curriculum-stage" placeholder="year_3"></label>
+        <label class="form-field"><span class="form-label">Reference</span><select class="select" id="doe-mapping-reference-id"></select></label>
+        <label class="form-field"><span class="form-label">Annual review</span><select class="select" id="doe-mapping-review-status"><option value="needs_review">Needs Review</option><option value="confirmed_unchanged">Confirmed Unchanged</option><option value="updated">Updated</option><option value="new">New</option><option value="retired">Retired</option></select></label>
+        <label class="form-field full"><span class="form-label">Admin note</span><textarea class="textarea" id="doe-mapping-admin-note" rows="2" placeholder="Optional explanation; Reference is stored separately."></textarea></label>
+        <label class="doe-check"><input type="checkbox" id="doe-mapping-enabled" checked> Enabled</label>
+      </div>
+    </div>
+    <div class="modal-footer"><div class="help">Saving a mapping changes the Draft configuration only. Validate and run Impact Preview before publication.</div><div><button type="button" class="btn" id="doe-mapping-cancel">Cancel</button> <button type="button" class="btn btn-primary" id="doe-mapping-save">Save Draft Mapping</button></div></div>
+  </div>
+</div>
 <div class="modal hidden" id="edit-modal"><div class="modal-card"><div class="modal-head"><div><div class="modal-title" id="edit-title">Edit Faculty</div><div class="modal-sub">Identity/directory changes are written to Firestore. Teaching summary data is replaced only through the source-summary import.</div></div><button class="btn" id="modal-x">Close</button></div><div class="modal-body"><form id="edit-form"></form></div><div class="modal-footer"><div class="help">Document ID is the UCID. Teaching/role fields from the summary workbook are not edited here.</div><div><button class="btn" id="cancel-edit" type="button">Cancel</button> <button class="btn btn-primary" id="save-edit" type="submit" form="edit-form">Save</button></div></div></div></div>
 <div class="toast" id="toast"></div>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script><script src="session-guard.js"></script><script src="faculty-doe.js"></script><script src="scheduling-core.js"></script><script src="data-index.js"></script><script src="index-maintenance.js"></script><script src="audit-details.js"></script><script src="faculty-account-planner.js"></script><script src="approval-scheduling.js"></script><script src="faculty-access.js"></script><script src="maintenance-state.js"></script><script src="calendar-session.js"></script><script src="calendar-session-maintenance.js"></script><script src="bulk-import-core.js"></script><script src="bulk-import-backup.js"></script><script src="bulk-import-firestore.js"></script><script src="bulk-import-controller.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script><script src="session-guard.js"></script><script src="doe-api-client.js"></script><script src="doe-worksheet-view.js"></script><script src="doe-rulebook-admin.js"></script><script src="doe-policy-admin.js"></script><script src="faculty-doe.js"></script><script src="scheduling-core.js"></script><script src="data-index.js"></script><script src="index-maintenance.js"></script><script src="audit-details.js"></script><script src="faculty-account-planner.js"></script><script src="approval-scheduling.js"></script><script src="firebase-config.js"></script><script src="faculty-access.js"></script><script src="maintenance-state.js"></script><script src="calendar-session.js"></script><script src="calendar-session-maintenance.js"></script><script src="bulk-import-core.js"></script><script src="bulk-import-backup.js"></script><script src="bulk-import-firestore.js"></script><script src="bulk-import-controller.js"></script>
 <script src="faculty-admin.js"></script>
 <script src="approval-routing.js"></script>
 <script src="approval-request.js"></script>

@@ -7,13 +7,13 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 
-test('Azure Static Web Apps routing config is committed at repository root',()=>{
+test('Azure Static Web Apps routing and cache config is committed at repository root',()=>{
   const config=JSON.parse(read('staticwebapp.config.json'));
-  assert.deepEqual(config.routes,[{
-    route:'/faculty-dashboard.html',
-    redirect:'/index.html',
-    statusCode:301
-  }]);
+  assert.deepEqual(config.routes,[
+    {route:'/faculty-dashboard.html',redirect:'/index.html',statusCode:301},
+    {route:'/bundles/*',headers:{'Cache-Control':'public, max-age=31536000, immutable'}},
+    {route:'/*.{html,js,css}',headers:{'Cache-Control':'no-cache, max-age=0, must-revalidate'}}
+  ]);
 });
 
 test('manual Azure fallback copies the canonical config instead of generating a second copy',()=>{
@@ -35,6 +35,15 @@ test('Azure main push builds and uploads a verified artifact but cannot deploy p
   assert.match(workflow,/npm ci/);
   assert.match(workflow,/npm test/);
   assert.match(workflow,/npm run test:emulator/);
+  assert.match(workflow,/PRODUCTION_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/PRODUCTION_DOE_API_BASE_URL/);
+  assert.match(workflow,/node tools\/build-firebase-config\.js --from-json .* --doe-api-base-url/);
+  assert.match(workflow,/node tools\/verify-production-client-config\.js/);
+  assert.match(workflow,/Verify production DOE API health and CORS/);
+  assert.match(workflow,/PRODUCTION_FRONTEND_ORIGIN:\s*https:\/\/red-cliff-04871ca0f\.5\.azurestaticapps\.net/);
+  assert.match(workflow,/node tools\/verify-production-doe-api\.js/);
+  assert.ok(workflow.indexOf('Prepare production client configuration') < workflow.indexOf('Verify production DOE API health and CORS'));
+  assert.ok(workflow.indexOf('Verify production DOE API health and CORS') < workflow.indexOf('Build static site'));
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/cp staticwebapp\.config\.json \.deploy-static\/staticwebapp\.config\.json/);
   assert.match(workflow,/actions\/upload-artifact@v7/);

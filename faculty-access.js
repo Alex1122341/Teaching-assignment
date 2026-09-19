@@ -1,6 +1,6 @@
 /* Shared Firebase identity and faculty portal helpers for Spark Basic Mode. */
 window.UCVM=(()=>{
- const config={apiKey:'AIzaSyDS9VE2zTXv0656_Mh0uDXB67-mZ5Y_LkY',authDomain:'tester-teaching.firebaseapp.com',projectId:'tester-teaching',storageBucket:'tester-teaching.firebasestorage.app',messagingSenderId:'566638053186',appId:'1:566638053186:web:90e04b52251c4b859baadb'};
+const config=window.UCVM_FIREBASE_CONFIG;
  const rawRole=r=>String((r&&typeof r==='object'?r.role:r)||'').toLowerCase();
  const role=r=>({owner:'adfa_general',administrator:'adfa_regular',other_office:'other_office',adfa_general:'adfa_general',adfa_regular:'adfa_regular',admin:'adfa_regular',editor:'faculty',viewer:'faculty'}[rawRole(r)]||rawRole(r));
  const admin=p=>['adfa_general','adfa_regular','other_office'].includes(role(p?.role));
@@ -33,17 +33,19 @@ window.UCVM=(()=>{
   new MutationObserver(m=>{if(m.some(x=>[...x.addedNodes].some(n=>n.nodeType===1&&(n.matches?.('.tg-day-col,.tg-block')||n.querySelector?.('.tg-day-col,.tg-block')))))queue()}).observe(document.documentElement,{childList:true,subtree:true});
  }
  installStableWeekLanes();
- let persistenceStarted=false;
+ let persistenceStarted=false,emulatorConfigured=false;
  function init(){
   if(!firebase.apps.length)firebase.initializeApp(config);
-  const db=firebase.firestore();
-  if(!persistenceStarted){
+  const db=firebase.firestore(),auth=firebase.auth();
+  // Local development talks to the Emulator Suite, so a fresh clone runs against
+  // the seeded local database with no cloud project and no credentials.
+  if(window.UCVM_FIREBASE_EMULATOR&&!emulatorConfigured){db.useEmulator('127.0.0.1',8080);auth.useEmulator('http://127.0.0.1:9099');emulatorConfigured=true;}
+  if(!persistenceStarted&&!window.UCVM_FIREBASE_EMULATOR){
    persistenceStarted=true;
    db.enablePersistence({synchronizeTabs:true}).catch(e=>{
     if(!['failed-precondition','unimplemented'].includes(e?.code))console.warn('[firestore persistence]',e);
    });
   }
-  const auth=firebase.auth();
   if(window.UCVMSessionGuard)window.UCVMSessionGuard.start(auth);
   return {auth,db};
  }
@@ -104,6 +106,6 @@ window.UCVM=(()=>{
 (()=>{
  const page=(location.pathname.split('/').pop()||'index.html').toLowerCase();
  const load=(src,key)=>{if(document.querySelector(`script[data-${key}]`))return;const s=document.createElement('script');s.src=src;s.dataset[key.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]='1';s.async=false;document.head.appendChild(s)};
- const run=()=>{if(page==='index.html')load('approval-workflow.js','ucvm-approval-workflow');if(page==='faculty-admin.html')load('faculty-admin-enhancements.js','ucvm-faculty-admin-enhancements')};
+ const run=()=>{if(page==='index.html')window.UCVM_ASSETS?.ensureApprovalWorkflow?.().catch(error=>console.error('[approval workflow loader]',error));if(page==='faculty-admin.html')load('faculty-admin-enhancements.js','ucvm-faculty-admin-enhancements')};
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(run,0),{once:true});else setTimeout(run,0);
 })();

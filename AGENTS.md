@@ -5,16 +5,18 @@
 - Production repository: `Alex1122341/Teaching-assignment`.
 - `main` is the only production source of truth.
 - Do not commit feature work directly to `main`; use a feature branch / worktree and open a PR.
-- Firebase Hosting and Microsoft Azure Static Web Apps must publish the same static asset set from `tools/static-assets.json`.
-- Build the shared static bundle with `node tools/build-static.js`.
-- Azure practice deployment uses `tools/deploy_azure_static_web.ps1` and must not maintain a separate copy of frontend files.
+- Firebase Hosting and Microsoft Azure Static Web Apps must publish the same generated `.deploy-static` artifact.
+- Build `.deploy-static` with `node tools/build-static.js` from the source allowlist in `tools/static-assets.json` and the deterministic bundle map in `tools/runtime-bundles.json`.
+- Do not publish the raw repository source tree or maintain a separate copy of frontend files for either host.
+- Azure practice deployment uses `tools/deploy_azure_static_web.ps1` and must consume the shared generated artifact.
 
 ## Application architecture
 
 - Frontend: vanilla HTML, CSS and JavaScript.
 - Authentication: Firebase Authentication.
 - Database: Cloud Firestore project `tester-teaching`.
-- The current production architecture is Spark-compatible and does not depend on deployed Cloud Functions.
+- Pull-request/browser testing uses the isolated lab configuration; localhost uses the Emulator Suite. Production configuration is generated separately and must not be committed.
+- The current production architecture is Spark-compatible for the static frontend; authoritative DOE policy/rulebook calculations are exposed through the DOE API server boundary.
 - Security decisions must be enforced by Firestore rules and by minimizing what data is delivered to the browser.
 - Do not weaken Firestore rules merely to make a UI feature work.
 
@@ -55,4 +57,5 @@ For faculty-facing workflows involving other faculty members:
 - Run `npm test` before claiming a change is complete.
 - Run the Firestore/Auth emulator suite for security-rule changes when the environment is available.
 - Preserve existing audit logging, stale-request protection, DOE calculations, and approval checks.
+- Preserve lazy/deferred boundaries for AFC PDF generation, approval workflow, swap compatibility, and Faculty Dashboard enhancements unless a reviewed build change explicitly replaces them.
 - Avoid unrelated refactors in a feature PR.

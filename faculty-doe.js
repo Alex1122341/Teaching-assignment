@@ -17,16 +17,24 @@
  function contract(faculty){
   return[faculty?.doe?.teaching,faculty?.doeTeaching,faculty?.teachingDOE,faculty?.contractTeachingDOE].map(number).find(value=>value!==null)??null;
  }
+ function worksheetTarget(faculty){
+  const summary=faculty?.__doeWorksheetSummary;
+  if(!summary||typeof summary!=='object')return null;
+  const value=number(summary.effectiveTargetDOE??summary.effectiveTargetDoe??summary.targetDoe);
+  if(value===null)return null;
+  return{value,source:'worksheet',reason:text(summary.targetReason),policyVersionId:text(summary.policyVersionId)};
+ }
  function effectiveTarget(faculty){
-  const approved=override(faculty);
-  if(approved.value!==null)return{value:approved.value,source:'override',reason:approved.reason};
-  const value=contract(faculty);
-  return value===null?{value:null,source:'none',reason:''}:{value,source:'contract',reason:''};
+  const worksheet=worksheetTarget(faculty);if(worksheet)return worksheet;
+  const approved=override(faculty);if(approved.value!==null)return{value:approved.value,source:'override',reason:approved.reason};
+  const base=contract(faculty);if(base!==null)return{value:base,source:'contract',reason:''};
+  return{value:null,source:'none',reason:''};
  }
  function targetLabel(faculty){
   const target=effectiveTarget(faculty);
   if(target.value===null)return'DOE unavailable';
-  return`${target.source==='override'?'Override DOE':'Contract DOE'} ${target.value.toFixed(2)}%${target.reason?` · ${target.reason}`:''}`;
+  const label=target.source==='override'?'Override DOE':target.source==='worksheet'?'Worksheet DOE':'Contract DOE';
+  return`${label} ${target.value.toFixed(2)}%${target.reason?` · ${target.reason}`:''}`;
  }
  return{override,contract,effectiveTarget,targetLabel};
 });

@@ -276,17 +276,18 @@ service cloud.firestore {
   function validSpecialSwapReason(d){return !specialReplacement(d) || (d.reason is string && d.reason.size() > 0 && d.reason.size() <= 1000 && d.reason.matches('.*\\S.*'));}
   function validSelfSwap(d){return d.requestType == 'faculty_swap' && d.fromFaculty is map && d.toFaculty is map && ((d.fromFaculty.facultyId is string && selfFacultyId(d.fromFaculty.facultyId)) || (d.toFaculty.facultyId is string && selfFacultyId(d.toFaculty.facultyId)));}
   function validRequestCreate(){return facultyMember() && request.resource.data.requesterUid == request.auth.uid && request.resource.data.requesterRole == profile().role && request.resource.data.status == 'pending' && request.resource.data.requestedAt == request.time && request.resource.data.sessionId is string && request.resource.data.requestType in ['faculty_swap','session_edit'] && validSpecialSwapReason(request.resource.data) && (validSelfSwap(request.resource.data) || ownsRequestGroup(request.resource.data));}
-  function validRequestDecision(){return approver() && resource.data.status == 'pending' && request.resource.data.status in ['approved','rejected'] && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','approvedBy','approvedByName','approvedAt','appliedAt','rejectedBy','rejectedByName','rejectedAt','rejectionReason']) && ((request.resource.data.status == 'approved' && request.resource.data.approvedBy == request.auth.uid && request.resource.data.approvedAt == request.time && request.resource.data.appliedAt == request.time) || (request.resource.data.status == 'rejected' && request.resource.data.rejectedBy == request.auth.uid && request.resource.data.rejectedAt == request.time));}
+  function legacyAppliedCompanionWrite(){let id=resource.data.sessionId;return id is string && id.size() > 0 && existsAfter(sessionPath(id)) && getAfter(sessionPath(id)).data.updatedBy == request.auth.uid && getAfter(sessionPath(id)).data.updatedAt == request.time;}
+  function validRequestDecision(){return approver() && resource.data.status == 'pending' && request.resource.data.status in ['approved','rejected'] && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','approvedBy','approvedByName','approvedAt','appliedAt','rejectedBy','rejectedByName','rejectedAt','rejectionReason']) && ((request.resource.data.status == 'approved' && request.resource.data.approvedBy == request.auth.uid && request.resource.data.approvedAt == request.time && request.resource.data.appliedAt == request.time && legacyAppliedCompanionWrite()) || (request.resource.data.status == 'rejected' && request.resource.data.rejectedBy == request.auth.uid && request.resource.data.rejectedAt == request.time));}
   function afcRead(d){return !restrictedOffice() && (historyAll() || d.requesterUid == request.auth.uid || d.reportToUid == request.auth.uid);}
-  function afcCreate(){return facultyMember() && request.resource.data.requesterUid == request.auth.uid && request.resource.data.facultyId == profile().facultyId && request.resource.data.reportToUid is string && request.resource.data.status == (request.resource.data.reportToUid.size() > 0 ? 'pending_report_to' : 'pending_admin') && request.resource.data.contactAddress is string && request.resource.data.contactAddress.size() > 0 && request.resource.data.contactAddress.size() <= 500 && request.resource.data.contactAddress.matches('.*\\S.*') && request.resource.data.contactPhone is string && request.resource.data.contactPhone.size() > 0 && request.resource.data.contactPhone.size() <= 50 && request.resource.data.contactPhone.matches('.*\\S.*') && request.resource.data.applicantSignature.uid == request.auth.uid && request.resource.data.applicantSignature.attested == true && request.resource.data.submittedAt == request.time && request.resource.data.updatedAt == request.time;}
+  function afcCreate(){return facultyMember() && request.resource.data.requesterUid == request.auth.uid && request.resource.data.facultyId == profile().facultyId && request.resource.data.reportToUid is string && request.resource.data.status == (request.resource.data.reportToUid.size() > 0 ? 'pending_report_to' : 'pending_admin') && request.resource.data.contactAddress is string && request.resource.data.contactAddress.size() > 0 && request.resource.data.contactAddress.size() <= 500 && request.resource.data.contactAddress.matches('.*\\S.*') && request.resource.data.contactPhone is string && request.resource.data.contactPhone.size() > 0 && request.resource.data.contactPhone.size() <= 50 && request.resource.data.contactPhone.matches('.*\\S.*') && request.resource.data.applicantSignature.uid == request.auth.uid && request.resource.data.applicantSignature.attested == true && request.resource.data.termsAccepted == true && request.resource.data.termsVersion == 'ucvm-afc-terms-page2-v1' && request.resource.data.termsSource == 'absence-from-campus-app.pdf#page=2' && request.resource.data.termsAcceptedAt == request.time && request.resource.data.submittedAt == request.time && request.resource.data.updatedAt == request.time;}
   function afcRecommend(){return resource.data.status == 'pending_report_to' && request.resource.data.status == 'pending_admin' && (request.auth.uid == resource.data.reportToUid || historyAll()) && request.resource.data.reportToSignature.uid == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','reportToSignature','updatedAt']);}
   function afcReject(){return resource.data.status in ['pending_report_to','pending_admin'] && request.resource.data.status == 'rejected' && (historyAll() || request.auth.uid == resource.data.reportToUid) && request.resource.data.rejectedSignature.uid == request.auth.uid && request.resource.data.rejectionReason is string && request.resource.data.rejectionReason.size() > 0 && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','rejectionReason','rejectedSignature','updatedAt']);}
   function afcApprove(){return historyAll() && resource.data.status == 'pending_admin' && request.resource.data.status == 'approved' && request.resource.data.adminSignature.uid == request.auth.uid && request.resource.data.pdfChunkCount is int && request.resource.data.pdfChunkCount > 0 && request.resource.data.approvedAt == request.time && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','adminSignature','pdfChunkCount','pdfSha256','pdfByteLength','approvedAt','updatedAt']);}
   function afcWithdraw(){return facultyMember() && resource.data.requesterUid == request.auth.uid && resource.data.status in ['pending_report_to','pending_admin'] && request.resource.data.status == 'withdrawn'
    && request.resource.data.withdrawnBy == request.auth.uid && request.resource.data.withdrawnAt == request.time && request.resource.data.updatedAt == request.time
    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','withdrawnBy','withdrawnAt','updatedAt']);}
-  function bulkFacultyImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['awayFromCampusRecords','awayFromCampusSource','awayFromCampusImportedAt','awayFromCampusImportedBy','facultySummary2026_27','facultySummarySource2026_27','facultySummaryImportedAt','facultySummaryImportedBy','workloadPolicy2026_27','workloadPolicySource2026_27','workloadPolicyImportedAt2026_27','workloadPolicyImportedBy2026_27','bulkImportedAt','bulkImportedBy']);}
-  function bulkFacultyImportCreate(){return request.resource.data.keys().hasAny(['awayFromCampusRecords','facultySummary2026_27','workloadPolicy2026_27','bulkImportedAt','bulkImportedBy']);}
+  function bulkFacultyImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['awayFromCampusRecords','awayFromCampusSource','awayFromCampusImportedAt','awayFromCampusImportedBy','facultySummary2026_27','facultySummarySource2026_27','facultySummaryImportedAt','facultySummaryImportedBy','workloadPolicy2026_27','workloadPolicySource2026_27','workloadPolicyImportedAt2026_27','workloadPolicyImportedBy2026_27','doeLegacyEvidence','bulkImportedAt','bulkImportedBy']);}
+  function bulkFacultyImportCreate(){return request.resource.data.keys().hasAny(['awayFromCampusRecords','facultySummary2026_27','workloadPolicy2026_27','doeLegacyEvidence','bulkImportedAt','bulkImportedBy']);}
   function bulkSessionImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']);}
   function clientCreatedSessionHasNoAuditMarker(){return !request.resource.data.keys().hasAny(['auditEventId']);}
   function clientKeptSessionAuditMarker(){return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['auditEventId']);}
@@ -305,10 +306,117 @@ service cloud.firestore {
   function validImportJobCreate(id){return general() && request.resource.data.importId == id && request.resource.data.startedBy == request.auth.uid && request.resource.data.status == 'APPLYING' && existsAfter(/databases/$(database)/documents/settings/system_state) && getAfter(/databases/$(database)/documents/settings/system_state).data.teachingDataWriteLocked == true && getAfter(/databases/$(database)/documents/settings/system_state).data.activeImportId == id && getAfter(/databases/$(database)/documents/settings/system_state).data.maintenanceOwnerUid == request.auth.uid;}
   function validImportJobUpdate(id){return maintenanceOwnerFor(id) && request.resource.data.get('importId','') == resource.data.get('importId','') && request.resource.data.get('sourceFingerprint','') == resource.data.get('sourceFingerprint','') && request.resource.data.get('sourceWorkbook','') == resource.data.get('sourceWorkbook','') && request.resource.data.get('schemaVersion','') == resource.data.get('schemaVersion','') && request.resource.data.get('startedBy','') == resource.data.get('startedBy','') && request.resource.data.get('startedAt',null) == resource.data.get('startedAt',null) && request.resource.data.get('backupFingerprint','') == resource.data.get('backupFingerprint','');}
   function validImportJobTakeover(id){return general() && teachingLocked() && get(/databases/$(database)/documents/settings/system_state).data.activeImportId == id && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['previousMaintenanceOwnerUid','previousMaintenanceOwnerName','recoveryTakenOverBy','recoveryTakenOverByName','recoveryTakenOverAt','recoveryTakeoverReason','lastUpdatedAt']) && request.resource.data.recoveryTakenOverBy == request.auth.uid && request.resource.data.recoveryTakeoverReason is string && request.resource.data.recoveryTakeoverReason.size() > 0 && getAfter(/databases/$(database)/documents/settings/system_state).data.maintenanceOwnerUid == request.auth.uid;}
+  function doeAdmin(){return ready() && profile().role in ['owner','administrator','admin','adfa_general','adfa_regular'];}
+  function doeVersionPath(id){return /databases/$(database)/documents/doe_policy_versions/$(id);}
+  function doePolicyPath(id){return /databases/$(database)/documents/doe_policies/$(id);}
+  function doeImpactPath(id){return /databases/$(database)/documents/doe_impact_runs/$(id);}
+  function doeRecalculationBatchPath(id){return /databases/$(database)/documents/doe_recalculation_batches/$(id);}
+  function doeDraftVersion(id){return exists(doeVersionPath(id)) && get(doeVersionPath(id)).data.status == 'draft';}
+  function doeActiveVersion(id){return exists(doeVersionPath(id)) && get(doeVersionPath(id)).data.status == 'active' && exists(doePolicyPath(get(doeVersionPath(id)).data.policyId)) && get(doePolicyPath(get(doeVersionPath(id)).data.policyId)).data.currentActiveVersionId == id;}
+  function doeRecalculationMarkerChanged(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['doeRecalculationBatchId','doeRecalculationPolicyVersionId','doeRecalculatedBy','doeRecalculatedAt']);}
+  function doeRecalculationSourceBase(){let after=request.resource.data;let batchId=after.get('doeRecalculationBatchId','');let versionId=after.get('doeRecalculationPolicyVersionId','');return general() && batchId is string && batchId.size() > 0 && versionId is string && versionId.size() > 0 && after.get('doeRecalculatedBy','') == request.auth.uid && after.get('doeRecalculatedAt',null) == request.time && after.get('updatedBy','') == request.auth.uid && after.get('updatedAt',null) == request.time && existsAfter(doeRecalculationBatchPath(batchId)) && getAfter(doeRecalculationBatchPath(batchId)).data.policyVersionId == versionId && getAfter(doeRecalculationBatchPath(batchId)).data.changedBy == request.auth.uid && doeActiveVersion(versionId);}
+  function doeRecalculationSessionWrite(){let changed=request.resource.data.diff(resource.data).affectedKeys();return doeRecalculationSourceBase() && changed.hasOnly(['assignments','doeRecalculationBatchId','doeRecalculationPolicyVersionId','doeRecalculatedBy','doeRecalculatedAt','updatedBy','updatedByName','updatedAt']);}
+  function doeRecalculationFacultyWrite(){let changed=request.resource.data.diff(resource.data).affectedKeys();return doeRecalculationSourceBase() && changed.hasOnly(['managedRoles2026_27','facultySummary2026_27','doeRecalculationBatchId','doeRecalculationPolicyVersionId','doeRecalculatedBy','doeRecalculatedAt','updatedBy','updatedByName','updatedAt']);}
+  function doeRecalculationEvidenceCreate(){let batchId=request.resource.data.get('recalculationBatchId','');return batchId == '' ? doeAdmin() : (general() && existsAfter(doeRecalculationBatchPath(batchId)) && getAfter(doeRecalculationBatchPath(batchId)).data.policyVersionId == request.resource.data.policyVersionId && getAfter(doeRecalculationBatchPath(batchId)).data.changedBy == request.auth.uid);}
+  function doeRecalculationAuditCreate(){let action=request.resource.data.get('action','');return action in ['recalculation_started','recalculation_completed'] ? general() : doeAdmin();}
+  function doeRecalculationBatchCreate(id){let d=request.resource.data;return general() && d.recalculationBatchId == id && d.changedBy == request.auth.uid && d.updatedAt == request.time && d.status == 'running' && d.completedRows is int && d.completedRows >= 0 && d.totalRows is int && d.totalRows >= d.completedRows && doeActiveVersion(d.policyVersionId);}
+  function doeRecalculationBatchUpdate(id){let before=resource.data;let after=request.resource.data;return general() && before.recalculationBatchId == id && after.recalculationBatchId == before.recalculationBatchId && after.policyVersionId == before.policyVersionId && after.academicYear == before.academicYear && after.changedBy == before.changedBy && after.changedBy == request.auth.uid && after.updatedAt == request.time && after.status in ['running','completed'] && after.completedRows is int && after.completedRows >= before.completedRows && after.totalRows == before.totalRows && after.diff(before).affectedKeys().hasOnly(['status','completedRows','changedByName','updatedAt']) && doeActiveVersion(after.policyVersionId);}
+  function doeVersionIdentitySame(before,after){
+   return after.policyVersionId == before.policyVersionId && after.policyId == before.policyId
+    && after.academicYear == before.academicYear && after.versionNumber == before.versionNumber
+    && after.revision == before.revision;
+  }
+  function doeDraftRevisionUpdate(id){
+   let before=resource.data;let after=request.resource.data;
+   return doeAdmin() && before.status == 'draft' && after.status == 'draft'
+    && after.policyVersionId == before.policyVersionId && after.policyId == before.policyId
+    && after.academicYear == before.academicYear && after.versionNumber == before.versionNumber
+    && after.revision == before.revision + 1 && after.updatedBy == request.auth.uid
+    && after.get('lastImpactRunId','') == '' && after.get('lastImpactChecksum','') == ''
+    && after.get('lastImpactDatasetChecksum','') == '' && after.get('lastValidatedRevision',null) == null
+    && after.diff(before).affectedKeys().hasOnly(['revision','lastImpactRunId','lastImpactRevision','lastImpactChecksum','lastImpactDatasetChecksum','lastValidatedRevision','updatedAt','updatedBy']);
+  }
+  function doeDraftChildWrite(versionId){
+   let before=get(doeVersionPath(versionId)).data;let after=getAfter(doeVersionPath(versionId)).data;
+   return doeAdmin() && before.status == 'draft' && after.status == 'draft'
+    && after.policyVersionId == before.policyVersionId && after.policyId == before.policyId
+    && after.revision == before.revision + 1 && after.updatedBy == request.auth.uid
+    && after.get('lastImpactRunId','') == '' && after.get('lastImpactChecksum','') == ''
+    && after.get('lastImpactDatasetChecksum','') == '' && after.get('lastValidatedRevision',null) == null;
+  }
+  function doeDraftValidationUpdate(){
+   let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();
+   return doeAdmin() && before.status == 'draft' && after.status == 'draft' && doeVersionIdentitySame(before,after)
+    && changed.hasOnly(['lastValidatedRevision','rulesChecksum','lastValidationPassed','lastValidationErrorCount','lastValidationWarningCount','lastValidatedAt','lastValidatedBy'])
+    && after.lastValidatedRevision == before.revision && after.rulesChecksum is string && after.rulesChecksum.size() > 0
+    && after.lastValidationPassed is bool && after.lastValidationErrorCount is int && after.lastValidationErrorCount >= 0
+    && after.lastValidationWarningCount is int && after.lastValidationWarningCount >= 0
+    && after.lastValidatedBy == request.auth.uid;
+  }
+  function doeDraftImpactEvidenceUpdate(){
+   let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();
+   let runId=after.get('lastImpactRunId','');
+   return doeAdmin() && before.status == 'draft' && after.status == 'draft' && doeVersionIdentitySame(before,after)
+    && changed.hasOnly(['lastImpactRunId','lastImpactRevision','lastImpactChecksum','lastImpactDatasetChecksum','lastImpactAt','lastImpactBy'])
+    && runId is string && runId.size() > 0 && after.lastImpactRevision == before.revision
+    && after.lastImpactChecksum == before.get('rulesChecksum','') && after.lastImpactChecksum.size() > 0
+    && after.lastImpactDatasetChecksum is string && after.lastImpactDatasetChecksum.size() > 0
+    && after.lastImpactBy == request.auth.uid
+    && exists(doeImpactPath(runId))
+    && get(doeImpactPath(runId)).data.policyVersionId == before.policyVersionId
+    && get(doeImpactPath(runId)).data.policyRevision == before.revision
+    && get(doeImpactPath(runId)).data.policyChecksum == after.lastImpactChecksum
+    && get(doeImpactPath(runId)).data.inputDatasetChecksum == after.lastImpactDatasetChecksum
+    && get(doeImpactPath(runId)).data.status == 'passed'
+    && get(doeImpactPath(runId)).data.get('errorCount',0) == 0
+    && get(doeImpactPath(runId)).data.runBy == request.auth.uid;
+  }
+  function doePublishVersion(id){
+   let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();
+   let runId=before.get('lastImpactRunId','');
+   return general() && before.status == 'draft' && after.status == 'active' && doeVersionIdentitySame(before,after)
+    && changed.hasOnly(['status','publishedAt','publishedBy','updatedAt','updatedBy'])
+    && after.publishedBy == request.auth.uid && after.updatedBy == request.auth.uid
+    && before.get('lastValidationPassed',false) == true && before.get('lastValidatedRevision',-1) == before.revision
+    && before.get('rulesChecksum','') is string && before.get('rulesChecksum','').size() > 0
+    && before.get('lastImpactRevision',-1) == before.revision && before.get('lastImpactChecksum','') == before.get('rulesChecksum','')
+    && runId is string && runId.size() > 0 && exists(doeImpactPath(runId))
+    && get(doeImpactPath(runId)).data.status == 'passed' && get(doeImpactPath(runId)).data.get('errorCount',0) == 0
+    && get(doeImpactPath(runId)).data.policyVersionId == id && get(doeImpactPath(runId)).data.policyRevision == before.revision
+    && get(doeImpactPath(runId)).data.policyChecksum == before.get('rulesChecksum','')
+    && get(doeImpactPath(runId)).data.inputDatasetChecksum == before.get('lastImpactDatasetChecksum','')
+    && getAfter(doePolicyPath(before.policyId)).data.currentActiveVersionId == id;
+  }
+  function doeArchiveVersion(id){
+   let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();
+   return general() && before.status == 'active' && after.status == 'archived' && doeVersionIdentitySame(before,after)
+    && changed.hasOnly(['status','archivedAt','archivedBy','updatedAt','updatedBy'])
+    && after.archivedBy == request.auth.uid && after.updatedBy == request.auth.uid
+    && get(doePolicyPath(before.policyId)).data.currentActiveVersionId == id
+    && getAfter(doePolicyPath(before.policyId)).data.currentActiveVersionId != id;
+  }
+  function doePolicyActivePointerUpdate(id){
+   let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();
+   let oldId=before.get('currentActiveVersionId','');let newId=after.get('currentActiveVersionId','');
+   return general() && after.policyId == before.policyId && after.academicYear == before.academicYear
+    && changed.hasOnly(['currentActiveVersionId','updatedAt','updatedBy'])
+    && after.updatedBy == request.auth.uid && oldId != newId
+    && ((newId == '' && oldId != '' && existsAfter(doeVersionPath(oldId)) && getAfter(doeVersionPath(oldId)).data.status == 'archived')
+     || (newId != '' && existsAfter(doeVersionPath(newId)) && getAfter(doeVersionPath(newId)).data.status == 'active'
+      && getAfter(doeVersionPath(newId)).data.policyId == id
+      && (oldId == '' || (existsAfter(doeVersionPath(oldId)) && getAfter(doeVersionPath(oldId)).data.status == 'archived'))));
+  }
+  function doeImpactOwner(runId){
+   return doeAdmin() && exists(doeImpactPath(runId))
+    && (get(doeImpactPath(runId)).data.runBy == request.auth.uid || general());
+  }
+
+  function swapIndexShapeValid(d){return d.keys().hasOnly(['schemaVersion','entries','generatedAt']) && d.schemaVersion == 'ucvm-faculty-swap-index-v1' && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
+  function peopleIndexShapeValid(d){return d.keys().hasOnly(['schemaVersion','entries','generatedAt']) && d.schemaVersion == 'ucvm-people-index-v1' && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
 
   match /users/{uid} {
-   allow get: if signedIn() && (request.auth.uid == uid || general() || (facultyMember() && facultyRole(resource.data.role)));
-   allow list: if general() || (facultyMember() && facultyRole(resource.data.role));
+   allow get: if signedIn() && (request.auth.uid == uid || general());
+   allow list: if general();
    allow create: if generalUserCreate();
    allow update: if generalUserUpdate(uid) || selfPasswordCompletion(uid);
    allow delete: if false;
@@ -328,14 +436,14 @@ service cloud.firestore {
   match /sessions/{id} {
    allow read: if privateReader();
    allow create: if adcSessionCreate(id) || (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
-   allow update: if adcSessionUpdate(id) || labSessionUpdate(id) || routedSessionApply(id) || (teachingWritesOpen() && admin() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
+   allow update: if adcSessionUpdate(id) || labSessionUpdate(id) || routedSessionApply(id) || (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || doeRecalculationSessionWrite() || maintenanceSessionWrite(id);
    allow delete: if (teachingWritesOpen() && admin() && !existsAfter(calendarPath(id))) || maintenanceSessionDelete(id);
   }
   match /faculty/{id} {
    allow get: if admin() || ownFacultyId(id);
    allow list: if admin();
    allow create: if teachingWritesOpen() && admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportCreate() || general());
-   allow update: if (teachingWritesOpen() && admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportChange() || general())) || maintenanceFacultyUpdate();
+   allow update: if (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportChange() || general())) || doeRecalculationFacultyWrite() || maintenanceFacultyUpdate();
    allow delete: if teachingWritesOpen() && admin();
   }
   match /change_requests/{id} {
@@ -382,7 +490,10 @@ service cloud.firestore {
   match /settings/{id} {
    allow read: if admin();
    allow read: if privateReader() && id == 'faculty_swap_index';
-   allow write: if id != 'system_state' && ((id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map'] && ((teachingWritesOpen() && admin()) || maintenanceOwner())) || (id == 'faculty_summary_2026_27' && ((teachingWritesOpen() && general()) || maintenanceOwner())) || (!(id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map','faculty_summary_2026_27']) && admin()));
+   allow read: if id == 'people_index' && facultyMember();
+   allow write: if id == 'faculty_swap_index' && swapIndexShapeValid(request.resource.data) && ((teachingWritesOpen() && admin()) || maintenanceOwner());
+   allow write: if id == 'people_index' && peopleIndexShapeValid(request.resource.data) && admin();
+   allow write: if id != 'system_state' && id != 'faculty_swap_index' && id != 'people_index' && ((id in ['faculty_index','schedule_stats','faculty_swap_map'] && ((teachingWritesOpen() && admin()) || maintenanceOwner())) || (id == 'faculty_summary_2026_27' && ((teachingWritesOpen() && general()) || maintenanceOwner())) || (!(id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map','faculty_summary_2026_27']) && admin()));
   }
   match /bulk_import_jobs/{importId} {
    allow read: if general();
@@ -405,6 +516,77 @@ service cloud.firestore {
     allow update,delete: if false;
    }
   }
+  match /doe_policies/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_policy_versions/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rules/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_selectors/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_parameters/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_tiers/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_inputs/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_exceptions/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_reference_sources/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_course_mappings/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_subject_mappings/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_impact_runs/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_impact_rows/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_publications/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_recalculation_batches/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_assignments/{id} {
+   allow read,create,update,delete: if false;
+  }
+  match /doe_calculation_records/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_audit_log/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
   match /public_info/{id} {allow read: if ready(); allow create,update: if general() && request.resource.data.messages is list && request.resource.data.messages.size() <= 10 && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time; allow delete: if false;}
   match /public_schedule/{id} {
    allow read: if privateReader() && id == 'ccc_events';
@@ -417,13 +599,13 @@ service cloud.firestore {
   match /session_change_log/{id} {
    allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid);
    allow create: if teachingWritesOpen() && ((admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time) || officeSessionAuditCreate());
-   allow update: if teachingWritesOpen() && admin() && resource.data.changedBy == request.auth.uid && request.resource.data.changedBy == resource.data.changedBy && request.resource.data.changedAt == resource.data.changedAt && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['changes','changedByEmail','changedByName']);
+   allow update: if false;
    allow delete: if false;
   }
   match /faculty_change_log/{id} {
    allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid);
    allow create: if teachingWritesOpen() && admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
-   allow update: if teachingWritesOpen() && admin() && resource.data.changedBy == request.auth.uid && request.resource.data.changedBy == resource.data.changedBy && request.resource.data.changedAt == resource.data.changedAt && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['changes','facultyName','changedByEmail','changedByName']);
+   allow update: if false;
    allow delete: if false;
   }
   match /account_audit/{id} {

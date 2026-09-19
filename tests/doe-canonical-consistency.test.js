@@ -33,9 +33,9 @@ test('faculty index and canonical helper agree when contract DOE is the effectiv
  assert.equal(entry.contractTeachingDOE,target.value);
 });
 
-test('Faculty Dashboard DOE list delegates effective target calculation to the canonical helper',()=>{
+test('Faculty Dashboard DOE list delegates target and assigned aggregation to the canonical derived index',()=>{
  const source=fs.readFileSync(path.join(__dirname,'../faculty-admin-enhancements.js'),'utf8');
- assert.match(source,/UCVM_FACULTY_DOE\.effectiveTarget\(/);
+ assert.match(source,/UCVM_DATA_INDEX\.buildFacultyIndex\(/);
  assert.doesNotMatch(source,/num\(f\?\.doeOverride2026_27\?\.value\)/);
 });
 
@@ -48,4 +48,17 @@ test('pages load canonical DOE before data-index consumers',()=>{
   assert.ok(consumer>=0,`${file} must load data-index.js`);
   assert.ok(canonical<consumer,`${file} must load faculty-doe.js before data-index.js`);
  }
+});
+
+test('DOE List consumes the canonical faculty index and never derives assignment DOE from legacy rates',()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../faculty-admin-enhancements.js'),'utf8');
+ assert.match(source,/UCVM_DATA_INDEX\.buildFacultyIndex\(/);
+ assert.doesNotMatch(source,/doeRate/);
+ assert.doesNotMatch(source,/function assignmentCredit/);
+});
+
+test('faculty profile historical DOE explanation reads immutable calculation snapshots',()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../faculty-admin.js'),'utf8');
+ assert.match(source,/doe_calculation_records/);
+ for(const field of ['policyVersionId','ruleKey','inputsSnapshot','parametersSnapshot','resultDoe','calculatedAt','trigger'])assert.match(source,new RegExp(field));
 });

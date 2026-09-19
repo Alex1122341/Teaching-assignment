@@ -37,6 +37,7 @@
   let authSettings = loadAuthSettings();
   let auth = null;
   let db = null;
+  let timetableDoeRuntime = null;
   let authInitialized = false;
   let recaptchaVerifier = null;
   let phoneConfirmation = null;
@@ -93,6 +94,24 @@
   function canSelectSessions(){return capabilities().canSelectSessions;}
   function canEdit(){const c=capabilities();return c.canEditCourseFields||c.canEditInstructor;}
   function sessionCollection(){return ['adc','lab'].includes(UCVM.role(currentUser?.role))?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;}
+  function getTimetableDoeRuntime(){
+    if(timetableDoeRuntime&&timetableDoeRuntime.db===db)return timetableDoeRuntime;
+    const api=window.UCVM_DOE_API,selectionApi=window.UCVM_TIMETABLE_SELECTION;
+    if(!db||!api||!selectionApi)throw new Error('DOE API modules are required for timetable assignment writes.');
+    if(typeof api.isConfigured==='function'&&!api.isConfigured())throw new Error('DOE API is not configured for authoritative timetable writes.');
+    const adapter=selectionApi.createDoeApiAdapter({api});
+    timetableDoeRuntime={db,api,adapter};
+    return timetableDoeRuntime;
+  }
+  function doeAuditChanges(changes){
+    return (Array.isArray(changes)?changes:[]).map(change=>({
+      field:'doeCredit',label:'DOE',assignmentId:change.assignmentId,facultyId:change.facultyId,
+      before:change.oldDoeCredit,after:change.newDoeCredit,
+      beforePolicyVersionId:change.oldPolicyVersionId,afterPolicyVersionId:change.newPolicyVersionId,
+      beforeCalculationId:change.oldCalculationId,afterCalculationId:change.newCalculationId,
+      ruleId:change.ruleId,ruleKey:change.ruleKey
+    }));
+  }
 
   async function getRoleProfile(firebaseUser) {
     if (!db) throw new Error('Firestore is not initialized.');
@@ -261,7 +280,6 @@
   const selectedSessionOriginals = new Map();
   let selectionMode = false;
   let reviewingSelection = false;
-  let selectionDoeState = new Map();
 
   const $ = (id) => document.getElementById(id);
   const memoryStore = {};
@@ -451,8 +469,7 @@
   function swapFacultyName(f){ return String(f?.preferredFullName||f?.hrFirstLast||f?.hrFullName||f?.facultySummary2026_27?.displayName||f?.__id||''); }
   function swapSummary(f){ const x=f?.facultySummary2026_27; return x&&typeof x==='object'&&!Array.isArray(x)?x:null; }
   function swapFacultyAliases(f){ const out=new Set(); [swapFacultyName(f),f?.preferredFullName,f?.hrFullName,f?.hrFirstLast,f?.teachingAssignmentName,swapSummary(f)?.displayName].forEach(v=>{const k=swapNameKey(v);if(k)out.add(k)}); if(f?.firstName&&f?.lastName)out.add(swapNameKey(`${f.firstName} ${f.lastName}`)); return out; }
-  function swapEffectiveTarget(f){return window.UCVM_FACULTY_DOE.effectiveTarget(f)}
-  function swapAssignmentCredit(a){ const c=swapNumeric(a?.doeCredit); if(c!==null)return c; const r=swapNumeric(a?.doeRate),h=swapNumeric(a?.creditedHours); return r!==null&&h!==null?Number((r*h).toFixed(6)):null; }
+  function swapAssignmentCredit(a){return swapNumeric(a?.doeCredit)}
   function swapAssignmentHours(a,s){ const h=swapNumeric(a?.creditedHours); if(h!==null)return h; if(s?.timeUnknown)return null; try{return blockHours(s.start,s.end)}catch{return null} }
   function awayRecordsForFaculty(f){return Array.isArray(f?.awayFromCampusRecords)?f.awayFromCampusRecords.filter(x=>x&&x.startDate&&x.endDate):[]}
   function facultyAvailability(f,dateYmd){
@@ -562,14 +579,6 @@
     return facultyLoading;
   }
 
-  function buildSwapDoeState(){
-    const state=new Map();
-    for(const f of facultyDirectory){
-      const summary=swapSummary(f),indexed=swapNumeric(f.__indexAssignedTeachingDOE),source=swapNumeric(summary?.assignedTeachingDOE);
-      state.set(String(f.__id),{faculty:f,current:indexed??source,target:swapEffectiveTarget(f)});
-    }
-    return state;
-  }
 
   function sessionAssignmentsForSwap(s){
     if(Array.isArray(s?.assignments)&&s.assignments.length)return s.assignments.map(a=>({...a}));
@@ -597,10 +606,9 @@
     const assignments=sessionAssignmentsForSwap(s); if(!assignments.length){toast('This course block has no faculty assignment to swap.',true);return;}
     if(!facultyDirectory.length){toast('Faculty directory could not be loaded.',true);return;}
     let selected=Math.min(Math.max(0,Number(initialAssignmentIndex)||0),assignments.length-1);
-    const doeState=buildSwapDoeState();
     const renderSwap=()=>{
       const outgoing=assignments[selected], outgoingFaculty=facultyForAssignment(outgoing); const outgoingId=String(outgoing?.ucid||outgoingFaculty?.__id||'');
-      const credit=swapAssignmentCredit(outgoing), outState=outgoingId?doeState.get(outgoingId):null; const outCurrent=outState?.current??null; const outAfter=(outCurrent!==null&&credit!==null)?outCurrent-credit:null;
+      const credit=swapAssignmentCredit(outgoing);
       showModal(`
         <div class="modal-header"><div class="modal-title">SWAP Faculty · ${escapeHtml(s.course)} ${escapeHtml(s.type)}</div><div class="modal-subtitle">Admin-only reassignment. The Faculty Dashboard will update from the same Firestore session immediately after the swap.</div></div>
         <div class="modal-body">
@@ -611,10 +619,10 @@
             <div class="swap-session-cell"><div class="swap-session-label">Topic</div><div class="swap-session-value">${escapeHtml(s.topic||'')}</div></div>
           </div>
           <label class="form-field"><span class="form-label">Swap out current faculty assignment</span><select class="form-select" id="swap-out-select">${assignments.map((a,i)=>`<option value="${i}" ${i===selected?'selected':''}>${escapeHtml(a.name||'Unassigned')} · ${escapeHtml(a.role||s.type||'')} · ${swapPct(swapAssignmentCredit(a))}</option>`).join('')}</select></label>
-          <div class="swap-current-card"><div class="swap-current-title">Current assignment being removed</div><div class="swap-current-line"><span><strong>${escapeHtml(outgoing?.name||'Unknown')}</strong></span><span>Role: <strong>${escapeHtml(outgoing?.role||s.type||'')}</strong></span><span>DOE credit: <strong>${credit===null?'Unrated':swapPct(credit)}</strong></span><span>Current Assigned DOE: <strong>${swapPct(outCurrent)}</strong></span><span>After removal: <strong>${credit===null?'Unrated impact':swapPct(outAfter)}</strong></span></div></div>
+          <div class="swap-current-card"><div class="swap-current-title">Current assignment being removed</div><div class="swap-current-line"><span><strong>${escapeHtml(outgoing?.name||'Unknown')}</strong></span><span>Role: <strong>${escapeHtml(outgoing?.role||s.type||'')}</strong></span><span>Persisted DOE credit: <strong>${credit===null?'Unrated':swapPct(credit)}</strong></span><span>Faculty totals: <strong>Server preview on SWAP</strong></span></div></div>
           <div class="swap-search-row"><label class="form-field"><span class="form-label">Find replacement faculty</span><input class="form-input" id="swap-search" placeholder="Search name, specialty, teaching area, UCID..."></label></div>
-          <div class="swap-help">Each candidate checks <strong>both AFC and the live timetable for overlapping courses at this exact date/time</strong>. For privacy, AFC only reports <strong>Unavailable</strong>; AFC reasons and dates are not shown here. The table then shows current Assigned Teaching DOE and projected Assigned DOE after this block is added. The current value uses the synchronized non-timetable/role source component plus live timetable DOE; detailed HICC/VISC/rotation/trainee policy breakdown is available in Faculty Dashboard. Effective DOE uses the approved Override DOE when present, otherwise Contract DOE. A timetable conflict or AFC absence is flagged as unavailable; uncertain records with an unspecified time are marked Check needed. Administrators may override after an explicit warning. The replacement inherits this assignment's role, credited hours and DOE rate. ${credit===null?'<strong>This activity has no numeric DOE rate in the source, so the projected DOE cannot be calculated.</strong>':''}</div>
-          <div class="swap-table-wrap"><table class="swap-table"><thead><tr><th>Faculty</th><th>Availability</th><th>Effective DOE</th><th>Current Assigned DOE</th><th>Projected After Swap</th><th>Remaining / Over</th><th>DOE Status</th><th></th></tr></thead><tbody id="swap-candidate-body"></tbody></table></div>
+          <div class="swap-help">Each candidate checks <strong>both AFC and the live timetable for overlapping courses at this exact date/time</strong>. For privacy, AFC only reports <strong>Unavailable</strong>; AFC reasons and dates are not shown here. DOE current/projected totals are not calculated in the browser: the authoritative server preview runs when you select <strong>SWAP</strong>, before confirmation. A timetable conflict or AFC absence is flagged as unavailable; uncertain records with an unspecified time are marked Check needed.</div>
+          <div class="swap-table-wrap"><table class="swap-table"><thead><tr><th>Faculty</th><th>Availability</th><th>DOE</th><th></th></tr></thead><tbody id="swap-candidate-body"></tbody></table></div>
         </div>
         <div class="modal-footer"><span class="form-hint">Swap is written to Firestore and logged in session_change_log.</span><button class="btn btn-secondary" id="swap-cancel">Cancel</button></div>`);
       const box=document.querySelector('#modal .modal-box'); if(box)box.classList.add('swap-wide');
@@ -630,39 +638,38 @@
           return true;
         }).sort((a,b)=>{const aa=facultyAssignmentAvailability(a,s.date,s.start,s.end,s.id),bb=facultyAssignmentAvailability(b,s.date,s.start,s.end,s.id);const rank=x=>x.available===true?0:(x.available===null?1:2);const av=rank(aa)-rank(bb);return av||swapFacultyName(a).localeCompare(swapFacultyName(b))});
         $('swap-candidate-body').innerHTML=rows.map(f=>{
-          const st=doeState.get(String(f.__id)); const current=st?.current??null; const projected=(current!==null&&credit!==null)?current+credit:null; const status=swapStatus(st?.target?.value??null,projected); const rem=status.remaining, av=facultyAssignmentAvailability(f,s.date,s.start,s.end,s.id);
-          const afterText=credit===null?(current===null?'—':`${swapPct(current)} + unrated`):swapPct(projected);
-          const remText=rem===null?'—':(rem>=0?`${rem.toFixed(2)}% remaining`:`${Math.abs(rem).toFixed(2)}% over`);
+          const av=facultyAssignmentAvailability(f,s.date,s.start,s.end,s.id);
           const avHtml=av.available===false?`<span class="availability-pill availability-no">Unavailable</span><div class="availability-detail no">${escapeHtml(assignmentAvailabilityDetail(av,s.date,s.start,s.end))}</div>`:av.available===null?`<span class="availability-pill availability-none">Check needed</span><div class="availability-detail">${escapeHtml(assignmentAvailabilityDetail(av,s.date,s.start,s.end))}</div>`:`<span class="availability-pill availability-ok">Available</span><div class="availability-detail ok">${escapeHtml(assignmentAvailabilityDetail(av,s.date,s.start,s.end))}</div>`;
-          const target=st?.target||{value:null,source:'none',reason:''},targetText=target.value===null?'—':`${swapPct(target.value)}${target.source==='override'?` <span class="doe-override-pill">Override${target.reason?` · ${escapeHtml(target.reason)}`:''}</span>`:''}`;
-          return `<tr class="${av.available===false?'swap-unavailable':''}"><td><strong>${escapeHtml(swapFacultyName(f))}</strong><br><span class="form-hint">${escapeHtml(f.teachingArea||f.teachingAreaEmphasis||f.currentTitle||'')} ${f.ucid?`· ${escapeHtml(f.ucid)}`:''}</span></td><td>${avHtml}</td><td class="swap-num">${targetText}</td><td class="swap-num">${swapPct(current)}</td><td class="swap-num swap-projected">${afterText}</td><td class="swap-num">${remText}</td><td><span class="swap-status ${status.cls}">${status.label}</span></td><td><button class="btn btn-primary btn-swap-confirm" data-swap-faculty="${escapeHtml(f.__id)}">SWAP</button></td></tr>`;
-        }).join('')||'<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-3)">No faculty match this search.</td></tr>';
-        document.querySelectorAll('[data-swap-faculty]').forEach(btn=>btn.onclick=()=>performFacultySwap(s,assignments,selected,btn.dataset.swapFaculty,doeState));
+          return `<tr class="${av.available===false?'swap-unavailable':''}"><td><strong>${escapeHtml(swapFacultyName(f))}</strong><br><span class="form-hint">${escapeHtml(f.teachingArea||f.teachingAreaEmphasis||f.currentTitle||'')} ${f.ucid?`· ${escapeHtml(f.ucid)}`:''}</span></td><td>${avHtml}</td><td><span class="swap-status swap-unknown">Server preview on SWAP</span><div class="form-hint">Current, projected, target and remaining DOE are verified by the DOE API before confirmation.</div></td><td><button class="btn btn-primary btn-swap-confirm" data-swap-faculty="${escapeHtml(f.__id)}">SWAP</button></td></tr>`;
+        }).join('')||'<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text-3)">No faculty match this search.</td></tr>';
+        document.querySelectorAll('[data-swap-faculty]').forEach(btn=>btn.onclick=()=>performFacultySwap(s,assignments,selected,btn.dataset.swapFaculty));
       };
       $('swap-search').oninput=renderCandidates; renderCandidates();
     };
     renderSwap();
   }
 
-  async function performFacultySwap(session,assignments,outIndex,newFacultyId,doeState){
+  async function performFacultySwap(session,assignments,outIndex,newFacultyId){
     if(!UCVM.admin(currentUser))return;
     const replacement=facultyDirectory.find(f=>String(f.__id)===String(newFacultyId)); if(!replacement)return;
     const outgoing=assignments[outIndex]; if(!outgoing)return;
-    const oldFaculty=facultyForAssignment(outgoing); const oldName=outgoing.name||swapFacultyName(oldFaculty)||'Unknown'; const newName=swapFacultyName(replacement);
-    const credit=swapAssignmentCredit(outgoing), currentNew=doeState.get(String(replacement.__id))?.current??null, projectedNew=(currentNew!==null&&credit!==null)?currentNew+credit:null, av=facultyAssignmentAvailability(replacement,session.date,session.start,session.end,session.id);
-    const availabilityWarning=av.available===false?`\n\nWARNING: ${newName} is not available for ${session.date} ${session.start||''}-${session.end||''}:\n${assignmentAvailabilityDetail(av,session.date,session.start,session.end)}\n\nAdmin override?`:av.available===null?`\n\nCHECK NEEDED before assigning ${newName}:\n${assignmentAvailabilityDetail(av,session.date,session.start,session.end)}\n\nContinue as admin?`:'';
-    if(!confirm(`Swap ${oldName} to ${newName} for ${session.course} - ${session.topic}?\n\n${credit===null?'DOE impact: this activity is unrated.':`DOE credit transferred: ${credit.toFixed(2)}%\n${newName}: ${currentNew===null?'current DOE unavailable':currentNew.toFixed(2)+'%'} → ${projectedNew===null?'projected unavailable':projectedNew.toFixed(2)+'%'}`}${availabilityWarning}`))return;
-    const nextAssignments=assignments.map((a,i)=>i===outIndex?{...a,ucid:String(replacement.__id),name:newName,category:'Faculty',source:'Admin SWAP',swappedFrom:{ucid:String(outgoing.ucid||oldFaculty?.__id||''),name:oldName},swappedAt:new Date().toISOString()}:a);
-    const next={...session,assignments:nextAssignments,instructor:nextAssignments.map(a=>a.name).filter(Boolean).join('; '),labDetails:labDetailsFromAssignments(session.type,nextAssignments,session.topic),sourceSystem:'Synchronized live timetable'};
+    const oldFaculty=facultyForAssignment(outgoing),oldName=outgoing.name||swapFacultyName(oldFaculty)||'Unknown',newName=swapFacultyName(replacement),oldCredit=swapAssignmentCredit(outgoing);
+    const av=facultyAssignmentAvailability(replacement,session.date,session.start,session.end,session.id);
+    const nextAssignments=assignments.map((a,i)=>i===outIndex?{...a,ucid:String(replacement.__id),facultyId:String(replacement.__id),name:newName,category:'Faculty',source:'Admin SWAP',swappedFrom:{ucid:String(outgoing.ucid||oldFaculty?.__id||''),name:oldName},swappedAt:new Date().toISOString()}:a);
+    let next={...session,assignments:nextAssignments,facultyIds:nextAssignments.map(a=>String(a.facultyId||a.ucid||'')).filter(Boolean),instructor:nextAssignments.map(a=>a.name).filter(Boolean).join('; '),labDetails:labDetailsFromAssignments(session.type,nextAssignments,session.topic),sourceSystem:'Synchronized live timetable'};
     await ensureSessionsForDates([next.date],true);
+    let doeResult,doeRuntime;
+    try{doeRuntime=getTimetableDoeRuntime();doeResult=await doeRuntime.adapter.prepareSession(session,next,{trigger:'faculty_swap'});next=doeResult.session}
+    catch(error){console.error('[DOE faculty swap calculation]',error);toast(`SWAP blocked: ${error.message||'DOE calculation is unavailable.'}`,true);return}
+    const newCredit=swapAssignmentCredit(next.assignments[outIndex]),incomingImpact=(doeResult.facultyImpacts||[]).find(row=>String(row?.facultyId||'')===String(replacement.__id)),currentNew=incomingImpact?.currentAssignedDoe??null,projectedNew=incomingImpact?.projectedAssignedDoe??null;
+    const availabilityWarning=av.available===false?`\n\nWARNING: ${newName} is not available for ${session.date} ${session.start||''}-${session.end||''}:\n${assignmentAvailabilityDetail(av,session.date,session.start,session.end)}\n\nAdmin override?`:av.available===null?`\n\nCHECK NEEDED before assigning ${newName}:\n${assignmentAvailabilityDetail(av,session.date,session.start,session.end)}\n\nContinue as admin?`:'';
+    if(!confirm(`Swap ${oldName} to ${newName} for ${session.course} - ${session.topic}?\n\n${newCredit===null?'DOE impact: this activity is unrated.':`DOE credit: ${oldCredit===null?'unrated':oldCredit.toFixed(2)+'%'} → ${newCredit.toFixed(2)}%\n${newName}: ${currentNew===null?'current DOE unavailable':currentNew.toFixed(2)+'%'} → ${projectedNew===null?'projected unavailable':projectedNew.toFixed(2)+'%'}`}${availabilityWarning}`))return;
     const overrides=confirmSchedulingChanges([next]);if(overrides===null)return;
     try{
-      const batch=db.batch(),ref=db.collection(SESSION_COLLECTION).doc(session.id),logRef=db.collection(SESSION_LOG_COLLECTION).doc();
-      batch.set(ref,{...firestoreSafeSession(next),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
-      batch.set(db.collection(CALENDAR_SESSION_COLLECTION).doc(session.id),window.UCVM_CALENDAR_SESSION.fromSource(next,session.id));
-      batch.set(logRef,{action:'swap_faculty',override:overrides.get(String(session.id))||null,sessionId:session.id,course:session.course,date:session.date,topic:session.topic,role:outgoing.role||session.type||'',doeCredit:credit,fromFaculty:{ucid:String(outgoing.ucid||oldFaculty?.__id||''),name:oldName},toFaculty:{ucid:String(replacement.__id),name:newName},toFacultyCurrentAssignedDOE:currentNew,toFacultyProjectedAssignedDOE:projectedNew,changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
-      await batch.commit(); invalidateAllSessions(); await updateDerivedIndexes([{before:session,after:next}]); closeModal(); toast(`SWAP complete: ${oldName} → ${newName}. Faculty DOE will update automatically.`);
-    }catch(err){console.error('[faculty swap]',err);toast('SWAP failed. Check Firestore session write permissions.',true)}
+      const saved=await doeRuntime.api.saveSessionChange({academicYear:doeResult.academicYear||next.academicYear||'',sessionId:session.id,afterSession:next,trigger:'faculty_swap'}),savedNext=saved.session||next,auditChanges=doeAuditChanges(saved.doeChanges||doeResult.doeChanges);
+      await db.collection(SESSION_LOG_COLLECTION).doc().set({action:'swap_faculty',override:overrides.get(String(session.id))||null,requestId:'',sessionId:session.id,course:savedNext.course||session.course,date:savedNext.date||session.date,topic:savedNext.topic||session.topic,role:outgoing.role||session.type||'',doeCredit:swapAssignmentCredit(savedNext.assignments?.[outIndex]),oldDoeCredit:oldCredit,doeChanges:saved.doeChanges||doeResult.doeChanges,changes:auditChanges,fromFaculty:{ucid:String(outgoing.ucid||oldFaculty?.__id||''),name:oldName},toFaculty:{ucid:String(replacement.__id),name:newName},toFacultyCurrentAssignedDOE:currentNew,toFacultyProjectedAssignedDOE:projectedNew,changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      invalidateAllSessions(); await updateDerivedIndexes([{before:session,after:savedNext}]); closeModal(); toast(`SWAP complete: ${oldName} → ${newName}. Faculty DOE will update automatically.`);
+    }catch(err){console.error('[faculty swap]',err);toast(`SWAP failed. ${err.message||'DOE API save is unavailable.'}`,true)}
   }
 
   async function initializeLiveSchedule() {
@@ -1064,14 +1071,14 @@
     reviewingSelection=true;viewMode=selectionViewFlow.review();setViewButtons();render();
   }
 
-  function selectionFacultyOptions(session,doeState){
+  function selectionFacultyOptions(session){
     const selected=new Set([...(session.facultyIds||[]),...(session.assignments||[]).map(a=>a.ucid||a.facultyId)].filter(Boolean).map(String));
-    return facultyDirectory.map(f=>{const state=doeState.get(String(f.__id))||{},current=state.current===null||state.current===undefined?'Unavailable':swapPct(state.current),target=state.target||window.UCVM_FACULTY_DOE.effectiveTarget(f),targetLabel=window.UCVM_FACULTY_DOE.targetLabel(f);return `<label class="selection-faculty-option"><input type="checkbox" data-selection-faculty-option value="${escapeHtml(f.__id)}" ${selected.has(String(f.__id))?'checked':''}><span><strong>${escapeHtml(swapFacultyName(f))}</strong><small>Assigned DOE ${current} · ${escapeHtml(targetLabel)}${target.source==='override'?'<span class="doe-override-pill">Override</span>':''}</small></span></label>`}).join('');
+    return facultyDirectory.map(f=>`<label class="selection-faculty-option"><input type="checkbox" data-selection-faculty-option value="${escapeHtml(f.__id)}" ${selected.has(String(f.__id))?'checked':''}><span><strong>${escapeHtml(swapFacultyName(f))}</strong><small>DOE server preview on save</small></span></label>`).join('');
   }
   function updateSelectionFacultyPicker(picker){
     const checked=[...picker.querySelectorAll('[data-selection-faculty-option]:checked')],summary=picker.querySelector('summary'),chips=picker.querySelector('.selection-faculty-chips');
     summary.textContent=checked.length?`${checked.length} faculty selected`:'Choose faculty';
-    chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value)),state=selectionDoeState.get(String(input.value))||{},current=state.current===null||state.current===undefined?'DOE unavailable':`Assigned ${swapPct(state.current)}`;return `<span>${escapeHtml(swapFacultyName(f))}<small>${current}</small></span>`}).join('');
+    chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value));return `<span>${escapeHtml(swapFacultyName(f))}<small>DOE server preview on save</small></span>`}).join('');
   }
   function selectionRole(){return UCVM.role(currentUser?.role);}
   function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session);}
@@ -1081,7 +1088,7 @@
     const data=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids());
     renderedSessions=data;
     $('cal-label').textContent=`Review ${data.length} selected session${data.length===1?'':'s'}`;
-    const canEditFaculty=capabilities().canEditInstructor,doeState=canEditFaculty?buildSwapDoeState():new Map();selectionDoeState=doeState;
+    const canEditFaculty=capabilities().canEditInstructor;
     const rows=data.map(s=>{const policy=selectionPolicy(s),field=name=>lockedAttr(policy.fields[name]);return `<tr data-selection-row data-session-edit-id="${escapeHtml(s.id)}">
       <td><input type="date" data-selection-field="date" value="${escapeHtml(s.date)}" ${field('date')}></td>
       <td><select data-selection-field="year" ${field('year')}>${[1,2,3,4].map(year=>`<option ${Number(s.year)===year?'selected':''}>${year}</option>`).join('')}</select></td>
@@ -1091,9 +1098,9 @@
       <td><input type="time" data-selection-field="end" value="${escapeHtml(s.end)}" ${field('end')}></td>
       <td><input data-selection-field="topic" value="${escapeHtml(s.topic)}" ${field('topic')}></td>
       <td><input data-selection-field="room" value="${escapeHtml(s.room)}" ${field('room')}></td>
-      <td>${policy.fields.faculty?`<details class="selection-faculty-picker" data-selection-field="faculty"><summary>Choose faculty</summary><div class="selection-faculty-menu"><div class="selection-faculty-options">${selectionFacultyOptions(s,doeState)}</div></div></details><div class="selection-faculty-chips"></div>`:`<div class="role-locked-field selection-faculty-readonly">${escapeHtml(s.instructor||'TBD')}</div>`}</td>
+      <td>${policy.fields.faculty?`<details class="selection-faculty-picker" data-selection-field="faculty"><summary>Choose faculty</summary><div class="selection-faculty-menu"><div class="selection-faculty-options">${selectionFacultyOptions(s)}</div></div></details><div class="selection-faculty-chips"></div>`:`<div class="role-locked-field selection-faculty-readonly">${escapeHtml(s.instructor||'TBD')}</div>`}</td>
     </tr>`}).join('');
-    const note=canEditFaculty?'Open Faculty to choose one or more people and review their DOE.':'Grey fields are context only; your office can edit only its assigned fields.';
+    const note=canEditFaculty?'Open Faculty to choose one or more people; authoritative DOE is previewed by the server on save.':'Grey fields are context only; your office can edit only its assigned fields.';
     $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div><div class="selection-save-bar"><span>${note}</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
     document.querySelectorAll('.selection-faculty-picker').forEach(picker=>{picker.querySelectorAll('[data-selection-faculty-option]').forEach(input=>input.onchange=()=>updateSelectionFacultyPicker(picker));updateSelectionFacultyPicker(picker)});
     $('selection-back-btn').onclick=()=>{reviewingSelection=false;viewMode=selectionViewFlow.finish();setViewButtons();render();refreshSessionScope()};
@@ -1107,25 +1114,47 @@
       let type=value('type'),start=value('start'),end=value('end'),topic=value('topic'),date=value('date');
       if(selectionRole()==='adc'&&String(type).toUpperCase()==='LAB'&&String(original.type||'').toUpperCase()!=='LAB')topic='TBD';
       const position=academicPositionForDate(parseYmd(date)),originalIds=[...(original.facultyIds||[]),...(original.assignments||[]).map(a=>a.ucid||a.facultyId)].filter(Boolean).map(String),assignmentChanged=policy.fields.faculty&&(ids.join('|')!==[...new Set(originalIds)].join('|')||type!==String(original.type||'')||start!==String(original.start||'')||end!==String(original.end||'')||topic!==String(original.topic||''));
-      const assignments=assignmentChanged?ids.map(facultyId=>{const faculty=facultyDirectory.find(f=>String(f.__id)===facultyId),previous=(original.assignments||[]).find(a=>String(a.ucid||a.facultyId||'')===facultyId)||{},role=previous.role||defaultTeachingRole(type),hours=swapNumeric(previous.creditedHours)??blockHours(start,end,{timeUnknown:original.timeUnknown===true&&start===String(original.start||'')&&end===String(original.end||'')}),rate=doeRateForRole(role);return{...previous,ucid:facultyId,facultyId,name:swapFacultyName(faculty),role,topic,creditedHours:hours,doeRate:rate,doeCredit:swapNumeric(previous.doeCredit)??(rate===null||hours===null?null:Number((hours*rate).toFixed(6))),source:'Multi-session timetable edit'}}):(original.assignments||[]);
+      const assignments=assignmentChanged?ids.map(facultyId=>{const faculty=facultyDirectory.find(f=>String(f.__id)===facultyId),previous=(original.assignments||[]).find(a=>String(a.ucid||a.facultyId||'')===facultyId)||{},role=previous.role||defaultTeachingRole(type),hours=swapNumeric(previous.creditedHours)??blockHours(start,end,{timeUnknown:original.timeUnknown===true&&start===String(original.start||'')&&end===String(original.end||'')});return{...previous,ucid:facultyId,facultyId,name:swapFacultyName(faculty),role,topic,creditedHours:hours,source:'Multi-session timetable edit'}}):(original.assignments||[]);
       const course=value('course');
       return{...original,id,date,week:position.week,semester:position.semester,year:Number(value('year')),course,courseName:course===String(original.course||'')?original.courseName:(COURSES.find(c=>String(c.code)===course)?.name||''),type,start,end,topic,room:value('room'),timeUnknown:start===String(original.start||'')&&end===String(original.end||'')?Boolean(original.timeUnknown):false,assignments,facultyIds:ids,instructor:assignments.length?assignments.map(a=>a.name).filter(Boolean).join('; '):String(original.instructor||''),labDetails:assignmentChanged?labDetailsFromAssignments(type,assignments,topic):original.labDetails};
     });
   }
   async function saveSelectedChanges(){
     if(!canSelectSessions()){toast('Selection permission is required.',true);return}
-    const button=$('selection-save-btn'),errorBox=$('selection-errors'),originals=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids()),rows=readSelectionRows(),canEditFaculty=capabilities().canEditInstructor,facultyById=canEditFaculty?new Map(facultyDirectory.map(f=>[String(f.__id),f])):new Map(),timestamp=firebase.firestore.FieldValue.serverTimestamp();
+    const button=$('selection-save-btn'),errorBox=$('selection-errors'),originals=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids()),canEditFaculty=capabilities().canEditInstructor,facultyById=canEditFaculty?new Map(facultyDirectory.map(f=>[String(f.__id),f])):new Map(),timestamp=firebase.firestore.FieldValue.serverTimestamp();
+    let rows=readSelectionRows();
     await ensureSessionsForDates(rows.map(row=>row.date),true);
+    const doePrepared=new Map(),doeRuntime=canEditFaculty?getTimetableDoeRuntime():null,originalById=new Map(originals.map(row=>[String(row.id),row]));
+    if(canEditFaculty)rows=await Promise.all(rows.map(async row=>{const prepared=await doeRuntime.adapter.prepareSession(originalById.get(String(row.id))||null,row,{trigger:'multi_session_edit'});doePrepared.set(String(row.id),prepared);return prepared.session}));
     const plan=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,{role:selectionRole()});
+    if(canEditFaculty){
+      for(const log of plan.logs){const prepared=doePrepared.get(String(log.sessionId));const changes=doeAuditChanges(prepared?.doeChanges);if(changes.length){log.changes.push(...changes);log.doeChanges=prepared.doeChanges}}
+    }
     if(plan.errors.length){errorBox.innerHTML=plan.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
     if(!plan.updates.length){toast('No selected session values changed.');return}
     const overrides=canEditFaculty?confirmSchedulingChanges(plan.logs.map(log=>({id:log.sessionId,...log.after}))):new Map();if(overrides===null)return;
     for(const log of plan.logs)log.override=overrides.get(String(log.sessionId))||null;
     plan.updates=plan.updates.map(update=>({...update,data:{...firestoreSafeSessionPatch(update.data),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp}}));
-    const planKey=JSON.stringify(plan.updates.map(update=>[update.id,update.data])),resumeFrom=button.dataset.planKey===planKey?Number(button.dataset.resumeFrom||0):0;
+    const resumeComparable=data=>{const copy=JSON.parse(JSON.stringify(data||{}));if(Array.isArray(copy.assignments))for(const assignment of copy.assignments)delete assignment.doeCalculationId;return copy};
+    const planKey=JSON.stringify(plan.updates.map(update=>[update.id,resumeComparable(update.data)])),resumeFrom=button.dataset.planKey===planKey?Number(button.dataset.resumeFrom||0):0;
     button.dataset.planKey=planKey;button.disabled=true;button.textContent=resumeFrom?`Resuming ${resumeFrom}/${plan.updates.length}...`:'Saving...';
     try{
-      const result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(canEditFaculty){const changes=logs.map(log=>({before:log.before,after:log.after}));await updateDerivedIndexes(changes,{rethrow:true})}else if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
+      let result;
+      if(canEditFaculty){
+        let completedRows=resumeFrom;
+        for(let index=resumeFrom;index<plan.updates.length;index++){
+          const update=plan.updates[index],log=plan.logs[index];
+          try{
+            const saved=await doeRuntime.api.saveSessionChange({academicYear:update.after?.academicYear||'',sessionId:update.id,afterSession:update.after,trigger:'multi_session_edit'}),savedAfter=saved.session||update.after;
+            await db.collection(SESSION_LOG_COLLECTION).doc().set({...log,after:savedAfter,changes:[...(log.changes||[]).filter(change=>change.field!=='doeCredit'),...doeAuditChanges(saved.doeChanges||[])],doeChanges:saved.doeChanges||[],changedAt:firebase.firestore.FieldValue.serverTimestamp()});
+            invalidateAllSessions();await updateDerivedIndexes([{before:log.before,after:savedAfter}],{rethrow:true});
+            completedRows=index+1;button.textContent=`Saving ${completedRows}/${plan.updates.length}...`;button.dataset.resumeFrom=String(completedRows);
+          }catch(error){error.committed=Boolean(error.committed)||completedRows>index;error.partialCommit=completedRows>0;error.completedRows=completedRows;error.resumeFrom=completedRows;throw error}
+        }
+        result={committed:true,completedRows,errors:[]};
+      }else{
+        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
+      }
       const count=result.completedRows;delete button.dataset.resumeFrom;delete button.dataset.planKey;cancelSessionSelection();toast(`${count} session${count===1?'':'s'} updated with audit history.`);
     }catch(error){console.error('[multi-session save]',error);const completed=Number(error.completedRows||0);button.dataset.resumeFrom=String(completed);errorBox.textContent=completed?`${completed} of ${plan.updates.length} sessions were saved. The remaining rows were not saved. Check the connection or permissions, then click Resume save.`:error.committed?'The first batch was saved, but follow-up maintenance failed. Keep this review open and ask an administrator to verify indexes.':'Nothing was saved. Check your connection and permissions, then try again.';errorBox.classList.remove('hidden');button.disabled=false;button.textContent=completed?'Resume save':'Save selected changes'}
   }
@@ -1169,10 +1198,9 @@
 
   function splitInstructorNames(v){return String(v||'').split(/[;\n]+/).map(x=>x.trim()).filter(Boolean)}
   function defaultTeachingRole(type){const t=String(type||'').toUpperCase();if(t==='LEC')return'Lecture';if(t==='SRL')return'SRL';if(t==='LAB')return'Lab Support';return type||'Other'}
-  function doeRateForRole(role){return ({'Lecture':0.30,'SRL':0.30,'Lab Lead':0.21,'Lab Primary':0.21,'Lab Support':0.19,'Lab Secondary':0.19})[role]??null}
   function blockHours(start,end,options={}){return scheduling.durationHours(start,end,options)}
-  function reconcileAssignments(existing,namesText,type,start,end,topic){const names=splitInstructorNames(namesText),old=Array.isArray(existing)?existing:[];return names.map((name,i)=>{let prev=old.find(x=>String(x.name||'').toLowerCase()===name.toLowerCase())||old[i]||{};const role=prev.role||defaultTeachingRole(type);const h=swapNumeric(prev.creditedHours)??blockHours(start,end);const rate=doeRateForRole(role);return {...prev,ucid:prev.ucid||null,name,topic:prev.topic||topic,role,creditedHours:h,doeRate:rate,doeCredit:rate===null||h===null?null:Number((h*rate).toFixed(6)),source:'Live timetable edit'}})}
-  function finalizeInstructorAssignments(rows,type,start,end,topic,options={}){return (Array.isArray(rows)?rows:[]).filter(a=>String(a?.name||'').trim()).map(a=>{const role=a.role||defaultTeachingRole(type);const h=swapNumeric(a.creditedHours)??blockHours(start,end,options);const rate=doeRateForRole(role);const out={...a,ucid:a.ucid||null,name:String(a.name||'').trim(),topic:a.topic||topic,role,creditedHours:h,doeRate:rate,doeCredit:swapNumeric(a.doeCredit)??(rate===null||h===null?null:Number((h*rate).toFixed(6))),source:'Live timetable edit'};delete out.__editorKey;return out})}
+  function reconcileAssignments(existing,namesText,type,start,end,topic){const names=splitInstructorNames(namesText),old=Array.isArray(existing)?existing:[];return names.map((name,i)=>{let prev=old.find(x=>String(x.name||'').toLowerCase()===name.toLowerCase())||old[i]||{};const role=prev.role||defaultTeachingRole(type);const h=swapNumeric(prev.creditedHours)??blockHours(start,end);return {...prev,ucid:prev.ucid||null,name,topic:prev.topic||topic,role,creditedHours:h,source:'Live timetable edit'}})}
+  function finalizeInstructorAssignments(rows,type,start,end,topic,options={}){return (Array.isArray(rows)?rows:[]).filter(a=>String(a?.name||'').trim()).map(a=>{const role=a.role||defaultTeachingRole(type);const h=swapNumeric(a.creditedHours)??blockHours(start,end,options);const out={...a,ucid:a.ucid||null,name:String(a.name||'').trim(),topic:a.topic||topic,role,creditedHours:h,source:'Live timetable edit'};delete out.__editorKey;return out})}
   function instructorDisplayText(s){const a=Array.isArray(s?.assignments)?s.assignments:[];const names=a.map(x=>String(x?.name||'').trim()).filter(Boolean);return (names.length?names:splitInstructorNames(s?.instructor||'')).join('\n')}
   function labDetailsFromAssignments(type,assignments,topic){if(String(type).toUpperCase()!=='LAB')return undefined;const map=new Map();for(const a of assignments){const t=a.topic||topic||'Lab';if(!map.has(t))map.set(t,[]);map.get(t).push(a)}return[...map].map(([t,arr])=>({topic:t,instructor:arr.map(a=>`${a.name}${a.role?' ('+a.role+')':''}`).join('; '),room:''}))}
 
@@ -1238,7 +1266,9 @@
     await ensureSessionsForDates(rows.map(row=>row.date),true);
     const result=validateBulkRows(rows),errorBox=$('bulk-errors'),canEditFaculty=capabilities().canEditInstructor;
     if(result.errors.length){errorBox.textContent=result.errors.join('\n');errorBox.classList.remove('hidden');document.querySelectorAll('[data-bulk-row]').forEach((tr,index)=>tr.classList.toggle('bulk-row-error',result.errors.some(message=>message.startsWith(`Row ${index+1}:`))));return{saved:false,completedRows:0,totalRows:rows.length}}
-    const prepared=result.sessions.map((session,index)=>({id:rows[index].__sessionId||(rows[index].__sessionId=db.collection(SESSION_COLLECTION).doc().id),...session}));
+    let prepared=result.sessions.map((session,index)=>({id:rows[index].__sessionId||(rows[index].__sessionId=db.collection(SESSION_COLLECTION).doc().id),...session}));
+    const doePrepared=new Map(),doeRuntime=canEditFaculty?getTimetableDoeRuntime():null;
+    if(canEditFaculty)prepared=await Promise.all(prepared.map(async session=>{const result=await doeRuntime.adapter.prepareSession(null,session,{trigger:'session_created'});doePrepared.set(String(session.id),result);return result.session}));
     const resumeFrom=Math.max(0,Math.min(Number(options.resumeFrom)||0,prepared.length));
     const pendingMaintenanceIds=[...new Set((Array.isArray(options.pendingMaintenanceIds)?options.pendingMaintenanceIds:[]).map(id=>String(id||'').trim()).filter(Boolean))];
     let completedRows=resumeFrom;
@@ -1248,18 +1278,34 @@
       if(typeof options.onMaintenanceComplete==='function')options.onMaintenanceComplete({ids:pendingMaintenanceIds,completedRows,totalRows:prepared.length});
     }
     const remaining=prepared.slice(resumeFrom),overrides=canEditFaculty&&remaining.length?confirmSchedulingChanges(remaining):new Map();if(overrides===null)return{saved:false,completedRows,totalRows:prepared.length,cancelled:true};
-    for(let start=resumeFrom;start<prepared.length;start+=SESSION_SAVE_BATCH_ROWS){
-      const end=Math.min(start+SESSION_SAVE_BATCH_ROWS,prepared.length),batch=db.batch(),completedBatch=[];
-      for(let index=start;index<end;index++){
-        const next=prepared[index],sourceRef=db.collection(SESSION_COLLECTION).doc(next.id),calendarRef=db.collection(CALENDAR_SESSION_COLLECTION).doc(next.id),logRef=db.collection(SESSION_LOG_COLLECTION).doc();
-        batch.set(sourceRef,{...firestoreSafeSession(next),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
-        batch.set(calendarRef,window.UCVM_CALENDAR_SESSION.fromSource(next,next.id));
-        batch.set(logRef,{action:'create',override:overrides.get(String(next.id))||null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:canEditFaculty?next.assignments.map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null})):[],changes:[{field:'session',label:'Session',before:null,after:[next.course,next.date,next.start+'-'+next.end,next.topic].filter(Boolean).join(' · ')}],changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
-        completedBatch.push(next);
+    if(canEditFaculty){
+      const savedSessions=prepared.slice(0,resumeFrom);
+      for(let index=resumeFrom;index<prepared.length;index++){
+        const next=prepared[index],preview=doePrepared.get(String(next.id));
+        let saved;
+        try{saved=await doeRuntime.api.saveSessionChange({academicYear:preview?.academicYear||next.academicYear||'',sessionId:next.id,afterSession:next,trigger:'session_created'})}
+        catch(error){error.completedRows=completedRows;error.resumeFrom=completedRows;error.totalRows=prepared.length;throw error}
+        const savedNext=saved.session||next,doeChanges=doeAuditChanges(saved.doeChanges||[]);
+        try{await db.collection(SESSION_LOG_COLLECTION).doc().set({action:'create',override:overrides.get(String(next.id))||null,sessionId:next.id,course:savedNext.course,date:savedNext.date,topic:savedNext.topic,instructors:(savedNext.assignments||[]).map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null,doePolicyVersionId:a.doePolicyVersionId||'',doeCalculationId:a.doeCalculationId||''})),changes:[{field:'session',label:'Session',before:null,after:[savedNext.course,savedNext.date,savedNext.start+'-'+savedNext.end,savedNext.topic].filter(Boolean).join(' · ')},...doeChanges],doeChanges:saved.doeChanges||[],changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()})}
+        catch(error){error.committed=true;error.partialCommit=true;error.completedRows=index+1;error.resumeFrom=index+1;error.totalRows=prepared.length;error.pendingMaintenanceIds=[String(savedNext.id||next.id)];throw error}
+        completedRows=index+1;invalidateAllSessions();
+        try{await updateDerivedIndexes([{before:null,after:savedNext}],{rethrow:true})}
+        catch(error){error.committed=true;error.partialCommit=true;error.completedRows=completedRows;error.resumeFrom=completedRows;error.totalRows=prepared.length;error.pendingMaintenanceIds=[String(savedNext.id||next.id)];throw error}
+        savedSessions[index]=savedNext;if(typeof options.onProgress==='function')options.onProgress({completedRows,totalRows:prepared.length});
       }
-      try{await batch.commit()}catch(error){error.completedRows=completedRows;error.resumeFrom=completedRows;error.totalRows=prepared.length;throw error}
-      completedRows=end;invalidateAllSessions();if(canEditFaculty){const pendingIds=completedBatch.map(after=>String(after.id||'')).filter(Boolean);try{await updateDerivedIndexes(completedBatch.map(after=>({before:null,after})),{rethrow:true})}catch(error){error.committed=true;error.partialCommit=true;error.completedRows=completedRows;error.resumeFrom=completedRows;error.totalRows=prepared.length;error.pendingMaintenanceIds=pendingIds;throw error}}
-      if(typeof options.onProgress==='function')options.onProgress({completedRows,totalRows:prepared.length});
+      prepared=savedSessions;
+    }else{
+      for(let start=resumeFrom;start<prepared.length;start+=SESSION_SAVE_BATCH_ROWS){
+        const end=Math.min(start+SESSION_SAVE_BATCH_ROWS,prepared.length),batch=db.batch();
+        for(let index=start;index<end;index++){
+          const next=prepared[index],sourceRef=db.collection(SESSION_COLLECTION).doc(next.id),calendarRef=db.collection(CALENDAR_SESSION_COLLECTION).doc(next.id),logRef=db.collection(SESSION_LOG_COLLECTION).doc();
+          batch.set(sourceRef,{...firestoreSafeSession({...next,assignments:[],instructor:''}),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+          batch.set(calendarRef,window.UCVM_CALENDAR_SESSION.fromSource(next,next.id));
+          batch.set(logRef,{action:'create',override:null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:[],changes:[{field:'session',label:'Session',before:null,after:[next.course,next.date,next.start+'-'+next.end,next.topic].filter(Boolean).join(' · ')}],doeChanges:[],changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
+        }
+        try{await batch.commit()}catch(error){error.completedRows=completedRows;error.resumeFrom=completedRows;error.totalRows=prepared.length;throw error}
+        completedRows=end;invalidateAllSessions();if(typeof options.onProgress==='function')options.onProgress({completedRows,totalRows:prepared.length});
+      }
     }
     return{saved:true,completedRows,totalRows:prepared.length,sessions:prepared};
   }
@@ -1338,8 +1384,8 @@
     for(const id of ['date','start','end']){if($(id)){ $(id).addEventListener('change',renderInstructorEditor); $(id).addEventListener('input',renderInstructorEditor); }}
     if($('add-instructor-line')) $('add-instructor-line').onclick=()=>{
       const type=$('type')?.value||s.type,start=$('start')?.value||s.start,end=$('end')?.value||s.end,topic=$('topic')?.value||s.topic;
-      const role=defaultTeachingRole(type),h=blockHours(start,end),rate=doeRateForRole(role);
-      editorAssignments.push({__editorKey:`new-${Date.now()}-${Math.random()}`,ucid:null,name:'Other / Unassigned',topic,role,creditedHours:h,doeRate:rate,doeCredit:rate===null||h===null?null:Number((h*rate).toFixed(6)),source:'Live timetable edit'});renderInstructorEditor();
+      const role=defaultTeachingRole(type),h=blockHours(start,end);
+      editorAssignments.push({__editorKey:`new-${Date.now()}-${Math.random()}`,ucid:null,name:'Other / Unassigned',topic,role,creditedHours:h,source:'Live timetable edit'});renderInstructorEditor();
     };
     $('cancel-session').onclick = closeModal;
     if ($('delete-session')) $('delete-session').onclick = () => deleteSession(existing.id);
@@ -1353,34 +1399,42 @@
       const pos = academicPositionForDate(parseYmd(date));
       const assignments=canEditInstructor?finalizeInstructorAssignments(editorAssignments,type,start,end,topic,{timeUnknown}):[];
       const preservedInstructor=canEditInstructor?assignments.map(a=>a.name).join('; '):String(existing?.instructor||'');
-      const next = {
+      let next = {
         id: existing?.id || `S${Date.now()}`,
         ...(existing?.auditEventId ? {auditEventId: existing.auditEventId} : {}),
         date, week:pos.week, semester:pos.semester, year:Number(form.get('year')),
         course:form.get('course'), courseName:(COURSES.find(c=>String(c.code)===String(form.get('course')))||{}).name||existing?.courseName||'', type, topic, instructor:preservedInstructor, room:form.get('room'),
         start, end, timeUnknown, assignments, ...(canEditInstructor?{labDetails:labDetailsFromAssignments(type,assignments,topic)}:{}), sourceSystem:'Synchronized live timetable'
       };
+      let doeResult={calculationRecords:[],doeChanges:[]},doeRuntime=null;
+      if(canEditInstructor){
+        try{doeRuntime=getTimetableDoeRuntime();doeResult=await doeRuntime.adapter.prepareSession(existing||null,next,{trigger:existing?'session_updated':'session_created'});next=doeResult.session}
+        catch(error){console.error('[DOE timetable calculation]',error);toast(`Session save blocked: ${error.message||'DOE calculation is unavailable.'}`,true);return}
+      }
       const overrides=canEditInstructor?confirmSchedulingChanges([next]):new Map();if(overrides===null)return;
       try {
-        const ref=db.collection(SESSION_COLLECTION).doc(next.id),calendarRef=db.collection(CALENDAR_SESSION_COLLECTION).doc(next.id),batch=db.batch(),timestamp=firebase.firestore.FieldValue.serverTimestamp();
+        const timestamp=firebase.firestore.FieldValue.serverTimestamp();
+        let savedNext=next;
         if(canEditInstructor){
-          batch.set(ref,{...firestoreSafeSession(next),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp},{merge:true});
-        }else if(existing){
-          batch.update(ref,{date:next.date,week:next.week,semester:next.semester,year:next.year,course:next.course,courseName:next.courseName,type:next.type,topic:next.topic,room:next.room,start:next.start,end:next.end,timeUnknown:next.timeUnknown,updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
+          const saved=await doeRuntime.api.saveSessionChange({academicYear:doeResult.academicYear||next.academicYear||'',sessionId:next.id,afterSession:next,trigger:existing?'session_updated':'session_created'});
+          savedNext=saved.session||next;
+          const auditChanges=[...UCVM_AUDIT_DETAILS.diff(existing,savedNext,'session'),...doeAuditChanges(saved.doeChanges||[])];
+          await db.collection(SESSION_LOG_COLLECTION).doc().set({action:existing?'update':'create',override:overrides.get(String(next.id))||null,sessionId:next.id,course:savedNext.course,date:savedNext.date,topic:savedNext.topic,instructors:(savedNext.assignments||[]).map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null,doePolicyVersionId:a.doePolicyVersionId||'',doeCalculationId:a.doeCalculationId||''})),changes:auditChanges,doeChanges:saved.doeChanges||[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:currentUser.email||'',changedAt:timestamp});
         }else{
-          batch.set(ref,{...firestoreSafeSession({...next,assignments:[],instructor:''}),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
+          const ref=db.collection(SESSION_COLLECTION).doc(next.id),calendarRef=db.collection(CALENDAR_SESSION_COLLECTION).doc(next.id),batch=db.batch();
+          if(existing)batch.update(ref,{date:next.date,week:next.week,semester:next.semester,year:next.year,course:next.course,courseName:next.courseName,type:next.type,topic:next.topic,room:next.room,start:next.start,end:next.end,timeUnknown:next.timeUnknown,updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
+          else batch.set(ref,{...firestoreSafeSession({...next,assignments:[],instructor:''}),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
+          batch.set(calendarRef,window.UCVM_CALENDAR_SESSION.fromSource(next,next.id));
+          batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{action:existing?'update':'create',override:null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:[],changes:UCVM_AUDIT_DETAILS.diff(existing,next,'session'),doeChanges:[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:'',changedAt:timestamp});
+          await batch.commit();
         }
-        batch.set(calendarRef,window.UCVM_CALENDAR_SESSION.fromSource(next,next.id));
-        const logRef=db.collection(SESSION_LOG_COLLECTION).doc();
-        batch.set(logRef,{action:existing?'update':'create',override:overrides.get(String(next.id))||null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:canEditInstructor?assignments.map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null})):[],changes:UCVM_AUDIT_DETAILS.diff(existing,next,'session'),changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:canEditInstructor?(currentUser.email||''):'',changedAt:timestamp});
-        await batch.commit();
         invalidateAllSessions();
-        if(canEditInstructor)await updateDerivedIndexes([{before:existing||null,after:next}]);
-        if(actorRole==='adc'&&existing&&String(existing.instructor||'').trim()&&['date','start','end'].some(field=>String(existing[field]||'')!==String(next[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:next.id,course:next.course,date:next.date,start:next.start,end:next.end,type:next.type,topic:next.topic,facultyDisplayName:next.instructor}}))}
+        if(canEditInstructor)await updateDerivedIndexes([{before:existing||null,after:savedNext}]);
+        if(actorRole==='adc'&&existing&&String(existing.instructor||'').trim()&&['date','start','end'].some(field=>String(existing[field]||'')!==String(savedNext[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:savedNext.id,course:savedNext.course,date:savedNext.date,start:savedNext.start,end:savedNext.end,type:savedNext.type,topic:savedNext.topic,facultyDisplayName:savedNext.instructor}}))}
         closeModal();
         toast(existing?'Live session updated.':'Live session added.');
       } catch(err) {
-        console.error(err); toast('Session save failed. Check Firestore session write rules.',true);
+        console.error(err); toast(`Session save failed. ${err.message||'Check DOE API / Firestore permissions.'}`,true);
       }
     };
   }

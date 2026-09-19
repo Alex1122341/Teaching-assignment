@@ -8,3 +8,4 @@ output/
 .worktrees/
 .deploy-static/
 __pycache__/
+.deploy-metadata/

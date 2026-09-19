@@ -101,3 +101,12 @@ for(const failure of ['restore-faculty:1','restore-delete:0','restore-verify','r
 test('calendar verification formatter reports maintenance field names',()=>{
  assert.match(controllerModule.formatCalendarVerificationFailure({mismatches:[{id:'s1',kind:'mismatch',field:'room'}]}),/s1\.room/);
 });
+
+test('faculty summary import preserves 2026-27 DOE as historical evidence instead of current formula truth',async()=>{
+ const h=await createHarness();
+ await h.controller.start(h.startArgs);
+ const faculty=h.store.faculty.get('f1');
+ assert.deepEqual(faculty.doeLegacyEvidence,{academicYear:'2026-27',kind:'faculty_summary_source',sourceWorkbook:'Teaching Assignments.xlsx'});
+ for(const field of ['teachingDoeModel2026_27','assignedTeachingDOE','doeAssignedTeachingDOE','teachingSummary2026_27'])assert.equal(Object.hasOwn(faculty,field),false);
+ assert.equal(faculty.facultySummary2026_27.displayName,'One');
+});

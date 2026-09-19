@@ -49,3 +49,20 @@ check('withdrawal wins before final approval and final approval wins before with
  await assertSucceeds(adfa.doc('afc_requests/race-approve-first').update(approvePatch()));
  await assertFails(own.doc('afc_requests/race-approve-first').update(withdrawPatch()));
 });
+
+
+check('new AFC request requires versioned Terms & Conditions acceptance evidence',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
+ const {serverTimestamp}=require('firebase/firestore');
+ const db=env.authenticatedContext('faculty').firestore();
+ const valid={
+  requesterUid:'faculty',requesterEmail:'faculty@example.test',facultyId:'f1',facultyName:'Faculty One',
+  reportToUid:'report',startDate:'2026-10-10',endDate:'2026-10-11',reason:'vacation',workDays:1,
+  contactAddress:'2500 University Drive NW',contactPhone:'403-555-1212',
+  applicantSignature:{uid:'faculty',attested:true},
+  termsAccepted:true,termsVersion:'ucvm-afc-terms-page2-v1',termsSource:'absence-from-campus-app.pdf#page=2',
+  termsAcceptedAt:serverTimestamp(),status:'pending_report_to',submittedAt:serverTimestamp(),updatedAt:serverTimestamp()
+ };
+ await assertSucceeds(db.doc('afc_requests/terms-valid').set(valid));
+ await assertFails(db.doc('afc_requests/terms-missing').set({...valid,termsAccepted:false}));
+});

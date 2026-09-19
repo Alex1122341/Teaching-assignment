@@ -1,0 +1,22 @@
+# Normalise text files to LF so source-boundary assertions in the test suite
+# behave identically on Windows, macOS and Linux.
+#
+# Without this file a Windows checkout converts these files to CRLF, and tests
+# that locate a function by matching an LF-delimited boundary (for example
+# tests/faculty-swap-direct-session.test.js and tests/faculty-swap-integration.test.js)
+# fail with a misleading "must exist" assertion error even though the code is correct.
+* text=auto eol=lf
+
+# Binary assets must never be line-ending converted.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.zip binary

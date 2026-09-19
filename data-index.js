@@ -27,11 +27,52 @@
    workload.credits,workload.trainee,f.awayFromCampusRecords
   ])).join(' ').toLowerCase();
  }
+ function managedRoleDOE(faculty){
+  return(Array.isArray(faculty?.managedRoles2026_27)?faculty.managedRoles2026_27:[]).reduce((total,row)=>{
+   const credit=Math.abs(number(row?.doeCredit)||0);
+   return total+(text(row?.action).toLowerCase()==='remove'?-credit:credit);
+  },0);
+ }
+ function normalizedVersionCounts(value){
+  const result={};for(const [key,count] of Object.entries(value||{})){const n=Number(count)||0;if(key&&n>0)result[key]=n}return result;
+ }
+ function legacyEvidenceCount(entry){return(Number(entry?.legacyDoeCount)||0)+(Number(entry?.legacyDoeEvidenceCount)||0)}
+ function doeStatus(entry){
+  if((Number(entry?.missingDoeCount)||0)>0)return'error';
+  const versions=Object.keys(normalizedVersionCounts(entry?.policyVersionCounts)),legacy=legacyEvidenceCount(entry);
+  if(versions.length>1||(versions.length&&legacy>0))return'mixed';
+  if(versions.length===1)return'policy';
+  if(legacy>0)return'legacy';
+  return number(entry?.assignedTeachingDOE)!==null?'source':'unavailable';
+ }
+ function policyVersion(entry){
+  const versions=Object.keys(normalizedVersionCounts(entry?.policyVersionCounts)).sort(),legacy=legacyEvidenceCount(entry);
+  if(versions.length>1||(versions.length&&legacy>0))return'mixed';
+  if(versions.length===1)return versions[0];
+  return legacy>0?'legacy':'';
+ }
+ function recomputeFacultyDoe(entry){
+  const next={...(entry||{})},scheduled=number(next.scheduledDOE)??0,fixed=number(next.sourceNonTimetableTeachingDOE),sourceAssigned=number(next.sourceAssignedTeachingDOE),sourceScheduled=number(next.sourceScheduledTeachingDOE),role=number(next.managedRoleDOE)??0;
+  let assigned=null;
+  if(fixed!==null)assigned=fixed+scheduled+role;
+  else if(sourceAssigned!==null)assigned=sourceAssigned+(sourceScheduled!==null?scheduled-sourceScheduled:0)+role;
+  else if((Number(next.sessionCount)||0)>0||scheduled!==0||role!==0)assigned=scheduled+role;
+  next.assignedTeachingDOE=assigned===null?null:Number(assigned.toFixed(6));
+  next.policyVersionCounts=normalizedVersionCounts(next.policyVersionCounts);
+  next.policyVersionId=policyVersion(next);
+  next.calculationStatus=doeStatus(next);
+  const target=number(next.effectiveTargetDOE);
+  next.remainingDOE=target!==null&&next.assignedTeachingDOE!==null&&next.calculationStatus!=='error'?Number((target-next.assignedTeachingDOE).toFixed(6)):null;
+  return next;
+ }
  function facultyEntry(id,faculty,sessionStats={}){
-  const f=faculty||{},o=DOE.override(f),facultyId=text(id||f.__id||f.id||f.ucid),name=text(f.preferredFullName||f.hrFirstLast||f.hrFullName||f.teachingAssignmentName||facultyId);
+  const f=faculty||{},o=DOE.override(f),target=DOE.effectiveTarget(f),facultyId=text(id||f.__id||f.id||f.ucid),name=text(f.preferredFullName||f.hrFirstLast||f.hrFullName||f.teachingAssignmentName||facultyId);
   const summary=f.facultySummary2026_27,roles=Array.isArray(summary?.roles)?summary.roles:[];
-  const scheduled=number(sessionStats.assignedDOE),fixed=number(summary?.sourceNonTimetableTeachingDOE),sourceAssigned=number(summary?.assignedTeachingDOE),assigned=fixed!==null?fixed+(scheduled||0):(sourceAssigned??scheduled);
-  return{id:facultyId,name,hrName:text(f.hrFullName),email:text(f.email),rank:text(f.rank||f.currentTitle),appointmentType:text(f.appointmentType),campus:text(f.campus),department:text(f.primaryDepartment||f.department),specialty:text(f.teachingArea||f.teachingAreaEmphasis||f.boardSpecialties),reportsTo:text(f.reportsTo),active:f.active!==false,status:text(f.status||'current'),contractTeachingDOE:DOE.contract(f),assignedTeachingDOE:assigned,overrideDOE:o.value,overrideReason:o.reason,sessionCount:Number(sessionStats.count)||0,hasSummary:!!(summary&&typeof summary==='object'),hasWorkload:!!(f.workloadPolicy2026_27&&typeof f.workloadPolicy2026_27==='object'),roleTypes:uniqueSorted(roles.map(r=>r?.type)),afcRecordCount:Array.isArray(f.awayFromCampusRecords)?f.awayFromCampusRecords.length:0,searchText:facultySearchText({...f,__id:facultyId})};
+  const legacyRoleRows=Array.isArray(f.managedRoles2026_27)?f.managedRoles2026_27.filter(row=>number(row?.doeCredit)!==null):[];
+  const hasLegacySummaryDoe=[summary?.sourceNonTimetableTeachingDOE,summary?.assignedTeachingDOE,summary?.sourceScheduledTeachingDOE].some(value=>number(value)!==null);
+  const legacyDoeEvidenceCount=legacyRoleRows.length+(hasLegacySummaryDoe?1:0);
+  const base={id:facultyId,name,hrName:text(f.hrFullName),email:text(f.email),rank:text(f.rank||f.currentTitle),appointmentType:text(f.appointmentType),campus:text(f.campus),department:text(f.primaryDepartment||f.department),specialty:text(f.teachingArea||f.teachingAreaEmphasis||f.boardSpecialties),reportsTo:text(f.reportsTo),active:f.active!==false,status:text(f.status||'current'),contractTeachingDOE:DOE.contract(f),overrideDOE:o.value,overrideReason:o.reason,effectiveTargetDOE:target.value,targetSource:target.source,sessionCount:Number(sessionStats.count)||0,scheduledDOE:number(sessionStats.assignedDOE)??0,missingDoeCount:Number(sessionStats.missingDoeCount)||0,legacyDoeCount:Number(sessionStats.legacyDoeCount)||0,legacyDoeEvidenceCount,legacyDoeEvidenceOnly:legacyDoeEvidenceCount>0,policyVersionCounts:normalizedVersionCounts(sessionStats.policyVersionCounts),sourceNonTimetableTeachingDOE:number(summary?.sourceNonTimetableTeachingDOE),sourceAssignedTeachingDOE:number(summary?.assignedTeachingDOE),sourceScheduledTeachingDOE:number(summary?.sourceScheduledTeachingDOE),managedRoleDOE:managedRoleDOE(f),hasSummary:!!(summary&&typeof summary==='object'),hasWorkload:!!(f.workloadPolicy2026_27&&typeof f.workloadPolicy2026_27==='object'),roleTypes:uniqueSorted(roles.map(r=>r?.type)),afcRecordCount:Array.isArray(f.awayFromCampusRecords)?f.awayFromCampusRecords.length:0,searchText:facultySearchText({...f,__id:facultyId})};
+  return recomputeFacultyDoe(base);
  }
  function sessionFacultyIds(session){
   const s=session||{},rows=Array.isArray(s.assignments)?s.assignments:[];
@@ -49,9 +90,14 @@
  }
  function buildFacultyIndex(facultyRows,sessions){
   const stats=new Map();
-  for(const session of Array.isArray(sessions)?sessions:[])for(const assignment of Array.isArray(session?.assignments)?session.assignments:[]){const id=text(assignment?.ucid||assignment?.facultyId);if(!id)continue;const row=stats.get(id)||{count:0,assignedDOE:0};row.count++;row.assignedDOE+=number(assignment?.doeCredit)||0;stats.set(id,row)}
+  for(const session of Array.isArray(sessions)?sessions:[])for(const assignment of Array.isArray(session?.assignments)?session.assignments:[]){
+   const id=text(assignment?.ucid||assignment?.facultyId);if(!id)continue;
+   const row=stats.get(id)||{count:0,assignedDOE:0,missingDoeCount:0,legacyDoeCount:0,policyVersionCounts:{}};row.count++;
+   const credit=number(assignment?.doeCredit),version=text(assignment?.doePolicyVersionId);
+   if(credit===null)row.missingDoeCount++;else{row.assignedDOE+=credit;if(version)row.policyVersionCounts[version]=(row.policyVersionCounts[version]||0)+1;else row.legacyDoeCount++}
+   stats.set(id,row);
+  }
   const entries=(Array.isArray(facultyRows)?facultyRows:[]).map(f=>{const id=text(f?.__id||f?.id||f?.ucid);return facultyEntry(id,f,stats.get(id)||{})}).sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
-  for(const entry of entries)if(entry.assignedTeachingDOE!==null)entry.assignedTeachingDOE=Number(entry.assignedTeachingDOE.toFixed(6));
   return{schemaVersion:'ucvm-faculty-index-v1',entries};
  }
  function swapAliases(f){
@@ -69,6 +115,16 @@
   }
   return out.sort((a,b)=>a.startDate.localeCompare(b.startDate)||a.endDate.localeCompare(b.endDate));
  }
+ // The sanitized swap projection is readable by any ready non-office account, so
+ // its entry shape is pinned in code. Firestore rules pin the document envelope;
+ // this guard pins every list entry.
+ const SWAP_ENTRY_FIELDS=Object.freeze(['key','name','aliases','unavailableRanges']);
+ const PRIVATE_LOOKING=/(?:@|^\d{6,}$)/;
+ function assertSanitizedSwapEntry(entry){
+  for(const field of Object.keys(entry))if(!SWAP_ENTRY_FIELDS.includes(field))throw Error(`Swap index entry contains a field outside the sanitized projection: ${field}`);
+  for(const value of [entry.name,...(Array.isArray(entry.aliases)?entry.aliases:[])])if(PRIVATE_LOOKING.test(String(value||'')))throw Error('Swap index entry contains an address or identifier outside the sanitized projection.');
+  return entry;
+ }
  function buildFacultySwapIndexes(facultyRows,previousMap={},keyFactory){
   if(typeof keyFactory!=='function')throw Error('A swap candidate key factory is required.');
   const previous=new Map((Array.isArray(previousMap?.entries)?previousMap.entries:[]).map(row=>[text(row?.facultyId),text(row?.key)]).filter(([id,key])=>id&&key));
@@ -79,7 +135,7 @@
    if(!key){for(let i=0;i<20&&!key;i++){const candidate=text(keyFactory());if(candidate&&!used.has(candidate))key=candidate}if(!key)throw Error(`Could not allocate an opaque swap key for ${id}.`)}
    used.add(key);
    const aliases=swapAliases(f),name=text(f.preferredFullName||f.hrFirstLast||f.hrFullName||f.teachingAssignmentName||aliases[0]||'Faculty');
-   publicEntries.push({key,name,aliases,unavailableRanges:safeUnavailableRanges(f)});
+   publicEntries.push(assertSanitizedSwapEntry({key,name,aliases,unavailableRanges:safeUnavailableRanges(f)}));
    privateEntries.push({key,facultyId:id});
   }
   publicEntries.sort((a,b)=>a.name.localeCompare(b.name)||a.key.localeCompare(b.key));
@@ -110,5 +166,5 @@
   if(a.available===null)return{label:'Check needed',detail:'Session timing is not confirmed.'};
   return{label:'Available',detail:''};
  }
- return{facultyEntry,facultySearchText,sessionFacultyIds,buildFacultyIndex,scheduleStats,dateChunks,buildFacultySwapIndexes,assessSwapCandidate,swapCandidateDisplay};
+ return{facultyEntry,facultySearchText,sessionFacultyIds,buildFacultyIndex,recomputeFacultyDoe,scheduleStats,dateChunks,buildFacultySwapIndexes,assessSwapCandidate,swapCandidateDisplay};
 });
