@@ -49,5 +49,5 @@ jobs:
 
       - name: Browser smoke generated deployment
         run: >-
-          firebase emulators:exec --only firestore,auth --project vista-teaching-lab
+          npx --no-install firebase emulators:exec --only firestore,auth --project vista-teaching-lab
           "node tools/browser-smoke.js"
