@@ -1,110 +1,387 @@
-# Unified Lightweight Deployment Design — 2026-09-19
+# Unified VISTA Lightweight Deployment Design — 2026-09-19
 
-## Decision
+## Status
 
-Use **modular source + deterministic bundled deployment**.
+Owner approval was received for the conservative build-only V1. V1 is implemented and verified on `feature/runtime-lightweight-bundles`. Dynamic-loader bundling and cache hashing remain gated on interactive browser acceptance.
 
-Source HTML and JavaScript remain readable and independently testable. `tools/build-static.js` creates a reduced deployment graph under `.deploy-static`. No business-source files are manually merged.
+Verified integration baseline: `39e2e5f294eccc9d0dcdad372c03577d0e2577a8`.
 
-First release constraints:
-- no minification;
-- no tree shaking;
-- no ESM migration;
-- no semantic transforms;
-- no source-folder reorganization;
-- exact source order preserved inside every bundle;
-- clear `/* SOURCE: ... */` separators in generated bundles.
+This design assumes the integrated PR46 security/database architecture and the latest PR45 DOE server-authority architecture remain unchanged.
 
-## Manifest model
+## Problem
 
-Keep `tools/static-assets.json` as the source/dependency allowlist.
+VISTA source modules are reasonably separated by business responsibility, but the static browser deployment still mirrors that source granularity. The unified baseline deploys 52 JavaScript files and starts 31 local scripts on Timetable and 27 on Faculty Dashboard.
 
-Add `tools/runtime-bundles.json` as the build-only mapping from ordered source files to generated bundle files and page replacements.
+The goal is to reduce browser request fragmentation without converting the source repository into giant files or weakening security, lazy loading, tests, debugging, or historical evidence.
 
-`build-static.js` will:
-1. validate both manifests;
-2. validate every bundle source exists in the static source allowlist;
-3. validate bundle source sequences are contiguous in each page where they are replaced;
-4. concatenate source bytes in declared order;
-5. copy non-bundled static assets;
-6. omit bundled source JS from `.deploy-static` unless explicitly retained for a dynamic consumer;
-7. rewrite only the generated HTML copies in `.deploy-static`;
-8. emit a deployment manifest/metrics file;
-9. never edit source HTML.
+## Design principle
 
-## Initial bundle groups
+**Modular source, deterministic bundled deployment.**
 
-The exact grouping is intentionally conservative and follows current contiguous script order.
+The repository remains the readable/debuggable source of truth. The build creates fewer generated browser artifacts under `.deploy-static/`.
 
-Shared:
-- `bundles/shared-faculty-scheduling.bundle.js`
+Source files are not manually merged. Generated bundles are not committed.
+
+## Non-negotiable invariants
+
+### Security and configuration
+
+- Firestore Rules remain the authorization source of truth.
+- `firebase-config.js` remains the browser Firebase configuration boundary.
+- The committed configuration continues to target the isolated lab architecture, never production.
+- Production Firebase configuration remains generated/injected only by an explicitly authorized production pipeline.
+- `settings/people_index` remains the sanitized faculty-facing account projection.
+- Private faculty IDs, HR fields, AFC reasons, private assignments and DOE evidence must not leak into public/sanitized documents.
+
+### DOE server authority
+
+- Browser pages keep using `doe-api-client.js` for authoritative DOE operations.
+- The retired browser policy engine/repository/firestore/service modules must not re-enter active browser deployment.
+- DOE publication, recalculation and authoritative calculation remain server-side.
+- DOE policy/evidence collections retain their current Rules and immutable-history semantics.
+
+### Audit and workflow
+
+- Session/calendar/audit/DOE writes keep current atomic/batched guarantees.
+- Session and faculty change logs remain append-only.
+- Approval routing semantics and office permissions do not change.
+- Faculty swap compatibility behavior remains intact.
+
+### Lazy-loading
+
+- AFC PDF template remains lazy.
+- PDF-lib remains lazy.
+- AFC PDF-only value/renderer helpers remain lazy.
+- Approval workflow remains deferred from initial Timetable startup.
+- Faculty admin enhancements remain deferred as today.
+- A source file may be included in a startup bundle only if it is already an unconditional startup dependency on that page.
+
+## Build architecture
+
+### Source layer
+
+Source HTML keeps explicit script tags and existing script order. This preserves:
+
+- readable dependency order;
+- simple static tests;
+- local debugging;
+- reviewable source responsibilities.
+
+### Bundle declaration
+
+Add a deterministic build manifest, proposed path:
+
+`tools/runtime-bundles.json`
+
+Each entry declares:
+
+- output artifact name;
+- ordered member source files;
+- target page(s);
+- startup or lazy classification;
+- source-script sequence that may be replaced in generated HTML.
+
+The manifest must not infer ordering from filesystem order.
+
+Illustrative shape:
+
+```json
+{
+  "bundles": [
+    {
+      "name": "assets/faculty-scheduling.bundle.js",
+      "kind": "startup",
+      "members": ["faculty-doe.js", "scheduling-core.js"],
+      "pages": ["index.html", "faculty-admin.html", "user-management.html"]
+    }
+  ]
+}
+```
+
+The final schema may differ, but it must remain data-driven and testable.
+
+### Bundle generation
+
+`tools/build-static.js` will:
+
+1. validate the current source allowlist;
+2. validate every declared bundle member exists;
+3. validate member order against each target page;
+4. reject duplicate members inside one bundle;
+5. reject lazy-only source in a startup bundle;
+6. generate bundle contents in deterministic order;
+7. insert a separator before each source, for example:
+   `/* SOURCE: data-index.js */`;
+8. add a defensive statement boundary between source blocks;
+9. copy non-bundled static assets;
+10. generate deployment HTML with the declared script sequences replaced by bundle references;
+11. verify every local generated HTML reference resolves inside `.deploy-static/`;
+12. print actual output file count and bytes.
+
+No minification, parsing transformation, tree shaking or source rewriting occurs in Phase 1.
+
+## Source-map/debug strategy
+
+Phase 1 does not need transformed source maps because the generated artifact is ordered source concatenation with visible `SOURCE` markers.
+
+A failing production/test stack can be mapped to a bundle section by:
+
+- generated line number;
+- `SOURCE` separator;
+- source file retained unchanged in the repository.
+
+If this proves inadequate, line-offset metadata may be emitted by the build, but a third-party bundler is not introduced merely for source-map support.
+
+## Candidate bundle boundaries
+
+Exact bundle membership is finalized by RED dependency tests before implementation. The preferred topology is conservative and based on current ordering.
+
+### Shared startup candidates
+
+- `faculty-scheduling.bundle.js`
   - `faculty-doe.js`
   - `scheduling-core.js`
-- `bundles/shared-index-audit.bundle.js`
+
+- `data-audit.bundle.js`
   - `data-index.js`
   - `index-maintenance.js`
   - `audit-details.js`
-- `bundles/shared-auth.bundle.js`
+
+- `identity.bundle.js`
   - `firebase-config.js`
   - `faculty-access.js`
 
-Timetable:
-- `bundles/timetable-approval-core.bundle.js`
-  - approval scheduling/routing/request/state/office/lifecycle
-  - calendar session
-  - approval finalizer
-- `bundles/timetable-app.bundle.js`
-  - office capabilities through timetable/AFC UI modules, preserving current order
+These sequences are currently adjacent where proposed and preserve order.
 
-Faculty Dashboard:
-- `bundles/faculty-doe-admin.bundle.js`
-  - worksheet/rulebook/policy admin browser UI modules
-- `bundles/faculty-preauth.bundle.js`
-  - faculty account planner
-  - approval scheduling
-- `bundles/faculty-runtime-main.bundle.js`
-  - maintenance/calendar/import/admin/routing/request modules through `approval-request.js`
-- `bundles/faculty-runtime-tail.bundle.js`
-  - `bulk-import-ui.js`
-  - `derived-index-health.js`
+### Timetable candidates
 
-User Management:
-- `bundles/user-management.bundle.js`
-  - `account-profile.js`
-  - `user-management.js`
+Keep `session-guard.js`, `doe-api-client.js`, and `university-closures.js` standalone if doing so avoids unsafe reordering.
 
-Files that remain individual in V1 include `session-guard.js`, `doe-api-client.js`, `university-closures.js`, `faculty-account-planner.js`, `faculty-swap-safe.js`, `password.js`, and true dynamic assets.
+A page-specific Timetable approval bundle may contain the current contiguous approval sequence where dependency tests prove exact order preservation.
 
-## Expected request targets
+A page-specific Timetable application bundle may contain the contiguous post-identity Timetable/AFC UI sequence.
 
-V1 startup target:
-- Timetable: 31 -> about 8 direct local JS requests;
-- Faculty Dashboard: 27 -> about 9;
-- User Management: 11 -> about 6;
-- Password: 4 -> about 3.
+The design target is roughly 8–12 direct local startup JS requests, down from 31.
 
-A later, separate lazy-bundle pass may combine AFC-PDF helpers and approval-workflow-only modules without moving them into startup.
+### Faculty Dashboard candidates
 
-## Caching
+- a DOE admin presentation bundle for:
+  - `doe-worksheet-view.js`
+  - `doe-rulebook-admin.js`
+  - `doe-policy-admin.js`
 
-V1 keeps current filenames and cache policy. Content hashing / immutable cache headers are a later independent change after bundle correctness is proven.
+- a Faculty pre-auth/admin bundle where exact source adjacency permits it;
+
+- one or more Faculty application bundles around compatibility/lazy boundaries.
+
+`faculty-swap-safe.js` may remain standalone if including it in a page bundle would require duplicating a >20 KB module that Timetable also lazy-loads.
+
+The design target is roughly 9–12 direct startup requests, down from 27.
+
+### User Management
+
+Bundle only page-specific adjacent code after the shared bundles. Target approximately 5–6 direct requests, down from 11.
+
+### Password
+
+This page is already small. Prefer shared identity reuse over page-specific complexity. Target approximately 3 direct requests, down from 4.
+
+## Lazy bundles
+
+### Approval
+
+A lazy approval artifact may combine compatibility/workflow files only if the existing order remains explicit and `faculty-swap-safe.js` loading semantics are preserved.
+
+`faculty-swap-handoff.js` is not deleted from source. If it becomes a member of a generated lazy bundle, compatibility tests must assert the marker is still represented and executed in the correct place.
+
+### AFC PDF
+
+`afc-form-values.js` and `afc-pdf-browser.js` are natural candidates for one lazy generated helper bundle.
+
+The CDN PDF-lib request and `absence-from-campus-app.pdf` remain separately lazy.
+
+`afc-form-state.js` remains a normal startup dependency because it serves interactive form behavior before PDF generation.
+
+## Duplication policy
+
+Request reduction must not silently inflate deployment or cross-page transfer cost.
+
+Rules:
+
+- prefer each source module to appear in one generated deployment artifact;
+- small duplication may be accepted only when it avoids unsafe execution reordering;
+- no module larger than 25 KB may be duplicated without explicit design amendment;
+- generated JS bytes must remain within 5% of the current 742,264-byte browser-JS baseline;
+- per-page startup JS bytes must not grow by more than 1% except for bundle separators;
+- if the prototype exceeds these limits, accept a few extra requests instead of duplicating large code.
+
+## Deployment manifest semantics
+
+The current `tools/static-assets.json` is the verified source/deployment allowlist. Phase 1 should avoid a confusing silent semantic change.
+
+Preferred arrangement:
+
+- keep `tools/static-assets.json` as the complete allowlist of runtime source inputs;
+- add `tools/runtime-bundles.json` as generated-artifact policy;
+- `build-static.js` computes the actual deployment output from both;
+- static tests verify every allowlisted runtime source is either:
+  - copied directly,
+  - represented in exactly one generated bundle, or
+  - deliberately represented in more than one bundle under the duplication policy;
+- generated build output reports the real deployment file count/bytes.
+
+If maintaining two manifests proves too confusing in implementation, stop and revise the design instead of changing semantics implicitly.
+
+## Generated HTML
+
+Repository HTML remains source HTML.
+
+Only `.deploy-static/*.html` is transformed.
+
+For each bundle, the builder replaces an exact ordered script sequence. Replacement fails closed if:
+
+- a source tag is missing;
+- sequence order differs;
+- an unexpected script appears inside the declared sequence;
+- a member is already replaced by another bundle.
+
+This makes source-order changes visible to CI rather than silently producing a stale bundle.
+
+## CSS and PDF
+
+Phase 1 does not bundle CSS.
+
+Reasons:
+
+- only five deployed CSS files exist;
+- each page already loads one or two local stylesheets;
+- CSS request reduction is small relative to JS;
+- keeping CSS untouched reduces regression scope.
+
+The AFC PDF is not recompressed, moved, renamed or embedded.
+
+## Cache strategy
+
+No cache-policy change in Phase 1.
+
+The existing no-cache behavior remains so bundling can be validated independently.
+
+A later Phase 2 may consider content-hashed JS/CSS plus immutable caching, but only after:
+
+- bundle topology is stable;
+- GitHub Pages and Azure behavior are verified;
+- rollback/debug workflow is proven.
+
+## Tests
+
+### Static RED/GREEN coverage
+
+Add tests that fail before the bundler exists and prove:
+
+- bundle manifest schema;
+- source membership and order;
+- source HTML remains unchanged;
+- generated HTML uses bundles;
+- every generated reference exists;
+- startup bundles contain no lazy AFC PDF code;
+- startup bundles do not include `approval-workflow.js`;
+- browser DOE engine/service files remain absent from active deployment;
+- Firebase config still precedes any Firebase initialization;
+- bundle contents have deterministic checksums across repeated builds;
+- no generated output escapes `.deploy-static/`.
+
+### Existing tests
+
+Do not weaken or delete existing tests to accommodate bundling. Where tests currently inspect source HTML, keep them inspecting source HTML unless the assertion is explicitly about deployment output. Add deployment-output assertions separately.
+
+### Emulator
+
+Rules/Auth emulator coverage remains mandatory even though bundling should not alter Rules. It is a regression gate for accidental integration damage.
+
+## Browser/local smoke
+
+Required after generated output exists:
+
+- Timetable initial load and Day/Week/Month/List;
+- single and batch editing;
+- selection and exports;
+- approval workflow lazy load;
+- Faculty swap;
+- AFC form and lazy PDF generation;
+- Faculty Dashboard tabs;
+- DOE Rules UI and permission gating;
+- User Management;
+- password flow;
+- desktop and narrow layout;
+- network panel: no 404, duplicate script execution, or unexpected lazy startup request;
+- console: no missing globals or load-order errors.
+
+Cloud Pages authentication cannot be claimed until usable lab SDK configuration is injected into the preview build. Local emulator smoke remains valid without cloud credentials.
+
+## Expected measurable result
+
+Baseline:
+
+- 52 deployed browser JS assets;
+- 31 Timetable direct scripts;
+- 27 Faculty direct scripts;
+- 11 User Management direct scripts;
+- 4 Password direct scripts.
+
+Phase 1 acceptance target:
+
+- approximately 18–24 deployed browser JS artifacts;
+- Timetable 8–12 direct scripts;
+- Faculty Dashboard 9–12;
+- User Management 5–6;
+- Password about 3;
+- no more than 5% generated-JS byte growth;
+- no material per-page startup-byte growth;
+- all lazy boundaries retained;
+- all static, server, emulator and build checks green.
 
 ## Rollback
 
-Rollback is build-only:
-- remove `runtime-bundles.json`;
-- restore the previous `build-static.js`;
-- deployment returns to one-file-per-source output;
-- source/runtime business modules remain untouched.
+Rollback is build-layer only:
 
-## Acceptance
+1. revert the bundle-manifest/build commits;
+2. source HTML and source JS remain unchanged;
+3. `build-static.js` resumes copying the original allowlist;
+4. no database migration or stored-data rollback is necessary.
 
-Required before calling V1 complete:
-- root/static tests green;
-- server DOE tests green;
-- emulator suite green;
-- static build green;
-- generated HTML contains the expected reduced script graph;
-- no bundle contains AFC PDF helpers or deferred approval implementation;
-- all dynamic references resolve to deployed assets;
-- no production action occurs.
+This reversibility is a primary reason to bundle only at deployment time.
+
+## Deferred work
+
+Not part of this design:
+
+- minification;
+- tree shaking;
+- ESM migration;
+- whole-source-tree move under `src/`;
+- test/document consolidation;
+- historical document deletion;
+- content-hash caching;
+- Firestore schema migration;
+- DOE API behavior changes;
+- production deployment.
+
+## Implemented V1 topology and result
+
+The approved prototype resolved to nine deterministic startup bundles:
+
+- `bundles/shared-faculty-scheduling.bundle.js`;
+- `bundles/shared-index-audit.bundle.js`;
+- `bundles/shared-auth.bundle.js`;
+- `bundles/timetable-approval.bundle.js`;
+- `bundles/timetable-app.bundle.js`;
+- `bundles/faculty-doe-admin.bundle.js`;
+- `bundles/faculty-runtime-main.bundle.js`;
+- `bundles/faculty-runtime-tail.bundle.js`;
+- `bundles/user-management.bundle.js`.
+
+Measured V1 output: 31 application assets, 21 JavaScript assets, and 1,955,538 application bytes. Direct local startup scripts are 9 on Timetable, 11 on Faculty Dashboard, 6 on User Management, and 3 on Password.
+
+The implementation deliberately leaves `approval-scheduling.js`, `faculty-account-planner.js`, `faculty-swap-safe.js`, `doe-api-client.js`, `session-guard.js`, and other boundary files standalone where doing so avoids unsafe reordering or unnecessary duplication.
+
+Phase-1 source/business modules remain unchanged. Generated deployment HTML is the only HTML whose script graph is rewritten.
