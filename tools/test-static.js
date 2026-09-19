@@ -15,6 +15,11 @@ const result = spawnSync('node --test tests/*.test.js', {
   cwd: root,
   shell: true,
   encoding: 'utf8',
+  // The integrated suite is large enough that a platform-dependent default
+  // child-process buffer can terminate the test runner before it emits TAP
+  // summary lines. Keep the wrapper loud about skipped tests without imposing
+  // an accidental output-size ceiling.
+  maxBuffer: 16 * 1024 * 1024,
   stdio: ['ignore', 'pipe', 'inherit']
 });
 
@@ -31,6 +36,9 @@ const failed = count('fail');
 const skipped = count('skipped');
 
 if (skipped === null) {
+  if (result.error) console.error('Static test runner error:', result.error);
+  if (result.signal) console.error('Static test runner signal:', result.signal);
+  console.error('Static test runner ended without TAP summary; exit status:', result.status);
   process.exit(result.status === null ? 1 : result.status);
 }
 
