@@ -3,7 +3,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const {
- PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,emulatorOrigin,safeStaticPath,contentType,chromeCandidates,localAssetFailure
+ PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,bundlePathMap,emulatorOrigin,safeStaticPath,contentType,chromeCandidates,localAssetFailure
 }=require('../tools/browser-smoke.js');
 
 test('browser smoke covers every generated application page',()=>{
