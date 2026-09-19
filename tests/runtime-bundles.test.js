@@ -72,6 +72,7 @@ test('bundle output preserves source order and adds auditable source markers',()
  assert.ok(first>=0&&second>first);
  assert.ok(text.includes(read('faculty-doe.js')));
  assert.ok(text.includes(read('scheduling-core.js')));
+ assert.doesNotMatch(text,/\/\* END SOURCE:/);
 });
 
 test('deployment plan keeps lazy assets while replacing fully covered direct sources',()=>{

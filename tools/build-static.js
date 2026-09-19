@@ -64,7 +64,7 @@ function bundleText(parts){
  return parts.map(part=>{
   if(!safeRelative(part.source))throw Error(`Unsafe bundle source marker: ${part.source}`);
   const content=String(part.content??'');
-  return `/* SOURCE: ${part.source} */\n${content}${content.endsWith('\n')?'':'\n'};\n/* END SOURCE: ${part.source} */\n`;
+  return `/* SOURCE: ${part.source} */\n${content}${content.endsWith('\n')?'':'\n'};\n`;
  }).join('\n');
 }
 function rewriteHtmlForPage(html,page,config){
