@@ -64,14 +64,15 @@ test('Azure stages its redirect after the same generated lightweight build',()=>
  const config=JSON.parse(fs.readFileSync(path.join(output,'staticwebapp.config.json'),'utf8'));
  assert.deepEqual(config.routes,[{route:'/faculty-dashboard.html',redirect:'/index.html',statusCode:301}]);
 
- const metadata=JSON.parse(fs.readFileSync(path.join(output,'deployment-assets.json'),'utf8'));
+ const metadataPath=path.join(root,'.deploy-metadata','deployment-assets.json');
+ const metadata=JSON.parse(fs.readFileSync(metadataPath,'utf8'));
  assert.equal(metadata.schemaVersion,'ucvm-static-deployment-v1');
  assert.equal(metadata.sourceAssetCount,62);
  assert.equal(metadata.deploymentAssetCount,32);
  assert.equal(metadata.deployedJsCount,22);
  assert.equal(metadata.bundles.length,10);
 
- const actual=recursiveFiles(output).filter(name=>!['staticwebapp.config.json','deployment-assets.json'].includes(name)).sort();
+ const actual=recursiveFiles(output).filter(name=>name!=='staticwebapp.config.json').sort();
  const expected=metadata.assets.map(row=>row.path).sort();
  assert.deepEqual(actual,expected);
 
@@ -88,5 +89,6 @@ test('Azure stages its redirect after the same generated lightweight build',()=>
  assert.doesNotMatch(generatedIndex,/src="faculty-doe\.js"/);
  assert.notEqual(generatedIndex,read('index.html'));
 
+ assert.equal(fs.existsSync(path.join(output,'deployment-assets.json')),false);
  assert.equal(fs.existsSync(path.join(output,'faculty-dashboard.html')),false);
 });

@@ -107,8 +107,11 @@ function buildStatic({rootDir=root,outputDir=path.join(root,'.deploy-static'),so
  if(output!==allowedOutput||!output.startsWith(rootDir+path.sep))throw Error('Static build output must be the repository .deploy-static directory.');
  validateBundleConfig({root:rootDir,sourceManifest,config});
  const plan=deploymentPlan({root:rootDir,sourceManifest,config});
+ const metadataDir=path.join(rootDir,'.deploy-metadata'),metaPath=path.join(metadataDir,'deployment-assets.json');
  fs.rmSync(output,{recursive:true,force:true});
+ fs.rmSync(metadataDir,{recursive:true,force:true});
  fs.mkdirSync(output,{recursive:true});
+ fs.mkdirSync(metadataDir,{recursive:true});
  const written=[];
  const write=(relative,content)=>{
   if(!safeRelative(relative))throw Error(`Unsafe static output path: ${relative}`);
@@ -143,11 +146,10 @@ function buildStatic({rootDir=root,outputDir=path.join(root,'.deploy-static'),so
   bundles:bundleDetails,
   assets:written
  };
- const metaPath=path.join(output,'deployment-assets.json');
  fs.writeFileSync(metaPath,JSON.stringify(metadata,null,2)+'\n','utf8');
  const metadataBytes=fs.statSync(metaPath).size;
- console.log(JSON.stringify({output,files:written.length,metadataFiles:1,bytes,metadataBytes,deployedJs:plan.deployedJsCount,bundles:bundleDetails.length}));
- return{...metadata,metadataBytes,output};
+ console.log(JSON.stringify({output,files:written.length,bytes,metadataPath:path.relative(rootDir,metaPath),metadataBytes,deployedJs:plan.deployedJsCount,bundles:bundleDetails.length}));
+ return{...metadata,metadataBytes,metadataPath:metaPath,output};
 }
 if(require.main===module){
  const outputArg=process.argv.indexOf('--output');

@@ -29,7 +29,8 @@ function collectSourceMetrics(rootDir=root){
 }
 function collectDeploymentMetrics(rootDir=root){
  const deploy=path.join(rootDir,'.deploy-static');
- const metadata=readJson(path.join(deploy,'deployment-assets.json'));
+ const metadataPath=path.join(rootDir,'.deploy-metadata','deployment-assets.json');
+ const metadata=readJson(metadataPath);
  const js=metadata.assets.filter(row=>row.path.endsWith('.js'));
  return{
   assets:metadata.deploymentAssetCount,
@@ -38,7 +39,7 @@ function collectDeploymentMetrics(rootDir=root){
   jsBytes:js.reduce((sum,row)=>sum+Number(row.bytes||0),0),
   pageScripts:pageScriptCounts(deploy),
   bundles:metadata.bundles.length,
-  metadataBytes:fs.statSync(path.join(deploy,'deployment-assets.json')).size
+  metadataBytes:fs.statSync(metadataPath).size
  };
 }
 function row(label,before,after,suffix=''){
@@ -65,7 +66,7 @@ function markdownReport(source,deployed){
  lines.push(
   '',
   `Generated bundles: **${deployed.bundles}**  `,
-  `Deployment metadata: **${deployed.metadataBytes.toLocaleString()} B**  `,
+  `Build metadata (not published): **${deployed.metadataBytes.toLocaleString()} B**  `,
   '',
   '> Source modules are intentionally retained; this report measures the browser deployment graph, not repository-file deletion.'
  );

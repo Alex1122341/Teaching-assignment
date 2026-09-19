@@ -32,7 +32,9 @@ test('deployment metrics read generated metadata and rewritten HTML',()=>{
   fs.writeFileSync(path.join(deploy,'faculty-admin.html'),page(['a.js']));
   fs.writeFileSync(path.join(deploy,'user-management.html'),page(['u.js']));
   fs.writeFileSync(path.join(deploy,'password.html'),page(['p.js']));
-  fs.writeFileSync(path.join(deploy,'deployment-assets.json'),JSON.stringify({
+  const metadataDir=path.join(dir,'.deploy-metadata');
+  fs.mkdirSync(metadataDir,{recursive:true});
+  fs.writeFileSync(path.join(metadataDir,'deployment-assets.json'),JSON.stringify({
    deploymentAssetCount:7,deployedJsCount:4,bytes:1234,
    bundles:[{output:'bundles/a.bundle.js'}],
    assets:[{path:'a.js',bytes:100},{path:'b.js',bytes:200},{path:'u.js',bytes:300},{path:'p.js',bytes:400},{path:'index.html',bytes:50},{path:'faculty-admin.html',bytes:50},{path:'user-management.html',bytes:50}]

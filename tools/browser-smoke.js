@@ -182,7 +182,7 @@ async function inspectPage({debugPort,origin,expectation}){
  }
 }
 async function run(){
- if(!fs.existsSync(path.join(site,'deployment-assets.json')))throw Error('Build .deploy-static before running browser smoke.');
+ if(!fs.existsSync(path.join(root,'.deploy-metadata','deployment-assets.json')))throw Error('Build .deploy-static before running browser smoke.');
  const chrome=findChrome();
  if(!chrome)throw Error(`Chrome/Chromium was not found. Tried: ${chromeCandidates().join(', ')}`);
  const server=createStaticServer(site);
