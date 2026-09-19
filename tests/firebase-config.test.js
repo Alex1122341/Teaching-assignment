@@ -32,6 +32,7 @@ test('the client configuration has a single source of truth', () => {
   const source = read('firebase-config.js');
   assert.match(source, /UCVM_FIREBASE_CONFIG/);
   assert.match(source, /UCVM_FIREBASE_EMULATOR/);
+  assert.match(source, /UCVM_DOE_API_BASE_URL\s*=\s*''/);
   // The committed default must be the isolated LAB project, never production.
   assert.match(source, /projectId:\s*'vista-teaching-lab'/);
   assert.doesNotMatch(source, REAL_API_KEY);
@@ -74,4 +75,13 @@ test('shared Firebase helper configures local emulators only once across lazy mo
   assert.match(source,/emulatorConfigured=false/);
   assert.match(source,/UCVM_FIREBASE_EMULATOR&&!emulatorConfigured/);
   assert.match(source,/auth\.useEmulator\('http:\/\/127\.0\.0\.1:9099'\);emulatorConfigured=true/);
+});
+
+
+test('production config generator supports an injected DOE API base URL without committing it',()=>{
+  const source=read('tools/build-firebase-config.js');
+  assert.match(source,/--doe-api-base-url/);
+  assert.match(source,/DOE_API_BASE_URL/);
+  assert.match(source,/UCVM_DOE_API_BASE_URL/);
+  assert.doesNotMatch(read('firebase-config.js'),/azurewebsites\.net/);
 });

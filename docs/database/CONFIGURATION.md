@@ -91,14 +91,26 @@ firebase deploy --only firestore:rules,firestore:indexes --project <project-id>
 
 ## 6. Production
 
-Production configuration is **generated at deploy time and never committed**.
-The deploy pipeline must:
+Production configuration is **generated at build/deploy time and never committed**.
 
-1. Run `node tools/build-firebase-config.js --project <production-project-id>`
-   in the build step, before `tools/build-static.js`.
-2. Deploy with an explicit `--project`. Never rely on the `.firebaserc` default.
-3. Keep the production project out of `.firebaserc` `default`, so a mistaken
-   deploy lands on the lab project rather than in production.
+Before merging a release to `main`, define these GitHub repository **Actions variables**:
+
+- `PRODUCTION_FIREBASE_WEB_CONFIG_JSON` — the Firebase Web SDK config JSON for the production project `tester-teaching`.
+- `PRODUCTION_DOE_API_BASE_URL` — the approved HTTPS Azure App Service base URL for the DOE API.
+
+These are browser-visible client settings, not server credentials. They are kept out of source control so pull-request previews remain incapable of reaching production.
+
+The `Azure Static Web Apps` main-push workflow fails closed if either variable is missing. After tests/emulators pass, it writes the Firebase JSON to a runner-temporary file, runs:
+
+```bash
+node tools/build-firebase-config.js --from-json <runner-temp-json> --doe-api-base-url "$PRODUCTION_DOE_API_BASE_URL"
+node tools/verify-production-client-config.js
+node tools/build-static.js
+```
+
+The verifier requires project `tester-teaching`, a non-placeholder Firebase web config, emulator mode off, and a non-local HTTPS DOE API endpoint before the production artifact can be uploaded.
+
+For Firebase Rules/index deployment, always use an explicit `--project tester-teaching`. Never rely on the `.firebaserc` default. Keep the production project out of `.firebaserc` `default`, so a mistaken deploy lands on the lab project rather than in production.
 
 **Never commit a production API key, service-account key, or deployment token to
 this repository.** `tests/firebase-config.test.js` fails the build if a real

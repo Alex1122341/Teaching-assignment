@@ -11,7 +11,8 @@
 //
 // This file is now the only place the client configuration lives, and the
 // committed default targets the isolated LAB project, which contains synthetic
-// data only.
+// data only. The DOE API endpoint is intentionally blank in the committed
+// template so a clone or preview cannot accidentally reach a production API.
 //
 // ---------------------------------------------------------------------------
 // Local development
@@ -30,8 +31,9 @@
 //
 //   node tools/build-firebase-config.js --project vista-teaching-lab
 //
-// Production configuration is generated at deploy time and is never committed to
-// this public repository. See docs/database/CONFIGURATION.md.
+// Production configuration and the production DOE API URL are generated at
+// build time and are never committed to this public repository. See
+// docs/database/CONFIGURATION.md.
 // ---------------------------------------------------------------------------
 
 (function (root) {
@@ -54,4 +56,5 @@
   root.UCVM_FIREBASE_CONFIG = Object.freeze(config);
   root.UCVM_FIREBASE_EMULATOR = isLocal;
   root.UCVM_FIREBASE_PROJECT_ID = config.projectId;
+  root.UCVM_DOE_API_BASE_URL = '';
 })(typeof window !== 'undefined' ? window : null);

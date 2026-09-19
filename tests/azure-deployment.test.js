@@ -35,6 +35,11 @@ test('Azure main push builds and uploads a verified artifact but cannot deploy p
   assert.match(workflow,/npm ci/);
   assert.match(workflow,/npm test/);
   assert.match(workflow,/npm run test:emulator/);
+  assert.match(workflow,/PRODUCTION_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/PRODUCTION_DOE_API_BASE_URL/);
+  assert.match(workflow,/node tools\/build-firebase-config\.js --from-json .* --doe-api-base-url/);
+  assert.match(workflow,/node tools\/verify-production-client-config\.js/);
+  assert.ok(workflow.indexOf('Prepare production client configuration') < workflow.indexOf('Build static site'));
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/cp staticwebapp\.config\.json \.deploy-static\/staticwebapp\.config\.json/);
   assert.match(workflow,/actions\/upload-artifact@v7/);
