@@ -2,7 +2,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const DOE=require('../faculty-doe.js');
-const ENGINE=require('../doe-policy-engine.js');
 
 test('override DOE wins over contract DOE',()=>{
  assert.deepEqual(
@@ -26,39 +25,18 @@ test('missing DOE has an unavailable label',()=>{
 });
 
 
-test('explicit policy bundle delegates target calculation to the canonical DOE engine',()=>{
- const bundle={
-  version:{policyVersionId:'target-v2',academicYear:'2027-28',status:'active'},
-  rules:[{
-   ruleId:'target-prorated',
-   ruleKey:'target.contract.prorated',
-   category:'target',
-   calculationMode:'prorated',
-   resultKind:'target',
-   priority:100,
-   enabled:true,
-   selectors:[],
-   inputs:[{inputName:'baseDoe',required:true},{inputName:'fte',required:true}],
-   parameters:[]
-  }],
-  exceptions:[]
- };
- const target=DOE.effectiveTarget(
-  {doe:{teaching:40},fte:.75},
-  {policyBundle:bundle,engine:ENGINE}
- );
+test('server worksheet target is preferred when present',()=>{
+ const target=DOE.effectiveTarget({doe:{teaching:40},__doeWorksheetSummary:{effectiveTargetDOE:30,policyVersionId:'target-v2'}});
  assert.equal(target.value,30);
- assert.equal(target.source,'policy');
+ assert.equal(target.source,'worksheet');
  assert.equal(target.policyVersionId,'target-v2');
- assert.equal(target.ruleKey,'target.contract.prorated');
- assert.equal(DOE.targetLabel({doe:{teaching:40},fte:.75},{policyBundle:bundle,engine:ENGINE}),'Policy DOE 30.00%');
+ assert.equal(DOE.targetLabel({__doeWorksheetSummary:{effectiveTargetDOE:30,policyVersionId:'target-v2'}}),'Worksheet DOE 30.00%');
 });
 
-test('compatibility target evaluation is delegated to the DOE policy engine rather than branch arithmetic',()=>{
+test('browser compatibility target helper has no policy engine dependency',()=>{
  const fs=require('node:fs'),path=require('node:path');
  const source=fs.readFileSync(path.join(__dirname,'../faculty-doe.js'),'utf8');
- assert.match(source,/calculateTarget\(/);
- assert.doesNotMatch(source,/if\(approved\.value!==null\)return\{value:approved\.value/);
+ assert.doesNotMatch(source,/DOE_POLICY_ENGINE|doe-policy-engine|calculateTarget\(/);
  const target=DOE.effectiveTarget({doe:{teaching:40},doeOverride2026_27:{value:25,reason:'RSL'}});
  assert.deepEqual(target,{value:25,source:'override',reason:'RSL'});
 });

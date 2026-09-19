@@ -167,6 +167,16 @@
    .slice()
    .sort((a,b)=>(number(a?.tierOrder)??0)-(number(b?.tierOrder)??0)||(number(a?.fromValue)??0)-(number(b?.fromValue)??0));
   if(!tiers.length)throw policyError('TIER_INVALID','Tiered DOE rule requires at least one tier.');
+  if(text(rule?.tierStrategy).toLowerCase()==='lookup'){
+   const tier=tiers.find(row=>{
+    const from=number(row?.fromValue)??0,to=number(row?.toValue);
+    return quantity>=from&&(to===null||quantity<to);
+   });
+   if(!tier)throw policyError('TIER_NOT_FOUND','No DOE tier matches the supplied quantity.',{quantity});
+   const fixed=number(tier?.fixedCredit);
+   if(fixed===null)throw policyError('TIER_INVALID','Lookup tier must define fixedCredit.',{tierId:text(tier?.tierId)});
+   return fixed;
+  }
   let total=0;
   for(const tier of tiers){
    const from=number(tier?.fromValue)??0;
@@ -321,6 +331,7 @@
    parameters:{...parameters},
    ruleSnapshot:{
     calculationMode:text(rule?.calculationMode),
+    tierStrategy:text(rule?.tierStrategy),
     formulaText:text(rule?.formulaText),
     resultKind:text(rule?.resultKind)||'credit',
     priority:priority(rule?.priority)

@@ -14,11 +14,12 @@ test('timetable loads selection before its controller and exposes admin selectio
  assert.match(js,/selection-controls.*classList\.toggle\('hidden',\s*!canSelectSessions\(\)\)/s);
 });
 
-test('faculty choices use effective DOE and visibly label overrides',()=>{
+test('faculty choices defer DOE totals to the authoritative server preview',()=>{
  const js=read('timetable.js');
- assert.match(js,/UCVM_FACULTY_DOE\.effectiveTarget/);
- assert.match(js,/Override DOE/);
- assert.doesNotMatch(js,/Contract Teaching DOE is shown when it exists/);
+ assert.doesNotMatch(js,/function buildSwapDoeState\s*\(/);
+ assert.doesNotMatch(js,/UCVM_FACULTY_DOE\.effectiveTarget/);
+ assert.match(js,/DOE server preview on save/);
+ assert.match(js,/Server preview on SWAP/);
 });
 
 test('selection mode routes rendered sessions through stable IDs and blocks all read-only synthetic rows',()=>{
@@ -39,9 +40,9 @@ test('spreadsheet editor validates before progressive paired commits and applies
  assert.doesNotMatch(js,/firestoreSafeSession\(update\.data\)/);
  assert.match(js,/updatedBy:currentUser\.uid[\s\S]*updatedAt:timestamp/);
  assert.match(js,/commitPlan\(/);
+ assert.match(js,/saveSessionChange\(\{academicYear:update\.after\?\.academicYear\|\|'',sessionId:update\.id,afterSession:update\.after,trigger:'multi_session_edit'\}\)/);
+ assert.match(js,/updateDerivedIndexes\(\[\{before:log\.before,after:savedAfter\}\],\{rethrow:true\}\)/);
  assert.match(js,/afterBatch:async\(\{logs\}\)=>/);
- assert.match(js,/logs\.map\(log=>\(\{before:log\.before,after:log\.after\}\)\)/);
- assert.match(js,/afterBatch:async\(\{logs\}\)=>\{invalidateAllSessions\(\);if\(canEditFaculty\)\{const changes=logs\.map\(log=>\(\{before:log\.before,after:log\.after\}\)\);await updateDerivedIndexes\(changes,\{rethrow:true\}\)\}/);
 });
 
 test('back to selection rerenders immediately instead of relying on a subscription change',()=>{
@@ -95,13 +96,15 @@ test('single-session writers use capability-owned fields and keep calendar docum
  assert.match(js,/async function deleteSession[\s\S]*batch\.delete\(db\.collection\(CALENDAR_SESSION_COLLECTION\)\.doc\(id\)\)/);
 });
 
-test('faculty swap keeps the sanitized calendar mirror synchronized',()=>{
- const js=read('timetable.js');
+test('faculty swap delegates canonical session and sanitized calendar persistence to the DOE API',()=>{
+ const js=read('timetable.js'),repo=read('server/src/doe/firestore-repository.js');
  const start=js.indexOf('async function performFacultySwap');
  const end=js.indexOf('\n  async function initializeLiveSchedule',start);
  const fn=js.slice(start,end);
- assert.match(fn,/CALENDAR_SESSION_COLLECTION/);
- assert.match(fn,/UCVM_CALENDAR_SESSION\.fromSource/);
+ assert.match(fn,/saveSessionChange/);
+ assert.doesNotMatch(fn,/CALENDAR_SESSION_COLLECTION|UCVM_CALENDAR_SESSION\.fromSource/);
+ assert.match(repo,/saveSessionCalculationBundle/);
+ assert.match(repo,/transaction\.set\(calendarRef,calendarSession\.fromSource\(session,sessionId\)\)/);
 });
 
 test('role-locked timetable fields have a visible disabled treatment',()=>{

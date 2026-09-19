@@ -24,7 +24,7 @@ test('session writes add derived faculty IDs',()=>{
 test('session mutations update derived settings from exact before and after records',()=>{
  const index=read('timetable.js'),approval=read('approval-workflow.js'),admin=read('faculty-admin.js'),maintenance=read('index-maintenance.js');
  assert.match(index,/UCVM_INDEX_MAINTENANCE\.updateDerivedIndexes\(db,changes/);
- assert.match(index,/\{before:existing\|\|null,after:next\}/);
+ assert.match(index,/updateDerivedIndexes\(\[\{before:existing\|\|null,after:savedNext\}\]/);
  assert.match(index,/\{before:s,after:null\}/);
  assert.match(approval,/updateDerivedIndexes\?\.\(\[\{before:current,after/);
  assert.match(admin,/writeDerivedIndexes/);
@@ -187,4 +187,19 @@ test('incremental derived DOE maintenance preserves missing-credit error state i
  assert.equal(entry.missingDoeCount,1);
  assert.equal(entry.calculationStatus,'error');
  assert.equal(entry.assignedTeachingDOE,2);
+});
+
+test('incremental derived maintenance keeps legacy evidence mixed when policy-versioned sessions change',()=>{
+ const api=require(path.join(root,'index-maintenance.js'));
+ const dataIndex=require(path.join(root,'data-index.js'));
+ const faculty=[{__id:'1001',preferredFullName:'Alex',managedRoles2026_27:[{action:'add',doeCredit:1}],facultySummary2026_27:{sourceNonTimetableTeachingDOE:2}}];
+ const before={id:'s1',assignments:[{ucid:'1001',doeCredit:1,doePolicyVersionId:'policy-v1'}]};
+ const initial=dataIndex.buildFacultyIndex(faculty,[before]);
+ const after={id:'s1',assignments:[{ucid:'1001',doeCredit:1.5,doePolicyVersionId:'policy-v1'}]};
+ const result=api.applySessionChanges(initial,{sessionCount:1,assignedFacultyCount:1,courseCounts:{}},[{before,after}]);
+ const entry=result.facultyIndex.entries[0];
+ assert.equal(entry.assignedTeachingDOE,4.5);
+ assert.equal(entry.legacyDoeEvidenceOnly,true);
+ assert.equal(entry.calculationStatus,'mixed');
+ assert.equal(entry.policyVersionId,'mixed');
 });

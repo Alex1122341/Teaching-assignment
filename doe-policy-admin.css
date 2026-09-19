@@ -57,3 +57,22 @@
 .doe-preview-empty.outdated{color:#8b1e1e;background:#fff0f0;border-radius:7px;padding:9px}
 @media(max-width:1100px){.doe-preview-summary{grid-template-columns:repeat(4,minmax(95px,1fr))}}
 @media(max-width:650px){.doe-preview-summary{grid-template-columns:repeat(2,minmax(95px,1fr))}}
+
+/* Annual DOE Rule Book — uses the existing VISTA / Faculty Dashboard visual language */
+.doe-rulebook-heading p,.doe-table-head p{margin:4px 0 0;color:var(--muted,#6b7280);font-size:11.5px;font-weight:400}
+.doe-rulebook-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border,#d7d7d4);padding:0 12px;margin-top:4px;overflow:auto}
+.doe-rulebook-tab{border:0;background:transparent;padding:10px 12px;border-bottom:3px solid transparent;color:var(--muted,#6b7280);font-weight:750;cursor:pointer;white-space:nowrap}
+.doe-rulebook-tab:hover{color:var(--text,#171717)}
+.doe-rulebook-tab.active{color:var(--navy,#d6001c);border-bottom-color:var(--navy,#d6001c)}
+.doe-rulebook-shell{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:14px;padding:14px}
+.doe-rulebook-main{min-width:0}
+.doe-rulebook-groups{display:grid;gap:7px;margin-bottom:14px}
+.doe-rulebook-group{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;border:1px solid var(--border,#d7d7d4);border-radius:var(--radius,5px);background:var(--surface2,#f5f4f2);color:var(--text2,#3f3f3d)}
+.doe-rulebook-group strong{color:var(--navy,#d6001c);font-size:12px}.doe-rulebook-group span{color:var(--muted,#6b7280);font-size:10.5px}
+.doe-rulebook-aside{display:grid;align-content:start;gap:10px}.doe-reference-card{border:1px solid var(--border,#d7d7d4);border-radius:var(--radius,5px);overflow:hidden;background:var(--surface,#fff)}
+.doe-reference-body{padding:11px;font-size:11px;line-height:1.5;color:var(--text2,#3f3f3d)}.doe-reference-line{margin-top:9px;padding-top:9px;border-top:1px solid #ececea;color:var(--muted,#6b7280)}
+.doe-review-pill{display:inline-flex;padding:3px 7px;border:1px solid var(--border,#d7d7d4);border-radius:999px;font-size:9.5px;font-weight:800;background:#f3f4f6;color:#4b5563}
+.doe-review-pill[data-review="confirmed_unchanged"]{background:#ecfdf3;color:#166534;border-color:#a7d7b5}.doe-review-pill[data-review="updated"]{background:#fff8e6;color:#9a6700;border-color:#ebcd83}.doe-review-pill[data-review="new"]{background:#eef4ff;color:#1d4f91;border-color:#b8c8e2}.doe-review-pill[data-review="retired"]{background:#f3f4f6;color:#6b7280}.doe-review-pill[data-review="needs_review"]{background:#fff1f2;color:#b91c1c;border-color:#f3b4ba}
+#doe-rulebook-api-status[data-tone="success"]{background:#ecfdf3;border-color:#a7d7b5;color:#166534}#doe-rulebook-api-status[data-tone="error"]{background:#fff1f2;border-color:#f3b4ba;color:#b91c1c}
+@media(max-width:1050px){.doe-rulebook-shell{grid-template-columns:1fr}.doe-rulebook-aside{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.doe-rulebook-shell{padding:10px}.doe-rulebook-aside{grid-template-columns:1fr}.doe-rulebook-group{align-items:flex-start;flex-direction:column}}

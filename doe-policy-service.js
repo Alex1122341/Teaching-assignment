@@ -180,6 +180,42 @@
   );
  }
 
+ function classifyLegacyDoeSource(raw,{tolerance=.01}={}){
+  const row=raw&&typeof raw==='object'?raw:{},facultyId=text(row.facultyId),academicYear=text(row.academicYear)||'2026-27';
+  const legacyRole=row.managedRole&&typeof row.managedRole==='object'?row.managedRole:null;
+  const legacyDoe=legacyRole?migrationNumber(legacyRole.doeCredit):null;
+  const safeTolerance=Math.max(0,migrationNumber(tolerance)??.01);
+  const base={
+   facultyId,sourceRow:JSON.parse(JSON.stringify(row)),classification:'unresolved',proposedAssignmentFacts:null,proposedException:null,
+   legacyDoe,calculatedDoe:null,parityDifference:null,fixedDoe:null,blockingReason:''
+  };
+  if(row.approvedDiscretionary===true||legacyRole?.approvedDiscretionary===true){
+   if(legacyDoe===null)return{...base,blockingReason:'Approved discretionary migration requires a numeric legacy DOE value.'};
+   return{...base,classification:'approved_discretionary',calculatedDoe:legacyDoe,parityDifference:0,proposedAssignmentFacts:{academicYear,facultyId,category:'role',roleType:text(legacyRole?.type),assignment:text(legacyRole?.assignment),approvedAllocation:legacyDoe}};
+  }
+  if(legacyRole){
+   const roleType=text(legacyRole.type),courseCode=text(row.courseMapping?.courseCode||legacyRole.assignment),units=migrationNumber(row.courseMapping?.unitCount),rate=migrationNumber(row.activeRule?.rate);
+   if(roleType.toLowerCase()==='hicc'){
+    if(!courseCode||units===null)return{...base,blockingReason:'HICC migration requires an explicit course/unit mapping.'};
+    if(rate===null)return{...base,blockingReason:'HICC migration requires an explicit active rule rate.'};
+    const calculatedDoe=roundedDoe(units*rate),parityDifference=legacyDoe===null?null:roundedDoe(calculatedDoe-legacyDoe),facts={academicYear,facultyId,category:'role',roleType:'HICC',courseCode,units};
+    if(legacyDoe===null)return{...base,calculatedDoe,proposedAssignmentFacts:facts,blockingReason:'Legacy HICC DOE is missing, so parity cannot be established.'};
+    if(Math.abs(parityDifference)>safeTolerance)return{...base,calculatedDoe,parityDifference,proposedAssignmentFacts:facts,blockingReason:`Legacy HICC parity difference ${parityDifference.toFixed(6)} exceeds tolerance ${safeTolerance}.`};
+    return{...base,classification:'assignment_fact_candidate',calculatedDoe,parityDifference,proposedAssignmentFacts:facts};
+   }
+   return{...base,blockingReason:`Legacy role ${roleType||'unknown'} is not yet mapped to a deterministic migration rule.`};
+  }
+  const sourceTotal=migrationNumber(row.sourceNonTimetableTeachingDOE);
+  if(sourceTotal!==null){
+   const explained=(Array.isArray(row.explainedLines)?row.explainedLines:[]).reduce((sum,item)=>sum+(migrationNumber(item?.resultDoe??item?.doeCredit??item?.doe)??0),0),residual=roundedDoe(sourceTotal-explained);
+   if(Math.abs(residual)<=safeTolerance)return{...base,classification:'assignment_fact_candidate',legacyDoe:sourceTotal,calculatedDoe:roundedDoe(explained),parityDifference:roundedDoe(explained-sourceTotal)};
+   const sourceReference=text(row.sourceReference)||'facultySummary2026_27.sourceNonTimetableTeachingDOE';
+   const proposedException={facultyId,academicYear,category:'teaching',assignment:'Legacy source reconciliation',fixedDoe:residual,reason:'Legacy source reconciliation amount is not represented by a deterministic DOE rule.',sourceReference};
+   return{...base,classification:'fixed_exception',legacyDoe:sourceTotal,fixedDoe:residual,proposedException,blockingReason:''};
+  }
+  return{...base,blockingReason:'Legacy DOE source cannot be classified without an explicit deterministic rule, approved discretionary value, or source reconciliation amount.'};
+ }
+
  function canonicalPolicy(bundle={}){
   const rules=sortByStableId(bundle.rules,['ruleId','ruleKey']).map(raw=>{
    const rule=stripVolatile(raw);
@@ -926,6 +962,7 @@
   sha256,
   planMigrationExceptions,
   buildShadowParityReport,
+  classifyLegacyDoeSource,
   createService
  };
 });

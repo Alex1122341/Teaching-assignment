@@ -171,15 +171,17 @@ test('timetable writers are cut over to the policy adapter and the private hard-
   assert.match(source,/saveSelectedChanges[\s\S]*prepareSession/);
   assert.match(source,/saveBulkSessions[\s\S]*prepareSession/);
   assert.match(source,/session-form['"]\)\.onsubmit[\s\S]*prepareSession/);
-  assert.match(source,/stageCalculationRecord/);
+  assert.doesNotMatch(source,/stageCalculationRecord|UCVM_DOE_POLICY_FIRESTORE/);
+  assert.match(source,/saveSessionChange/);
 });
 
-test('faculty swap re-evaluates DOE through policy exceptions and stages new calculation evidence',()=>{
+test('faculty swap re-evaluates DOE through API and persists through server session save',()=>{
   const source=fs.readFileSync(path.join(root,'timetable.js'),'utf8');
   const start=source.indexOf('async function performFacultySwap');
   const end=source.indexOf('\n  async function initializeLiveSchedule',start);
   const fn=source.slice(start,end);
   assert.match(fn,/prepareSession\(/);
-  assert.match(fn,/stageCalculationRecord/);
+  assert.match(fn,/saveSessionChange/);
+  assert.doesNotMatch(fn,/stageCalculationRecord|UCVM_DOE_POLICY_FIRESTORE/);
   assert.match(fn,/doeAuditChanges/);
 });

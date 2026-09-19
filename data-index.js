@@ -36,16 +36,17 @@
  function normalizedVersionCounts(value){
   const result={};for(const [key,count] of Object.entries(value||{})){const n=Number(count)||0;if(key&&n>0)result[key]=n}return result;
  }
+ function legacyEvidenceCount(entry){return(Number(entry?.legacyDoeCount)||0)+(Number(entry?.legacyDoeEvidenceCount)||0)}
  function doeStatus(entry){
   if((Number(entry?.missingDoeCount)||0)>0)return'error';
-  const versions=Object.keys(normalizedVersionCounts(entry?.policyVersionCounts)),legacy=Number(entry?.legacyDoeCount)||0;
+  const versions=Object.keys(normalizedVersionCounts(entry?.policyVersionCounts)),legacy=legacyEvidenceCount(entry);
   if(versions.length>1||(versions.length&&legacy>0))return'mixed';
   if(versions.length===1)return'policy';
   if(legacy>0)return'legacy';
   return number(entry?.assignedTeachingDOE)!==null?'source':'unavailable';
  }
  function policyVersion(entry){
-  const versions=Object.keys(normalizedVersionCounts(entry?.policyVersionCounts)).sort(),legacy=Number(entry?.legacyDoeCount)||0;
+  const versions=Object.keys(normalizedVersionCounts(entry?.policyVersionCounts)).sort(),legacy=legacyEvidenceCount(entry);
   if(versions.length>1||(versions.length&&legacy>0))return'mixed';
   if(versions.length===1)return versions[0];
   return legacy>0?'legacy':'';
@@ -67,7 +68,10 @@
  function facultyEntry(id,faculty,sessionStats={}){
   const f=faculty||{},o=DOE.override(f),target=DOE.effectiveTarget(f),facultyId=text(id||f.__id||f.id||f.ucid),name=text(f.preferredFullName||f.hrFirstLast||f.hrFullName||f.teachingAssignmentName||facultyId);
   const summary=f.facultySummary2026_27,roles=Array.isArray(summary?.roles)?summary.roles:[];
-  const base={id:facultyId,name,hrName:text(f.hrFullName),email:text(f.email),rank:text(f.rank||f.currentTitle),appointmentType:text(f.appointmentType),campus:text(f.campus),department:text(f.primaryDepartment||f.department),specialty:text(f.teachingArea||f.teachingAreaEmphasis||f.boardSpecialties),reportsTo:text(f.reportsTo),active:f.active!==false,status:text(f.status||'current'),contractTeachingDOE:DOE.contract(f),overrideDOE:o.value,overrideReason:o.reason,effectiveTargetDOE:target.value,targetSource:target.source,sessionCount:Number(sessionStats.count)||0,scheduledDOE:number(sessionStats.assignedDOE)??0,missingDoeCount:Number(sessionStats.missingDoeCount)||0,legacyDoeCount:Number(sessionStats.legacyDoeCount)||0,policyVersionCounts:normalizedVersionCounts(sessionStats.policyVersionCounts),sourceNonTimetableTeachingDOE:number(summary?.sourceNonTimetableTeachingDOE),sourceAssignedTeachingDOE:number(summary?.assignedTeachingDOE),sourceScheduledTeachingDOE:number(summary?.sourceScheduledTeachingDOE),managedRoleDOE:managedRoleDOE(f),hasSummary:!!(summary&&typeof summary==='object'),hasWorkload:!!(f.workloadPolicy2026_27&&typeof f.workloadPolicy2026_27==='object'),roleTypes:uniqueSorted(roles.map(r=>r?.type)),afcRecordCount:Array.isArray(f.awayFromCampusRecords)?f.awayFromCampusRecords.length:0,searchText:facultySearchText({...f,__id:facultyId})};
+  const legacyRoleRows=Array.isArray(f.managedRoles2026_27)?f.managedRoles2026_27.filter(row=>number(row?.doeCredit)!==null):[];
+  const hasLegacySummaryDoe=[summary?.sourceNonTimetableTeachingDOE,summary?.assignedTeachingDOE,summary?.sourceScheduledTeachingDOE].some(value=>number(value)!==null);
+  const legacyDoeEvidenceCount=legacyRoleRows.length+(hasLegacySummaryDoe?1:0);
+  const base={id:facultyId,name,hrName:text(f.hrFullName),email:text(f.email),rank:text(f.rank||f.currentTitle),appointmentType:text(f.appointmentType),campus:text(f.campus),department:text(f.primaryDepartment||f.department),specialty:text(f.teachingArea||f.teachingAreaEmphasis||f.boardSpecialties),reportsTo:text(f.reportsTo),active:f.active!==false,status:text(f.status||'current'),contractTeachingDOE:DOE.contract(f),overrideDOE:o.value,overrideReason:o.reason,effectiveTargetDOE:target.value,targetSource:target.source,sessionCount:Number(sessionStats.count)||0,scheduledDOE:number(sessionStats.assignedDOE)??0,missingDoeCount:Number(sessionStats.missingDoeCount)||0,legacyDoeCount:Number(sessionStats.legacyDoeCount)||0,legacyDoeEvidenceCount,legacyDoeEvidenceOnly:legacyDoeEvidenceCount>0,policyVersionCounts:normalizedVersionCounts(sessionStats.policyVersionCounts),sourceNonTimetableTeachingDOE:number(summary?.sourceNonTimetableTeachingDOE),sourceAssignedTeachingDOE:number(summary?.assignedTeachingDOE),sourceScheduledTeachingDOE:number(summary?.sourceScheduledTeachingDOE),managedRoleDOE:managedRoleDOE(f),hasSummary:!!(summary&&typeof summary==='object'),hasWorkload:!!(f.workloadPolicy2026_27&&typeof f.workloadPolicy2026_27==='object'),roleTypes:uniqueSorted(roles.map(r=>r?.type)),afcRecordCount:Array.isArray(f.awayFromCampusRecords)?f.awayFromCampusRecords.length:0,searchText:facultySearchText({...f,__id:facultyId})};
   return recomputeFacultyDoe(base);
  }
  function sessionFacultyIds(session){

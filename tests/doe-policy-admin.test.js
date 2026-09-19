@@ -7,7 +7,6 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 const ADMIN=require('../doe-policy-admin.js');
-const ENGINE=require('../doe-policy-engine.js');
 
 test('Faculty Dashboard exposes a first-class DOE Rules tab and editor surfaces',()=>{
  const html=read('faculty-admin.html');
@@ -24,18 +23,11 @@ test('Faculty Dashboard exposes a first-class DOE Rules tab and editor surfaces'
  }
 });
 
-test('DOE policy runtime modules load before the admin controller',()=>{
+test('DOE policy admin loads API client, not browser policy storage or calculation modules',()=>{
  const html=read('faculty-admin.html');
- const order=[
-  'doe-formula.js',
-  'doe-policy-engine.js',
-  'doe-policy-repository.js',
-  'doe-policy-firestore.js',
-  'doe-policy-service.js',
-  'doe-policy-admin.js'
- ].map(name=>html.indexOf(name));
- for(const [index,value] of order.entries())assert.ok(value>=0,`missing DOE runtime index ${index}`);
- for(let index=1;index<order.length;index++)assert.ok(order[index-1]<order[index],`DOE runtime order ${index}`);
+ for(const name of ['doe-api-client.js','doe-policy-admin.js'])assert.ok(html.indexOf(name)>=0,name);
+ for(const name of ['doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js'])assert.equal(html.indexOf(name),-1,name);
+ assert.ok(html.indexOf('doe-api-client.js')<html.indexOf('doe-policy-admin.js'));
  assert.match(html,/doe-policy-admin\.css/);
 });
 
@@ -92,28 +84,12 @@ test('structured Rule Builder normalizes selectors inputs parameters and tiers w
  assert.equal(rule.calculationMode,'per_hour');
 });
 
-test('Advanced Formula Test Rule delegates to canonical engine validation/evaluation',()=>{
- const rule=ADMIN.normalizeRuleDraft({
-  ruleId:'formula',
-  policyVersionId:'v1',
-  ruleKey:'supervision.test',
-  category:'supervision',
-  calculationMode:'formula',
-  formulaText:'min(trainees * rate, cap)',
-  resultKind:'credit',
-  priority:10,
-  enabled:true,
-  selectors:[],
-  inputs:[{inputName:'trainees',required:true}],
-  parameters:[{name:'rate',valueNumber:.5},{name:'cap',valueNumber:4}],
-  tiers:[]
- });
- const result=ADMIN.testRule(rule,{trainees:12},ENGINE);
- assert.equal(result.resultDoe,4);
- assert.throws(
-  ()=>ADMIN.testRule({...rule,formulaText:'window.alert(1)'},{trainees:12},ENGINE),
-  error=>Boolean(error&&error.code)
- );
+test('Rule Test is a server action and browser admin does not expose a local evaluator',()=>{
+ const source=read('doe-policy-admin.js');
+ assert.equal(ADMIN.testRule,undefined);
+ assert.match(source,/UCVM_DOE_API/);
+ assert.match(source,/state\.service\.testRule/);
+ assert.doesNotMatch(source,/engine\.calculate|engine\.validatePolicy|DEFAULT_ENGINE/);
 });
 
 test('Exception editor requires fixed DOE reason source and a concrete scope',()=>{
@@ -134,54 +110,14 @@ test('Exception editor requires fixed DOE reason source and a concrete scope',()
 });
 
 
-test('Impact Preview dataset builder projects live timetable assignments and managed role DOE',()=>{
- const built=ADMIN.buildImpactDataset({
-  faculty:[{
-   __id:'f1',
-   managedRoles2026_27:[{type:'HICC',assignment:'VTMD 204',action:'add',doeCredit:2.5,doePolicyVersionId:'policy-role-v0'}]
-  }],
-  sessions:[{
-   id:'s1',date:'2026-09-10',course:'204',type:'LEC',topic:'Lecture',start:'09:00',end:'10:00',
-   assignments:[{ucid:'f1',role:'Lecture',creditedHours:1,doeRate:.3,doeCredit:.3,doePolicyVersionId:'policy-teaching-v0'}]
-  }]
- },'2026-27');
- assert.equal(built.academicYear,'2026-27');
- assert.equal(built.calculations.length,2);
- const teaching=built.calculations.find(row=>row.sourceEntityType==='session_assignment');
- assert.equal(teaching.facultyId,'f1');
- assert.equal(teaching.currentDoe,.3);
- assert.equal(teaching.context.category,'teaching');
- assert.equal(teaching.context.activityType,'LEC');
- assert.equal(teaching.context.teachingRole,'Lecture');
- assert.equal(teaching.context.hours,1);
- assert.equal(teaching.currentPolicyVersionId,'policy-teaching-v0');
- const role=built.calculations.find(row=>row.sourceEntityType==='managed_role');
- assert.equal(role.currentDoe,2.5);
- assert.equal(role.context.category,'role');
- assert.equal(role.context.roleType,'HICC');
- assert.equal(role.currentPolicyVersionId,'policy-role-v0');
-});
-
-test('Impact Preview dataset includes source-reconciled non-timetable DOE exactly once',()=>{
- const built=ADMIN.buildImpactDataset({
-  faculty:[{__id:'f1',facultySummary2026_27:{sourceNonTimetableTeachingDOE:2.75,sourceNonTimetableTeachingDOEPolicyVersionId:'policy-source-v0',assignedTeachingDOE:9}}],
-  sessions:[{id:'s1',type:'LEC',assignments:[{ucid:'f1',role:'Lecture',creditedHours:2,doeCredit:.6}]}]
- },'2026-27');
- const source=built.calculations.filter(row=>row.sourceEntityType==='source_reconciliation');
- assert.equal(source.length,1);
- assert.equal(source[0].currentDoe,2.75);
- assert.equal(source[0].currentPolicyVersionId,'policy-source-v0');
- assert.equal(source[0].assignmentId,'f1--source-non-timetable-teaching');
- assert.equal(source[0].context.assignment,'Source non-timetable teaching DOE');
- assert.equal(built.calculations.reduce((sum,row)=>sum+Number(row.currentDoe||0),0),3.35);
-});
-
-test('production Impact Preview provider refreshes authoritative Faculty and Timetable data',()=>{
- const source=fs.readFileSync(path.join(__dirname,'..','doe-policy-admin.js'),'utf8');
- const facultyAdmin=fs.readFileSync(path.join(__dirname,'..','faculty-admin.js'),'utf8');
- assert.match(source,/UCVM_ADMIN_DATA\?\.refresh\?\.\(\)/);
- assert.match(facultyAdmin,/refresh:\s*refreshAdminDataset/);
- assert.match(facultyAdmin,/source:\s*['"]server['"]/);
+test('Impact Preview and Recalculate dataset/write authority is absent from the browser admin',()=>{
+ const source=read('doe-policy-admin.js');
+ assert.equal(ADMIN.buildImpactDataset,undefined);
+ assert.equal(ADMIN.createFirestoreRecalculationWriter,undefined);
+ assert.equal(ADMIN.applyRecalculationRowsToSource,undefined);
+ assert.doesNotMatch(source,/UCVM_ADMIN_DATA\?\.refresh|stageCalculationRecord/);
+ assert.match(source,/state\.service\.runImpactPreview/);
+ assert.match(source,/state\.service\.runRecalculate/);
 });
 
 test('Impact Preview renderer exposes required summary metrics and per-faculty differences',()=>{

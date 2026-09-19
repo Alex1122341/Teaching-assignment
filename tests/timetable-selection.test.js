@@ -191,20 +191,17 @@ test('LAB change planning allows LAB topic only and rejects non-LAB rows',()=>{
  assert.ok(nonLab.errors.some(error=>/LAB sessions only/i.test(error)));
 });
 
-test('DOE calculation evidence is staged in the same batch as source, calendar, and audit writes',async()=>{
+test('client batch writer rejects DOE calculation evidence so authoritative records stay server-side',async()=>{
  const api=load(),commits=[];
  const store={
   batch:()=>{const ops=[];return{update:(ref,data)=>ops.push(['update',ref,data]),set:(ref,data)=>ops.push(['set',ref,data]),commit:async()=>commits.push(ops)}},
   sessionRef:id=>`sessions/${id}`,
   calendarRef:id=>`calendar/${id}`,
   logRef:()=>`logs/1`,
-  calendarFromSource:(row,id)=>({sessionId:id,topic:row.topic}),
-  stageCalculationRecord:(batch,row)=>batch.set(`doe_calculation_records/${row.calculationId}`,row)
+  calendarFromSource:(row,id)=>({sessionId:id,topic:row.topic})
  };
  const record={calculationId:'calc-1',sessionId:'s1',assignmentId:'a1',resultDoe:.84};
  const plan={errors:[],updates:[{id:'s1',data:{topic:'T1'},after:{id:'s1',topic:'T1'},calculationRecords:[record]}],logs:[{sessionId:'s1',action:'batch_update'}]};
- const result=await api.commitPlan(plan,store);
- assert.equal(result.committed,true);
- assert.equal(result.operations,4);
- assert.deepEqual(commits[0].map(operation=>operation[1]),['sessions/s1','calendar/s1','logs/1','doe_calculation_records/calc-1']);
+ await assert.rejects(()=>api.commitPlan(plan,store),/server-side DOE API/i);
+ assert.equal(commits.length,0);
 });

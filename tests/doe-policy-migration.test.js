@@ -9,23 +9,19 @@ const SERVICE=require('../doe-policy-service.js');
 const seedPath=path.join(__dirname,'..','tools','doe-policy-2026-27-seed.json');
 const seed=JSON.parse(fs.readFileSync(seedPath,'utf8'));
 
-test('2026-27 seed contains only the six stable general teaching rules',()=>{
+test('2026-27 seed contains the complete deterministic teaching Rule Book without faculty data',()=>{
   assert.equal(seed.version.academicYear,'2026-27');
   assert.equal(seed.version.status,'draft');
   assert.deepEqual(seed.exceptions,[]);
-  assert.deepEqual(
-    seed.rules.map(rule=>rule.ruleKey),
-    [
-      'teaching.lecture.standard',
-      'teaching.srl.standard',
-      'teaching.lab.lead',
-      'teaching.lab.primary',
-      'teaching.lab.support',
-      'teaching.lab.secondary'
-    ]
-  );
-  assert.ok(seed.rules.every(rule=>rule.sourceType==='migration'));
-  assert.ok(seed.rules.every(rule=>/current operational behavior/i.test(rule.sourceReference)));
+  const keys=new Set(seed.rules.map(rule=>rule.ruleKey));
+  for(const key of [
+    'teaching.lecture.standard','teaching.srl.standard','teaching.lab.primary','teaching.lab.secondary',
+    'role.course-coordinator','role.rotation.participant','role.rotation.coordinator',
+    'supervision.undergraduate','supervision.fourth-year-preceptor','supervision.graduate.primary','supervision.graduate.co-supervisor','supervision.postdoc',
+    'role.hicc.development','role.visc.development','role.new-faculty-career-development','role.special-activities'
+  ])assert.ok(keys.has(key),`missing ${key}`);
+  assert.ok(seed.rules.every(rule=>rule.sourceType==='workload_guideline'));
+  assert.ok(seed.rules.every(rule=>rule.referenceId&&/UCVM Workload Guidelines/.test(rule.sourceReference)));
   assert.ok(!JSON.stringify(seed).match(/facultyId|@ucalgary|ucid/i));
   assert.deepEqual(ENGINE.validatePolicy(seed),{valid:true,errors:[],warnings:[]});
 });

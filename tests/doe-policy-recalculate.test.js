@@ -156,7 +156,7 @@ test('admin recalculation confirmation names the Academic Year and Active policy
 });
 
 test('recalculation source helper updates session assignment DOE and immutable provenance pointer',()=>{
- const ADMIN=require('../doe-policy-admin.js');
+ const ADMIN=require('../server/src/doe/policy-admin-service.js');
  const source={assignments:[{assignmentId:'a1',ucid:'f1',role:'Lecture',doeCredit:.3}]};
  const rows=[{sourceEntityType:'session_assignment',sourceEntityId:'s1--assignment--1',assignmentId:'a1',resultDoe:.6,policyVersionId:'v1',ruleId:'r1',ruleKey:'teaching.lecture.standard'}];
  const records=[{calculationId:'calc-1'}];
@@ -169,7 +169,7 @@ test('recalculation source helper updates session assignment DOE and immutable p
 });
 
 test('recalculation source helper updates managed role and source reconciliation faculty DOE',()=>{
- const ADMIN=require('../doe-policy-admin.js');
+ const ADMIN=require('../server/src/doe/policy-admin-service.js');
  const source={managedRoles2026_27:[{type:'HICC',doeCredit:1}],facultySummary2026_27:{sourceNonTimetableTeachingDOE:2}};
  const rows=[
   {sourceEntityType:'managed_role',sourceEntityId:'f1--managed-role--1',resultDoe:1.5,policyVersionId:'v1',ruleId:'rr',ruleKey:'role.hicc'},
@@ -183,22 +183,26 @@ test('recalculation source helper updates managed role and source reconciliation
  assert.equal(next.facultySummary2026_27.sourceNonTimetableTeachingDOECalculationId,'calc-t');
 });
 
-test('Firestore rules reserve administrative recalculation markers and batch path for ADFA General',()=>{
+test('Firestore rules make administrative recalculation collections server-only to browser clients',()=>{
  const fs=require('node:fs'),path=require('node:path');
  const rules=fs.readFileSync(path.join(__dirname,'..','firestore.rules'),'utf8');
- assert.match(rules,/match \/doe_recalculation_batches\/\{id\}/);
- assert.match(rules,/doeRecalculationBatchId/);
- assert.match(rules,/recalculationBatchId/);
- assert.match(rules,/general\(\)/);
- assert.match(rules,/after\.diff\(before\)\.affectedKeys\(\)\.hasOnly\(\['status','completedRows','changedByName','updatedAt'\]\)/);
+ const block=rules.match(/match \/doe_recalculation_batches\/\{id\} \{([\s\S]*?)\n  \}/);
+ assert.ok(block);
+ assert.match(block[1],/allow read: if doeAdmin\(\)/);
+ assert.match(block[1],/allow create,update,delete: if false/);
+ const evidence=rules.match(/match \/doe_calculation_records\/\{id\} \{([\s\S]*?)\n  \}/);
+ assert.ok(evidence);
+ assert.match(evidence[1],/allow create,update,delete: if false/);
 });
 
-test('production DOE admin wires the Firestore recalculation writer and canonical derived-index refresh',()=>{
+test('server DOE admin owns recalculation writer while browser admin stays API-only',()=>{
  const fs=require('node:fs'),path=require('node:path');
- const source=fs.readFileSync(path.join(__dirname,'..','doe-policy-admin.js'),'utf8');
- assert.match(source,/createFirestoreRecalculationWriter/);
- assert.match(source,/recalculationWriter:/);
- assert.match(source,/derivedIndexRefresh:/);
- assert.match(source,/refreshCoreDerivedIndexes/);
- assert.match(source,/doe-recalculate-status/);
+ const server=fs.readFileSync(path.join(__dirname,'..','server','src','doe','policy-admin-service.js'),'utf8');
+ const wiring=fs.readFileSync(path.join(__dirname,'..','server','src','server.js'),'utf8');
+ const browser=fs.readFileSync(path.join(__dirname,'..','doe-policy-admin.js'),'utf8');
+ assert.match(server,/createFirestoreRecalculationWriter/);
+ assert.match(wiring,/recalculationWriter[,}]/);
+ assert.match(wiring,/derivedIndexRefresh:/);
+ assert.doesNotMatch(browser,/createFirestoreRecalculationWriter/);
+ assert.match(browser,/UCVM_DOE_API/);
 });

@@ -362,3 +362,24 @@ test('validatePolicy checks required parameters, priority, target outputs, param
     assert.ok(validation.errors.some(error=>error.code===code),code);
   }
 });
+
+test('lookup tier strategy returns one fixed tier instead of cumulative credit',()=>{
+ const bundle={
+  version:{policyVersionId:'v-lookup',academicYear:'2027-28',status:'draft'},
+  rules:[{
+   ruleId:'course-coordination',ruleKey:'role.course-coordination',category:'role',
+   calculationMode:'tiered',tierStrategy:'lookup',resultKind:'credit',priority:1,enabled:true,
+   selectors:[],inputs:[{inputName:'quantity',required:true}],parameters:[],
+   tiers:[
+    {tierId:'small',tierOrder:1,fromValue:0,toValue:3,fixedCredit:1.75},
+    {tierId:'medium',tierOrder:2,fromValue:3,toValue:6,fixedCredit:3.5},
+    {tierId:'large',tierOrder:3,fromValue:6,toValue:10,fixedCredit:7},
+    {tierId:'multi',tierOrder:4,fromValue:10,toValue:15,fixedCredit:10},
+    {tierId:'complex',tierOrder:5,fromValue:15,toValue:null,fixedCredit:15}
+   ]
+  }],exceptions:[]
+ };
+ for(const [units,expected] of [[2,1.75],[3,3.5],[5,3.5],[6,7],[9,7],[10,10],[14,10],[15,15],[20,15]]){
+  assert.equal(ENGINE.calculate(bundle,{quantity:units}).resultDoe,expected,`${units} units`);
+ }
+});

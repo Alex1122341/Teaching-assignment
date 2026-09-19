@@ -35,7 +35,7 @@ jobs:
         run: npm ci
 
       - name: Run static and unit tests
-        run: npm test
+        run: npm run test:all
 
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator

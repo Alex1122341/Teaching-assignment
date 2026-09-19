@@ -74,7 +74,7 @@ test('faculty index aggregates only persisted DOE credit and marks missing assig
  assert.equal(entry.assignedTeachingDOE,3.6);
  assert.equal(entry.missingDoeCount,1);
  assert.equal(entry.calculationStatus,'error');
- assert.equal(entry.policyVersionId,'policy-v1');
+ assert.equal(entry.policyVersionId,'mixed');
 });
 
 test('faculty index includes persisted managed-role adjustments and canonical target comparison',()=>{
@@ -87,5 +87,17 @@ test('faculty index includes persisted managed-role adjustments and canonical ta
  assert.equal(entry.effectiveTargetDOE,8);
  assert.equal(entry.targetSource,'override');
  assert.equal(entry.remainingDOE,3);
- assert.equal(entry.calculationStatus,'policy');
+ assert.equal(entry.calculationStatus,'mixed');
+});
+
+test('legacy source summary and managed-role DOE are marked as historical evidence instead of current policy authority',()=>{
+ const api=require(modulePath);
+ const faculty=[{__id:'1001',preferredFullName:'Alpha',doe:{teaching:20},managedRoles2026_27:[{action:'add',doeCredit:1}],facultySummary2026_27:{sourceNonTimetableTeachingDOE:2}}];
+ const sessions=[{id:'s1',assignments:[{ucid:'1001',doeCredit:.6,doePolicyVersionId:'policy-v1'}]}];
+ const entry=api.buildFacultyIndex(faculty,sessions).entries[0];
+ assert.equal(entry.assignedTeachingDOE,3.6);
+ assert.equal(entry.legacyDoeEvidenceOnly,true);
+ assert.equal(entry.legacyDoeEvidenceCount,2);
+ assert.equal(entry.calculationStatus,'mixed');
+ assert.equal(entry.policyVersionId,'mixed');
 });

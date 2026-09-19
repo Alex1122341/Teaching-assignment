@@ -285,8 +285,8 @@ service cloud.firestore {
   function afcWithdraw(){return facultyMember() && resource.data.requesterUid == request.auth.uid && resource.data.status in ['pending_report_to','pending_admin'] && request.resource.data.status == 'withdrawn'
    && request.resource.data.withdrawnBy == request.auth.uid && request.resource.data.withdrawnAt == request.time && request.resource.data.updatedAt == request.time
    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','withdrawnBy','withdrawnAt','updatedAt']);}
-  function bulkFacultyImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['awayFromCampusRecords','awayFromCampusSource','awayFromCampusImportedAt','awayFromCampusImportedBy','facultySummary2026_27','facultySummarySource2026_27','facultySummaryImportedAt','facultySummaryImportedBy','workloadPolicy2026_27','workloadPolicySource2026_27','workloadPolicyImportedAt2026_27','workloadPolicyImportedBy2026_27','bulkImportedAt','bulkImportedBy']);}
-  function bulkFacultyImportCreate(){return request.resource.data.keys().hasAny(['awayFromCampusRecords','facultySummary2026_27','workloadPolicy2026_27','bulkImportedAt','bulkImportedBy']);}
+  function bulkFacultyImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['awayFromCampusRecords','awayFromCampusSource','awayFromCampusImportedAt','awayFromCampusImportedBy','facultySummary2026_27','facultySummarySource2026_27','facultySummaryImportedAt','facultySummaryImportedBy','workloadPolicy2026_27','workloadPolicySource2026_27','workloadPolicyImportedAt2026_27','workloadPolicyImportedBy2026_27','doeLegacyEvidence','bulkImportedAt','bulkImportedBy']);}
+  function bulkFacultyImportCreate(){return request.resource.data.keys().hasAny(['awayFromCampusRecords','facultySummary2026_27','workloadPolicy2026_27','doeLegacyEvidence','bulkImportedAt','bulkImportedBy']);}
   function bulkSessionImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']);}
   function clientCreatedSessionHasNoAuditMarker(){return !request.resource.data.keys().hasAny(['auditEventId']);}
   function clientKeptSessionAuditMarker(){return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['auditEventId']);}
@@ -511,88 +511,74 @@ service cloud.firestore {
   }
   match /doe_policies/{id} {
    allow read: if doeAdmin();
-   allow create: if doeAdmin() && request.resource.data.policyId == id;
-   allow update: if doePolicyActivePointerUpdate(id);
-   allow delete: if false;
+   allow create,update,delete: if false;
   }
   match /doe_policy_versions/{id} {
    allow read: if doeAdmin();
-   allow create: if doeAdmin() && request.resource.data.policyVersionId == id && request.resource.data.status == 'draft' && request.resource.data.revision is int;
-   allow update: if doeDraftRevisionUpdate(id) || doeDraftValidationUpdate() || doeDraftImpactEvidenceUpdate() || doePublishVersion(id) || doeArchiveVersion(id);
-   allow delete: if false;
+   allow create,update,delete: if false;
   }
   match /doe_rules/{id} {
    allow read: if doeAdmin();
-   allow create: if request.resource.data.ruleId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
-   allow update: if request.resource.data.ruleId == resource.data.ruleId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
-   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+   allow create,update,delete: if false;
   }
   match /doe_rule_selectors/{id} {
    allow read: if doeAdmin();
-   allow create: if request.resource.data.selectorId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
-   allow update: if request.resource.data.selectorId == resource.data.selectorId && request.resource.data.ruleId == resource.data.ruleId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
-   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+   allow create,update,delete: if false;
   }
   match /doe_rule_parameters/{id} {
    allow read: if doeAdmin();
-   allow create: if request.resource.data.parameterId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
-   allow update: if request.resource.data.parameterId == resource.data.parameterId && request.resource.data.ruleId == resource.data.ruleId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
-   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+   allow create,update,delete: if false;
   }
   match /doe_rule_tiers/{id} {
    allow read: if doeAdmin();
-   allow create: if request.resource.data.tierId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
-   allow update: if request.resource.data.tierId == resource.data.tierId && request.resource.data.ruleId == resource.data.ruleId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
-   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+   allow create,update,delete: if false;
   }
   match /doe_rule_inputs/{id} {
    allow read: if doeAdmin();
-   allow create: if request.resource.data.ruleInputId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
-   allow update: if request.resource.data.ruleInputId == resource.data.ruleInputId && request.resource.data.ruleId == resource.data.ruleId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
-   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+   allow create,update,delete: if false;
   }
   match /doe_exceptions/{id} {
    allow read: if doeAdmin();
-   allow create: if request.resource.data.exceptionId == id && doeDraftChildWrite(request.resource.data.policyVersionId);
-   allow update: if request.resource.data.exceptionId == resource.data.exceptionId && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftChildWrite(resource.data.policyVersionId);
-   allow delete: if doeDraftChildWrite(resource.data.policyVersionId);
+   allow create,update,delete: if false;
+  }
+  match /doe_reference_sources/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_course_mappings/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_subject_mappings/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
   }
   match /doe_impact_runs/{id} {
    allow read: if doeAdmin();
-   allow create: if doeAdmin() && request.resource.data.impactRunId == id && request.resource.data.runBy == request.auth.uid && doeDraftVersion(request.resource.data.policyVersionId);
-   allow update: if doeAdmin() && resource.data.runBy == request.auth.uid && request.resource.data.runBy == resource.data.runBy && request.resource.data.policyVersionId == resource.data.policyVersionId && doeDraftVersion(resource.data.policyVersionId);
-   allow delete: if false;
+   allow create,update,delete: if false;
   }
   match /doe_impact_rows/{id} {
    allow read: if doeAdmin();
-   allow create: if request.resource.data.impactRowId == id && doeImpactOwner(request.resource.data.impactRunId);
-   allow update,delete: if false;
+   allow create,update,delete: if false;
   }
   match /doe_publications/{id} {
    allow read: if doeAdmin();
-   allow create: if general() && request.resource.data.publicationId == id && request.resource.data.publishedBy == request.auth.uid
-    && existsAfter(doeVersionPath(request.resource.data.policyVersionId))
-    && getAfter(doeVersionPath(request.resource.data.policyVersionId)).data.status == 'active'
-    && request.resource.data.policyRevision == getAfter(doeVersionPath(request.resource.data.policyVersionId)).data.revision
-    && request.resource.data.policyChecksum == getAfter(doeVersionPath(request.resource.data.policyVersionId)).data.get('rulesChecksum','')
-    && request.resource.data.impactRunId == getAfter(doeVersionPath(request.resource.data.policyVersionId)).data.get('lastImpactRunId','');
-   allow update,delete: if false;
+   allow create,update,delete: if false;
   }
   match /doe_recalculation_batches/{id} {
    allow read: if doeAdmin();
-   allow create: if doeRecalculationBatchCreate(id);
-   allow update: if doeRecalculationBatchUpdate(id);
-   allow delete: if false;
+   allow create,update,delete: if false;
+  }
+  match /doe_assignments/{id} {
+   allow read,create,update,delete: if false;
   }
   match /doe_calculation_records/{id} {
    allow read: if doeAdmin();
-   allow create: if doeRecalculationEvidenceCreate() && request.resource.data.calculationId == id && request.resource.data.calculatedBy == request.auth.uid;
-   allow update,delete: if false;
+   allow create,update,delete: if false;
   }
   match /doe_audit_log/{id} {
    allow read: if doeAdmin();
-   allow create: if doeRecalculationAuditCreate() && request.resource.data.auditId == id && request.resource.data.changedBy == request.auth.uid;
-   allow update,delete: if false;
+   allow create,update,delete: if false;
   }
   match /public_info/{id} {allow read: if ready(); allow create,update: if general() && request.resource.data.messages is list && request.resource.data.messages.size() <= 10 && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time; allow delete: if false;}
   match /public_schedule/{id} {

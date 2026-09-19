@@ -2,7 +2,27 @@
   "policy": {
     "policyId": "ucvm-workload-2026-27",
     "academicYear": "2026-27",
-    "name": "UCVM Workload 2026-27"
+    "name": "UCVM Workload 2026-27",
+    "requiredRuleKeys": [
+      "teaching.lecture.standard",
+      "teaching.srl.standard",
+      "teaching.lab.lead",
+      "teaching.lab.primary",
+      "teaching.lab.support",
+      "teaching.lab.secondary",
+      "role.course-coordinator",
+      "role.rotation.participant",
+      "role.rotation.coordinator",
+      "supervision.undergraduate",
+      "supervision.fourth-year-preceptor",
+      "supervision.graduate.primary",
+      "supervision.graduate.co-supervisor",
+      "supervision.postdoc",
+      "role.hicc.development",
+      "role.visc.development",
+      "role.new-faculty-career-development",
+      "role.special-activities"
+    ]
   },
   "version": {
     "policyVersionId": "ucvm-workload-2026-27-v1",
@@ -11,11 +31,59 @@
     "versionNumber": 1,
     "name": "2026-27 migration baseline",
     "status": "draft",
-    "revision": 0
+    "revision": 0,
+    "reservePolicy": {
+      "strategy": "flexible_teaching_reserve",
+      "splitThreshold": 35,
+      "splitRatio": 0.5,
+      "highTeachingTraineeCeiling": 15,
+      "teachingFocusedTraineeCeiling": 7.5,
+      "rollingAverageYears": 3,
+      "referenceId": "wg-6-3-t2",
+      "reviewStatus": "confirmed_unchanged"
+    }
   },
+  "references": [
+    {
+      "referenceId": "wg-6-2-t1",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "academicYear": "2026-27",
+      "title": "UCVM Workload Guidelines",
+      "versionDate": "2025-12-23",
+      "section": "6.2",
+      "table": "Table 1",
+      "page": 3,
+      "effectiveDate": "2025-04-01",
+      "reviewStatus": "confirmed_unchanged"
+    },
+    {
+      "referenceId": "wg-6-3-t2",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "academicYear": "2026-27",
+      "title": "UCVM Workload Guidelines",
+      "versionDate": "2025-12-23",
+      "section": "6.3",
+      "table": "Table 2",
+      "page": 4,
+      "effectiveDate": "2025-04-01",
+      "reviewStatus": "confirmed_unchanged"
+    },
+    {
+      "referenceId": "wg-6-4-t3",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "academicYear": "2026-27",
+      "title": "UCVM Workload Guidelines",
+      "versionDate": "2025-12-23",
+      "section": "6.4",
+      "table": "Table 3",
+      "page": 5,
+      "effectiveDate": "2025-04-01",
+      "reviewStatus": "confirmed_unchanged"
+    }
+  ],
   "rules": [
     {
-      "ruleId": "doe-2026-27-teaching-lecture-standard",
+      "ruleId": "doe-2026-27-teaching-lecture",
       "ruleKey": "teaching.lecture.standard",
       "policyVersionId": "ucvm-workload-2026-27-v1",
       "category": "teaching",
@@ -24,22 +92,49 @@
       "resultKind": "credit",
       "priority": 100,
       "enabled": true,
-      "sourceType": "migration",
-      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-2-t1",
+      "sourceReference": "UCVM Workload Guidelines §6.2 Table 1 p.3",
+      "reviewStatus": "confirmed_unchanged",
       "selectors": [
-        {"selectorId": "doe-2026-27-lecture-type", "field": "activityType", "operator": "equals", "valueText": "LEC", "order": 1},
-        {"selectorId": "doe-2026-27-lecture-role", "field": "teachingRole", "operator": "equals", "valueText": "Lecture", "order": 2}
+        {
+          "selectorId": "doe-2026-27-lecture-type",
+          "field": "activityType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "LEC"
+        },
+        {
+          "selectorId": "doe-2026-27-lecture-role",
+          "field": "teachingRole",
+          "operator": "equals",
+          "order": 2,
+          "valueText": "Lecture"
+        }
       ],
       "inputs": [
-        {"ruleInputId": "doe-2026-27-lecture-hours", "inputName": "hours", "required": true, "order": 1}
+        {
+          "ruleInputId": "doe-2026-27-lecture-hours",
+          "inputName": "hours",
+          "required": true,
+          "source": "facts.hours",
+          "order": 1
+        }
       ],
       "parameters": [
-        {"parameterId": "doe-2026-27-lecture-rate", "name": "rate", "valueNumber": 0.30, "unit": "percent_per_hour", "required": true, "order": 1}
+        {
+          "parameterId": "doe-2026-27-lecture-rate",
+          "name": "rate",
+          "valueNumber": 0.3,
+          "unit": "percent_per_hour",
+          "required": true,
+          "order": 1
+        }
       ],
       "tiers": []
     },
     {
-      "ruleId": "doe-2026-27-teaching-srl-standard",
+      "ruleId": "doe-2026-27-teaching-srl",
       "ruleKey": "teaching.srl.standard",
       "policyVersionId": "ucvm-workload-2026-27-v1",
       "category": "teaching",
@@ -48,17 +143,44 @@
       "resultKind": "credit",
       "priority": 100,
       "enabled": true,
-      "sourceType": "migration",
-      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-2-t1",
+      "sourceReference": "UCVM Workload Guidelines §6.2 Table 1 p.3",
+      "reviewStatus": "confirmed_unchanged",
       "selectors": [
-        {"selectorId": "doe-2026-27-srl-type", "field": "activityType", "operator": "equals", "valueText": "SRL", "order": 1},
-        {"selectorId": "doe-2026-27-srl-role", "field": "teachingRole", "operator": "equals", "valueText": "SRL", "order": 2}
+        {
+          "selectorId": "doe-2026-27-srl-type",
+          "field": "activityType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "SRL"
+        },
+        {
+          "selectorId": "doe-2026-27-srl-role",
+          "field": "teachingRole",
+          "operator": "equals",
+          "order": 2,
+          "valueText": "SRL"
+        }
       ],
       "inputs": [
-        {"ruleInputId": "doe-2026-27-srl-hours", "inputName": "hours", "required": true, "order": 1}
+        {
+          "ruleInputId": "doe-2026-27-srl-hours",
+          "inputName": "hours",
+          "required": true,
+          "source": "facts.hours",
+          "order": 1
+        }
       ],
       "parameters": [
-        {"parameterId": "doe-2026-27-srl-rate", "name": "rate", "valueNumber": 0.30, "unit": "percent_per_hour", "required": true, "order": 1}
+        {
+          "parameterId": "doe-2026-27-srl-rate",
+          "name": "rate",
+          "valueNumber": 0.3,
+          "unit": "percent_per_hour",
+          "required": true,
+          "order": 1
+        }
       ],
       "tiers": []
     },
@@ -72,17 +194,44 @@
       "resultKind": "credit",
       "priority": 100,
       "enabled": true,
-      "sourceType": "migration",
-      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-2-t1",
+      "sourceReference": "UCVM Workload Guidelines §6.2 Table 1 p.3",
+      "reviewStatus": "confirmed_unchanged",
       "selectors": [
-        {"selectorId": "doe-2026-27-lab-lead-type", "field": "activityType", "operator": "equals", "valueText": "LAB", "order": 1},
-        {"selectorId": "doe-2026-27-lab-lead-role", "field": "teachingRole", "operator": "equals", "valueText": "Lab Lead", "order": 2}
+        {
+          "selectorId": "doe-2026-27-lab-lead-type",
+          "field": "activityType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "LAB"
+        },
+        {
+          "selectorId": "doe-2026-27-lab-lead-role",
+          "field": "teachingRole",
+          "operator": "equals",
+          "order": 2,
+          "valueText": "Lab Lead"
+        }
       ],
       "inputs": [
-        {"ruleInputId": "doe-2026-27-lab-lead-hours", "inputName": "hours", "required": true, "order": 1}
+        {
+          "ruleInputId": "doe-2026-27-lab-lead-hours",
+          "inputName": "hours",
+          "required": true,
+          "source": "facts.hours",
+          "order": 1
+        }
       ],
       "parameters": [
-        {"parameterId": "doe-2026-27-lab-lead-rate", "name": "rate", "valueNumber": 0.21, "unit": "percent_per_hour", "required": true, "order": 1}
+        {
+          "parameterId": "doe-2026-27-lab-lead-rate",
+          "name": "rate",
+          "valueNumber": 0.21,
+          "unit": "percent_per_hour",
+          "required": true,
+          "order": 1
+        }
       ],
       "tiers": []
     },
@@ -96,17 +245,44 @@
       "resultKind": "credit",
       "priority": 100,
       "enabled": true,
-      "sourceType": "migration",
-      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-2-t1",
+      "sourceReference": "UCVM Workload Guidelines §6.2 Table 1 p.3",
+      "reviewStatus": "confirmed_unchanged",
       "selectors": [
-        {"selectorId": "doe-2026-27-lab-primary-type", "field": "activityType", "operator": "equals", "valueText": "LAB", "order": 1},
-        {"selectorId": "doe-2026-27-lab-primary-role", "field": "teachingRole", "operator": "equals", "valueText": "Lab Primary", "order": 2}
+        {
+          "selectorId": "doe-2026-27-lab-primary-type",
+          "field": "activityType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "LAB"
+        },
+        {
+          "selectorId": "doe-2026-27-lab-primary-role",
+          "field": "teachingRole",
+          "operator": "equals",
+          "order": 2,
+          "valueText": "Lab Primary"
+        }
       ],
       "inputs": [
-        {"ruleInputId": "doe-2026-27-lab-primary-hours", "inputName": "hours", "required": true, "order": 1}
+        {
+          "ruleInputId": "doe-2026-27-lab-primary-hours",
+          "inputName": "hours",
+          "required": true,
+          "source": "facts.hours",
+          "order": 1
+        }
       ],
       "parameters": [
-        {"parameterId": "doe-2026-27-lab-primary-rate", "name": "rate", "valueNumber": 0.21, "unit": "percent_per_hour", "required": true, "order": 1}
+        {
+          "parameterId": "doe-2026-27-lab-primary-rate",
+          "name": "rate",
+          "valueNumber": 0.21,
+          "unit": "percent_per_hour",
+          "required": true,
+          "order": 1
+        }
       ],
       "tiers": []
     },
@@ -120,17 +296,44 @@
       "resultKind": "credit",
       "priority": 100,
       "enabled": true,
-      "sourceType": "migration",
-      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-2-t1",
+      "sourceReference": "UCVM Workload Guidelines §6.2 Table 1 p.3",
+      "reviewStatus": "confirmed_unchanged",
       "selectors": [
-        {"selectorId": "doe-2026-27-lab-support-type", "field": "activityType", "operator": "equals", "valueText": "LAB", "order": 1},
-        {"selectorId": "doe-2026-27-lab-support-role", "field": "teachingRole", "operator": "equals", "valueText": "Lab Support", "order": 2}
+        {
+          "selectorId": "doe-2026-27-lab-support-type",
+          "field": "activityType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "LAB"
+        },
+        {
+          "selectorId": "doe-2026-27-lab-support-role",
+          "field": "teachingRole",
+          "operator": "equals",
+          "order": 2,
+          "valueText": "Lab Support"
+        }
       ],
       "inputs": [
-        {"ruleInputId": "doe-2026-27-lab-support-hours", "inputName": "hours", "required": true, "order": 1}
+        {
+          "ruleInputId": "doe-2026-27-lab-support-hours",
+          "inputName": "hours",
+          "required": true,
+          "source": "facts.hours",
+          "order": 1
+        }
       ],
       "parameters": [
-        {"parameterId": "doe-2026-27-lab-support-rate", "name": "rate", "valueNumber": 0.19, "unit": "percent_per_hour", "required": true, "order": 1}
+        {
+          "parameterId": "doe-2026-27-lab-support-rate",
+          "name": "rate",
+          "valueNumber": 0.19,
+          "unit": "percent_per_hour",
+          "required": true,
+          "order": 1
+        }
       ],
       "tiers": []
     },
@@ -144,20 +347,617 @@
       "resultKind": "credit",
       "priority": 100,
       "enabled": true,
-      "sourceType": "migration",
-      "sourceReference": "Current operational behavior in timetable.js (2026-27 migration baseline)",
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-2-t1",
+      "sourceReference": "UCVM Workload Guidelines §6.2 Table 1 p.3",
+      "reviewStatus": "confirmed_unchanged",
       "selectors": [
-        {"selectorId": "doe-2026-27-lab-secondary-type", "field": "activityType", "operator": "equals", "valueText": "LAB", "order": 1},
-        {"selectorId": "doe-2026-27-lab-secondary-role", "field": "teachingRole", "operator": "equals", "valueText": "Lab Secondary", "order": 2}
+        {
+          "selectorId": "doe-2026-27-lab-secondary-type",
+          "field": "activityType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "LAB"
+        },
+        {
+          "selectorId": "doe-2026-27-lab-secondary-role",
+          "field": "teachingRole",
+          "operator": "equals",
+          "order": 2,
+          "valueText": "Lab Secondary"
+        }
       ],
       "inputs": [
-        {"ruleInputId": "doe-2026-27-lab-secondary-hours", "inputName": "hours", "required": true, "order": 1}
+        {
+          "ruleInputId": "doe-2026-27-lab-secondary-hours",
+          "inputName": "hours",
+          "required": true,
+          "source": "facts.hours",
+          "order": 1
+        }
       ],
       "parameters": [
-        {"parameterId": "doe-2026-27-lab-secondary-rate", "name": "rate", "valueNumber": 0.19, "unit": "percent_per_hour", "required": true, "order": 1}
+        {
+          "parameterId": "doe-2026-27-lab-secondary-rate",
+          "name": "rate",
+          "valueNumber": 0.19,
+          "unit": "percent_per_hour",
+          "required": true,
+          "order": 1
+        }
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-role-course-coordinator",
+      "ruleKey": "role.course-coordinator",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "role",
+      "name": "Course Coordination",
+      "calculationMode": "tiered",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-2-t1",
+      "sourceReference": "UCVM Workload Guidelines §6.2 Table 1 p.3",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-course-coord-role",
+          "field": "roleType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "Course Coordinator"
+        }
+      ],
+      "inputs": [
+        {
+          "ruleInputId": "doe-2026-27-course-coord-units",
+          "inputName": "quantity",
+          "required": true,
+          "source": "course_mapping.unitCount",
+          "order": 1
+        }
+      ],
+      "parameters": [],
+      "tiers": [
+        {
+          "tierId": "doe-2026-27-course-lt3",
+          "tierOrder": 1,
+          "fromValue": 0,
+          "toValue": 3,
+          "fixedCredit": 1.75
+        },
+        {
+          "tierId": "doe-2026-27-course-3-5",
+          "tierOrder": 2,
+          "fromValue": 3,
+          "toValue": 6,
+          "fixedCredit": 3.5
+        },
+        {
+          "tierId": "doe-2026-27-course-6-9",
+          "tierOrder": 3,
+          "fromValue": 6,
+          "toValue": 10,
+          "fixedCredit": 7
+        },
+        {
+          "tierId": "doe-2026-27-course-10-14",
+          "tierOrder": 4,
+          "fromValue": 10,
+          "toValue": 15,
+          "fixedCredit": 10
+        },
+        {
+          "tierId": "doe-2026-27-course-15-plus",
+          "tierOrder": 5,
+          "fromValue": 15,
+          "toValue": null,
+          "fixedCredit": 15
+        }
+      ],
+      "tierStrategy": "lookup"
+    },
+    {
+      "ruleId": "doe-2026-27-role-rotation-participant",
+      "ruleKey": "role.rotation.participant",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "role",
+      "name": "Rotation Participant",
+      "calculationMode": "per_week",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-2-t1",
+      "sourceReference": "UCVM Workload Guidelines §6.2 Table 1 p.3",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-rotation-participant-role",
+          "field": "roleType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "Rotation Participant"
+        }
+      ],
+      "inputs": [
+        {
+          "ruleInputId": "doe-2026-27-rotation-weeks",
+          "inputName": "weeks",
+          "required": true,
+          "source": "facts.weeks",
+          "order": 1
+        }
+      ],
+      "parameters": [
+        {
+          "parameterId": "doe-2026-27-rotation-rate",
+          "name": "rate",
+          "valueNumber": 2.5,
+          "unit": "percent_per_week",
+          "required": true,
+          "order": 1
+        }
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-role-rotation-coordinator",
+      "ruleKey": "role.rotation.coordinator",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "role",
+      "name": "Designated Rotation Coordinator",
+      "calculationMode": "fixed",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-2-t1",
+      "sourceReference": "UCVM Workload Guidelines §6.2 Table 1 p.3",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-rotation-coord-role",
+          "field": "roleType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "Designated Rotation Coordinator"
+        }
+      ],
+      "inputs": [],
+      "parameters": [
+        {
+          "parameterId": "doe-2026-27-rotation-coord-fixed",
+          "name": "fixed",
+          "valueNumber": 2,
+          "unit": "percent_per_rotation_type",
+          "required": true,
+          "order": 1
+        }
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-supervision-undergrad",
+      "ruleKey": "supervision.undergraduate",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "supervision",
+      "name": "Undergraduate / Summer / Intern Supervision",
+      "calculationMode": "per_trainee",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-3-t2",
+      "sourceReference": "UCVM Workload Guidelines §6.3 Table 2 p.4",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-supervision-undergrad-type",
+          "field": "traineeType",
+          "operator": "in",
+          "order": 1,
+          "values": [
+            "undergraduate",
+            "summer_student",
+            "intern"
+          ]
+        }
+      ],
+      "inputs": [
+        {
+          "ruleInputId": "doe-2026-27-supervision-undergrad-count",
+          "inputName": "trainees",
+          "required": true,
+          "source": "facts.trainees",
+          "order": 1
+        }
+      ],
+      "parameters": [
+        {
+          "parameterId": "doe-2026-27-supervision-undergrad-rate",
+          "name": "rate",
+          "valueNumber": 1,
+          "unit": "percent_per_trainee",
+          "required": true,
+          "order": 1
+        }
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-supervision-preceptor",
+      "ruleKey": "supervision.fourth-year-preceptor",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "supervision",
+      "name": "4th Year Preceptor",
+      "calculationMode": "per_trainee",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-3-t2",
+      "sourceReference": "UCVM Workload Guidelines §6.3 Table 2 p.4",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-supervision-preceptor-type",
+          "field": "traineeType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "fourth_year_preceptor"
+        }
+      ],
+      "inputs": [
+        {
+          "ruleInputId": "doe-2026-27-supervision-preceptor-count",
+          "inputName": "trainees",
+          "required": true,
+          "source": "facts.trainees",
+          "order": 1
+        }
+      ],
+      "parameters": [
+        {
+          "parameterId": "doe-2026-27-supervision-preceptor-rate",
+          "name": "rate",
+          "valueNumber": 0.75,
+          "unit": "percent_per_trainee",
+          "required": true,
+          "order": 1
+        }
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-supervision-grad-primary",
+      "ruleKey": "supervision.graduate.primary",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "supervision",
+      "name": "Graduate Student Primary Supervisor",
+      "calculationMode": "per_trainee",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-3-t2",
+      "sourceReference": "UCVM Workload Guidelines §6.3 Table 2 p.4",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-grad-primary-type",
+          "field": "traineeType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "graduate"
+        },
+        {
+          "selectorId": "doe-2026-27-grad-primary-role",
+          "field": "supervisionRole",
+          "operator": "equals",
+          "order": 2,
+          "valueText": "primary"
+        }
+      ],
+      "inputs": [
+        {
+          "ruleInputId": "doe-2026-27-grad-primary-count",
+          "inputName": "trainees",
+          "required": true,
+          "source": "facts.trainees",
+          "order": 1
+        }
+      ],
+      "parameters": [
+        {
+          "parameterId": "doe-2026-27-grad-primary-rate",
+          "name": "rate",
+          "valueNumber": 3,
+          "unit": "percent_per_trainee",
+          "required": true,
+          "order": 1
+        }
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-supervision-grad-co",
+      "ruleKey": "supervision.graduate.co-supervisor",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "supervision",
+      "name": "Graduate Student Co-supervisor",
+      "calculationMode": "per_trainee",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-3-t2",
+      "sourceReference": "UCVM Workload Guidelines §6.3 Table 2 p.4",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-grad-co-type",
+          "field": "traineeType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "graduate"
+        },
+        {
+          "selectorId": "doe-2026-27-grad-co-role",
+          "field": "supervisionRole",
+          "operator": "equals",
+          "order": 2,
+          "valueText": "co_supervisor"
+        }
+      ],
+      "inputs": [
+        {
+          "ruleInputId": "doe-2026-27-grad-co-count",
+          "inputName": "trainees",
+          "required": true,
+          "source": "facts.trainees",
+          "order": 1
+        }
+      ],
+      "parameters": [
+        {
+          "parameterId": "doe-2026-27-grad-co-rate",
+          "name": "rate",
+          "valueNumber": 2,
+          "unit": "percent_per_trainee",
+          "required": true,
+          "order": 1
+        }
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-supervision-postdoc",
+      "ruleKey": "supervision.postdoc",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "supervision",
+      "name": "Postdoctoral Fellow Supervision",
+      "calculationMode": "per_trainee",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-3-t2",
+      "sourceReference": "UCVM Workload Guidelines §6.3 Table 2 p.4",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-postdoc-type",
+          "field": "traineeType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "postdoc"
+        }
+      ],
+      "inputs": [
+        {
+          "ruleInputId": "doe-2026-27-postdoc-count",
+          "inputName": "trainees",
+          "required": true,
+          "source": "facts.trainees",
+          "order": 1
+        }
+      ],
+      "parameters": [
+        {
+          "parameterId": "doe-2026-27-postdoc-rate",
+          "name": "rate",
+          "valueNumber": 1.5,
+          "unit": "percent_per_trainee",
+          "required": true,
+          "order": 1
+        }
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-role-hicc-development",
+      "ruleKey": "role.hicc.development",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "role",
+      "name": "HICC Course Development",
+      "calculationMode": "formula",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-4-t3",
+      "sourceReference": "UCVM Workload Guidelines §6.4 Table 3 p.5",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-hicc-role",
+          "field": "roleType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "HICC"
+        }
+      ],
+      "inputs": [
+        {
+          "ruleInputId": "doe-2026-27-hicc-units",
+          "inputName": "units",
+          "required": true,
+          "source": "course_mapping.unitCount",
+          "order": 1
+        }
+      ],
+      "parameters": [
+        {
+          "parameterId": "doe-2026-27-hicc-rate",
+          "name": "rate",
+          "valueNumber": 2,
+          "unit": "percent_per_unit",
+          "required": true,
+          "order": 1
+        }
+      ],
+      "tiers": [],
+      "formulaText": "units * rate",
+      "mappingRequirement": "course"
+    },
+    {
+      "ruleId": "doe-2026-27-role-visc-development",
+      "ruleKey": "role.visc.development",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "role",
+      "name": "VISC Subject Development — Year 2",
+      "calculationMode": "fixed",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-4-t3",
+      "sourceReference": "UCVM Workload Guidelines §6.4 Table 3 p.5",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-visc-role",
+          "field": "roleType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "VISC"
+        },
+        {
+          "selectorId": "doe-2026-27-visc-stage",
+          "field": "curriculumStage",
+          "operator": "equals",
+          "order": 2,
+          "valueText": "year_2"
+        }
+      ],
+      "inputs": [],
+      "parameters": [
+        {
+          "parameterId": "doe-2026-27-visc-fixed",
+          "name": "fixed",
+          "valueNumber": 5,
+          "unit": "percent_per_subject",
+          "required": true,
+          "order": 1
+        }
+      ],
+      "tiers": [],
+      "mappingRequirement": "subject"
+    },
+    {
+      "ruleId": "doe-2026-27-role-new-faculty",
+      "ruleKey": "role.new-faculty-career-development",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "role",
+      "name": "New Academic Staff Career Development",
+      "calculationMode": "capped",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-2-t1",
+      "sourceReference": "UCVM Workload Guidelines §6.2 Table 1 p.3",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-new-faculty-role",
+          "field": "roleType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "New Faculty Career Development"
+        }
+      ],
+      "inputs": [
+        {
+          "ruleInputId": "doe-2026-27-new-faculty-approved",
+          "inputName": "baseValue",
+          "required": true,
+          "source": "facts.baseValue",
+          "order": 1
+        }
+      ],
+      "parameters": [
+        {
+          "parameterId": "doe-2026-27-new-faculty-cap",
+          "name": "cap",
+          "valueNumber": 10,
+          "unit": "percent_per_year",
+          "required": true,
+          "order": 1
+        }
+      ],
+      "tiers": []
+    },
+    {
+      "ruleId": "doe-2026-27-role-special-activities",
+      "ruleKey": "role.special-activities",
+      "policyVersionId": "ucvm-workload-2026-27-v1",
+      "category": "role",
+      "name": "Special Activities / Instructional Development",
+      "calculationMode": "capped",
+      "resultKind": "credit",
+      "priority": 100,
+      "enabled": true,
+      "sourceType": "workload_guideline",
+      "referenceId": "wg-6-2-t1",
+      "sourceReference": "UCVM Workload Guidelines §6.2 Table 1 p.3",
+      "reviewStatus": "confirmed_unchanged",
+      "selectors": [
+        {
+          "selectorId": "doe-2026-27-special-role",
+          "field": "roleType",
+          "operator": "equals",
+          "order": 1,
+          "valueText": "Special Activities"
+        }
+      ],
+      "inputs": [
+        {
+          "ruleInputId": "doe-2026-27-special-approved",
+          "inputName": "baseValue",
+          "required": true,
+          "source": "facts.baseValue",
+          "order": 1
+        }
+      ],
+      "parameters": [
+        {
+          "parameterId": "doe-2026-27-special-cap",
+          "name": "cap",
+          "valueNumber": 5,
+          "unit": "percent",
+          "required": true,
+          "order": 1
+        }
       ],
       "tiers": []
     }
   ],
+  "courseMappings": [],
+  "subjectMappings": [],
   "exceptions": []
 }

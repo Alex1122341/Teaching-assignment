@@ -64,10 +64,50 @@ test('provision plan updates existing faculty profiles without replacing UID',()
  assert.deepEqual(result.update[0].facultyRoles,['visc','faculty']);
 });
 
-test('provision plan includes idempotent faculty role cleanup writes',()=>{
+test('account provisioning leaves DOE workload records untouched',()=>{
  const faculty=[{__id:'f1',active:true,preferredFullName:'Alpha',email:'alpha@ucalgary.ca',facultySummary2026_27:{roles:[{type:'HICC',assignment:'501'}]}}];
- const first=planner.plan(faculty,[],new Set());
- assert.equal(first.roleUpdates.length,1);
- const cleaned={...faculty[0],managedRoles2026_27:first.roleUpdates[0].after};
- assert.equal(planner.plan([cleaned],[],new Set()).roleUpdates.length,0);
+ const result=planner.plan(faculty,[],new Set());
+ assert.deepEqual(result.roleUpdates,[]);
+ assert.deepEqual(result.create[0].facultyRoles,['hicc','faculty']);
+});
+
+test('deterministic DOE assignment facts exclude editable final doeCredit',()=>{
+ const row=planner.normalizeDoeAssignment({academicYear:'2027-28',type:'HICC',courseCode:'VTMD 204',doeCredit:12,notes:'role fact'});
+ assert.equal(row.academicYear,'2027-28');
+ assert.equal(row.roleType,'HICC');
+ assert.equal(row.courseCode,'VTMD 204');
+ assert.equal(Object.hasOwn(row,'doeCredit'),false);
+});
+
+test('legacy managed HICC role is classified for migration without losing its old credit',()=>{
+ const row=planner.classifyLegacyManagedRole({type:'HICC',assignment:'VTMD 204',doeCredit:12});
+ assert.equal(row.classification,'assignment_fact_candidate');
+ assert.equal(row.legacyDoeCredit,12);
+ assert.equal(row.facts.roleType,'HICC');
+ assert.equal(row.facts.courseCode,'VTMD 204');
+});
+
+test('account provisioning never rewrites workload DOE role records',()=>{
+ const faculty=[{__id:'f1',active:true,preferredFullName:'Alpha',email:'alpha@ucalgary.ca',facultySummary2026_27:{roles:[{type:'HICC',assignment:'VTMD 204'}]}}];
+ const result=planner.plan(faculty,[],new Set());
+ assert.deepEqual(result.roleUpdates,[]);
+ assert.deepEqual(result.create[0].facultyRoles,['hicc','faculty']);
+});
+
+test('Faculty role editor submits assignment facts to DOE API and has no editable deterministic DOE field',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const source=fs.readFileSync(path.resolve(__dirname,'..','faculty-admin-enhancements.js'),'utf8');
+ assert.match(source,/UCVM_DOE_API\.saveRoleAssignment/);
+ assert.doesNotMatch(source,/class="input ucvm-role-doe"/);
+ assert.doesNotMatch(source,/>DOE credit %</);
+});
+
+test('User Management account provisioning cannot write legacy DOE workload role fields',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const source=fs.readFileSync(path.resolve(__dirname,'..','user-management.js'),'utf8');
+ const start=source.indexOf('async function previewProvision');
+ const end=source.indexOf("$('signout')",start);
+ const provisioning=source.slice(start,end);
+ assert.doesNotMatch(provisioning,/managedRoles2026_27/);
+ assert.doesNotMatch(provisioning,/applyRoleCleanup/);
 });

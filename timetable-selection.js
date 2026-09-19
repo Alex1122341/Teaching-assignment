@@ -118,8 +118,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
     if(store.calendarRef&&store.calendarFromSource){batch.set(store.calendarRef(update.id),store.calendarFromSource(update.after||update.data,update.id));operations++}
     batch.set(store.logRef(),log);operations++;
     const calculationRecords=Array.isArray(update.calculationRecords)?update.calculationRecords:[];
-    if(calculationRecords.length&&typeof store.stageCalculationRecord!=='function')throw Error('DOE calculation record staging is required for DOE-relevant session updates.');
-    for(const record of calculationRecords){store.stageCalculationRecord(batch,record);operations++}
+    if(calculationRecords.length)throw Error('DOE calculation evidence must be persisted by the server-side DOE API.');
    }
    try{await batch.commit()}catch(error){error.partialCommit=completedRows>0;error.completedRows=completedRows;error.resumeFrom=completedRows;throw error}
    completedRows=end;
@@ -145,6 +144,20 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   if(existing)return existing;
   const sessionId=text(session?.id)||'session';
   return`${sessionId}--assignment--${Number(index)+1}`;
+ }
+ function stripAssignmentDoeForApi(assignment={}){
+  const next={...assignment};
+  for(const field of ['doeCredit','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId','doeRate','resultDoe','policyVersionId','ruleId','ruleKey','calculationId'])delete next[field];
+  return next;
+ }
+ function createDoeApiAdapter({api}={}){
+  if(!api||typeof api.previewSessionChange!=='function')throw Error('DOE API previewSessionChange is required.');
+  async function prepareSession(before,after,{trigger='session_updated'}={}){
+   const payload={academicYear:academicYearForSession(after),sessionId:text(after?.id||after?.sessionId||before?.id||before?.sessionId),beforeSession:clone(before),afterSession:clone(after),trigger};
+   if(payload.afterSession&&Array.isArray(payload.afterSession.assignments))payload.afterSession.assignments=payload.afterSession.assignments.map(stripAssignmentDoeForApi);
+   return api.previewSessionChange(payload);
+  }
+  return Object.freeze({prepareSession,academicYearForSession});
  }
  function createDoeAdapter({service,engine}={}){
   if(!service||typeof service.activePolicyForYear!=='function')throw Error('DOE policy service is required.');
@@ -237,5 +250,5 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   }
   return Object.freeze({prepareSession,academicYearForSession,bundleForYear});
  }
- return{create,createViewFlow,editPolicy,validateRow,selectedRows,planChanges,commitPlan,createDoeAdapter,academicYearForSession};
+ return{create,createViewFlow,editPolicy,validateRow,selectedRows,planChanges,commitPlan,createDoeAdapter,createDoeApiAdapter,academicYearForSession};
 })();

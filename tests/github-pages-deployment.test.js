@@ -19,7 +19,7 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/id-token:\s*write/);
   assert.match(workflow,/uses:\s*actions\/checkout@v4\s*\n\s*with:\s*\n\s*ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
   assert.match(workflow,/npm ci/);
-  assert.match(workflow,/npm test/);
+  assert.match(workflow,/npm run test:all/);
   assert.match(workflow,/npm run test:emulator/);
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
@@ -64,4 +64,26 @@ test('setup docs require manual production approval after merge',()=>{
   assert.match(setup,/main/);
   assert.match(setup,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
   assert.match(setup,/environment secret/i);
+});
+
+test('exact-head CI runs root and server DOE suites',()=>{
+  const testWorkflow=read('.github/workflows/test.yml');
+  const pagesWorkflow=read('.github/workflows/github-pages-test.yml');
+  for(const workflow of [testWorkflow,pagesWorkflow]){
+    assert.match(workflow,/npm run test:all/);
+    assert.match(workflow,/npm run test:emulator/);
+    assert.match(workflow,/github\.event\.pull_request\.head\.sha/);
+  }
+});
+
+test('DOE API workflow verifies the exact PR head without deploying production',()=>{
+  const workflow=read('.github/workflows/doe-api-test.yml');
+  assert.match(workflow,/pull_request:/);
+  assert.match(workflow,/ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  assert.match(workflow,/node-version:\s*['"]22['"]/);
+  assert.match(workflow,/npm --prefix server (?:ci|install)/);
+  assert.match(workflow,/npm --prefix server test/);
+  assert.match(workflow,/node tools\/build-doe-api\.js/);
+  assert.match(workflow,/output\/doe-api\/server\/src\/server\.js/);
+  assert.doesNotMatch(workflow,/azure\/webapps-deploy|az webapp|production/i);
 });

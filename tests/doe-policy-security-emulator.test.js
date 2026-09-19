@@ -99,26 +99,15 @@ check('ADFA Regular can read DOE configuration while non-ADFA roles cannot',asyn
  }
 });
 
-check('Firestore repository lets ADFA Regular edit a Draft with revision bump and preview invalidation',async()=>{
+check('browser Firestore repository cannot edit a Draft after API cutover',async()=>{
  const db=env.authenticatedContext('regular').firestore();
  const repo=FIRESTORE_ADAPTER.createFirestoreRepository({db});
- const saved=await repo.saveDraftRule({
-  ruleId:'r-draft',
-  policyVersionId:'ucvm-workload-2027-28-v2',
-  ruleKey:'teaching.lecture.standard',
-  category:'teaching',
-  calculationMode:'per_hour',
-  resultKind:'credit',
-  priority:100,
-  enabled:true,
-  name:'Updated Lecture'
- },1,{uid:'regular',name:'Regular Admin',email:'regular@example.test'});
- assert.equal(saved.version.revision,2);
- assert.equal(saved.version.lastImpactRunId,'');
+ await assert.rejects(()=>repo.saveDraftRule({
+  ruleId:'r-draft',policyVersionId:'ucvm-workload-2027-28-v2',ruleKey:'teaching.lecture.standard',
+  category:'teaching',calculationMode:'per_hour',resultKind:'credit',priority:100,enabled:true,name:'Forged Lecture'
+ },1,{uid:'regular',name:'Regular Admin',email:'regular@example.test'}));
  const stored=await db.doc('doe_rules/r-draft').get();
- assert.equal(stored.data().name,'Updated Lecture');
- const audits=await db.collection('doe_audit_log').where('policyVersionId','==','ucvm-workload-2027-28-v2').get();
- assert.equal(audits.size,1);
+ assert.notEqual(stored.data().name,'Forged Lecture');
 });
 
 check('stale Draft revision fails closed',async()=>{
@@ -130,7 +119,7 @@ check('stale Draft revision fails closed',async()=>{
    policyVersionId:'ucvm-workload-2027-28-v2',
    ruleKey:'teaching.lecture.standard',
    category:'teaching',calculationMode:'per_hour',resultKind:'credit',priority:100,enabled:true
-  },1,{uid:'regular'}),
+  },999,{uid:'regular'}),
   error=>error&&error.code==='POLICY_REVISION_CONFLICT'
  );
 });
@@ -153,75 +142,35 @@ check('Other Office and Faculty-side roles cannot create or modify DOE configura
  }
 });
 
-check('publication, calculation and audit evidence cannot be rewritten',async()=>{
- const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
+check('publication, calculation and audit evidence are server-write-only to browser clients',async()=>{
+ const {assertFails}=require('@firebase/rules-unit-testing');
  const general=env.authenticatedContext('general').firestore();
  const stamp=require('firebase/firestore').serverTimestamp;
-
  await env.withSecurityRulesDisabled(async context=>{
-  await context.firestore().doc('doe_publications/pub-test').set({
-   publicationId:'pub-test',policyVersionId:'ucvm-workload-2027-28-v1',
-   policyRevision:1,policyChecksum:'historical-checksum',impactRunId:'historical-impact',
-   publishedBy:'general',publishedByName:'General',publishedAt:new Date('2026-09-18T20:00:00Z').toISOString()
-  });
+  const db=context.firestore();
+  await db.doc('doe_publications/pub-test').set({publicationId:'pub-test',policyVersionId:'ucvm-workload-2027-28-v1',policyRevision:1,policyChecksum:'historical-checksum',impactRunId:'historical-impact',publishedBy:'general',publishedAt:'2026-09-18T20:00:00Z'});
+  await db.doc('doe_calculation_records/calc-test').set({calculationId:'calc-test',policyVersionId:'ucvm-workload-2027-28-v1',facultyId:'f1',resultDoe:1.8,calculatedBy:'server'});
+  await db.doc('doe_audit_log/audit-test').set({auditId:'audit-test',policyVersionId:'ucvm-workload-2027-28-v1',action:'validation_run',changedBy:'server'});
  });
-
+ await assertFails(general.doc('doe_publications/pub-forged').set({publicationId:'pub-forged',policyVersionId:'ucvm-workload-2027-28-v1',publishedBy:'general'}));
  await assertFails(general.doc('doe_publications/pub-test').update({policyChecksum:'changed'}));
- await assertSucceeds(general.doc('doe_calculation_records/calc-test').set({
-  calculationId:'calc-test',policyVersionId:'ucvm-workload-2027-28-v1',
-  facultyId:'f1',resultDoe:1.8,calculatedBy:'general',calculatedAt:stamp()
- }));
+ await assertFails(general.doc('doe_calculation_records/calc-forged').set({calculationId:'calc-forged',policyVersionId:'ucvm-workload-2027-28-v1',facultyId:'f1',resultDoe:99,calculatedBy:'general',calculatedAt:stamp()}));
  await assertFails(general.doc('doe_calculation_records/calc-test').update({resultDoe:9}));
- await assertSucceeds(general.doc('doe_audit_log/audit-test').set({
-  auditId:'audit-test',policyVersionId:'ucvm-workload-2027-28-v1',
-  action:'validation_run',changedBy:'general',changedByName:'General',changedByEmail:'general@example.test',changedAt:stamp()
- }));
+ await assertFails(general.doc('doe_audit_log/audit-forged').set({auditId:'audit-forged',policyVersionId:'ucvm-workload-2027-28-v1',action:'validation_run',changedBy:'general',changedAt:stamp()}));
  await assertFails(general.doc('doe_audit_log/audit-test').update({action:'changed'}));
 });
 
-
-check('General can validate and publish a current Draft atomically through the Firestore repository',async()=>{
- const db=env.authenticatedContext('general').firestore();
- const repo=FIRESTORE_ADAPTER.createFirestoreRepository({db});
- const service=DOE_SERVICE.createService({
-  repository:repo,
-  engine:DOE_ENGINE,
-  actorProvider:()=>({uid:'general',name:'General Admin',email:'general@example.test',role:'adfa_general'}),
-  clock:()=>new Date('2026-09-18T21:00:00Z'),
-  datasetChecksumProvider:async()=>'dataset-security'
- });
- const validation=await service.validateDraft('ucvm-workload-2028-29-v2');
- assert.equal(validation.valid,true);
-
- await repo.createImpactRun({
-  impactRunId:'impact-security',
-  policyVersionId:'ucvm-workload-2028-29-v2',
-  policyRevision:1,
-  policyChecksum:validation.policyChecksum,
-  inputDatasetChecksum:'dataset-security',
-  activeVersionIdAtPreview:'ucvm-workload-2028-29-v1',
-  status:'passed',
-  runBy:'general',
-  errorCount:0,warningCount:0
- });
- await repo.saveImpactEvidence('ucvm-workload-2028-29-v2',{
-  revision:1,
-  impactRunId:'impact-security',
-  policyChecksum:validation.policyChecksum,
-  inputDatasetChecksum:'dataset-security',
-  actor:{uid:'general',name:'General Admin',email:'general@example.test'}
- });
-
- const published=await service.publish('ucvm-workload-2028-29-v2');
- assert.equal(published.version.status,'active');
- assert.equal((await db.doc('doe_policy_versions/ucvm-workload-2028-29-v1').get()).data().status,'archived');
- assert.equal((await db.doc('doe_policies/ucvm-workload-2028-29').get()).data().currentActiveVersionId,'ucvm-workload-2028-29-v2');
- const publications=await db.collection('doe_publications').where('policyVersionId','==','ucvm-workload-2028-29-v2').get();
- assert.equal(publications.size,1);
+check('even ADFA General cannot publish DOE policy through browser Firestore writes',async()=>{
+ const {assertFails}=require('@firebase/rules-unit-testing');
+ const general=env.authenticatedContext('general').firestore();
+ await assertFails(general.doc('doe_impact_runs/impact-browser-forged').set({
+  impactRunId:'impact-browser-forged',policyVersionId:'ucvm-workload-2028-29-v2',policyRevision:1,policyChecksum:'forged',inputDatasetChecksum:'forged',status:'passed',runBy:'general'
+ }));
+ await assertFails(general.doc('doe_policy_versions/ucvm-workload-2028-29-v2').update({status:'active'}));
 });
 
-check('ADFA Regular cannot forge the General-only administrative recalculation path',async()=>{
- const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
+check('browser clients including General cannot write the administrative recalculation path',async()=>{
+ const {assertFails}=require('@firebase/rules-unit-testing');
  const stamp=require('firebase/firestore').serverTimestamp;
  const regular=env.authenticatedContext('regular').firestore();
  const general=env.authenticatedContext('general').firestore();
@@ -242,16 +191,50 @@ check('ADFA Regular cannot forge the General-only administrative recalculation p
   doeRecalculationBatchId:'recalc-security',doeRecalculationPolicyVersionId:'ucvm-workload-2027-28-v1',doeRecalculatedBy:'regular',doeRecalculatedAt:stamp(),updatedBy:'regular',updatedByName:'Regular',updatedAt:stamp()
  }));
 
- const batch=general.batch();
- batch.set(general.doc('doe_recalculation_batches/recalc-security'),{
-  recalculationBatchId:'recalc-security',academicYear:'2027-28',policyVersionId:'ucvm-workload-2027-28-v1',status:'running',completedRows:1,totalRows:1,changedBy:'general',changedByName:'General',updatedAt:stamp()
- });
- batch.update(general.doc('sessions/recalc-s1'),{
-  assignments:[{assignmentId:'a1',ucid:'f1',role:'Lecture',doeCredit:.6,doePolicyVersionId:'ucvm-workload-2027-28-v1',doeRuleId:'r-active',doeRuleKey:'teaching.lecture.standard',doeCalculationId:'calc-recalc-security'}],
-  doeRecalculationBatchId:'recalc-security',doeRecalculationPolicyVersionId:'ucvm-workload-2027-28-v1',doeRecalculatedBy:'general',doeRecalculatedAt:stamp(),updatedBy:'general',updatedByName:'General',updatedAt:stamp()
- });
- batch.set(general.doc('doe_calculation_records/calc-recalc-security'),{
+ await assertFails(general.doc('doe_recalculation_batches/recalc-security').set({
+  recalculationBatchId:'recalc-security',academicYear:'2027-28',policyVersionId:'ucvm-workload-2027-28-v1',status:'running',completedRows:0,totalRows:1,changedBy:'general',changedByName:'General',updatedAt:stamp()
+ }));
+ await assertFails(general.doc('doe_calculation_records/calc-recalc-security').set({
   calculationId:'calc-recalc-security',policyVersionId:'ucvm-workload-2027-28-v1',facultyId:'f1',sessionId:'recalc-s1',assignmentId:'a1',resultDoe:.6,recalculationBatchId:'recalc-security',trigger:'administrative_recalculation',calculatedBy:'general',calculatedAt:stamp()
+ }));
+});
+
+check('ADFA Regular can read annual DOE mappings but cannot write Draft mappings directly',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
+ const db=env.authenticatedContext('regular').firestore();
+ const active=db.doc('doe_course_mappings/active-course-map');
+ const draft=db.doc('doe_course_mappings/draft-course-map');
+
+ await env.withSecurityRulesDisabled(async context=>{
+  await context.firestore().doc('doe_course_mappings/active-course-map').set({
+   mappingId:'active-course-map',policyVersionId:'ucvm-workload-2027-28-v1',academicYear:'2027-28',courseCode:'VTMD 204',unitCount:6,referenceId:'wg-active',reviewStatus:'confirmed_unchanged',enabled:true
+  });
  });
- await assertSucceeds(batch.commit());
+ await assertSucceeds(active.get());
+ await assertFails(active.update({unitCount:9}));
+
+ await assertFails(draft.set({mappingId:'draft-course-map',policyVersionId:'ucvm-workload-2027-28-v2',academicYear:'2027-28',courseCode:'VTMD 302',unitCount:3,referenceId:'wg-draft',reviewStatus:'updated',enabled:true}));
+});
+
+check('non-admin roles cannot write annual DOE references or mappings',async()=>{
+ const {assertFails}=require('@firebase/rules-unit-testing');
+ for(const uid of ['other','faculty','hicc','visc','adc','lab']){
+  const db=env.authenticatedContext(uid).firestore();
+  await assertFails(db.doc(`doe_reference_sources/forged-${uid}`).set({
+   referenceId:`forged-${uid}`,policyVersionId:'ucvm-workload-2027-28-v2',academicYear:'2027-28',title:'forged',reviewStatus:'updated'
+  }));
+ }
+});
+
+
+check('authoritative DOE assignments cannot be written directly by browser clients',async()=>{
+ const {assertFails}=require('@firebase/rules-unit-testing');
+ for(const uid of ['general','regular','faculty']){
+  const db=env.authenticatedContext(uid).firestore();
+  await assertFails(db.doc(`doe_assignments/forged-${uid}`).set({
+   assignmentFactId:`forged-${uid}`,academicYear:'2027-28',facultyId:'f1',category:'role',
+   roleType:'HICC',courseCode:'VTMD 204',doeCredit:99,doePolicyVersionId:'ucvm-workload-2027-28-v1',
+   doeRuleId:'r-active',doeRuleKey:'role.hicc.development',doeCalculationId:'fake',active:true
+  }));
+ }
 });

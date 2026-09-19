@@ -19,7 +19,8 @@
     'facultySummaryStatus2026_27',
     'facultySummarySource2026_27',
     'facultySummaryImportedAt',
-    'facultySummaryImportedBy'
+    'facultySummaryImportedBy',
+    'doeLegacyEvidence'
   ]);
 
   const own=(object,key)=>Object.prototype.hasOwnProperty.call(object,key);

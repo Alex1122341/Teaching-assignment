@@ -1,9 +1,8 @@
 (function(root,factory){
- const engine=typeof module==='object'&&module.exports?require('./doe-policy-engine.js'):(root&&root.UCVM_DOE_POLICY_ENGINE);
- const api=factory(root,engine);
+ const api=factory(root);
  if(typeof module==='object'&&module.exports)module.exports=api;
  if(root)root.UCVM_DOE_POLICY_ADMIN=api;
-})(typeof window!=='undefined'?window:null,function(root,DEFAULT_ENGINE){
+})(typeof window!=='undefined'?window:null,function(root){
  'use strict';
 
  const text=value=>String(value??'').trim();
@@ -91,8 +90,12 @@
    resultKind:text(raw.resultKind)||'credit',
    priority:number(raw.priority)??0,
    enabled:raw.enabled!==false,
+   referenceId:text(raw.referenceId),
    guidelineReference:text(raw.guidelineReference),
    sourceType:text(raw.sourceType),
+   adminNote:text(raw.adminNote),
+   mappingRequirement:text(raw.mappingRequirement),
+   reviewStatus:text(raw.reviewStatus)||'needs_review',
    formulaText:text(raw.formulaText),
    selectors:(Array.isArray(raw.selectors)?raw.selectors:[]).map(normalizeSelector).filter(row=>row.field),
    inputs:(Array.isArray(raw.inputs)?raw.inputs:[]).map(normalizeInput).filter(row=>row.inputName),
@@ -113,186 +116,8 @@
   return errors;
  }
 
- function testRule(rule,sample={},engine=DEFAULT_ENGINE){
-  if(!engine)throw new Error('DOE Policy Engine is required.');
-  const normalized=normalizeRuleDraft(rule);
-  const validation=engine.validatePolicy({
-   version:{policyVersionId:normalized.policyVersionId||'test-draft',academicYear:'test',status:'draft'},
-   rules:[normalized],
-   exceptions:[]
-  });
-  if(!validation.valid){
-   const first=validation.errors[0];
-   const error=new Error(first?.message||'DOE rule validation failed.');
-   error.code=first?.code||'VALIDATION_FAILED';
-   error.validation=validation;
-   throw error;
-  }
-  return engine.calculate({
-   version:{policyVersionId:normalized.policyVersionId||'test-draft',academicYear:'test',status:'draft'},
-   rules:[normalized],
-   exceptions:[]
-  },sample);
- }
-
- function assignmentDoe(assignment={}){
-  const direct=number(assignment.doeCredit);
-  if(direct!==null)return direct;
-  const rate=number(assignment.doeRate),hours=number(assignment.creditedHours);
-  return rate!==null&&hours!==null?rate*hours:null;
- }
-
- function buildImpactDataset(data={},academicYear=''){
-  const calculations=[];
-  const scheduledByFaculty=new Map();
-  const sessions=Array.isArray(data?.sessions)?data.sessions:[];
-  for(const session of sessions){
-   const assignments=Array.isArray(session?.assignments)?session.assignments:[];
-   assignments.forEach((assignment,index)=>{
-    const facultyId=text(assignment?.ucid||assignment?.facultyId);
-    if(!facultyId)return;
-    const hours=number(assignment?.creditedHours);
-    const role=text(assignment?.role);
-    const currentDoe=assignmentDoe(assignment);
-    if(currentDoe!==null)scheduledByFaculty.set(facultyId,(scheduledByFaculty.get(facultyId)||0)+currentDoe);
-    calculations.push({
-     sourceEntityType:'session_assignment',
-     sourceEntityId:`${text(session?.id)||'session'}--assignment--${index+1}`,
-     sessionId:text(session?.id),
-     assignmentId:text(assignment?.assignmentId)||`${text(session?.id)||'session'}--assignment--${index+1}`,
-     facultyId,
-     currentDoe,
-     currentPolicyVersionId:text(assignment?.doePolicyVersionId),
-     context:{
-      category:'teaching',activityType:text(session?.type),teachingRole:role,role,
-      hours,shifts:1,course:text(session?.course),date:text(session?.date),topic:text(session?.topic),
-      semester:text(session?.semester),week:number(session?.week)
-     }
-    });
-   });
-  }
-  const faculty=Array.isArray(data?.faculty)?data.faculty:[];
-  for(const person of faculty){
-   const facultyId=text(person?.__id||person?.ucid||person?.id);
-   if(!facultyId)continue;
-   const summary=person?.facultySummary2026_27&&typeof person.facultySummary2026_27==='object'?person.facultySummary2026_27:{};
-   const fixed=number(summary.sourceNonTimetableTeachingDOE),sourceAssigned=number(summary.assignedTeachingDOE);
-   const reconciliation=fixed!==null?fixed:(sourceAssigned!==null?sourceAssigned-(scheduledByFaculty.get(facultyId)||0):null);
-   if(reconciliation!==null){
-    const assignmentId=`${facultyId}--source-non-timetable-teaching`,assignment='Source non-timetable teaching DOE';
-    calculations.push({
-     sourceEntityType:'source_reconciliation',sourceEntityId:assignmentId,assignmentId,facultyId,currentDoe:reconciliation,
-     currentPolicyVersionId:text(summary.sourceNonTimetableTeachingDOEPolicyVersionId),
-     context:{category:'teaching',activityType:'SOURCE_RECONCILIATION',teachingRole:'Source Reconciliation',assignment}
-    });
-   }
-   const roles=Array.isArray(person?.managedRoles2026_27)?person.managedRoles2026_27:[];
-   roles.forEach((managed,index)=>{
-    const credit=Math.abs(number(managed?.doeCredit)??0);
-    if(!credit&&!text(managed?.assignment)&&!text(managed?.type))return;
-    const signed=text(managed?.action).toLowerCase()==='remove'?-credit:credit;
-    const assignmentId=`${facultyId}--managed-role--${index+1}`;
-    calculations.push({
-     sourceEntityType:'managed_role',sourceEntityId:assignmentId,assignmentId,facultyId,currentDoe:signed,
-     currentPolicyVersionId:text(managed?.doePolicyVersionId),
-     context:{category:'role',roleType:text(managed?.type),assignment:text(managed?.assignment),action:text(managed?.action)||'add'}
-    });
-   });
-  }
-  return{academicYear:text(academicYear),calculations};
- }
-
  function recalculationConfirmationText(version={},preview={}){
   return `Recalculate DOE for Academic Year ${text(version.academicYear)||'—'} using Active policy ${text(version.policyVersionId)||'—'}? This will update ${Number(preview.assignmentsAffected||0)} DOE source row(s); ${Number(preview.changedDoeCount||0)} currently differ from the Active policy. Calculation evidence will be preserved and derived indexes refreshed.`;
- }
-
- function sourceOrdinal(sourceEntityId,label){
-  const match=text(sourceEntityId).match(new RegExp(`--${label}--(\\d+)$`));
-  return match?Number(match[1])-1:-1;
- }
-
- function applyRecalculationRowsToSource(source={},rows=[],calculationRecords=[]){
-  const next={...source};
-  if(Array.isArray(source.assignments))next.assignments=source.assignments.map(row=>({...row}));
-  if(Array.isArray(source.managedRoles2026_27))next.managedRoles2026_27=source.managedRoles2026_27.map(row=>({...row}));
-  if(source.facultySummary2026_27&&typeof source.facultySummary2026_27==='object')next.facultySummary2026_27={...source.facultySummary2026_27};
-  rows.forEach((row,index)=>{
-   const record=calculationRecords[index]||{};
-   const provenance={
-    doeCredit:Number(row.resultDoe),doePolicyVersionId:text(row.policyVersionId),doeRuleId:text(row.ruleId),doeRuleKey:text(row.ruleKey),doeCalculationId:text(record.calculationId)
-   };
-   if(row.sourceEntityType==='session_assignment'){
-    const assignments=next.assignments||[];
-    let at=text(row.assignmentId)?assignments.findIndex(item=>text(item?.assignmentId)===text(row.assignmentId)):-1;
-    if(at<0)at=sourceOrdinal(row.sourceEntityId,'assignment');
-    if(at<0||at>=assignments.length){const error=Error('DOE recalculation could not locate the source session assignment.');error.code='RECALCULATION_SOURCE_NOT_FOUND';throw error}
-    assignments[at]={...assignments[at],...provenance};
-    return;
-   }
-   if(row.sourceEntityType==='managed_role'){
-    const roles=next.managedRoles2026_27||[];
-    const at=sourceOrdinal(row.sourceEntityId,'managed-role');
-    if(at<0||at>=roles.length){const error=Error('DOE recalculation could not locate the source managed role.');error.code='RECALCULATION_SOURCE_NOT_FOUND';throw error}
-    roles[at]={...roles[at],...provenance};
-    return;
-   }
-   if(row.sourceEntityType==='source_reconciliation'){
-    const summary={...(next.facultySummary2026_27||{})};
-    summary.sourceNonTimetableTeachingDOE=Number(row.resultDoe);
-    summary.sourceNonTimetableTeachingDOEPolicyVersionId=text(row.policyVersionId);
-    summary.sourceNonTimetableTeachingDOERuleId=text(row.ruleId);
-    summary.sourceNonTimetableTeachingDOERuleKey=text(row.ruleKey);
-    summary.sourceNonTimetableTeachingDOECalculationId=text(record.calculationId);
-    next.facultySummary2026_27=summary;
-    return;
-   }
-   const error=Error(`Unsupported DOE recalculation source type: ${text(row.sourceEntityType)||'unknown'}`);error.code='RECALCULATION_SOURCE_UNSUPPORTED';throw error;
-  });
-  return next;
- }
-
- function createFirestoreRecalculationWriter({db,repository,actorProvider=()=>({}),serverTimestamp}={}){
-  if(!db||!repository?.stageCalculationRecord)throw new Error('Firestore DOE recalculation writer requires db and repository staging support.');
-  const timestamp=typeof serverTimestamp==='function'?serverTimestamp:()=>root?.firebase?.firestore?.FieldValue?.serverTimestamp?.()||new Date().toISOString();
-  return async payload=>{
-   const current=payload.actor||actorProvider()||{},batchId=text(payload.batchId);
-   if(!batchId)throw new Error('DOE recalculation batchId is required.');
-   const groups=new Map();
-   (payload.rows||[]).forEach((row,index)=>{
-    const isSession=row.sourceEntityType==='session_assignment';
-    const collection=isSession?'sessions':'faculty';
-    const id=isSession?text(row.sessionId):text(row.facultyId);
-    if(!id){const error=Error('DOE recalculation source document ID is required.');error.code='RECALCULATION_SOURCE_NOT_FOUND';throw error}
-    const key=`${collection}/${id}`;
-    if(!groups.has(key))groups.set(key,{collection,id,rows:[],records:[]});
-    groups.get(key).rows.push(row);groups.get(key).records.push((payload.calculationRecords||[])[index]);
-   });
-   const loaded=[];
-   for(const group of groups.values()){
-    const ref=db.collection(group.collection).doc(group.id);
-    let snapshot;try{snapshot=await ref.get({source:'server'})}catch(_){snapshot=await ref.get()}
-    if(!snapshot?.exists){const error=Error(`DOE recalculation source ${group.collection}/${group.id} was not found.`);error.code='RECALCULATION_SOURCE_NOT_FOUND';throw error}
-    loaded.push({...group,ref,source:snapshot.data()});
-   }
-   const stamp=timestamp(),batch=db.batch();
-   for(const group of loaded){
-    const next=applyRecalculationRowsToSource(group.source,group.rows,group.records);
-    next.doeRecalculationBatchId=batchId;
-    next.doeRecalculationPolicyVersionId=text(payload.policyVersionId);
-    next.doeRecalculatedBy=text(current.uid);
-    next.doeRecalculatedAt=stamp;
-    next.updatedBy=text(current.uid);
-    next.updatedByName=text(current.name);
-    next.updatedAt=stamp;
-    batch.set(group.ref,next);
-   }
-   for(const record of payload.calculationRecords||[])repository.stageCalculationRecord(batch,record);
-   batch.set(db.collection('doe_recalculation_batches').doc(batchId),{
-    recalculationBatchId:batchId,academicYear:text(payload.academicYear),policyVersionId:text(payload.policyVersionId),status:'running',
-    completedRows:Number(payload.end||0),totalRows:Number(payload.totalRows||0),changedBy:text(current.uid),changedByName:text(current.name),updatedAt:stamp
-   },{merge:true});
-   await batch.commit();
-  };
  }
 
  const pct=value=>number(value)===null?'—':`${Number(value).toFixed(2)}%`;
@@ -314,11 +139,9 @@
  }
  const state={
   initialized:false,
-  db:null,
   profile:null,
   user:null,
   toast:null,
-  repository:null,
   service:null,
   policies:[],
   versions:[],
@@ -428,7 +251,7 @@
    <td>${esc((rule.parameters||[]).find(p=>p.name==='cap')?.valueNumber??'—')}</td>
    <td class="doe-formula-cell">${esc(rule.formulaText||'—')}</td>
    <td>${esc(rule.guidelineReference||rule.sourceType||'—')}</td>
-   <td><span class="doe-status-badge">${rule.enabled===false?'Disabled':esc(state.bundle.version?.status||'')}</span></td>
+   <td><span class="doe-review-pill" data-review="${esc(rule.reviewStatus||'needs_review')}">${rule.enabled===false?'Disabled':esc((rule.reviewStatus||'needs_review').replaceAll('_',' '))}</span><div class="muted">${esc(state.bundle.version?.status||'')}</div></td>
    <td><button type="button" class="btn btn-small doe-edit-rule" data-rule-id="${esc(rule.ruleId)}" ${!draft||!cap.editDraft?'disabled':''}>Edit</button></td>
   </tr>`).join('')||'<tr><td colspan="10" class="empty">No rules in this section.</td></tr>';
   body.querySelectorAll('.doe-edit-rule').forEach(button=>button.addEventListener('click',()=>openRuleEditor(button.dataset.ruleId)));
@@ -461,6 +284,7 @@
   setStatus(`${version.academicYear} · v${version.versionNumber} · ${String(version.status||'').toUpperCase()} · revision ${version.revision??0}`,version.status);
   applyPermissions();
   renderSection();
+  root?.UCVM_DOE_RULEBOOK_ADMIN?.renderBundle?.(state.bundle,{editable:capabilities(state.profile).editDraft&&version.status==='draft',reload:()=>loadBundle(version.policyVersionId)});
  }
 
  function previewMessage(message,kind=''){
@@ -483,10 +307,9 @@
    else previewMessage('No stored Impact Preview for this policy version.');
    return;
   }
-  const run=await state.repository.getImpactRun(runId);
-  if(!run){previewMessage('Stored Impact Preview evidence could not be loaded.','outdated');return}
-  const rows=await state.repository.listImpactRows(runId);
-  target.innerHTML=impactPreviewHtml({...run,rows});
+  const preview=await state.service.getImpactPreview(runId);
+  if(!preview){previewMessage('Stored Impact Preview evidence could not be loaded.','outdated');return}
+  target.innerHTML=impactPreviewHtml(preview);
  }
 
  async function loadBundle(versionId){
@@ -499,7 +322,7 @@
 
  async function loadVersions(){
   const policy=state.policies.find(row=>row.academicYear===$('doe-policy-year')?.value);
-  state.versions=policy?await state.repository.listVersions(policy.policyId):[];
+  state.versions=policy?await state.service.listVersions(policy.policyId):[];
   const select=$('doe-policy-version');
   if(!select)return;
   const previous=select.value;
@@ -513,7 +336,7 @@
 
  async function load(){
   if(!state.initialized)return false;
-  state.policies=await state.repository.listPolicies();
+  state.policies=await state.service.listPolicies();
   const year=$('doe-policy-year');
   if(!year)return false;
   const previous=year.value;
@@ -577,8 +400,12 @@
   $('doe-rule-mode').value=rule.calculationMode||'fixed';
   $('doe-rule-result-kind').value=rule.resultKind||'credit';
   $('doe-rule-priority').value=rule.priority??100;
+  $('doe-rule-reference-id').value=rule.referenceId||'';
   $('doe-rule-guideline').value=rule.guidelineReference||'';
   $('doe-rule-source-type').value=rule.sourceType||'';
+  $('doe-rule-admin-note').value=rule.adminNote||'';
+  $('doe-rule-mapping-requirement').value=rule.mappingRequirement||'';
+  $('doe-rule-review-status').value=rule.reviewStatus||'needs_review';
   $('doe-rule-enabled').checked=rule.enabled!==false;
   $('doe-rule-advanced').checked=rule.calculationMode==='formula';
   $('doe-rule-formula').value=rule.formulaText||'';
@@ -647,8 +474,12 @@
    calculationMode:advanced?'formula':$('doe-rule-mode').value,
    resultKind:$('doe-rule-result-kind').value,
    priority:$('doe-rule-priority').value,
+   referenceId:$('doe-rule-reference-id').value,
    guidelineReference:$('doe-rule-guideline').value,
    sourceType:$('doe-rule-source-type').value,
+   adminNote:$('doe-rule-admin-note').value,
+   mappingRequirement:$('doe-rule-mapping-requirement').value,
+   reviewStatus:$('doe-rule-review-status').value,
    enabled:$('doe-rule-enabled').checked,
    formulaText:advanced?$('doe-rule-formula').value:'',
    selectors,inputs,parameters,tiers
@@ -659,33 +490,11 @@
   const cap=capabilities(state.profile);
   if(!cap.editDraft||!isDraft())return;
   const draft=readRuleEditor();
-  const validation=(root?.UCVM_DOE_POLICY_ENGINE||DEFAULT_ENGINE).validatePolicy({
-   version:state.bundle.version,rules:[draft],exceptions:[]
-  });
-  if(!validation.valid){say(validation.errors.map(error=>error.message).join(' '),true);return}
-  let revision=Number(state.bundle.version.revision||0);
-  const base={...draft};
-  delete base.selectors;delete base.inputs;delete base.parameters;delete base.tiers;
-  let saved=await state.repository.saveDraftRule(base,revision,actor());
-  revision=Number(saved.version.revision||0);
-  for(const selector of draft.selectors){
-   saved=await state.repository.saveSelector({...selector,ruleId:draft.ruleId,policyVersionId:draft.policyVersionId},revision,actor());
-   revision=Number(saved.version.revision||0);
-  }
-  for(const input of draft.inputs){
-   saved=await state.repository.saveRuleInput({...input,ruleId:draft.ruleId,policyVersionId:draft.policyVersionId},revision,actor());
-   revision=Number(saved.version.revision||0);
-  }
-  for(const parameter of draft.parameters){
-   saved=await state.repository.saveParameter({...parameter,ruleId:draft.ruleId,policyVersionId:draft.policyVersionId},revision,actor());
-   revision=Number(saved.version.revision||0);
-  }
-  for(const tier of draft.tiers){
-   saved=await state.repository.saveTier({...tier,ruleId:draft.ruleId,policyVersionId:draft.policyVersionId},revision,actor());
-   revision=Number(saved.version.revision||0);
-  }
+  const saved=await state.service.saveRule(draft.policyVersionId,draft);
   closeRuleEditor();
-  await loadBundle(draft.policyVersionId);
+  state.bundle=saved?.version?saved:await state.service.loadPolicyBundle(draft.policyVersionId);
+  renderBundle();
+  await renderStoredPreview();
   markPreviewOutdated();
   say('DOE Draft rule saved. Impact Preview is now outdated.');
  }
@@ -698,10 +507,12 @@
   return parsed;
  }
 
- function runRuleTest(){
+ async function runRuleTest(){
   try{
-   const result=testRule(readRuleEditor(),sampleInputs(),root?.UCVM_DOE_POLICY_ENGINE||DEFAULT_ENGINE);
-   $('doe-test-output').textContent=`Result: ${Number(result.resultDoe).toFixed(2)}% DOE · Rule: ${result.ruleKey||result.ruleId} · Inputs: ${JSON.stringify(result.inputs)} · Parameters: ${JSON.stringify(result.parameters)}`;
+   const versionId=text(state.bundle?.version?.policyVersionId);
+   if(!versionId)throw new Error('Policy Version is required.');
+   const result=await state.service.testRule(versionId,readRuleEditor(),sampleInputs());
+   $('doe-test-output').textContent=`Result: ${Number(result.resultDoe).toFixed(2)}% DOE · Rule: ${result.ruleKey||result.ruleId} · Inputs: ${JSON.stringify(result.inputs||{})} · Parameters: ${JSON.stringify(result.parameters||{})}`;
   }catch(error){
    $('doe-test-output').textContent=`${error.code||'ERROR'}: ${error.message||error}`;
   }
@@ -739,7 +550,7 @@
   };
   const errors=validateExceptionDraft(row);
   if(errors.length){say(errors.map(error=>error.message).join(' '),true);return}
-  await state.repository.saveException(row,Number(version.revision||0),actor());
+  await state.service.saveException(version.policyVersionId,row);
   closeExceptionEditor();
   await loadBundle(version.policyVersionId);
   markPreviewOutdated();
@@ -855,7 +666,7 @@
   $('doe-rule-close')?.addEventListener('click',closeRuleEditor);
   $('doe-rule-cancel')?.addEventListener('click',closeRuleEditor);
   $('doe-rule-save')?.addEventListener('click',()=>saveRule().catch(error=>say(error.message||error,true)));
-  $('doe-rule-test')?.addEventListener('click',runRuleTest);
+  $('doe-rule-test')?.addEventListener('click',()=>runRuleTest().catch(error=>say(error.message||error,true)));
   $('doe-rule-advanced')?.addEventListener('change',event=>$('doe-rule-formula-wrap')?.classList.toggle('hidden',!event.target.checked));
   $('doe-add-selector')?.addEventListener('click',()=>addRow('doe-selector-rows',selectorRow));
   $('doe-add-input')?.addEventListener('click',()=>addRow('doe-input-rows',inputRow));
@@ -866,37 +677,12 @@
   $('doe-exception-save')?.addEventListener('click',()=>saveException().catch(error=>say(error.message||error,true)));
  }
 
- function init({db,profile,user,toast}={}){
+ function init({profile,user,toast}={}){
   const cap=capabilities(profile);
-  if(!cap.initialize||!db)return false;
-  const firestore=root?.UCVM_DOE_POLICY_FIRESTORE;
-  const serviceFactory=root?.UCVM_DOE_POLICY_SERVICE;
-  const engine=root?.UCVM_DOE_POLICY_ENGINE||DEFAULT_ENGINE;
-  if(!firestore?.createFirestoreRepository||!serviceFactory?.createService||!engine)return false;
-  state.db=db;state.profile=profile;state.user=user;state.toast=toast;
-  state.repository=firestore.createFirestoreRepository({db});
-  state.service=serviceFactory.createService({
-   repository:state.repository,
-   engine,
-   actorProvider:actor,
-   datasetProvider:async bundle=>{
-    const fresh=await root?.UCVM_ADMIN_DATA?.refresh?.();
-    return buildImpactDataset(fresh||{
-     faculty:root?.UCVM_ADMIN_DATA?.faculty?.()||[],
-     sessions:root?.UCVM_ADMIN_DATA?.sessions?.()||[]
-    },bundle?.version?.academicYear);
-   },
-   recalculationWriter:createFirestoreRecalculationWriter({db,repository:state.repository,actorProvider:actor}),
-   derivedIndexRefresh:async progress=>{
-    const maintenance=root?.UCVM_INDEX_MAINTENANCE;
-    if(!maintenance?.refreshCoreDerivedIndexes)throw new Error('Derived-index refresh is unavailable.');
-    await maintenance.refreshCoreDerivedIndexes(db,actor());
-    const stamp=root?.firebase?.firestore?.FieldValue?.serverTimestamp?.()||new Date().toISOString();
-    await db.collection('doe_recalculation_batches').doc(progress.batchId).set({
-     status:'completed',completedRows:Number(progress.completedRows||0),totalRows:Number(progress.totalRows||0),changedBy:text(actor().uid),changedByName:text(actor().name),updatedAt:stamp
-    },{merge:true});
-   }
-  });
+  if(!cap.initialize)return false;
+  const api=root?.UCVM_DOE_API;
+  if(!api?.listPolicies||!api?.loadPolicyBundle||!api?.saveRule)return false;
+  state.profile=profile;state.user=user;state.toast=toast;state.service=api;
   state.initialized=true;
   wire();
   applyPermissions();
@@ -904,19 +690,15 @@
  }
 
  function destroy(){
-  state.initialized=false;state.db=null;state.profile=null;state.user=null;state.repository=null;state.service=null;state.bundle=null;state.policies=[];state.versions=[];
+  state.initialized=false;state.profile=null;state.user=null;state.service=null;state.bundle=null;state.policies=[];state.versions=[];
  }
 
  return{
   capabilities,
   normalizeRuleDraft,
   validateExceptionDraft,
-  testRule,
-  buildImpactDataset,
   impactPreviewHtml,
   recalculationConfirmationText,
-  applyRecalculationRowsToSource,
-  createFirestoreRecalculationWriter,
   init,
   destroy,
   load,

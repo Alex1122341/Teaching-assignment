@@ -1,0 +1,38 @@
+name: DOE API Test
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install DOE API dependencies
+        run: npm --prefix server install --no-audit --no-fund
+
+      - name: Run DOE API tests
+        run: npm --prefix server test
+
+      - name: Verify Firebase Admin package
+        run: npm --prefix server ls firebase-admin
+
+      - name: Stage DOE API App Service package
+        run: node tools/build-doe-api.js
+
+      - name: Smoke-test staged DOE API entrypoint
+        run: node -e "require('./output/doe-api/server/src/server.js')"
