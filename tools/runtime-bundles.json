@@ -48,10 +48,19 @@
       ]
     },
     {
-      "output": "bundles/timetable-approval.bundle.js",
+      "output": "bundles/shared-approval-request.bundle.js",
       "sources": [
         "approval-routing.js",
-        "approval-request.js",
+        "approval-request.js"
+      ],
+      "pages": [
+        "index.html",
+        "faculty-admin.html"
+      ]
+    },
+    {
+      "output": "bundles/timetable-approval.bundle.js",
+      "sources": [
         "approval-state.js",
         "approval-office-view.js",
         "approval-lifecycle.js",
@@ -104,9 +113,7 @@
         "bulk-import-backup.js",
         "bulk-import-firestore.js",
         "bulk-import-controller.js",
-        "faculty-admin.js",
-        "approval-routing.js",
-        "approval-request.js"
+        "faculty-admin.js"
       ],
       "pages": [
         "faculty-admin.html"

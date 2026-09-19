@@ -39,12 +39,22 @@ test('startup bundles exclude true lazy and compatibility runtime sources',()=>{
  for(const source of ['afc-form-values.js','afc-pdf-browser.js','approval-workflow.js','faculty-swap-handoff.js','faculty-admin-enhancements.js'])assert.ok(sourceManifest.includes(source),source);
 });
 
+test('shared approval request bundle removes cross-page duplication without reordering',()=>{
+ const shared=config.bundles.find(bundle=>bundle.output==='bundles/shared-approval-request.bundle.js');
+ assert.ok(shared);
+ assert.deepEqual(shared.sources,['approval-routing.js','approval-request.js']);
+ assert.deepEqual(shared.pages,['index.html','faculty-admin.html']);
+ for(const source of shared.sources){
+  assert.equal(config.bundles.filter(bundle=>bundle.sources.includes(source)).length,1,source);
+ }
+});
+
 test('bundle source sequences are contiguous and non-overlapping on each declared page',()=>{
  assert.doesNotThrow(()=>build.validateBundleConfig({root,sourceManifest,config}));
 });
 
 test('generated page HTML reduces direct scripts without changing source HTML',()=>{
- const expected={'index.html':9,'faculty-admin.html':11,'user-management.html':6,'password.html':3};
+ const expected={'index.html':10,'faculty-admin.html':12,'user-management.html':6,'password.html':3};
  for(const [page,count] of Object.entries(expected)){
   const source=read(page);
   const generated=build.rewriteHtmlForPage(source,page,config);
@@ -66,8 +76,8 @@ test('bundle output preserves source order and adds auditable source markers',()
 
 test('deployment plan keeps lazy assets while replacing fully covered direct sources',()=>{
  const plan=build.deploymentPlan({root,sourceManifest,config});
- assert.equal(plan.generatedBundles.length,9);
- assert.equal(plan.deployedJsCount,21);
+ assert.equal(plan.generatedBundles.length,10);
+ assert.equal(plan.deployedJsCount,22);
  for(const lazy of config.dynamicSources)assert.ok(plan.copyAssets.includes(lazy),lazy);
  for(const source of ['faculty-doe.js','scheduling-core.js','data-index.js','index-maintenance.js','audit-details.js','firebase-config.js','faculty-access.js'])assert.equal(plan.copyAssets.includes(source),false,source);
  for(const page of ['index.html','faculty-admin.html','user-management.html','password.html'])assert.ok(plan.copyAssets.includes(page),page);

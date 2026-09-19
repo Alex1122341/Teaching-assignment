@@ -67,9 +67,9 @@ test('Azure stages its redirect after the same generated lightweight build',()=>
  const metadata=JSON.parse(fs.readFileSync(path.join(output,'deployment-assets.json'),'utf8'));
  assert.equal(metadata.schemaVersion,'ucvm-static-deployment-v1');
  assert.equal(metadata.sourceAssetCount,62);
- assert.equal(metadata.deploymentAssetCount,31);
- assert.equal(metadata.deployedJsCount,21);
- assert.equal(metadata.bundles.length,9);
+ assert.equal(metadata.deploymentAssetCount,32);
+ assert.equal(metadata.deployedJsCount,22);
+ assert.equal(metadata.bundles.length,10);
 
  const actual=recursiveFiles(output).filter(name=>!['staticwebapp.config.json','deployment-assets.json'].includes(name)).sort();
  const expected=metadata.assets.map(row=>row.path).sort();
@@ -80,7 +80,7 @@ test('Azure stages its redirect after the same generated lightweight build',()=>
   assert.deepEqual(fs.readFileSync(path.join(output,name)),fs.readFileSync(path.join(root,name)),name);
  }
  for(const name of ['faculty-doe.js','data-index.js','firebase-config.js','faculty-access.js'])assert.equal(actual.includes(name),false,name);
- for(const name of ['bundles/shared-auth.bundle.js','bundles/timetable-app.bundle.js','bundles/faculty-runtime-main.bundle.js','bundles/user-management.bundle.js'])assert.ok(actual.includes(name),name);
+ for(const name of ['bundles/shared-auth.bundle.js','bundles/shared-approval-request.bundle.js','bundles/timetable-app.bundle.js','bundles/faculty-runtime-main.bundle.js','bundles/user-management.bundle.js'])assert.ok(actual.includes(name),name);
 
  const generatedIndex=fs.readFileSync(path.join(output,'index.html'),'utf8');
  assert.match(generatedIndex,/src="bundles\/shared-auth\.bundle\.js"/);
