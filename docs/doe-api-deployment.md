@@ -44,9 +44,9 @@ Do not commit a Firebase service-account JSON. For Azure production, store the s
 
 ## Browser API configuration
 
-The frontend reads the DOE API base URL from the existing runtime configuration surface (`window.UCVM_CONFIG.doeApiBaseUrl` / `window.UCVM_DOE_API_BASE_URL`). A real Azure endpoint must be configured only after an App Service environment exists. No production hostname or credential is committed by this implementation plan.
+The frontend reads the DOE API base URL from the existing runtime configuration surface (`window.UCVM_CONFIG.doeApiBaseUrl` / `window.UCVM_DOE_API_BASE_URL`). The production main-build injects this from the GitHub Actions repository variable `PRODUCTION_DOE_API_BASE_URL`; the production hostname is not committed to source.
 
-The configured frontend origin must also appear in `ALLOWED_ORIGINS`; otherwise browser requests are rejected before authentication.
+The main-build production verifier requires a non-local HTTPS endpoint. The configured frontend origin must also appear in the App Service `ALLOWED_ORIGINS`; otherwise browser requests are rejected before authentication. The build does not deploy the App Service itself, so the endpoint must exist and pass `GET /api/health` before a production release is approved.
 
 ## CI verification
 
