@@ -175,7 +175,8 @@ test('AFC UI requires contact details for each new request', () => {
   assert.match(source, /name="contactPhone"[^>]*required[^>]*maxlength="50"/);
   assert.match(source, /contactAddress=String\(d\.get\('contactAddress'\)\|\|''\)\.trim\(\)/);
   assert.match(source, /contactPhone=String\(d\.get\('contactPhone'\)\|\|''\)\.trim\(\)/);
-  assert.match(source, /coverage,contactAddress,contactPhone,workDays/);
+  assert.match(source, /coverage,contactAddress,contactPhone/);
+  assert.match(source, /termsAccepted:true,termsVersion:AFC_TERMS_VERSION,termsSource:AFC_TERMS_SOURCE,termsAcceptedAt:stamp\(\),workDays/);
 });
 
 test('AFC teaching matches render as a vertical sorted list', () => {
