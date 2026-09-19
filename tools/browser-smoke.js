@@ -265,6 +265,14 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture}){
   if(login.result?.value?.uid!==fixture.uid)throw Error('Authenticated smoke signed in an unexpected UID.');
   await waitForCondition(cdp,`(()=>firebase.auth().currentUser?.uid===${JSON.stringify(fixture.uid)}&&!document.body.classList.contains('auth-locked')&&!document.getElementById('manage-users-btn')?.classList.contains('hidden'))()`,'Timetable owner access');
 
+  const afcLazy=await cdp.send('Runtime.evaluate',{
+   expression:`(async()=>{const api=await window.UCVM_ASSETS.ensureAfcPdf();return{ok:!!api,values:!!window.UCVM_AFC_FORM_VALUES,pdf:!!window.UCVM_AFC_PDF}})()`,
+   returnByValue:true,
+   awaitPromise:true
+  });
+  if(afcLazy.exceptionDetails)throw Error(`AFC lazy bundle failed: ${exceptionText(afcLazy.exceptionDetails)}`);
+  if(!afcLazy.result?.value?.ok||!afcLazy.result?.value?.values||!afcLazy.result?.value?.pdf)throw Error('AFC lazy bundle did not expose the expected runtime globals.');
+
   await navigate('faculty-admin.html');
   await waitForCondition(cdp,`(()=>document.getElementById('auth-gate')?.classList.contains('hidden')===true&&document.getElementById('admin-chip')?.textContent.includes('Browser Smoke Owner'))()`,'Faculty Dashboard owner access');
 

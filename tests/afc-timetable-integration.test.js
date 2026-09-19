@@ -23,7 +23,10 @@ test('timetable exposes AFC navigation and loads its scripts in dependency order
   assert.ok(workflow < panel, 'AFC workflow loads before the timetable panel');
 
   const loader = read('asset-loader.js');
-  assert.ok(loader.indexOf("loadScriptOnce('afc-form-values.js'") < loader.indexOf("loadScriptOnce('afc-pdf-browser.js'"));
+  const bundles = JSON.parse(read('tools/runtime-bundles.json'));
+  const lazy = bundles.lazyBundles.find(bundle => bundle.output === 'bundles/afc-pdf.lazy.bundle.js');
+  assert.deepEqual(lazy.sources, ['afc-form-values.js','afc-pdf-browser.js']);
+  assert.match(loader, /loadScriptOnce\('bundles\/afc-pdf\.lazy\.bundle\.js','UCVM_AFC_PDF'\)/);
 });
 
 test('AFC runtime delegates workday policy to the shared University closure calendar',()=>{

@@ -44,3 +44,10 @@ test('authenticated smoke fixture is isolated and uses an allowed UCVM email',()
  assert.equal(emulatorOrigin('127.0.0.1:9099'),'http://127.0.0.1:9099');
  assert.equal(emulatorOrigin('http://localhost:8080/'),'http://localhost:8080');
 });
+
+test('authenticated browser smoke exercises the AFC lazy helper bundle',()=>{
+ const source=require('node:fs').readFileSync(path.join(__dirname,'..','tools/browser-smoke.js'),'utf8');
+ assert.match(source,/UCVM_ASSETS\.ensureAfcPdf\(\)/);
+ assert.match(source,/UCVM_AFC_FORM_VALUES/);
+ assert.match(source,/UCVM_AFC_PDF/);
+});
