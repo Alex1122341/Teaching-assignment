@@ -46,7 +46,7 @@ Do not commit a Firebase service-account JSON. For Azure production, store the s
 
 The frontend reads the DOE API base URL from the existing runtime configuration surface (`window.UCVM_CONFIG.doeApiBaseUrl` / `window.UCVM_DOE_API_BASE_URL`). The production main-build injects this from the GitHub Actions repository variable `PRODUCTION_DOE_API_BASE_URL`; the production hostname is not committed to source.
 
-The main-build production verifier requires a non-local HTTPS endpoint. The configured frontend origin must also appear in the App Service `ALLOWED_ORIGINS`; otherwise browser requests are rejected before authentication. The build does not deploy the App Service itself, so the endpoint must exist and pass `GET /api/health` before a production release is approved.
+The main-build production verifier requires a non-local HTTPS endpoint. It then calls `GET /api/health` with the Azure Static Web Apps production Origin and requires both the expected `{ok:true, service:"ucvm-doe-api"}` payload and the matching `Access-Control-Allow-Origin` response header. The configured frontend origin must therefore appear in the App Service `ALLOWED_ORIGINS`; otherwise the production artifact build fails before upload. The build does not deploy the App Service itself, so the endpoint must already exist and be healthy before a production release is approved.
 
 ## CI verification
 

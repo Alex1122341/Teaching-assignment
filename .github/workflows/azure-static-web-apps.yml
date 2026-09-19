@@ -56,6 +56,12 @@ jobs:
           node tools/verify-production-client-config.js
           rm -f "$config_file"
 
+      - name: Verify production DOE API health and CORS
+        env:
+          PRODUCTION_DOE_API_BASE_URL: ${{ vars.PRODUCTION_DOE_API_BASE_URL }}
+          PRODUCTION_FRONTEND_ORIGIN: https://red-cliff-04871ca0f.5.azurestaticapps.net
+        run: node tools/verify-production-doe-api.js
+
       - name: Build static site
         run: node tools/build-static.js
 
