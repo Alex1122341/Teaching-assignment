@@ -15,7 +15,32 @@ const localScripts=html=>[...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']
  .filter(value=>value&&!/^https?:/i.test(value));
 
 test('runtime bundle build exports deterministic pure helpers',()=>{
- for(const name of ['validateBundleConfig','bundleText','rewriteHtmlForPage','deploymentPlan'])assert.equal(typeof build[name],'function',name);
+ for(const name of ['validateBundleConfig','bundleText','rewriteHtmlForPage','buildBundleArtifacts','hashedBundleOutput','deploymentPlan'])assert.equal(typeof build[name],'function',name);
+});
+
+test('generated bundle names are deterministic content hashes',()=>{
+ const one=build.hashedBundleOutput('bundles/example.bundle.js','alpha');
+ const same=build.hashedBundleOutput('bundles/example.bundle.js','alpha');
+ const changed=build.hashedBundleOutput('bundles/example.bundle.js','beta');
+ assert.equal(one,same);
+ assert.notEqual(one,changed);
+ assert.match(one,/^bundles\/example\.bundle\.[0-9a-f]{12}\.js$/);
+});
+
+test('generated startup bundles reference hashed lazy bundles and generated HTML references hashed startup bundles',()=>{
+ const generated=build.buildBundleArtifacts({rootDir:root,config});
+ const afc=generated.bundlePaths.get('bundles/afc-pdf.lazy.bundle.js');
+ const approval=generated.bundlePaths.get('bundles/approval-workflow.lazy.bundle.js');
+ const timetable=generated.artifacts.find(item=>item.logicalOutput==='bundles/timetable-app.bundle.js');
+ assert.match(afc,/^bundles\/afc-pdf\.lazy\.bundle\.[0-9a-f]{12}\.js$/);
+ assert.match(approval,/^bundles\/approval-workflow\.lazy\.bundle\.[0-9a-f]{12}\.js$/);
+ assert.ok(timetable.content.includes(afc));
+ assert.ok(timetable.content.includes(approval));
+ assert.doesNotMatch(timetable.content,/bundles\/afc-pdf\.lazy\.bundle\.js/);
+ assert.doesNotMatch(timetable.content,/bundles\/approval-workflow\.lazy\.bundle\.js/);
+ const html=build.rewriteHtmlForPage(read('index.html'),'index.html',config,generated.bundlePaths);
+ assert.match(html,/src="bundles\/shared-auth\.bundle\.[0-9a-f]{12}\.js"/);
+ assert.match(html,/src="bundles\/timetable-app\.bundle\.[0-9a-f]{12}\.js"/);
 });
 
 test('bundle configuration uses safe generated paths and source allowlist entries',()=>{

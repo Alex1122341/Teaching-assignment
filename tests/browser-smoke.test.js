@@ -8,7 +8,7 @@ const {
 
 test('browser smoke covers every generated application page',()=>{
  assert.deepEqual(PAGE_EXPECTATIONS.map(item=>item.page),['index.html','faculty-admin.html','user-management.html','password.html']);
- for(const item of PAGE_EXPECTATIONS)assert.match(item.required,/^bundles\/.+\.bundle\.js$/);
+ for(const item of PAGE_EXPECTATIONS)assert.match(item.requiredLogical,/^bundles\/.+\.bundle\.js$/);
 });
 
 test('browser smoke explicitly rejects Firebase cloud endpoints',()=>{
@@ -58,4 +58,13 @@ test('authenticated browser smoke verifies one centralized approval lazy bundle'
  assert.match(source,/approval-workflow\.lazy\.bundle\.js/);
  assert.match(source,/UCVM_SAFE_SWAP_HANDOFF/);
  assert.match(source,/expected exactly once/);
+});
+
+test('browser smoke resolves logical bundle names to hashed deployment paths',()=>{
+ const map=bundlePathMap({bundles:[
+  {logicalOutput:'bundles/timetable-app.bundle.js',output:'bundles/timetable-app.bundle.0123456789ab.js'},
+  {logicalOutput:'bundles/afc-pdf.lazy.bundle.js',output:'bundles/afc-pdf.lazy.bundle.abcdef012345.js'}
+ ]});
+ assert.equal(map.get('bundles/timetable-app.bundle.js'),'bundles/timetable-app.bundle.0123456789ab.js');
+ assert.equal(map.get('bundles/afc-pdf.lazy.bundle.js'),'bundles/afc-pdf.lazy.bundle.abcdef012345.js');
 });

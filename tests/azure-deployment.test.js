@@ -7,13 +7,13 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 
-test('Azure Static Web Apps routing config is committed at repository root',()=>{
+test('Azure Static Web Apps routing and cache config is committed at repository root',()=>{
   const config=JSON.parse(read('staticwebapp.config.json'));
-  assert.deepEqual(config.routes,[{
-    route:'/faculty-dashboard.html',
-    redirect:'/index.html',
-    statusCode:301
-  }]);
+  assert.deepEqual(config.routes,[
+    {route:'/faculty-dashboard.html',redirect:'/index.html',statusCode:301},
+    {route:'/bundles/*',headers:{'Cache-Control':'public, max-age=31536000, immutable'}},
+    {route:'/*.{html,js,css}',headers:{'Cache-Control':'no-cache, max-age=0, must-revalidate'}}
+  ]);
 });
 
 test('manual Azure fallback copies the canonical config instead of generating a second copy',()=>{

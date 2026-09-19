@@ -7,13 +7,18 @@ const {spawn,spawnSync}=require('node:child_process');
 
 const root=path.resolve(__dirname,'..');
 const site=path.join(root,'.deploy-static');
+const metadataPath=path.join(root,'.deploy-metadata','deployment-assets.json');
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function readDeploymentMetadata(){return JSON.parse(fs.readFileSync(metadataPath,'utf8'))}
+function bundlePathMap(metadata=readDeploymentMetadata()){
+ return new Map((metadata.bundles||[]).map(bundle=>[bundle.logicalOutput||bundle.output,bundle.output]));
+}
 const CLOUD_FIREBASE_HOSTS=new Set(['firestore.googleapis.com','identitytoolkit.googleapis.com','securetoken.googleapis.com']);
 const PAGE_EXPECTATIONS=Object.freeze([
- {page:'index.html',titles:['UCVM Timetable - Workload Guideline DOE V9.7'],required:'bundles/timetable-app.bundle.js'},
- {page:'faculty-admin.html',titles:['Faculty Dashboard'],required:'bundles/faculty-runtime-main.bundle.js'},
- {page:'user-management.html',titles:['UCVM · User Management','UCVM Timetable - Workload Guideline DOE V9.7'],required:'bundles/user-management.bundle.js'},
- {page:'password.html',titles:['UCVM · Change Password','UCVM Timetable - Workload Guideline DOE V9.7'],required:'bundles/shared-auth.bundle.js'}
+ {page:'index.html',titles:['UCVM Timetable - Workload Guideline DOE V9.7'],requiredLogical:'bundles/timetable-app.bundle.js'},
+ {page:'faculty-admin.html',titles:['Faculty Dashboard'],requiredLogical:'bundles/faculty-runtime-main.bundle.js'},
+ {page:'user-management.html',titles:['UCVM · User Management','UCVM Timetable - Workload Guideline DOE V9.7'],requiredLogical:'bundles/user-management.bundle.js'},
+ {page:'password.html',titles:['UCVM · Change Password','UCVM Timetable - Workload Guideline DOE V9.7'],requiredLogical:'bundles/shared-auth.bundle.js'}
 ]);
 const AUTH_FIXTURE=Object.freeze({
  projectId:'vista-teaching-lab',
@@ -175,7 +180,7 @@ async function evaluateState(cdp){
  }
  throw Error('Could not evaluate browser state.');
 }
-async function inspectPage({debugPort,origin,expectation}){
+async function inspectPage({debugPort,origin,expectation,bundlePaths}){
  const target=await newTarget(debugPort),cdp=await connectCdp(target.webSocketDebuggerUrl);
  const requests=new Map(),requested=[],exceptions=[],assetFailures=[],cloudRequests=[];
  const off=cdp.on(message=>{
@@ -202,7 +207,9 @@ async function inspectPage({debugPort,origin,expectation}){
   await load;
   await wait(1800);
   const state=await evaluateState(cdp);
-  const requiredUrl=`${origin}/${expectation.required}`;
+  const requiredAsset=bundlePaths.get(expectation.requiredLogical);
+  if(!requiredAsset)throw Error(`${expectation.page}: missing generated bundle mapping for ${expectation.requiredLogical}`);
+  const requiredUrl=`${origin}/${requiredAsset}`;
   const requestedRequired=requested.some(url=>url.split(/[?#]/)[0]===requiredUrl);
   const problems=[];
   if(!expectation.titles.includes(state.title))problems.push(`unexpected title "${state.title}"`);
@@ -211,12 +218,12 @@ async function inspectPage({debugPort,origin,expectation}){
   if(!state.hasFirebase)problems.push('Firebase SDK global is missing');
   if(!state.hasUcvm)problems.push('UCVM shared runtime global is missing');
   if(state.runtimeError)problems.push(state.runtimeError);
-  if(!requestedRequired)problems.push(`required generated asset was not requested: ${expectation.required}`);
+  if(!requestedRequired)problems.push(`required generated asset was not requested: ${requiredAsset}`);
   if(exceptions.length)problems.push(`uncaught browser exception(s): ${exceptions.join(' | ')}`);
   if(assetFailures.length)problems.push(`local asset failure(s): ${assetFailures.join(' | ')}`);
   if(cloudRequests.length)problems.push(`unexpected Firebase cloud request(s) in emulator smoke: ${cloudRequests.join(' | ')}`);
   if(problems.length)throw Error(`${expectation.page}: ${problems.join('; ')}`);
-  return{page:expectation.page,finalUrl:state.href,title:state.title,requiredAsset:expectation.required,requests:requested.filter(url=>url.startsWith(origin)).length};
+  return{page:expectation.page,finalUrl:state.href,title:state.title,requiredAsset,requests:requested.filter(url=>url.startsWith(origin)).length};
  }finally{
   off();cdp.close();await closeTarget(debugPort,target.id);
  }
@@ -231,7 +238,7 @@ async function waitForCondition(cdp,expression,label,timeoutMs=12000){
  }
  throw Error(`Timed out waiting for authenticated browser state: ${label}`);
 }
-async function authenticatedOwnerSmoke({debugPort,origin,fixture}){
+async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
  const target=await newTarget(debugPort),cdp=await connectCdp(target.webSocketDebuggerUrl);
  const requests=new Map(),exceptions=[],assetFailures=[],cloudRequests=[];
  const off=cdp.on(message=>{
@@ -265,16 +272,20 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture}){
   if(login.result?.value?.uid!==fixture.uid)throw Error('Authenticated smoke signed in an unexpected UID.');
   await waitForCondition(cdp,`(()=>firebase.auth().currentUser?.uid===${JSON.stringify(fixture.uid)}&&!document.body.classList.contains('auth-locked')&&!document.getElementById('manage-users-btn')?.classList.contains('hidden'))()`,'Timetable owner access');
 
+  const afcAsset=bundlePaths.get('bundles/afc-pdf.lazy.bundle.js');
+  const approvalAsset=bundlePaths.get('bundles/approval-workflow.lazy.bundle.js');
+  if(!afcAsset||!approvalAsset)throw Error('Authenticated smoke is missing hashed lazy bundle mappings.');
   const afcLazy=await cdp.send('Runtime.evaluate',{
-   expression:`(async()=>{const api=await window.UCVM_ASSETS.ensureAfcPdf();return{ok:!!api,values:!!window.UCVM_AFC_FORM_VALUES,pdf:!!window.UCVM_AFC_PDF}})()`,
+   expression:`(async()=>{const api=await window.UCVM_ASSETS.ensureAfcPdf();const expected=${JSON.stringify(afcAsset)};const scripts=[...document.scripts].filter(script=>String(script.src||'').endsWith('/'+expected));return{ok:!!api,values:!!window.UCVM_AFC_FORM_VALUES,pdf:!!window.UCVM_AFC_PDF,scripts:scripts.length}})()`,
    returnByValue:true,
    awaitPromise:true
   });
   if(afcLazy.exceptionDetails)throw Error(`AFC lazy bundle failed: ${exceptionText(afcLazy.exceptionDetails)}`);
   if(!afcLazy.result?.value?.ok||!afcLazy.result?.value?.values||!afcLazy.result?.value?.pdf)throw Error('AFC lazy bundle did not expose the expected runtime globals.');
+  if(afcLazy.result?.value?.scripts!==1)throw Error(`AFC hashed lazy bundle loaded ${afcLazy.result?.value?.scripts||0} times; expected exactly once.`);
 
   const approvalLazy=await cdp.send('Runtime.evaluate',{
-   expression:`(async()=>{await window.UCVM_ASSETS.ensureApprovalWorkflow();const scripts=[...document.scripts].filter(script=>String(script.src||'').includes('bundles/approval-workflow.lazy.bundle.js'));return{handoff:window.UCVM_SAFE_SWAP_HANDOFF?.mode||'',scripts:scripts.length}})()`,
+   expression:`(async()=>{await window.UCVM_ASSETS.ensureApprovalWorkflow();const expected=${JSON.stringify(approvalAsset)};const scripts=[...document.scripts].filter(script=>String(script.src||'').endsWith('/'+expected));return{handoff:window.UCVM_SAFE_SWAP_HANDOFF?.mode||'',scripts:scripts.length}})()`,
    returnByValue:true,
    awaitPromise:true
   });
@@ -301,7 +312,8 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture}){
 }
 async function run(){
  const authenticated=process.argv.includes('--authenticated');
- if(!fs.existsSync(path.join(root,'.deploy-metadata','deployment-assets.json')))throw Error('Build .deploy-static before running browser smoke.');
+ if(!fs.existsSync(metadataPath))throw Error('Build .deploy-static before running browser smoke.');
+ const bundlePaths=bundlePathMap();
  const authFixture=authenticated?await createAuthenticatedFixture():null;
  const chrome=findChrome();
  if(!chrome)throw Error(`Chrome/Chromium was not found. Tried: ${chromeCandidates().join(', ')}`);
@@ -319,11 +331,11 @@ async function run(){
  try{
   const debugPort=await waitForDebugPort(userDataDir,child);
   const results=[];
-  for(const expectation of PAGE_EXPECTATIONS)results.push(await inspectPage({debugPort,origin,expectation}));
+  for(const expectation of PAGE_EXPECTATIONS)results.push(await inspectPage({debugPort,origin,expectation,bundlePaths}));
   process.stdout.write(`Browser smoke passed ${results.length}/${PAGE_EXPECTATIONS.length} signed-out pages in emulator mode.\n`);
   for(const item of results)process.stdout.write(`- ${item.page}: ${item.requiredAsset} loaded; ${item.requests} local requests; final ${item.finalUrl}\n`);
   if(authFixture){
-   const owner=await authenticatedOwnerSmoke({debugPort,origin,fixture:authFixture});
+   const owner=await authenticatedOwnerSmoke({debugPort,origin,fixture:authFixture,bundlePaths});
    process.stdout.write(`Authenticated owner smoke passed ${owner.pages.length}/${owner.pages.length} protected pages: ${owner.pages.join(', ')}.\n`);
   }
   return results;
@@ -344,4 +356,4 @@ async function run(){
  }
 }
 if(require.main===module)run().catch(error=>{console.error(error.stack||error);process.exit(1)});
-module.exports={PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,emulatorOrigin,createAuthenticatedFixture,safeStaticPath,contentType,chromeCandidates,findChrome,localAssetFailure,createStaticServer};
+module.exports={PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,readDeploymentMetadata,bundlePathMap,emulatorOrigin,createAuthenticatedFixture,safeStaticPath,contentType,chromeCandidates,findChrome,localAssetFailure,createStaticServer};

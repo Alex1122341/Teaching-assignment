@@ -1,12 +1,29 @@
 'use strict';
 const fs=require('node:fs');
 const path=require('node:path');
+const crypto=require('node:crypto');
 
 const root=path.resolve(__dirname,'..');
 const sourceManifestPath=path.join(__dirname,'static-assets.json');
 const bundleManifestPath=path.join(__dirname,'runtime-bundles.json');
 
 function readJson(filename){return JSON.parse(fs.readFileSync(filename,'utf8'))}
+function contentHash(content){return crypto.createHash('sha256').update(String(content),'utf8').digest('hex').slice(0,12)}
+function hashedBundleOutput(output,content){
+ if(!safeRelative(output)||!output.endsWith('.js'))throw Error(`Cannot hash unsafe bundle output: ${output}`);
+ return output.replace(/\.js$/,`.${contentHash(content)}.js`);
+}
+function bundleOutputFor(logicalOutput,bundlePaths){
+ if(bundlePaths instanceof Map)return bundlePaths.get(logicalOutput)||logicalOutput;
+ if(bundlePaths&&typeof bundlePaths==='object')return bundlePaths[logicalOutput]||logicalOutput;
+ return logicalOutput;
+}
+function rewriteGeneratedBundleReferences(content,bundlePaths){
+ let output=String(content);
+ const entries=bundlePaths instanceof Map?[...bundlePaths.entries()]:Object.entries(bundlePaths||{});
+ for(const [logical,hashed] of entries.sort((a,b)=>b[0].length-a[0].length))output=output.split(logical).join(hashed);
+ return output;
+}
 function safeRelative(relative){
  if(typeof relative!=='string'||!relative||path.isAbsolute(relative))return false;
  if(relative.includes('\\'))return false;
@@ -84,7 +101,7 @@ function bundleText(parts){
   return `/* SOURCE: ${part.source} */\n${content}${content.endsWith('\n')?'':'\n'};\n`;
  }).join('\n');
 }
-function rewriteHtmlForPage(html,page,config){
+function rewriteHtmlForPage(html,page,config,bundlePaths){
  const bundles=bundleForPage(config,page),bySource=new Map();
  for(const bundle of bundles)bundle.sources.forEach((source,index)=>{
   if(bySource.has(source))throw Error(`Source assigned twice on ${page}: ${source}`);
@@ -93,8 +110,29 @@ function rewriteHtmlForPage(html,page,config){
  return String(html).replace(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*><\/script>/gi,(tag,raw)=>{
   const source=String(raw).split(/[?#]/)[0],entry=bySource.get(source);
   if(!entry)return tag;
-  return entry.index===0?`<script src="${entry.bundle.output}"></script>`:'';
+  return entry.index===0?`<script src="${bundleOutputFor(entry.bundle.output,bundlePaths)}"></script>`:'';
  });
+}
+function buildBundleArtifacts({rootDir=root,config}){
+ const bundlePaths=new Map(),artifacts=[];
+ const buildOne=(bundle,kind)=>{
+  const parts=bundle.sources.map(source=>({source,content:fs.readFileSync(path.resolve(rootDir,source),'utf8')}));
+  const raw=bundleText(parts);
+  const content=rewriteGeneratedBundleReferences(raw,bundlePaths);
+  const output=hashedBundleOutput(bundle.output,content);
+  const hash=contentHash(content);
+  bundlePaths.set(bundle.output,output);
+  artifacts.push({logicalOutput:bundle.output,output,hash,kind,sources:bundle.sources,pages:kind==='startup'?bundle.pages:[],content,bytes:Buffer.byteLength(content)});
+ };
+ for(const bundle of lazyBundles(config))buildOne(bundle,'lazy');
+ for(const bundle of startupBundles(config))buildOne(bundle,'startup');
+ const logicalOutputs=allBundles(config).map(bundle=>bundle.output);
+ for(const artifact of artifacts){
+  for(const logical of logicalOutputs){
+   if(artifact.content.includes(logical))throw Error(`Generated bundle still contains unhashed bundle reference: ${artifact.logicalOutput} -> ${logical}`);
+  }
+ }
+ return{bundlePaths,artifacts};
 }
 function deploymentPlan({root:rootDir=root,sourceManifest,config}){
  validateBundleConfig({root:rootDir,sourceManifest,config});
@@ -129,6 +167,7 @@ function buildStatic({rootDir=root,outputDir=path.join(root,'.deploy-static'),so
  if(output!==allowedOutput||!output.startsWith(rootDir+path.sep))throw Error('Static build output must be the repository .deploy-static directory.');
  validateBundleConfig({root:rootDir,sourceManifest,config});
  const plan=deploymentPlan({root:rootDir,sourceManifest,config});
+ const generated=buildBundleArtifacts({rootDir,config});
  const metadataDir=path.join(rootDir,'.deploy-metadata'),metaPath=path.join(metadataDir,'deployment-assets.json');
  fs.rmSync(output,{recursive:true,force:true});
  fs.rmSync(metadataDir,{recursive:true,force:true});
@@ -147,20 +186,17 @@ function buildStatic({rootDir=root,outputDir=path.join(root,'.deploy-static'),so
   if(!safeRelative(relative))throw Error(`Unsafe static asset path: ${relative}`);
   const source=path.resolve(rootDir,relative);
   if(!source.startsWith(rootDir+path.sep)||!fs.existsSync(source)||!fs.statSync(source).isFile())throw Error(`Required static asset is missing: ${relative}`);
-  if(relative.endsWith('.html'))write(relative,rewriteHtmlForPage(fs.readFileSync(source,'utf8'),relative,config));
+  if(relative.endsWith('.html'))write(relative,rewriteHtmlForPage(fs.readFileSync(source,'utf8'),relative,config,generated.bundlePaths));
   else write(relative,fs.readFileSync(source));
  }
  const bundleDetails=[];
- for(const bundle of allBundles(config)){
-  const parts=bundle.sources.map(source=>({source,content:fs.readFileSync(path.resolve(rootDir,source),'utf8')}));
-  const content=bundleText(parts);
-  write(bundle.output,content);
-  const kind=startupBundles(config).includes(bundle)?'startup':'lazy';
-  bundleDetails.push({output:bundle.output,kind,sources:bundle.sources,pages:kind==='startup'?bundle.pages:[],bytes:Buffer.byteLength(content)});
+ for(const artifact of generated.artifacts){
+  write(artifact.output,artifact.content);
+  bundleDetails.push({logicalOutput:artifact.logicalOutput,output:artifact.output,hash:artifact.hash,kind:artifact.kind,sources:artifact.sources,pages:artifact.pages,bytes:artifact.bytes});
  }
  const bytes=written.reduce((sum,row)=>sum+row.bytes,0);
  const metadata={
-  schemaVersion:'ucvm-static-deployment-v1',
+  schemaVersion:'ucvm-static-deployment-v2',
   sourceAssetCount:sourceManifest.length,
   deploymentAssetCount:written.length,
   deployedJsCount:plan.deployedJsCount,
@@ -179,4 +215,4 @@ if(require.main===module){
  const output=path.resolve(outputArg>=0?process.argv[outputArg+1]:path.join(root,'.deploy-static'));
  buildStatic({outputDir:output});
 }
-module.exports={safeRelative,localScripts,startupBundles,lazyBundles,allBundles,validateBundleConfig,bundleText,rewriteHtmlForPage,deploymentPlan,buildStatic};
+module.exports={contentHash,hashedBundleOutput,bundleOutputFor,rewriteGeneratedBundleReferences,safeRelative,localScripts,startupBundles,lazyBundles,allBundles,validateBundleConfig,bundleText,rewriteHtmlForPage,buildBundleArtifacts,deploymentPlan,buildStatic};
