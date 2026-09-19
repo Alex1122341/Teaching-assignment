@@ -186,15 +186,17 @@ test('AFC approval refreshes the sanitized availability projection through index
  assert.match(maintenanceSrc,/addFacultySwapUnavailableRange/);
 });
 
-test('shared static build includes safe swap and loads it for timetable and admin initialization',()=>{
+test('shared static build keeps safe swap standalone and bundles approval compatibility in order',()=>{
  const manifest=JSON.parse(read('tools/static-assets.json')),loader=read('asset-loader.js'),admin=read('faculty-admin.html'),safeSrc=read('faculty-swap-safe.js');
+ const bundles=JSON.parse(read('tools/runtime-bundles.json'));
  assert.ok(manifest.includes('faculty-swap-safe.js'));
  assert.ok(manifest.includes('faculty-swap-handoff.js'));
  assert.ok(manifest.includes('approval-workflow.js'));
+ const approval=bundles.lazyBundles.find(bundle=>bundle.output==='bundles/approval-workflow.lazy.bundle.js');
+ assert.deepEqual(approval.sources,['faculty-swap-handoff.js','approval-workflow.js']);
  const safe=loader.indexOf("loadScriptOnce('faculty-swap-safe.js'");
- const handoff=loader.indexOf("loadScriptOnce('faculty-swap-handoff.js'");
- const legacy=loader.indexOf("loadScriptOnce('approval-workflow.js'");
- assert.ok(safe>=0&&handoff>safe&&legacy>handoff,'safe swap compatibility asset must load after safe picker and before approval-workflow.js');
+ const lazy=loader.indexOf("loadScriptOnce('bundles/approval-workflow.lazy.bundle.js'");
+ assert.ok(safe>=0&&lazy>safe,'safe swap must load before the approval compatibility/workflow lazy bundle');
  assert.match(loader,/ensureApprovalWorkflow/);
  assert.match(admin,/src="faculty-swap-safe\.js"/);
  assert.match(safeSrc,/faculty-admin\.html/);

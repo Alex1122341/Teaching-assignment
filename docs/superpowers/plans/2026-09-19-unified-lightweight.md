@@ -1,6 +1,6 @@
 # Unified VISTA Lightweight Deployment Implementation Plan — 2026-09-19
 
-> Runtime implementation is gated on explicit owner approval of this plan and the companion design.
+> Owner approval was received. The conservative build-only V1 has been implemented and verified; dynamic-loader bundling and cache hashing remain gated on interactive browser acceptance.
 
 **Baseline:** `39e2e5f294eccc9d0dcdad372c03577d0e2577a8`
 
@@ -524,3 +524,80 @@ Do not implement in this plan:
 - source-directory reorganization.
 
 After Phase 1 is accepted, remeasure cross-page caching and decide whether a separate Phase 2 is justified.
+
+## Implementation status — V1 closeout
+
+| Task | Status |
+|---|---|
+| Task 0 — implementation branch | Completed |
+| Task 1 — RED bundle tests | Completed |
+| Task 2 — deterministic manifest/builder | Completed |
+| Task 3 — safe shared sequences | Completed |
+| Task 4 — Timetable startup bundles | Completed |
+| Task 5 — Faculty Dashboard startup bundles | Completed |
+| Task 6 — User Management / Password | Completed |
+| Task 7 — lazy bundle consolidation | Deferred until browser acceptance |
+| Cache/content hashing | Deferred until browser acceptance |
+
+### Verified output
+
+- source runtime allowlist: 62 assets / 52 JS;
+- generated application deployment: 31 assets / 21 JS;
+- generated bundles: 9;
+- Timetable direct local JS: 31 → 9;
+- Faculty Dashboard: 27 → 11;
+- User Management: 11 → 6;
+- Password: 4 → 3;
+- application bytes: 1,934,772 → 1,955,538 (+1.1%);
+- deployment metadata: 6,742 bytes.
+
+### Verification evidence
+
+Implementation head `690a6dd4608a8f688085a2bee338240703f6c123`:
+- Test: success;
+- GitHub Pages Test Site: success;
+- DOE API Test: success;
+- root emulator: 723/723 passed;
+- server tests: 112/112 passed.
+
+A later documentation-only closeout head `1d866725e82bec77d9757c3cb8198b76ff6bfd78` also completed all three workflows successfully before the integration documentation merge.
+
+### Remaining gate
+
+Do not implement Task 7 or cache hashing until interactive browser acceptance is completed with an explicitly supplied lab Firebase web configuration and approved DOE API base URL. The repository continues to fail closed rather than embedding production credentials.
+
+---
+
+## V2 verified closeout — supersedes the earlier V1 closeout below
+
+Current verified head: `d80d445bec92be342627c9bd6dbe5718831b7756`.
+
+| Task | Current status |
+|---|---|
+| Startup deterministic bundling | Completed |
+| Automated lightweight metrics | Completed |
+| Emulator/headless-browser acceptance | Completed |
+| AFC PDF lazy helper bundle | Completed |
+| Approval lazy compatibility/workflow bundle | Completed |
+| Duplicate approval loader removal | Completed |
+| Firebase emulator initialization race fix | Completed |
+| Content hashing / immutable cache policy | Next separate phase |
+
+Current generated deployment:
+- application assets: **62 -> 30 (-51.6%)**;
+- JavaScript assets: **52 -> 20 (-61.5%)**;
+- Timetable direct local JS: **31 -> 10 (-67.7%)**;
+- Faculty Dashboard: **27 -> 12 (-55.6%)**;
+- User Management: **11 -> 6 (-45.5%)**;
+- Password: **4 -> 3 (-25%)**;
+- current application-byte overhead: **+0.5%**;
+- current JS-byte overhead: **+1.5%**;
+- generated bundles: **12**.
+
+Chrome acceptance:
+- signed-out pages: **4/4**;
+- authenticated protected pages: **3/3**;
+- AFC lazy helper explicitly executed;
+- approval lazy helper explicitly executed exactly once.
+
+The earlier note that Task 7 remained deferred is historical V1 state. Task 7 is now complete. The next phase may address content-hashed generated bundle names and cross-host cache policy; it is expected to reduce **0 additional files** and should be evaluated on repeat-load/cache behavior instead.

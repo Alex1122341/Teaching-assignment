@@ -68,3 +68,10 @@ test('the seeder refuses to run against a non-lab project without an explicit fl
   assert.match(source, /--dry-run/);
   assert.match(source, /--verify/);
 });
+
+test('shared Firebase helper configures local emulators only once across lazy module initialization',()=>{
+  const source=read('faculty-access.js');
+  assert.match(source,/emulatorConfigured=false/);
+  assert.match(source,/UCVM_FIREBASE_EMULATOR&&!emulatorConfigured/);
+  assert.match(source,/auth\.useEmulator\('http:\/\/127\.0\.0\.1:9099'\);emulatorConfigured=true/);
+});

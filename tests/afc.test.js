@@ -73,12 +73,12 @@ test('AFC form values normalize allowlisted dropdown values and contact details'
   assert.equal(contact.phone, '403-555-1212');
 });
 
-test('AFC PDF loader loads canonical form values before the renderer', () => {
+test('AFC PDF loader uses one lazy helper bundle with canonical values before the renderer', () => {
   const loader = fs.readFileSync(path.join(root, 'asset-loader.js'), 'utf8');
-  const valuesPosition = loader.indexOf("loadScriptOnce('afc-form-values.js'");
-  const rendererPosition = loader.indexOf("loadScriptOnce('afc-pdf-browser.js'");
-  assert.ok(valuesPosition >= 0, 'loader includes canonical AFC form values');
-  assert.ok(rendererPosition > valuesPosition, 'canonical values load before PDF renderer');
+  const bundles = JSON.parse(fs.readFileSync(path.join(root, 'tools/runtime-bundles.json'), 'utf8'));
+  const afc = bundles.lazyBundles.find(bundle => bundle.output === 'bundles/afc-pdf.lazy.bundle.js');
+  assert.deepEqual(afc.sources, ['afc-form-values.js','afc-pdf-browser.js']);
+  assert.match(loader, /loadScriptOnce\('bundles\/afc-pdf\.lazy\.bundle\.js','UCVM_AFC_PDF'\)/);
   assert.ok(JSON.parse(fs.readFileSync(path.join(root, 'tools/static-assets.json'), 'utf8')).includes('afc-form-values.js'));
 });
 })();
@@ -155,10 +155,18 @@ test('timetable exposes the AFC request panel', () => {
   assert.match(html, /afc-workflow\.js/);
 });
 
-test('AFC UI collects dates, conditional details, coverage, and electronic signature', () => {
+test('AFC UI collects dates, conditional details, terms acceptance, and electronic signature', () => {
   const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
-  for (const field of ['startDate','endDate','reason','purposeDestination','coverage','applicantSignature','UCVM_SIGNATURE']) assert.match(source, new RegExp(field));
+  for (const field of ['startDate','endDate','reason','purposeDestination','coverage','applicantSignature','UCVM_SIGNATURE','afc-view-terms','afc-terms-accepted','termsAcceptedAt','termsVersion','termsSource']) assert.match(source, new RegExp(field));
+  assert.match(source,/Open the AFC Terms & Conditions before signing/);
+  assert.match(source,/absence-from-campus-app\.pdf#page=2/);
   assert.match(fs.readFileSync(path.join(root, 'afc-actions.js'), 'utf8'), /pdf_chunks/);
+});
+
+test('approved AFC PDF removes the Terms page and records the accepted terms version in metadata', () => {
+  const source=fs.readFileSync(path.join(root,'afc-pdf-browser.js'),'utf8');
+  assert.match(source,/while\(pdf\.getPageCount\(\)>1\)pdf\.removePage\(pdf\.getPageCount\(\)-1\)/);
+  assert.match(source,/terms accepted:/);
 });
 
 test('AFC UI requires contact details for each new request', () => {
@@ -167,7 +175,8 @@ test('AFC UI requires contact details for each new request', () => {
   assert.match(source, /name="contactPhone"[^>]*required[^>]*maxlength="50"/);
   assert.match(source, /contactAddress=String\(d\.get\('contactAddress'\)\|\|''\)\.trim\(\)/);
   assert.match(source, /contactPhone=String\(d\.get\('contactPhone'\)\|\|''\)\.trim\(\)/);
-  assert.match(source, /coverage,contactAddress,contactPhone,workDays/);
+  assert.match(source, /coverage,contactAddress,contactPhone/);
+  assert.match(source, /termsAccepted:true,termsVersion:AFC_TERMS_VERSION,termsSource:AFC_TERMS_SOURCE,termsAcceptedAt:stamp\(\),workDays/);
 });
 
 test('AFC teaching matches render as a vertical sorted list', () => {
@@ -218,5 +227,12 @@ test('Firestore rules permit only the legal requester withdrawal field set',()=>
  assert.match(rules,/withdrawnBy == request\.auth\.uid/);
  assert.match(rules,/affectedKeys\(\)\.hasOnly\(\['status','withdrawnBy','withdrawnAt','updatedAt'\]\)/);
  assert.match(rules,/afc_requests[^]*allow update:[^]*afcWithdraw\(\)/);
+});
+
+test('Firestore AFC create rule requires versioned Terms & Conditions evidence',()=>{
+ assert.match(rules,/termsAccepted == true/);
+ assert.match(rules,/termsVersion == 'ucvm-afc-terms-page2-v1'/);
+ assert.match(rules,/termsSource == 'absence-from-campus-app\.pdf#page=2'/);
+ assert.match(rules,/termsAcceptedAt == request\.time/);
 });
 })();

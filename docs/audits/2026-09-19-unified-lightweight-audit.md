@@ -23,6 +23,36 @@ Exact-head verification at this baseline:
 
 The committed `firebase-config.js` remains a lab-targeting template with placeholder SDK values. Therefore the successful Pages workflow proves the exact-head test/emulator/build/staging/deployment pipeline, but not an authenticated browser session against the lab cloud project. Interactive cloud-preview acceptance requires CI/runtime injection of usable lab Firebase SDK configuration; production values must not be substituted.
 
+## V1 implementation outcome
+
+Owner approval was received and the conservative build-only V1 was implemented on `feature/runtime-lightweight-bundles`.
+
+Verified implementation head: `690a6dd4608a8f688085a2bee338240703f6c123`.
+
+Measured generated deployment:
+
+| Metric | Unified baseline | V1 | Change |
+|---|---:|---:|---:|
+| Application assets | 62 | 31 | -50.0% |
+| JavaScript assets | 52 | 21 | -59.6% |
+| Timetable direct local JS | 31 | 9 | -71.0% |
+| Faculty Dashboard direct local JS | 27 | 11 | -59.3% |
+| User Management direct local JS | 11 | 6 | -45.5% |
+| Password direct local JS | 4 | 3 | -25.0% |
+| Application build bytes | 1,934,772 | 1,955,538 | +1.1% |
+
+The byte increase is intentional and remains inside the design ceiling. V1 optimizes request/file fragmentation rather than source bytes. The build emits one additional 6,742-byte `deployment-assets.json` metadata file.
+
+Verification at the implementation head:
+- Test workflow: success;
+- GitHub Pages Test Site: success;
+- DOE API Test: success;
+- root emulator suite: 723/723 passed, 0 skipped;
+- DOE server suite: 112/112 passed;
+- generated build: 31 application assets, 21 JS assets, 9 deterministic bundles.
+
+True lazy/deferred assets remain separate. No production deployment, production Rules deployment, live-data mutation, DOE publication, recalculation, or production-user mutation was performed.
+
 ## Executive finding
 
 The repository is no longer meaningfully improved by deleting tests, historical plans, or small source modules. The remaining user-visible cost is deployment fragmentation:

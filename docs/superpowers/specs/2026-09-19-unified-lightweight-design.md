@@ -2,7 +2,7 @@
 
 ## Status
 
-Design only. Runtime/product implementation is gated on owner approval.
+Owner approval was received for the conservative build-only V1. V1 is implemented and verified on `feature/runtime-lightweight-bundles`. Dynamic-loader bundling and cache hashing remain gated on interactive browser acceptance.
 
 Verified integration baseline: `39e2e5f294eccc9d0dcdad372c03577d0e2577a8`.
 
@@ -365,3 +365,23 @@ Not part of this design:
 - Firestore schema migration;
 - DOE API behavior changes;
 - production deployment.
+
+## Implemented V1 topology and result
+
+The approved prototype resolved to nine deterministic startup bundles:
+
+- `bundles/shared-faculty-scheduling.bundle.js`;
+- `bundles/shared-index-audit.bundle.js`;
+- `bundles/shared-auth.bundle.js`;
+- `bundles/timetable-approval.bundle.js`;
+- `bundles/timetable-app.bundle.js`;
+- `bundles/faculty-doe-admin.bundle.js`;
+- `bundles/faculty-runtime-main.bundle.js`;
+- `bundles/faculty-runtime-tail.bundle.js`;
+- `bundles/user-management.bundle.js`.
+
+Measured V1 output: 31 application assets, 21 JavaScript assets, and 1,955,538 application bytes. Direct local startup scripts are 9 on Timetable, 11 on Faculty Dashboard, 6 on User Management, and 3 on Password.
+
+The implementation deliberately leaves `approval-scheduling.js`, `faculty-account-planner.js`, `faculty-swap-safe.js`, `doe-api-client.js`, `session-guard.js`, and other boundary files standalone where doing so avoids unsafe reordering or unnecessary duplication.
+
+Phase-1 source/business modules remain unchanged. Generated deployment HTML is the only HTML whose script graph is rewritten.
