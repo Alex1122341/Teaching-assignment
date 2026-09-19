@@ -1,96 +1,137 @@
-# Runtime Lightweight V1 Results — 2026-09-19
+# Runtime Lightweight Results — V1 + Lazy V2 — 2026-09-19
 
 ## Status
 
-V1 is implemented on `feature/runtime-lightweight-bundles` on top of the verified `integration/vista-secure-doe` baseline.
+The deployment-lightweight pass is implemented on `feature/runtime-lightweight-bundles` on top of `integration/vista-secure-doe`.
 
-Implementation head verified by GitHub Actions:
+Current verified head:
 
-`690a6dd4608a8f688085a2bee338240703f6c123`
+`d80d445bec92be342627c9bd6dbe5718831b7756`
 
-Draft verification PR: #49.
+Draft review: PR #49.
 
-## What changed
+No merge to `main`, production deployment, production Rules deployment, live-data mutation, DOE publication, or production recalculation has been performed.
 
-V1 changes the deployment layer only:
+## Architecture retained
 
-- source HTML remains unchanged;
-- source JavaScript remains modular;
+The source repository remains modular:
+
+- source HTML remains readable and unchanged by the build;
+- source JavaScript remains independently testable;
 - `tools/static-assets.json` remains the source runtime allowlist;
-- `tools/runtime-bundles.json` defines deterministic ordered startup bundles;
-- `tools/build-static.js` validates bundle membership/order, concatenates source with explicit source markers, rewrites only generated HTML, and emits `.deploy-static/deployment-assets.json`;
-- no minification, tree shaking, ESM migration, or business-logic refactor is performed.
+- `tools/runtime-bundles.json` declares deterministic startup and lazy deployment bundles;
+- `tools/build-static.js` rewrites only generated files under `.deploy-static`;
+- build metadata is emitted outside the public site under `.deploy-metadata`;
+- no minification, tree shaking, ESM migration, or source-folder flattening is used.
 
-## Measured result
+## Final measured deployment graph
 
-Baseline was the unified secure + DOE server-authority head `39e2e5f294eccc9d0dcdad372c03577d0e2577a8`.
+Original unified secure + DOE baseline: `39e2e5f294eccc9d0dcdad372c03577d0e2577a8`.
 
-| Metric | Unified baseline | V1 generated deployment |
-| --- | ---: | ---: |
-| Source/application asset graph | 62 | 31 |
-| JS assets | 52 | 21 |
-| Timetable direct local JS | 31 | 9 |
-| Faculty Dashboard direct local JS | 27 | 11 |
-| User Management direct local JS | 11 | 6 |
-| Password direct local JS | 4 | 3 |
-| Application bytes | 1,934,772 | 1,955,538 |
+The current CI reporter measures the current modular source graph against the generated deployment. Small source-byte differences from the original baseline are caused by later safety/test fixes; file/request counts remain directly comparable.
 
-The build also emits one 6,742-byte `deployment-assets.json` metadata file.
+| Metric | Modular source graph | Current generated deployment | Reduction / change |
+| --- | ---: | ---: | ---: |
+| Application assets | 62 | 30 | -32 (-51.6%) |
+| JavaScript assets | 52 | 20 | -32 (-61.5%) |
+| Timetable direct local JS | 31 | 10 | -21 (-67.7%) |
+| Faculty Dashboard direct local JS | 27 | 12 | -15 (-55.6%) |
+| User Management direct local JS | 11 | 6 | -5 (-45.5%) |
+| Password direct local JS | 4 | 3 | -1 (-25.0%) |
+| Application bytes | 1,934,817 | 1,944,521 | +9,704 (+0.5%) |
+| JavaScript bytes | 742,309 | 753,494 | +11,185 (+1.5%) |
 
-The approximately 1.1% application-byte increase is expected because V1 intentionally favors conservative page/shared bundles over aggressive source coupling. The primary improvement is request fragmentation: deployed JS file count falls about 59.6%, while source modules remain unchanged and auditable.
+Generated deployment bundles: **12**.
 
-## Lazy/deferred boundaries retained
+The small byte increase is intentional. The optimization target is browser request/file fragmentation while retaining conservative, auditable source boundaries.
 
-V1 does not bundle true lazy/deferred runtime assets:
+## V1 startup bundling
 
-- `afc-form-values.js`;
-- `afc-pdf-browser.js`;
-- `approval-workflow.js`;
-- `faculty-swap-safe.js`;
-- `faculty-swap-handoff.js`;
-- `faculty-admin-enhancements.js`;
-- PDF-lib CDN;
-- `absence-from-campus-app.pdf`.
+V1 introduced deterministic shared/page bundles while keeping the business source tree modular. Later topology refinement traded one additional startup request on Timetable and Faculty Dashboard for materially lower duplicated bytes.
 
-This preserves the existing AFC PDF, approval, swap compatibility, and Faculty Dashboard enhancement loading boundaries.
+Current startup counts are therefore:
 
-## Verification
+- Timetable: **31 -> 10**;
+- Faculty Dashboard: **27 -> 12**;
+- User Management: **11 -> 6**;
+- Password: **4 -> 3**.
 
-GitHub Actions at the V1 implementation head:
+## Lazy V2
 
-- **Test** — success;
-- **GitHub Pages Test Site** — success;
-- **DOE API Test** — success.
+### AFC PDF helper
 
-Test evidence:
-- root static/unit: 723 tests, 634 passed, 89 expected emulator-gated skips, 0 failed;
-- DOE server: 112/112 passed;
-- emulator root: 723/723 passed, 0 skipped;
-- DOE server inside emulator gate: 112/112 passed.
+`afc-form-values.js` + `afc-pdf-browser.js` are represented by:
 
-Build evidence:
-- 31 application deployment files;
-- 21 deployed JS files;
-- 9 deterministic generated bundles;
-- 1,955,538 application bytes;
-- 6,742 bytes of deployment metadata.
+`bundles/afc-pdf.lazy.bundle.js`
+
+Result:
+- two AFC helper JS deployment files -> one lazy bundle;
+- AFC helper lazy requests: **2 -> 1**;
+- PDF-lib CDN and the AFC PDF template remain separately lazy;
+- authenticated Chrome smoke explicitly calls `UCVM_ASSETS.ensureAfcPdf()` and verifies both AFC globals.
+
+### Approval workflow
+
+`faculty-swap-handoff.js` + `approval-workflow.js` are represented by:
+
+`bundles/approval-workflow.lazy.bundle.js`
+
+Result:
+- two approval helper JS deployment files -> one lazy bundle;
+- approval helper requests: **2 -> 1**;
+- `faculty-swap-safe.js` remains standalone because Faculty Dashboard also consumes it;
+- the duplicate direct loader in `faculty-access.js` was removed in favor of `UCVM_ASSETS.ensureApprovalWorkflow()`;
+- Chrome verifies the approval lazy bundle exists exactly once and the compatibility handoff executes first.
+
+## Browser acceptance
+
+The generated site is exercised with headless Chrome against local Firebase Auth + Firestore emulators only.
+
+Verified:
+- signed-out generated pages: **4/4 passed**;
+- authenticated protected pages: **3/3 passed** — Timetable, Faculty Dashboard, User Management;
+- AFC lazy bundle is actually executed;
+- approval lazy bundle is actually executed;
+- no Firebase production/cloud endpoint is permitted by the smoke gate;
+- no local generated JS/CSS/HTML 404 is accepted;
+- no uncaught browser exception is accepted.
+
+The approval smoke exposed a real emulator-initialization race. `UCVM.init()` now configures the Firebase emulators only once, preventing a lazy module from calling `useEmulator()` after Auth has already made a request.
+
+## Verification evidence
+
+Current verified head `d80d445bec92be342627c9bd6dbe5718831b7756`:
+
+- Test workflow run 274: **success**;
+- static/unit tests: **success**;
+- Firestore/Auth emulator suite: **success**;
+- generated build: **success**;
+- lightweight metrics step: **success**;
+- authenticated Chrome smoke: **success**.
+
+Earlier V1 exact-head verification also completed GitHub Pages Test Site and DOE API Test successfully. PR #49 is intentionally stacked on the integration branch, so those workflows, which are filtered to PRs targeting `main`, do not re-run on every stacked lightweight commit.
 
 ## Security / behavior result
 
-The V1 build does not change:
+The lightweight pass does not weaken or move:
 - Firestore authorization;
-- Firebase project selection semantics;
-- sanitized `people_index` privacy boundary;
-- append-only audit policy;
+- sanitized `people_index` privacy;
+- append-only audit behavior;
 - approval companion-write guarantees;
 - DOE server authority;
-- DOE policy/evidence immutability;
-- application business source modules.
+- DOE evidence immutability;
+- production configuration isolation.
 
-No production deployment, production Rules deployment, live-data migration, DOE publication, recalculation, or production-user mutation was performed.
+## Remaining phase
 
-## Remaining gate
+The remaining proposed optimization is **content-hashed generated assets + cache policy**. Its purpose is repeat-load caching, not further file-count reduction.
 
-Do not start cache hashing or dynamic-loader bundling yet.
+Expected file-count reduction for that phase: **0**.
 
-First complete interactive browser acceptance with an explicitly supplied lab Firebase web configuration and approved DOE API base URL. The committed configuration intentionally fails closed rather than embedding production credentials.
+Any cache implementation must:
+- keep HTML no-cache;
+- hash generated bundle filenames from content;
+- rewrite generated references deterministically;
+- keep dynamic/lazy bundle URLs correct;
+- preserve the same Firebase/Azure generated artifact;
+- be verified separately for GitHub Pages, Firebase Hosting and Azure behavior.
