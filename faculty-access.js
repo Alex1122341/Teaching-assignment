@@ -1,6 +1,6 @@
 /* Shared Firebase identity and faculty portal helpers for Spark Basic Mode. */
 window.UCVM=(()=>{
- const config={apiKey:'AIzaSyDS9VE2zTXv0656_Mh0uDXB67-mZ5Y_LkY',authDomain:'tester-teaching.firebaseapp.com',projectId:'tester-teaching',storageBucket:'tester-teaching.firebasestorage.app',messagingSenderId:'566638053186',appId:'1:566638053186:web:90e04b52251c4b859baadb'};
+const config=window.UCVM_FIREBASE_CONFIG;
  const rawRole=r=>String((r&&typeof r==='object'?r.role:r)||'').toLowerCase();
  const role=r=>({owner:'adfa_general',administrator:'adfa_regular',other_office:'other_office',adfa_general:'adfa_general',adfa_regular:'adfa_regular',admin:'adfa_regular',editor:'faculty',viewer:'faculty'}[rawRole(r)]||rawRole(r));
  const admin=p=>['adfa_general','adfa_regular','other_office'].includes(role(p?.role));
@@ -36,14 +36,16 @@ window.UCVM=(()=>{
  let persistenceStarted=false;
  function init(){
   if(!firebase.apps.length)firebase.initializeApp(config);
-  const db=firebase.firestore();
-  if(!persistenceStarted){
+  const db=firebase.firestore(),auth=firebase.auth();
+  // Local development talks to the Emulator Suite, so a fresh clone runs against
+  // the seeded local database with no cloud project and no credentials.
+  if(window.UCVM_FIREBASE_EMULATOR){db.useEmulator('127.0.0.1',8080);auth.useEmulator('http://127.0.0.1:9099');}
+  if(!persistenceStarted&&!window.UCVM_FIREBASE_EMULATOR){
    persistenceStarted=true;
    db.enablePersistence({synchronizeTabs:true}).catch(e=>{
     if(!['failed-precondition','unimplemented'].includes(e?.code))console.warn('[firestore persistence]',e);
    });
   }
-  const auth=firebase.auth();
   if(window.UCVMSessionGuard)window.UCVMSessionGuard.start(auth);
   return {auth,db};
  }

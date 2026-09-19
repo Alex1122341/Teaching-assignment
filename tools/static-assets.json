@@ -26,6 +26,7 @@
   "derived-index-health.js",
   "index-maintenance.js",
   "faculty-access.css",
+  "firebase-config.js",
   "faculty-access.js",
   "office-capabilities.js",
   "faculty-account-planner.js",

@@ -4,7 +4,12 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "test:static": "node tools/test-static.js",
-    "test:emulator": "firebase emulators:exec --only firestore,auth --project demo-ucvm-access \"node --test tests/*.test.js\""
+    "test:emulator": "firebase emulators:exec --only firestore,auth --project demo-ucvm-access \"node --test --test-concurrency=1 tests/*.test.js\"",
+    "db:seed": "node tools/seed-database.js --project vista-teaching-lab",
+    "db:verify": "node tools/seed-database.js --project vista-teaching-lab --verify",
+    "db:seed:emulator": "firebase emulators:exec --only firestore --project demo-vista-seed \"node tools/seed-database.js --emulator && node tools/seed-database.js --emulator --verify\"",
+    "db:deploy": "firebase deploy --only firestore:rules,firestore:indexes --project vista-teaching-lab",
+    "config:generate": "node tools/build-firebase-config.js"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",

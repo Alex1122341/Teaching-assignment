@@ -69,6 +69,16 @@
   }
   return out.sort((a,b)=>a.startDate.localeCompare(b.startDate)||a.endDate.localeCompare(b.endDate));
  }
+// The sanitized swap projection is readable by any ready non-office account, so
+// its entry shape is pinned in code. Firestore rules can pin the document
+// envelope but cannot iterate a list, so this guard is the per-entry control.
+const SWAP_ENTRY_FIELDS=Object.freeze(['key','name','aliases','unavailableRanges']);
+const PRIVATE_LOOKING=/(?:@|^\d{6,}$)/;
+function assertSanitizedSwapEntry(entry){
+  for(const field of Object.keys(entry))if(!SWAP_ENTRY_FIELDS.includes(field))throw Error(`Swap index entry contains a field outside the sanitized projection: ${field}`);
+  for(const value of [entry.name,...(Array.isArray(entry.aliases)?entry.aliases:[])])if(PRIVATE_LOOKING.test(String(value||'')))throw Error('Swap index entry contains an address or identifier outside the sanitized projection.');
+  return entry;
+}
  function buildFacultySwapIndexes(facultyRows,previousMap={},keyFactory){
   if(typeof keyFactory!=='function')throw Error('A swap candidate key factory is required.');
   const previous=new Map((Array.isArray(previousMap?.entries)?previousMap.entries:[]).map(row=>[text(row?.facultyId),text(row?.key)]).filter(([id,key])=>id&&key));
@@ -79,7 +89,7 @@
    if(!key){for(let i=0;i<20&&!key;i++){const candidate=text(keyFactory());if(candidate&&!used.has(candidate))key=candidate}if(!key)throw Error(`Could not allocate an opaque swap key for ${id}.`)}
    used.add(key);
    const aliases=swapAliases(f),name=text(f.preferredFullName||f.hrFirstLast||f.hrFullName||f.teachingAssignmentName||aliases[0]||'Faculty');
-   publicEntries.push({key,name,aliases,unavailableRanges:safeUnavailableRanges(f)});
+   publicEntries.push(assertSanitizedSwapEntry({key,name,aliases,unavailableRanges:safeUnavailableRanges(f)}));
    privateEntries.push({key,facultyId:id});
   }
   publicEntries.sort((a,b)=>a.name.localeCompare(b.name)||a.key.localeCompare(b.key));

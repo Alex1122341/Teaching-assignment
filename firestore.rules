@@ -276,7 +276,12 @@ service cloud.firestore {
   function validSpecialSwapReason(d){return !specialReplacement(d) || (d.reason is string && d.reason.size() > 0 && d.reason.size() <= 1000 && d.reason.matches('.*\\S.*'));}
   function validSelfSwap(d){return d.requestType == 'faculty_swap' && d.fromFaculty is map && d.toFaculty is map && ((d.fromFaculty.facultyId is string && selfFacultyId(d.fromFaculty.facultyId)) || (d.toFaculty.facultyId is string && selfFacultyId(d.toFaculty.facultyId)));}
   function validRequestCreate(){return facultyMember() && request.resource.data.requesterUid == request.auth.uid && request.resource.data.requesterRole == profile().role && request.resource.data.status == 'pending' && request.resource.data.requestedAt == request.time && request.resource.data.sessionId is string && request.resource.data.requestType in ['faculty_swap','session_edit'] && validSpecialSwapReason(request.resource.data) && (validSelfSwap(request.resource.data) || ownsRequestGroup(request.resource.data));}
-  function validRequestDecision(){return approver() && resource.data.status == 'pending' && request.resource.data.status in ['approved','rejected'] && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','approvedBy','approvedByName','approvedAt','appliedAt','rejectedBy','rejectedByName','rejectedAt','rejectionReason']) && ((request.resource.data.status == 'approved' && request.resource.data.approvedBy == request.auth.uid && request.resource.data.approvedAt == request.time && request.resource.data.appliedAt == request.time) || (request.resource.data.status == 'rejected' && request.resource.data.rejectedBy == request.auth.uid && request.resource.data.rejectedAt == request.time));}
+  // Legacy (pre-routing) requests could previously be marked "approved" and
+  // "applied" without the session write ever happening, which produced an
+  // approval that was never applied. An approval is now bound to the actual
+  // source write, mirroring the routed path's routedSessionApplyFor() guarantee.
+  function legacyAppliedCompanionWrite(){let id=resource.data.sessionId;return id is string && id.size() > 0 && existsAfter(sessionPath(id)) && getAfter(sessionPath(id)).data.updatedBy == request.auth.uid && getAfter(sessionPath(id)).data.updatedAt == request.time;}
+  function validRequestDecision(){return approver() && resource.data.status == 'pending' && request.resource.data.status in ['approved','rejected'] && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','approvedBy','approvedByName','approvedAt','appliedAt','rejectedBy','rejectedByName','rejectedAt','rejectionReason']) && ((request.resource.data.status == 'approved' && request.resource.data.approvedBy == request.auth.uid && request.resource.data.approvedAt == request.time && request.resource.data.appliedAt == request.time && legacyAppliedCompanionWrite()) || (request.resource.data.status == 'rejected' && request.resource.data.rejectedBy == request.auth.uid && request.resource.data.rejectedAt == request.time));}
   function afcRead(d){return !restrictedOffice() && (historyAll() || d.requesterUid == request.auth.uid || d.reportToUid == request.auth.uid);}
   function afcCreate(){return facultyMember() && request.resource.data.requesterUid == request.auth.uid && request.resource.data.facultyId == profile().facultyId && request.resource.data.reportToUid is string && request.resource.data.status == (request.resource.data.reportToUid.size() > 0 ? 'pending_report_to' : 'pending_admin') && request.resource.data.contactAddress is string && request.resource.data.contactAddress.size() > 0 && request.resource.data.contactAddress.size() <= 500 && request.resource.data.contactAddress.matches('.*\\S.*') && request.resource.data.contactPhone is string && request.resource.data.contactPhone.size() > 0 && request.resource.data.contactPhone.size() <= 50 && request.resource.data.contactPhone.matches('.*\\S.*') && request.resource.data.applicantSignature.uid == request.auth.uid && request.resource.data.applicantSignature.attested == true && request.resource.data.submittedAt == request.time && request.resource.data.updatedAt == request.time;}
   function afcRecommend(){return resource.data.status == 'pending_report_to' && request.resource.data.status == 'pending_admin' && (request.auth.uid == resource.data.reportToUid || historyAll()) && request.resource.data.reportToSignature.uid == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','reportToSignature','updatedAt']);}
@@ -306,9 +311,24 @@ service cloud.firestore {
   function validImportJobUpdate(id){return maintenanceOwnerFor(id) && request.resource.data.get('importId','') == resource.data.get('importId','') && request.resource.data.get('sourceFingerprint','') == resource.data.get('sourceFingerprint','') && request.resource.data.get('sourceWorkbook','') == resource.data.get('sourceWorkbook','') && request.resource.data.get('schemaVersion','') == resource.data.get('schemaVersion','') && request.resource.data.get('startedBy','') == resource.data.get('startedBy','') && request.resource.data.get('startedAt',null) == resource.data.get('startedAt',null) && request.resource.data.get('backupFingerprint','') == resource.data.get('backupFingerprint','');}
   function validImportJobTakeover(id){return general() && teachingLocked() && get(/databases/$(database)/documents/settings/system_state).data.activeImportId == id && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['previousMaintenanceOwnerUid','previousMaintenanceOwnerName','recoveryTakenOverBy','recoveryTakenOverByName','recoveryTakenOverAt','recoveryTakeoverReason','lastUpdatedAt']) && request.resource.data.recoveryTakenOverBy == request.auth.uid && request.resource.data.recoveryTakeoverReason is string && request.resource.data.recoveryTakeoverReason.size() > 0 && getAfter(/databases/$(database)/documents/settings/system_state).data.maintenanceOwnerUid == request.auth.uid;}
 
+  // Projection-shape pins. Rules cannot iterate a list, so these constrain the
+  // document envelope - which is what stops a writer from adding private fields
+  // to a document that ordinary faculty accounts may read. The per-entry field
+  // allowlist is enforced in code by buildFacultySwapIndexes() (data-index.js)
+  // and asserted by tests/projection-sanitization.test.js.
+  // `generatedAt` accepts either form because index-maintenance.js falls back to
+  // an ISO string when the Firebase global is unavailable.
+  function swapIndexShapeValid(d){return d.keys().hasOnly(['schemaVersion','entries','generatedAt']) && d.schemaVersion == 'ucvm-faculty-swap-index-v1' && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
+  function peopleIndexShapeValid(d){return d.keys().hasOnly(['schemaVersion','entries','generatedAt']) && d.schemaVersion == 'ucvm-people-index-v1' && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
+
   match /users/{uid} {
-   allow get: if signedIn() && (request.auth.uid == uid || general() || (facultyMember() && facultyRole(resource.data.role)));
-   allow list: if general() || (facultyMember() && facultyRole(resource.data.role));
+   // An account document is readable only by its owner or an administrator.
+   // Every caller of profileSnapshot() passes the caller's own uid, and the
+   // sanitized settings/people_index projection covers the cases where one
+   // account needs to reference another.
+   allow get: if signedIn() && (request.auth.uid == uid || general());
+   // Account enumeration is Owner-only.
+   allow list: if general();
    allow create: if generalUserCreate();
    allow update: if generalUserUpdate(uid) || selfPasswordCompletion(uid);
    allow delete: if false;
@@ -382,7 +402,15 @@ service cloud.firestore {
   match /settings/{id} {
    allow read: if admin();
    allow read: if privateReader() && id == 'faculty_swap_index';
-   allow write: if id != 'system_state' && ((id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map'] && ((teachingWritesOpen() && admin()) || maintenanceOwner())) || (id == 'faculty_summary_2026_27' && ((teachingWritesOpen() && general()) || maintenanceOwner())) || (!(id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map','faculty_summary_2026_27']) && admin()));
+   // Sanitized people projection: readable by any ready faculty-role account so
+   // the HICC group pickers work without access to the raw /users collection.
+   allow read: if id == 'people_index' && facultyMember();
+   // Sanitized projections must stay projections. Pinning the envelope stops a
+   // writer from adding private fields to a document that ordinary faculty
+   // accounts are allowed to read.
+   allow write: if id == 'faculty_swap_index' && swapIndexShapeValid(request.resource.data) && ((teachingWritesOpen() && admin()) || maintenanceOwner());
+   allow write: if id == 'people_index' && peopleIndexShapeValid(request.resource.data) && admin();
+   allow write: if id != 'system_state' && id != 'faculty_swap_index' && id != 'people_index' && ((id in ['faculty_index','schedule_stats','faculty_swap_map'] && ((teachingWritesOpen() && admin()) || maintenanceOwner())) || (id == 'faculty_summary_2026_27' && ((teachingWritesOpen() && general()) || maintenanceOwner())) || (!(id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map','faculty_summary_2026_27']) && admin()));
   }
   match /bulk_import_jobs/{importId} {
    allow read: if general();
