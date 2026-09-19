@@ -18,7 +18,7 @@ test('retired faculty assets are absent from disk, manifest and all runtime link
  assert.doesNotMatch(runtime,/faculty-dashboard\.(?:html|js)/);
 });
 
-test('production manifest contains the complete API-authoritative dependency graph and no stale visible names',()=>{
+test('source runtime allowlist contains the complete API-authoritative dependency graph and no stale visible names',()=>{
  const manifest=JSON.parse(read('tools/static-assets.json'));
  assert.equal(manifest.length,62);
  for(const name of ['approval-scheduling.js','approval-routing.js','approval-state.js','approval-office-view.js','approval-lifecycle.js','approval-finalizer.js','afc-form-values.js','afc-form-state.js','afc-timetable-panel.js','audit-details.js','derived-index-health.js','firebase-config.js','doe-api-client.js','doe-worksheet-view.js','doe-rulebook-admin.js','doe-policy-admin.js','doe-policy-admin.css','faculty-account-planner.js','faculty-doe.js','faculty-swap-handoff.js','faculty-swap-safe.js','index-maintenance.js','scheduling-core.js','university-closures.js','timetable-selection.js','workflow-notifications.js','user-management.css'])assert.ok(manifest.includes(name),name);
@@ -88,3 +88,15 @@ test('DOE API runtime deploys and loads before Faculty and Timetable consumers w
  assert.ok(timetable.indexOf('doe-api-client.js')<timetable.indexOf('timetable.js'));
 });
 
+
+
+test('static deployment build is generated from source and bundle manifests',()=>{
+ const build=read('tools/build-static.js'),bundles=JSON.parse(read('tools/runtime-bundles.json'));
+ assert.match(build,/runtime-bundles\.json/);
+ assert.match(build,/deployment-assets\.json/);
+ assert.equal(bundles.version,1);
+ assert.ok(bundles.bundles.length>0);
+ const agents=read('AGENTS.md');
+ assert.match(agents,/generated \`\.deploy-static\` artifact/);
+ assert.match(agents,/runtime-bundles\.json/);
+});
