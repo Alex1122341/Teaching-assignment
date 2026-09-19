@@ -18,10 +18,11 @@ test('retired faculty assets are absent from disk, manifest and all runtime link
  assert.doesNotMatch(runtime,/faculty-dashboard\.(?:html|js)/);
 });
 
-test('production manifest contains the complete 57-file dependency graph and no stale visible names',()=>{
+test('production manifest contains the complete API-authoritative dependency graph and no stale visible names',()=>{
  const manifest=JSON.parse(read('tools/static-assets.json'));
- assert.equal(manifest.length,57);
- for(const name of ['approval-scheduling.js','approval-routing.js','approval-state.js','approval-office-view.js','approval-lifecycle.js','approval-finalizer.js','afc-form-values.js','afc-form-state.js','afc-timetable-panel.js','audit-details.js','derived-index-health.js','faculty-account-planner.js','faculty-doe.js','faculty-swap-handoff.js','faculty-swap-safe.js','index-maintenance.js','scheduling-core.js','university-closures.js','timetable-selection.js','workflow-notifications.js','user-management.css','firebase-config.js'])assert.ok(manifest.includes(name),name);
+ assert.equal(manifest.length,62);
+ for(const name of ['approval-scheduling.js','approval-routing.js','approval-state.js','approval-office-view.js','approval-lifecycle.js','approval-finalizer.js','afc-form-values.js','afc-form-state.js','afc-timetable-panel.js','audit-details.js','derived-index-health.js','firebase-config.js','doe-api-client.js','doe-worksheet-view.js','doe-rulebook-admin.js','doe-policy-admin.js','doe-policy-admin.css','faculty-account-planner.js','faculty-doe.js','faculty-swap-handoff.js','faculty-swap-safe.js','index-maintenance.js','scheduling-core.js','university-closures.js','timetable-selection.js','workflow-notifications.js','user-management.css'])assert.ok(manifest.includes(name),name);
+ for(const name of ['doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js'])assert.equal(manifest.includes(name),false,name);
  const runtime=manifest.filter(name=>/\.(html|js)$/.test(name)).map(read).join('\n');
  assert.doesNotMatch(runtime,/Faculty Directory|Faculty Admin Dashboard|Open Faculty Dashboard/);
  for(const page of manifest.filter(name=>name.endsWith('.html'))){
@@ -62,3 +63,28 @@ test('approval routing and state engines load before timetable workflow consumer
  const loader=read('asset-loader.js');
  assert.ok(loader.includes("loadScriptOnce('approval-workflow.js')"));
 });
+
+test('DOE API runtime deploys and loads before Faculty and Timetable consumers without browser policy engine/storage',()=>{
+ const manifest=JSON.parse(read('tools/static-assets.json'));
+ const deployable=['doe-api-client.js','doe-worksheet-view.js','doe-rulebook-admin.js','doe-policy-admin.js','doe-policy-admin.css'];
+ assert.equal(manifest.length,62);
+ for(const name of deployable)assert.ok(manifest.includes(name),name);
+ for(const name of ['doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js'])assert.equal(manifest.includes(name),false,name);
+
+ const faculty=read('faculty-admin.html');
+ assert.ok(faculty.includes('<link rel="stylesheet" href="doe-policy-admin.css">'));
+ for(const name of ['doe-api-client.js','doe-worksheet-view.js','doe-rulebook-admin.js','doe-policy-admin.js'])assert.ok(faculty.includes(`<script src="${name}"></script>`),`faculty-admin.html -> ${name}`);
+ for(const name of ['doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js'])assert.equal(faculty.includes(`<script src="${name}"></script>`),false,name);
+ assert.ok(faculty.indexOf('doe-api-client.js')<faculty.indexOf('doe-worksheet-view.js'));
+ assert.ok(faculty.indexOf('doe-api-client.js')<faculty.indexOf('doe-rulebook-admin.js'));
+ assert.ok(faculty.indexOf('doe-rulebook-admin.js')<faculty.indexOf('doe-policy-admin.js'));
+ assert.ok(faculty.indexOf('doe-worksheet-view.js')<faculty.indexOf('faculty-admin.js'));
+
+ const timetable=read('index.html');
+ assert.ok(timetable.includes('<script src="doe-api-client.js"></script>'));
+ for(const name of ['doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js'])assert.equal(timetable.includes(`<script src="${name}"></script>`),false,name);
+ assert.doesNotMatch(timetable,/doe-policy-admin\.js|doe-policy-admin\.css/);
+ assert.ok(timetable.indexOf('doe-api-client.js')<timetable.indexOf('timetable-selection.js'));
+ assert.ok(timetable.indexOf('doe-api-client.js')<timetable.indexOf('timetable.js'));
+});
+

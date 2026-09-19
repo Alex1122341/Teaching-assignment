@@ -117,6 +117,8 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
     batch.update(store.sessionRef(update.id),update.data);operations++;
     if(store.calendarRef&&store.calendarFromSource){batch.set(store.calendarRef(update.id),store.calendarFromSource(update.after||update.data,update.id));operations++}
     batch.set(store.logRef(),log);operations++;
+    const calculationRecords=Array.isArray(update.calculationRecords)?update.calculationRecords:[];
+    if(calculationRecords.length)throw Error('DOE calculation evidence must be persisted by the server-side DOE API.');
    }
    try{await batch.commit()}catch(error){error.partialCommit=completedRows>0;error.completedRows=completedRows;error.resumeFrom=completedRows;throw error}
    completedRows=end;
@@ -128,5 +130,125 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   try{if(typeof store.afterCommit==='function')await store.afterCommit()}catch(error){error.committed=true;error.partialCommit=true;error.completedRows=completedRows;error.resumeFrom=completedRows;throw error}
   return{committed:true,operations,completedRows,errors:[]};
  }
- return{create,createViewFlow,editPolicy,validateRow,selectedRows,planChanges,commitPlan};
+ function academicYearForSession(session={}){
+  const explicit=text(session?.academicYear);
+  if(explicit)return explicit;
+  const date=text(session?.date),match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if(!match)throw Error('A valid session date is required to resolve Academic Year.');
+  const year=Number(match[1]),month=Number(match[2]),semester=text(session?.semester).toLowerCase();
+  const start=semester==='winter'?year-1:(semester==='spring'||semester==='fall'?year:(month<=4?year-1:year));
+  return`${start}-${String(start+1).slice(-2)}`;
+ }
+ function stableAssignmentId(session,assignment,index){
+  const existing=text(assignment?.assignmentId);
+  if(existing)return existing;
+  const sessionId=text(session?.id)||'session';
+  return`${sessionId}--assignment--${Number(index)+1}`;
+ }
+ function stripAssignmentDoeForApi(assignment={}){
+  const next={...assignment};
+  for(const field of ['doeCredit','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId','doeRate','resultDoe','policyVersionId','ruleId','ruleKey','calculationId'])delete next[field];
+  return next;
+ }
+ function createDoeApiAdapter({api}={}){
+  if(!api||typeof api.previewSessionChange!=='function')throw Error('DOE API previewSessionChange is required.');
+  async function prepareSession(before,after,{trigger='session_updated'}={}){
+   const payload={academicYear:academicYearForSession(after),sessionId:text(after?.id||after?.sessionId||before?.id||before?.sessionId),beforeSession:clone(before),afterSession:clone(after),trigger};
+   if(payload.afterSession&&Array.isArray(payload.afterSession.assignments))payload.afterSession.assignments=payload.afterSession.assignments.map(stripAssignmentDoeForApi);
+   return api.previewSessionChange(payload);
+  }
+  return Object.freeze({prepareSession,academicYearForSession});
+ }
+ function createDoeAdapter({service,engine}={}){
+  if(!service||typeof service.activePolicyForYear!=='function')throw Error('DOE policy service is required.');
+  if(!engine||typeof engine.calculate!=='function')throw Error('DOE policy engine is required.');
+  if(typeof service.buildCalculationRecord!=='function')throw Error('DOE calculation record builder is required.');
+  const activeBundles=new Map();
+  async function bundleForYear(year){
+   if(!activeBundles.has(year))activeBundles.set(year,Promise.resolve(service.activePolicyForYear(year)).then(result=>result.bundle));
+   return activeBundles.get(year);
+  }
+  function assignmentHours(session,assignment){
+   if(assignment?.creditedHours!==null&&assignment?.creditedHours!==undefined&&assignment?.creditedHours!=='')return Number(assignment.creditedHours);
+   return scheduling.durationHours(session?.start,session?.end,{timeUnknown:session?.timeUnknown===true});
+  }
+  function assignmentContext(session,assignment,index){
+   const assignmentId=stableAssignmentId(session,assignment,index),faculty=text(assignment?.facultyId||assignment?.ucid),role=text(assignment?.role||session?.type);
+   return{
+    academicYear:academicYearForSession(session),category:'teaching',activityType:text(session?.type),teachingRole:role,role,
+    hours:assignmentHours(session,assignment),shifts:1,course:text(session?.course),date:text(session?.date),topic:text(session?.topic),
+    semester:text(session?.semester),week:Number(session?.week),facultyId:faculty,sessionId:text(session?.id),assignmentId,
+    assignment:text(assignment?.assignment||assignment?.assignmentLabel)
+   };
+  }
+  function relevantFields(bundle){
+   const fields=new Set();
+   for(const rule of Array.isArray(bundle?.rules)?bundle.rules:[]){
+    if(rule?.enabled===false||text(rule?.category)!=='teaching')continue;
+    for(const selector of Array.isArray(rule?.selectors)?rule.selectors:[])if(text(selector?.field))fields.add(text(selector.field));
+    for(const input of Array.isArray(rule?.inputs)?rule.inputs:[]){const name=typeof input==='string'?text(input):text(input?.inputName);if(name)fields.add(name)}
+   }
+   for(const exception of Array.isArray(bundle?.exceptions)?bundle.exceptions:[]){
+    if(exception?.enabled===false)continue;
+    if(text(exception?.facultyId))fields.add('facultyId');
+    if(text(exception?.effectiveStart)||text(exception?.effectiveEnd))fields.add('date');
+    const scope=text(exception?.scopeType).toLowerCase();
+    if(scope==='assignment'){fields.add('assignmentId');fields.add('assignment')}
+    else if(scope==='faculty')fields.add('facultyId');
+    else if(scope==='session')fields.add('sessionId');
+    else if(scope==='course')fields.add('course');
+    else if(scope==='role')fields.add('roleType');
+   }
+   return fields;
+  }
+  function hasRelevantChange(bundle,beforeSession,beforeAssignment,afterSession,afterAssignment,index){
+   if(!beforeSession||!beforeAssignment)return true;
+   if(academicYearForSession(beforeSession)!==academicYearForSession(afterSession))return true;
+   const before=assignmentContext(beforeSession,beforeAssignment,index),after=assignmentContext(afterSession,afterAssignment,index);
+   for(const field of relevantFields(bundle))if(!equal(before[field],after[field]))return true;
+   return false;
+  }
+  async function prepareSession(before,after,{trigger='session_updated'}={}){
+   const session=clone(after)||{},records=[],doeChanges=[],assignments=[],beforeAssignments=Array.isArray(before?.assignments)?before.assignments:[];
+   const year=academicYearForSession(session),bundle=await bundleForYear(year),fields=relevantFields(bundle);
+   for(const [index,raw] of (Array.isArray(session.assignments)?session.assignments:[]).entries()){
+    const assignment={...(raw||{})},assignmentId=stableAssignmentId(session,assignment,index);
+    const previous=beforeAssignments.find(item=>text(item?.assignmentId)&&text(item.assignmentId)===assignmentId)||beforeAssignments[index]||null;
+    assignment.assignmentId=assignmentId;
+    if(previous&&fields.has('hours')&&equal(assignment.creditedHours,previous.creditedHours)){
+     const beforeDuration=scheduling.durationHours(before?.start,before?.end,{timeUnknown:before?.timeUnknown===true});
+     const afterDuration=scheduling.durationHours(session?.start,session?.end,{timeUnknown:session?.timeUnknown===true});
+     if(!equal(beforeDuration,afterDuration))assignment.creditedHours=afterDuration;
+    }
+    if(previous&&!hasRelevantChange(bundle,before,previous,session,assignment,index)){
+     for(const field of ['doeCredit','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId']){
+      if(Object.prototype.hasOwnProperty.call(previous,field))assignment[field]=previous[field];else delete assignment[field];
+     }
+     if(Object.prototype.hasOwnProperty.call(previous,'doeRate'))assignment.doeRate=previous.doeRate;else delete assignment.doeRate;
+     assignments.push(assignment);continue;
+    }
+    const context=assignmentContext(session,assignment,index),result=engine.calculate(bundle,context);
+    const record=service.buildCalculationRecord(result,{
+     academicYear:year,facultyId:context.facultyId,sessionId:context.sessionId,assignmentId,
+     sourceEntityType:'session_assignment',sourceEntityId:assignmentId,trigger
+    });
+    const next={...assignment,creditedHours:context.hours,doeCredit:Number(result.resultDoe),
+     doePolicyVersionId:text(result.policyVersionId),doeRuleId:text(result.ruleId),doeRuleKey:text(result.ruleKey),
+     doeCalculationId:text(record.calculationId),source:'DOE policy engine'};
+    delete next.doeRate;
+    assignments.push(next);records.push(record);
+    doeChanges.push({
+     assignmentId,facultyId:context.facultyId,
+     oldDoeCredit:Number.isFinite(Number(previous?.doeCredit))?Number(previous.doeCredit):null,newDoeCredit:Number(result.resultDoe),
+     oldPolicyVersionId:text(previous?.doePolicyVersionId),newPolicyVersionId:text(result.policyVersionId),
+     oldCalculationId:text(previous?.doeCalculationId),newCalculationId:text(record.calculationId),
+     ruleId:text(result.ruleId),ruleKey:text(result.ruleKey)
+    });
+   }
+   session.assignments=assignments;
+   return{session,calculationRecords:records,doeChanges};
+  }
+  return Object.freeze({prepareSession,academicYearForSession,bundleForYear});
+ }
+ return{create,createViewFlow,editPolicy,validateRow,selectedRows,planChanges,commitPlan,createDoeAdapter,createDoeApiAdapter,academicYearForSession};
 })();

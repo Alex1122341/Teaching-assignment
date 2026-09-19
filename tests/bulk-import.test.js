@@ -38,6 +38,14 @@ test('backup identity must match the interrupted import',async()=>{
   await backup.parseAndValidateBackup(backup.serializeBackup(payload),{projectId:'tester-teaching',importId:'i1',sourceFingerprint:'abc'});
   await assert.rejects(()=>backup.parseAndValidateBackup(backup.serializeBackup(payload),{projectId:'tester-teaching',importId:'i2',sourceFingerprint:'abc'}),/does not belong/i);
 });
+
+test('recovery backup captures the stable legacy DOE evidence marker',async()=>{
+  const marker={academicYear:'2026-27',kind:'faculty_summary_source',sourceWorkbook:'Teaching Assignments.xlsx'};
+  const payload=await backup.buildBackup({projectId:'tester-teaching',importId:'i2',sourceFingerprint:'abc',actor:{uid:'general',name:'General'},faculty:[{__id:'f1',doeLegacyEvidence:marker}],sessions:[],summarySettings:null,createdAt:'2026-09-16T20:00:00.000Z'});
+  const row=payload.faculty.find(item=>item.id==='f1');
+  assert.equal(row.fields.doeLegacyEvidence.exists,true);
+  assert.deepEqual(row.fields.doeLegacyEvidence.value,marker);
+});
 })();
 
 // ------------------------------------------------------------------------

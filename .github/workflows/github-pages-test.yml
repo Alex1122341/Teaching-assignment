@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -42,7 +44,7 @@ jobs:
         run: npm ci
 
       - name: Run static and unit tests
-        run: npm test
+        run: npm run test:all
 
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator
@@ -56,7 +58,7 @@ jobs:
           --directory .deploy-static
           --pr "${{ github.event.pull_request.number }}"
           --head-sha "${{ github.event.pull_request.head.sha }}"
-          --build-sha "${{ github.sha }}"
+          --build-sha "${{ github.event.pull_request.head.sha }}"
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6

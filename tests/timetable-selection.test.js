@@ -190,3 +190,18 @@ test('LAB change planning allows LAB topic only and rejects non-LAB rows',()=>{
  const nonLab=plain(api.planChanges([baseSession],[{...plain(baseSession),topic:'Nope'}],{uid:'lab-1'},123,new Map(),{role:'lab'}));
  assert.ok(nonLab.errors.some(error=>/LAB sessions only/i.test(error)));
 });
+
+test('client batch writer rejects DOE calculation evidence so authoritative records stay server-side',async()=>{
+ const api=load(),commits=[];
+ const store={
+  batch:()=>{const ops=[];return{update:(ref,data)=>ops.push(['update',ref,data]),set:(ref,data)=>ops.push(['set',ref,data]),commit:async()=>commits.push(ops)}},
+  sessionRef:id=>`sessions/${id}`,
+  calendarRef:id=>`calendar/${id}`,
+  logRef:()=>`logs/1`,
+  calendarFromSource:(row,id)=>({sessionId:id,topic:row.topic})
+ };
+ const record={calculationId:'calc-1',sessionId:'s1',assignmentId:'a1',resultDoe:.84};
+ const plan={errors:[],updates:[{id:'s1',data:{topic:'T1'},after:{id:'s1',topic:'T1'},calculationRecords:[record]}],logs:[{sessionId:'s1',action:'batch_update'}]};
+ await assert.rejects(()=>api.commitPlan(plan,store),/server-side DOE API/i);
+ assert.equal(commits.length,0);
+});

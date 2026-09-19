@@ -5,7 +5,7 @@
  const page=(location.pathname.split('/').pop()||'index.html').toLowerCase();
  if(!['index.html','faculty-admin.html'].includes(page))return;
 
- const scheduling=window.UCVM_SCHEDULING,approvalScheduling=window.UCVM_APPROVAL_SCHEDULING;
+ const scheduling=window.UCVM_SCHEDULING,approvalScheduling=window.UCVM_APPROVAL_SCHEDULING,doeApi=window.UCVM_DOE_API;
  if(!scheduling||!approvalScheduling)throw Error('UCVM scheduling and approval policy helpers are required.');
  const {auth,db}=UCVM.init();
  const REQUESTS='change_requests',SESSIONS='sessions',SWAP_INDEX='faculty_swap_index',SWAP_MAP='faculty_swap_map';
@@ -106,19 +106,30 @@
   const idx=findOutgoingIndex(current,request);if(idx<0)return toast('The outgoing instructor is no longer assigned. Approval is blocked.',true);
   const resolved=await resolveCandidate(request.toFaculty);if(!resolved)return toast('The replacement faculty mapping could not be resolved. Rebuild the faculty swap directory before approving.',true);
   if(resolved.special&&!String(request.reason||'').trim())return toast('Sessional / Other requests require a reason or note.',true);
+  let doePreview=null;
+  if(!resolved.special){
+   if(!doeApi?.previewFacultyTransfer||(typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured()))return toast(`${typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured.':'DOE API is unavailable.'} Approval is blocked.`,true);
+   const outgoing=assignedArray(current)[idx]||{},assignmentId=String(outgoing.assignmentId||`${current.id}--assignment--${idx+1}`);
+   try{doePreview=await doeApi.previewFacultyTransfer({academicYear:current.academicYear||'',sessionId:current.id,assignmentId,incomingFacultyId:resolved.facultyId})}
+   catch(error){console.error('[safe swap DOE preview]',error);return toast(`DOE preview failed: ${error.message}`,true)}
+  }
   const {warnings,check}=await liveIncomingWarnings(resolved,current),warningText=warnings.length?`\n\nWARNING - availability/conflict checks:\n- ${warnings.join('\n- ')}`:'';
   const needsOverride=approvalScheduling.requiresOverride(check);
   const question=needsOverride?'TIMETABLE CONFLICT DETECTED. Override and approve this replacement? This override will be recorded in the audit log.':'Approve and apply this faculty replacement to the live timetable?';
-  if(!confirm(`${question}${warningText}`))return;
+  const doeText=doePreview?`\n\nDOE: ${Number(doePreview.sessionDoeCredit).toFixed(2)}% → ${Number(doePreview.incomingDoeCredit).toFixed(2)}% · Incoming ${doePreview.incoming?.currentAssignedDoe==null?'current unavailable':Number(doePreview.incoming.currentAssignedDoe).toFixed(2)+'%'} → ${doePreview.incoming?.projectedAssignedDoe==null?'projected unavailable':Number(doePreview.incoming.projectedAssignedDoe).toFixed(2)+'%'}`:'';
+  if(!confirm(`${question}${doeText}${warningText}`))return;
   const conflictOverride=needsOverride?{...approvalScheduling.overrideAudit({uid:user.uid,name:profile.name||'ADFA administrator'},check.conflicts),confirmedAt:stamp()}:null;
-  const arr=assignedArray(current),out=arr[idx]||{},incoming={...out,ucid:resolved.facultyId,name:resolved.name,category:resolved.special?specialLabel(resolved.kind):'Faculty',source:'Approved swap request',swappedFrom:{ucid:String(out.ucid||out.facultyId||''),name:out.name||''},swappedAt:new Date().toISOString()};
+  const baseArr=doePreview?.session?.assignments?doePreview.session.assignments.map(a=>({...a})):assignedArray(current),out=assignedArray(current)[idx]||{},incoming={...(baseArr[idx]||out),ucid:resolved.facultyId,facultyId:resolved.facultyId,name:resolved.name,category:resolved.special?specialLabel(resolved.kind):'Faculty',source:'Approved swap request',swappedFrom:{ucid:String(out.ucid||out.facultyId||''),name:out.name||''},swappedAt:new Date().toISOString()};
   if(resolved.special){delete incoming.facultyId;incoming.ucid=''}
-  arr[idx]=incoming;const patch={assignments:arr,instructor:arr.map(a=>a.name).filter(Boolean).join('; '),facultyIds:UCVM_DATA_INDEX.sessionFacultyIds({...current,assignments:arr})},after={...current,...patch};
-  const reqRef=db.collection(REQUESTS).doc(requestId),logRef=db.collection('session_change_log').doc(),batch=db.batch();
-  batch.set(sessionRef,{...patch,updatedBy:user.uid,updatedByName:profile.name||user.email||'',updatedAt:stamp()},{merge:true});
-  batch.set(logRef,{action:'swap_faculty',override:conflictOverride,requestId,sessionId:current.id,course:current.course||request.course||'',date:ymd(current.date),topic:current.topic||'',fromFaculty:request.fromFaculty||{},toFaculty:{...request.toFaculty,facultyId:resolved.facultyId,name:resolved.name,category:incoming.category},role:incoming.role||current.type||'',changedBy:user.uid,changedByName:profile.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});
-  batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:profile.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});
-  try{await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after}]);closeModal();toast('Approved and applied to the live timetable.')}catch(error){console.error('[safe faculty swap approval]',error);toast(error.message,true)}
+  baseArr[idx]=incoming;const arr=baseArr,patch={assignments:arr,instructor:arr.map(a=>a.name).filter(Boolean).join('; '),facultyIds:UCVM_DATA_INDEX.sessionFacultyIds({...current,assignments:arr})},after={...current,...patch};
+  try{
+   if(!doeApi?.saveSessionChange||(typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured()))throw Error(typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured.':'DOE API is unavailable.');
+   const saved=await doeApi.saveSessionChange({academicYear:current.academicYear||'',sessionId:current.id,afterSession:after,trigger:'approved_swap_request'}),savedAfter=saved.session||after;
+   const reqRef=db.collection(REQUESTS).doc(requestId),logRef=db.collection('session_change_log').doc(),batch=db.batch();
+   batch.set(logRef,{action:'swap_faculty',override:conflictOverride,requestId,sessionId:current.id,course:savedAfter.course||current.course||request.course||'',date:ymd(savedAfter.date||current.date),topic:savedAfter.topic||current.topic||'',fromFaculty:request.fromFaculty||{},toFaculty:{...request.toFaculty,facultyId:resolved.facultyId,name:resolved.name,category:incoming.category},role:incoming.role||current.type||'',doePreview:doePreview?{oldDoeCredit:doePreview.sessionDoeCredit,newDoeCredit:doePreview.incomingDoeCredit,outgoing:doePreview.outgoing,incoming:doePreview.incoming}:null,doeChanges:saved.doeChanges||[],changedBy:user.uid,changedByName:profile.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});
+   batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:profile.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});
+   await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after:savedAfter}]);closeModal();toast('Approved and applied to the live timetable.');
+  }catch(error){console.error('[safe faculty swap approval]',error);toast(error.message,true)}
  }
 
  async function maybeInitializeSwapDirectory(){

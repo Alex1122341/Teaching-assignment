@@ -18,7 +18,7 @@ The lab project fixes that:
 | --- | --- | --- |
 | Data | synthetic only (`tools/seed/dataset.js`) | real |
 | Public exposure | acceptable — nothing real in it | must never be reached from a preview |
-| Configuration | committed (`firebase-config.js`) | generated at deploy time, never committed |
+| Configuration | committed lab-targeting template (`firebase-config.js`); usable cloud values are generated/injected for the preview build | generated at deploy time, never committed |
 
 ---
 
@@ -26,7 +26,7 @@ The lab project fixes that:
 
 | File | Purpose |
 | --- | --- |
-| `firebase-config.js` | **Single source of truth** for the client configuration. Committed default targets the lab project. |
+| `firebase-config.js` | **Single source of truth** for client Firebase configuration. The committed template targets the lab project but intentionally contains placeholder SDK values; a cloud preview needs generated/injected lab SDK configuration. |
 | `.firebaserc` | Project aliases. `default` is the lab project, so a deploy without `--project` cannot reach production. |
 | `firebase.json` | Rules, indexes, hosting and emulator ports. |
 | `firestore.rules` | Authorisation model. See `docs/database/SCHEMA.md`. |

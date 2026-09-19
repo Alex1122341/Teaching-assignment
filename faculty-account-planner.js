@@ -26,6 +26,21 @@
   return SUPPORTED.includes(value)?value:'Other';
  }
  const roleKey=role=>`${normalizeType(role?.type)}|${normalize(role?.assignment)}`;
+ function normalizeDoeAssignment(row={}){
+  const roleType=normalizeType(row.roleType||row.type),assignment=text(row.courseCode||row.subjectKey||row.assignment);
+  const result={academicYear:text(row.academicYear),roleType};
+  if(text(row.courseCode))result.courseCode=text(row.courseCode);
+  else if(['HICC','Course Coordinator','Course Coordinator / HICC'].includes(roleType)&&assignment)result.courseCode=assignment;
+  if(text(row.subjectKey))result.subjectKey=text(row.subjectKey);
+  else if(roleType==='VISC'&&assignment)result.subjectKey=assignment;
+  if(text(row.notes))result.notes=text(row.notes);
+  return result;
+ }
+ function classifyLegacyManagedRole(row={}){
+  const legacyDoeCredit=number(row.doeCredit),facts=normalizeDoeAssignment(row),hasScope=Boolean(facts.courseCode||facts.subjectKey);
+  const deterministic=new Set(['HICC','VISC','Course Coordinator','Course Coordinator / HICC','Rotation / Week Lead','Trainee / Supervision']);
+  return{classification:deterministic.has(facts.roleType)&&hasScope?'assignment_fact_candidate':'fixed_exception',legacyDoeCredit,facts};
+ }
  function workloadCredit(faculty,role){
   const direct=[role?.doeCredit,role?.doe,role?.appliedDOE,role?.operationalDOE].map(number).find(value=>value!==null);
   if(direct!==undefined)return Math.abs(direct);
@@ -51,7 +66,8 @@
   return output;
  }
  function facultyRoles(faculty){
-  const types=[...sourceRoles(faculty),...normalizedManagedRoles(faculty)].map(role=>normalizeType(role?.type));
+  const legacy=Array.isArray(faculty?.managedRoles2026_27)?faculty.managedRoles2026_27:[];
+  const types=[...sourceRoles(faculty),...legacy].map(role=>normalizeType(role?.type));
   const roles=[];if(types.some(type=>type==='HICC'||type==='Course Coordinator / HICC'))roles.push('hicc');if(types.includes('VISC'))roles.push('visc');roles.push('faculty');return roles;
  }
  function primaryRole(roles){const set=new Set(Array.isArray(roles)?roles:[]);return set.has('hicc')?'hicc':set.has('visc')?'visc':'faculty'}
@@ -61,7 +77,6 @@
   const active=faculty.filter(row=>{if(row?.active===false){result.inactive.push(row);return false}return true});
   const counts=new Map();for(const row of active){const value=email(row?.email);if(value)counts.set(value,(counts.get(value)||0)+1)}
   for(const row of active){
-   const before=Array.isArray(row?.managedRoles2026_27)?row.managedRoles2026_27:[],after=normalizedManagedRoles(row);if(JSON.stringify(before)!==JSON.stringify(after))result.roleUpdates.push({facultyId:facultyId(row),name:facultyName(row),before,after});
    const record=accountRecord(row);if(!validEmail(record.email)){result.missingEmail.push(row);continue}if((counts.get(record.email)||0)>1){result.duplicateEmail.push(row);continue}
    const existing=users.find(user=>text(user?.facultyId)===record.facultyId||email(user?.email)===record.email);
    if(existing){const item={...record,uid:text(existing.uid||existing.__id),existing};if(PRIVILEGED.has(normalize(existing.role))){result.protected.push(item);continue}const changed=normalize(existing.role)!==record.role||JSON.stringify(existing.facultyRoles||[])!==JSON.stringify(record.facultyRoles)||text(existing.facultyId)!==record.facultyId||email(existing.email)!==record.email||text(existing.name)!==record.name;if(changed)result.update.push(item);else result.existing.push(item);continue}
@@ -69,5 +84,5 @@
   }
   return result;
  }
- return{SUPPORTED,normalizedManagedRoles,facultyRoles,primaryRole,accountRecord,plan,normalizeType};
+ return{SUPPORTED,normalizedManagedRoles,normalizeDoeAssignment,classifyLegacyManagedRole,facultyRoles,primaryRole,accountRecord,plan,normalizeType};
 });

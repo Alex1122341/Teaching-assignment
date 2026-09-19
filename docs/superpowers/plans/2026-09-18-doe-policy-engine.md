@@ -86,7 +86,7 @@
 - Produces UCVM_DOE_FORMULA.evaluate(sourceOrAst,scope)
 - Typed errors include FORMULA_PARSE_ERROR, FORMULA_IDENTIFIER_NOT_ALLOWED, FORMULA_FUNCTION_NOT_ALLOWED, FORMULA_DIVIDE_BY_ZERO, OUTPUT_NON_FINITE.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ~~~js
 'use strict';
@@ -126,7 +126,7 @@ test('fails closed on divide by zero',()=>{
 });
 ~~~
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ~~~bash
 node --test tests/doe-formula.test.js
@@ -134,7 +134,7 @@ node --test tests/doe-formula.test.js
 
 Expected: FAIL because doe-formula.js does not exist.
 
-- [ ] **Step 3: Implement a recursive-descent parser**
+- [x] **Step 3: Implement a recursive-descent parser**
 
 The AST is restricted to these node types:
 
@@ -162,11 +162,11 @@ const SAFE_FUNCTIONS=Object.freeze({
 
 Do not implement strings, member access, brackets, assignment, loops, object construction, or function declarations.
 
-- [ ] **Step 4: Implement identifier validation and evaluation**
+- [x] **Step 4: Implement identifier validation and evaluation**
 
 Validation walks the AST and rejects every identifier not present in allowedIdentifiers. Evaluation resolves values only from the supplied scope and rejects non-finite values.
 
-- [ ] **Step 5: Run GREEN**
+- [x] **Step 5: Run GREEN**
 
 ~~~bash
 node --test tests/doe-formula.test.js
@@ -175,12 +175,15 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ~~~bash
 git add doe-formula.js tests/doe-formula.test.js
 git commit -m "feat: add safe DOE formula engine"
 ~~~
+
+
+**Task 1 verification:** exact branch head `887f816e7193d35e61854ababddb911f42875c7c` — Test #216 `Run static and unit tests` completed successfully. The formula module remains UMD/CommonJS-compatible and exposes `parse`, `validate`, and `evaluate` with typed fail-closed errors.
 
 ---
 
@@ -217,7 +220,7 @@ Expected calculation result shape:
 }
 ~~~
 
-- [ ] **Step 1: Write failing engine tests**
+- [x] **Step 1: Write failing engine tests**
 
 ~~~js
 const bundle={
@@ -248,7 +251,7 @@ Also prove:
 - adjustment result may be signed;
 - declared rule inputs control DOE-relevant edit detection.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ~~~bash
 node --test tests/doe-policy-engine.test.js
@@ -256,7 +259,7 @@ node --test tests/doe-policy-engine.test.js
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement deterministic selector matching**
+- [x] **Step 3: Implement deterministic selector matching**
 
 Supported operators:
 - equals
@@ -270,7 +273,7 @@ Supported operators:
 
 Exception matching is first. Generic rules then use explicit priority. Equal top priority is an error; never use array order as a hidden tie-breaker.
 
-- [ ] **Step 4: Implement structured calculation modes**
+- [x] **Step 4: Implement structured calculation modes**
 
 ~~~text
 fixed                -> fixed
@@ -287,11 +290,11 @@ tiered                -> ordered tier evaluation
 
 Tiered evaluation stays inside the engine rather than generating JavaScript.
 
-- [ ] **Step 5: Implement validatePolicy**
+- [x] **Step 5: Implement validatePolicy**
 
 Return typed errors/warnings for duplicate rule keys, malformed selectors, missing required parameters, unsafe/unknown formula identifiers, tier overlaps/gaps, invalid exceptions, ambiguous matching, circular dependencies, and invalid output rules.
 
-- [ ] **Step 6: Implement DOE-relevant change detection**
+- [x] **Step 6: Implement DOE-relevant change detection**
 
 ~~~js
 assert.equal(
@@ -304,11 +307,11 @@ assert.equal(
 );
 ~~~
 
-- [ ] **Step 7: Preserve faculty-doe.js compatibility**
+- [x] **Step 7: Preserve faculty-doe.js compatibility**
 
 Keep override, contract, effectiveTarget, and targetLabel exports working for existing callers. New policy-aware target evaluation may be added, but do not create a second independent target algorithm.
 
-- [ ] **Step 8: Run tests**
+- [x] **Step 8: Run tests**
 
 ~~~bash
 node --test tests/doe-formula.test.js tests/doe-policy-engine.test.js tests/faculty-doe.test.js tests/doe-canonical-consistency.test.js
@@ -317,12 +320,15 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ~~~bash
 git add doe-policy-engine.js faculty-doe.js tests/doe-policy-engine.test.js tests/faculty-doe.test.js
 git commit -m "feat: add canonical DOE policy engine"
 ~~~
+
+
+**Task 2 verification:** exact implementation head `34d5e210583fd6e081e56760908eadaa0a8dfc83` — Test #221 `Run static and unit tests` completed successfully after the RED run Test #219 failed on the missing `matchRule`, incomplete whole-policy validation, and missing faculty compatibility delegation. Existing `override`, `contract`, `effectiveTarget`, and `targetLabel` callers remain backward-compatible; explicit policy bundles delegate target calculation to the canonical Engine.
 
 ---
 
@@ -339,7 +345,7 @@ git commit -m "feat: add canonical DOE policy engine"
 - Produces createFirestoreRepository({db,fieldValue}).
 - Engine receives plain objects and ISO/date strings, never Firestore snapshots or Timestamp objects.
 
-- [ ] **Step 1: Write repository contract tests**
+- [x] **Step 1: Write repository contract tests**
 
 Exercise:
 
@@ -361,7 +367,7 @@ await repo.createCalculationRecord(record);
 
 Assert stable business IDs and normalized timestamps.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ~~~bash
 node --test tests/doe-policy-repository.test.js
@@ -369,7 +375,7 @@ node --test tests/doe-policy-repository.test.js
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement collection mapping**
+- [x] **Step 3: Implement collection mapping**
 
 Use top-level collections:
 
@@ -391,7 +397,7 @@ doe_audit_log
 
 Only the adapter owns Firestore paths/timestamps.
 
-- [ ] **Step 4: Implement optimistic Draft revision control**
+- [x] **Step 4: Implement optimistic Draft revision control**
 
 A Draft write transaction:
 1. loads parent version;
@@ -404,7 +410,7 @@ A Draft write transaction:
 
 Return POLICY_REVISION_CONFLICT on stale edit.
 
-- [ ] **Step 5: Write emulator tests RED**
+- [x] **Step 5: Write emulator tests RED**
 
 Create ADFA General, ADFA Regular, faculty, HICC, VISC, ADC, and LAB users.
 
@@ -418,11 +424,11 @@ Prove:
 - Active/Archived rules are immutable;
 - publication/calculation/audit evidence is append-only.
 
-- [ ] **Step 6: Implement Firestore Rules**
+- [x] **Step 6: Implement Firestore Rules**
 
 Use existing UCVM capability helpers. Authorization must be based on authenticated profile, not policy document role strings.
 
-- [ ] **Step 7: Run tests**
+- [x] **Step 7: Run tests**
 
 ~~~bash
 node --test tests/doe-policy-repository.test.js
@@ -431,12 +437,15 @@ npm run test:emulator
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ~~~bash
 git add doe-policy-repository.js doe-policy-firestore.js firestore.rules tests/doe-policy-repository.test.js tests/doe-policy-security-emulator.test.js
 git commit -m "feat: add DOE repository and security rules"
 ~~~
+
+
+**Task 3 verification:** exact implementation head `9db06a3609a7ca71265bb081bb5da85504674a74` — Test #223 completed successfully. Both `Run static and unit tests` and `Run Firestore and Auth emulator tests` passed. Emulator coverage proves ADFA Regular Draft editing, stale-revision rejection, Active immutability, non-ADFA denial, append-only evidence, and the General validate/publish transaction path.
 
 ---
 
@@ -457,7 +466,7 @@ git commit -m "feat: add DOE repository and security rules"
 - calculateSession
 - recordCalculation
 
-- [ ] **Step 1: Write lifecycle tests RED**
+- [x] **Step 1: Write lifecycle tests RED**
 
 Prove:
 - Regular may clone/edit/validate/preview;
@@ -468,19 +477,19 @@ Prove:
 - previous Active becomes Archived while new version becomes Active;
 - Active cannot be edited.
 
-- [ ] **Step 2: Implement capability gates**
+- [x] **Step 2: Implement capability gates**
 
 Browser wiring uses existing UCVM.admin and UCVM.general. Pure tests inject capability functions.
 
-- [ ] **Step 3: Implement canonical checksums**
+- [x] **Step 3: Implement canonical checksums**
 
 Canonicalize and sort policy records by stable IDs before hashing. Hash exact policy revision and relevant dataset projection; do not hash UI state.
 
-- [ ] **Step 4: Implement lifecycle state guards**
+- [x] **Step 4: Implement lifecycle state guards**
 
 Publish compares policyVersionId, revision, policyChecksum, inputDatasetChecksum, and passed impact status before state change.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ~~~bash
 node --test tests/doe-policy-publication.test.js tests/doe-policy-engine.test.js tests/doe-policy-repository.test.js
@@ -489,12 +498,15 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ~~~bash
 git add doe-policy-service.js tests/doe-policy-publication.test.js
 git commit -m "feat: add DOE draft and publication service"
 ~~~
+
+
+**Task 4 verification:** RED Test #225 failed only because `cloneAsDraft`, `calculateSession`, and `recordCalculation` were absent. Exact implementation head `1ffd31a14377855f3e2b9b9bf7cca1aff2b26749` passed Test #226 `Run static and unit tests`. Earlier Test #223 also proved the General validation/publication lifecycle against the Firestore emulator.
 
 ---
 
@@ -512,7 +524,7 @@ git commit -m "feat: add DOE draft and publication service"
 - Root section id="doe-rules-view".
 - Sections: Teaching Rules, Role Rules, Supervision & Complex, Target Rules, Exceptions.
 
-- [ ] **Step 1: Write static/UI tests RED**
+- [x] **Step 1: Write static/UI tests RED**
 
 Assert:
 - DOE Rules tab and section exist;
@@ -521,7 +533,7 @@ Assert:
 - General can see full lifecycle controls;
 - module load order is correct.
 
-- [ ] **Step 2: Add first-class HTML structure**
+- [x] **Step 2: Add first-class HTML structure**
 
 Top controls:
 - Academic Year
@@ -537,11 +549,11 @@ Top controls:
 
 Add rules table, editor root, exceptions table/editor, preview root.
 
-- [ ] **Step 3: Extend faculty-admin.js tab handling**
+- [x] **Step 3: Extend faculty-admin.js tab handling**
 
 Include doe-rules in setTab section switching. Self mode hides it and does not construct repository/service.
 
-- [ ] **Step 4: Implement Rule table**
+- [x] **Step 4: Implement Rule table**
 
 Columns:
 
@@ -560,7 +572,7 @@ Actions
 
 Active/Archived rows read-only.
 
-- [ ] **Step 5: Implement Structured Builder**
+- [x] **Step 5: Implement Structured Builder**
 
 Fields:
 - category
@@ -575,11 +587,11 @@ Fields:
 - source type
 - enabled state
 
-- [ ] **Step 6: Implement Advanced Formula toggle**
+- [x] **Step 6: Implement Advanced Formula toggle**
 
 Formula text is validated only through doe-formula.js and engine validation.
 
-- [ ] **Step 7: Implement Test Rule panel**
+- [x] **Step 7: Implement Test Rule panel**
 
 Example:
 
@@ -592,11 +604,11 @@ Parameters: rate = 0.30
 
 Missing input renders the typed error, never 0%.
 
-- [ ] **Step 8: Implement Exceptions editor**
+- [x] **Step 8: Implement Exceptions editor**
 
 Require defined scope, fixed DOE, reason, source reference, and policy version.
 
-- [ ] **Step 9: Run tests**
+- [x] **Step 9: Run tests**
 
 ~~~bash
 node --test tests/doe-policy-admin.test.js tests/faculty-self-dashboard.test.js
@@ -605,12 +617,15 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ~~~bash
 git add doe-policy-admin.js doe-policy-admin.css faculty-admin.html faculty-admin.js tests/doe-policy-admin.test.js
 git commit -m "feat: add Faculty Dashboard DOE Rules editor"
 ~~~
+
+
+**Task 5 verification:** RED Test #228 failed because `doe-policy-admin.js` did not exist. Exact integrated head `0ea9588ed0936fe515a83a50d78cbad56fee5b41` passed Test #234, including static/unit and Firestore/Auth emulator suites. DOE Rules is a first-class Faculty Dashboard tab; self-service roles cannot initialize it; ADFA Regular may edit Draft/Validate/Preview while General-only controls stay disabled for Regular.
 
 ---
 
@@ -773,7 +788,7 @@ git commit -m "feat: seed 2026-27 DOE policy with parity checks"
 - Persisted assignment retains doeCredit plus doePolicyVersionId, doeRuleId, doeRuleKey, doeCalculationId.
 - Full immutable snapshot is appended to doe_calculation_records.
 
-- [ ] **Step 1: Write integration tests RED**
+- [x] **Step 1: Write integration tests RED**
 
 Prove:
 1. New Lecture uses Active policy instead of a local 0.30 map.
@@ -785,7 +800,7 @@ Prove:
 
 Add a static assertion that the private hard-coded timetable rate map is removed after cutover.
 
-- [ ] **Step 2: Add a small timetable DOE adapter**
+- [x] **Step 2: Add a small timetable DOE adapter**
 
 Responsibilities:
 - resolve Academic Year;
@@ -796,7 +811,7 @@ Responsibilities:
 
 It must not know Firestore DOE collection names.
 
-- [ ] **Step 3: Replace local rate calculations in all assignment writers**
+- [x] **Step 3: Replace local rate calculations in all assignment writers**
 
 Cover:
 - single editor reconciliation;
@@ -806,17 +821,17 @@ Cover:
 
 Existing stored assignments stay readable.
 
-- [ ] **Step 4: Apply DOE-relevant change detection**
+- [x] **Step 4: Apply DOE-relevant change detection**
 
 Current teaching rules declare duration/credited-hours/role/type inputs. Room/Topic/Notes are not relevant unless a future rule explicitly declares them.
 
-- [ ] **Step 5: Pair canonical DOE write with evidence**
+- [x] **Step 5: Pair canonical DOE write with evidence**
 
 Where existing transaction/batch flow permits, write session update, calendar update, session audit, and DOE calculation record together.
 
 Do not create a new calculation record for a non-DOE edit.
 
-- [ ] **Step 6: Remove doeRateForRole hard-coded map after parity is green**
+- [x] **Step 6: Remove doeRateForRole hard-coded map after parity is green**
 
 The rates live in policy data.
 
@@ -856,7 +871,7 @@ git commit -m "feat: calculate timetable DOE from active policy"
 - Assigned DOE is canonical persisted earned/role/supervision/exception/adjustment DOE.
 - Target DOE comes through canonical target evaluation while preserving Contract and Override source values.
 
-- [ ] **Step 1: Write canonical consistency tests RED**
+- [x] **Step 1: Write canonical consistency tests RED**
 
 Assert:
 - DOE List does not own a separate calculation algorithm;
@@ -865,11 +880,11 @@ Assert:
 - historical explanation uses stored calculation snapshot;
 - missing rule/input is unavailable/error, not zero.
 
-- [ ] **Step 2: Move target evaluation behind engine/service**
+- [x] **Step 2: Move target evaluation behind engine/service**
 
 Keep faculty-doe.js as compatibility facade only. Do not erase original Contract DOE or override record.
 
-- [ ] **Step 3: Update DOE List**
+- [x] **Step 3: Update DOE List**
 
 Display:
 - Assigned DOE;
@@ -878,11 +893,11 @@ Display:
 - Policy Version;
 - Calculation status.
 
-- [ ] **Step 4: Update faculty profile explanation**
+- [x] **Step 4: Update faculty profile explanation**
 
 Show policy, rule, inputs, parameters, result, calculated time, trigger from historical calculation record.
 
-- [ ] **Step 5: Keep indexes derived**
+- [x] **Step 5: Keep indexes derived**
 
 data-index.js and index-maintenance.js aggregate persisted canonical doeCredit. They do not parse/evaluate formula text.
 
@@ -917,7 +932,7 @@ git commit -m "feat: unify faculty DOE reporting on policy engine"
 - previewRecalculate({academicYear,policyVersionId,scope})
 - runRecalculate({academicYear,policyVersionId,scope,resumeFrom,batchId,onProgress})
 
-- [ ] **Step 1: Write recalculate tests RED**
+- [x] **Step 1: Write recalculate tests RED**
 
 Prove:
 - Regular cannot execute;
@@ -928,19 +943,19 @@ Prove:
 - resume skips committed rows;
 - derived index refresh follows successful canonical writes.
 
-- [ ] **Step 2: Implement dry-run planner**
+- [x] **Step 2: Implement dry-run planner**
 
 Return faculty affected, assignments affected, role/supervision affected, old versions, new Active version, changed DOE count, errors, warnings.
 
-- [ ] **Step 3: Implement chunked execution**
+- [x] **Step 3: Implement chunked execution**
 
 Follow existing resumable batch patterns. Use stable recalculationBatchId and record it on committed calculation records.
 
-- [ ] **Step 4: Wire General-only UI**
+- [x] **Step 4: Wire General-only UI**
 
 Require explicit confirmation showing Academic Year and Active version. Regular can see permission explanation but cannot execute.
 
-- [ ] **Step 5: Extend emulator security**
+- [x] **Step 5: Extend emulator security**
 
 Prove Regular cannot write the administrative recalculation path.
 
@@ -975,7 +990,7 @@ git commit -m "feat: add resumable DOE recalculation workflow"
 - New runtime modules deploy on GitHub Pages and Azure build.
 - Dependencies load before consumers.
 
-- [ ] **Step 1: Write runtime asset test RED**
+- [x] **Step 1: Write runtime asset test RED**
 
 Require:
 - doe-formula.js
@@ -988,11 +1003,11 @@ Require:
 
 Current manifest count is 56. Seven new deployable assets means expected count 63 unless implementation deliberately removes/adds another runtime asset; if so, make the test assert the exact resulting graph and document the delta.
 
-- [ ] **Step 2: Assert script order**
+- [x] **Step 2: Assert script order**
 
 Formula before Engine; repository/firestore before service; service before timetable/admin consumers. Timetable must not load the DOE Rules admin controller.
 
-- [ ] **Step 3: Update manifest and HTML**
+- [x] **Step 3: Update manifest and HTML**
 
 Add stylesheet only to Faculty Dashboard. Add calculation/service modules to pages that consume them.
 
@@ -1042,11 +1057,11 @@ npm run test:emulator
 
 Expected: zero failures.
 
-- [ ] **Step 3: Verify hard-coded Timetable DOE map is gone**
+- [x] **Step 3: Verify hard-coded Timetable DOE map is gone**
 
 Search source for the old Lecture 0.30 / Lab 0.21 / 0.19 calculation map. Expected: canonical values are policy data; UI code calls Engine/service.
 
-- [ ] **Step 4: Verify permission evidence**
+- [x] **Step 4: Verify permission evidence**
 
 Confirm tests demonstrate:
 - Regular edits Draft;

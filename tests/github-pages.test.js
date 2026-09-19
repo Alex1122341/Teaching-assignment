@@ -33,14 +33,15 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/contents:\s*read/);
   assert.match(workflow,/pages:\s*write/);
   assert.match(workflow,/id-token:\s*write/);
+  assert.match(workflow,/uses:\s*actions\/checkout@v4\s*\n\s*with:\s*\n\s*ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
   assert.match(workflow,/npm ci/);
-  assert.match(workflow,/npm test/);
+  assert.match(workflow,/npm run test:all/);
   assert.match(workflow,/npm run test:emulator/);
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
   assert.match(workflow,/--pr\s+["']?\$\{\{ github\.event\.pull_request\.number \}\}["']?/);
   assert.match(workflow,/--head-sha\s+["']?\$\{\{ github\.event\.pull_request\.head\.sha \}\}["']?/);
-  assert.match(workflow,/--build-sha\s+["']?\$\{\{ github\.sha \}\}["']?/);
+  assert.match(workflow,/--build-sha\s+["']?\$\{\{ github\.event\.pull_request\.head\.sha \}\}["']?/);
   assert.match(workflow,/actions\/configure-pages@v6/);
   assert.match(workflow,/actions\/upload-pages-artifact@v5/);
   assert.match(workflow,/path:\s*\.deploy-static/);
@@ -54,15 +55,18 @@ test('Pages workflow leaves the independent Test workflow in place',()=>{
   const workflow=read('.github/workflows/test.yml');
   assert.match(workflow,/name:\s*Test/);
   assert.match(workflow,/pull_request:/);
+  assert.match(workflow,/uses:\s*actions\/checkout@v4\s*\n\s*with:\s*\n\s*ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/);
   assert.match(workflow,/push:\s*\n\s+branches:\s*\n\s+- main/);
 });
 
-test('setup docs define the fixed Pages test site and shared live backend',()=>{
+test('setup docs define the fixed Pages test site and isolated lab boundary',()=>{
   const setup=read('SETUP.md');
   assert.match(setup,/https:\/\/alex1122341\.github\.io\/Teaching-assignment\//);
   assert.match(setup,/GitHub Pages/i);
+  assert.match(setup,/vista-teaching-lab/);
+  assert.match(setup,/isolated.*lab|synthetic.*lab/i);
   assert.match(setup,/tester-teaching/);
-  assert.match(setup,/live Firebase backend|shared Firebase backend/i);
+  assert.match(setup,/preview must never be configured to reach production/i);
   assert.match(setup,/alex1122341\.github\.io/);
   assert.match(setup,/Authorized domains/i);
   assert.match(setup,/latest successful.*pull request|latest successful.*PR/i);
@@ -78,6 +82,28 @@ test('setup docs require manual production approval after merge',()=>{
   assert.match(setup,/main/);
   assert.match(setup,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
   assert.match(setup,/environment secret/i);
+});
+
+test('exact-head CI runs root and server DOE suites',()=>{
+  const testWorkflow=read('.github/workflows/test.yml');
+  const pagesWorkflow=read('.github/workflows/github-pages-test.yml');
+  for(const workflow of [testWorkflow,pagesWorkflow]){
+    assert.match(workflow,/npm run test:all/);
+    assert.match(workflow,/npm run test:emulator/);
+    assert.match(workflow,/github\.event\.pull_request\.head\.sha/);
+  }
+});
+
+test('DOE API workflow verifies the exact PR head without deploying production',()=>{
+  const workflow=read('.github/workflows/doe-api-test.yml');
+  assert.match(workflow,/pull_request:/);
+  assert.match(workflow,/ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  assert.match(workflow,/node-version:\s*['"]22['"]/);
+  assert.match(workflow,/npm --prefix server (?:ci|install)/);
+  assert.match(workflow,/npm --prefix server test/);
+  assert.match(workflow,/node tools\/build-doe-api\.js/);
+  assert.match(workflow,/output\/doe-api\/server\/src\/server\.js/);
+  assert.doesNotMatch(workflow,/azure\/webapps-deploy|az webapp|production/i);
 });
 })();
 
@@ -104,11 +130,11 @@ const identity={
   buildSha:'2222222222222222222222222222222222222222'
 };
 
-test('Pages banner identifies test host, live backend, PR and short head SHA',()=>{
+test('Pages banner identifies test host, isolated lab configuration, PR and short head SHA',()=>{
   const html=injectTestBanner('<!doctype html><html><body class="app"><main>UCVM</main></body></html>',identity);
   assert.match(html,/id="github-pages-test-site-banner"/);
   assert.match(html,/TEST SITE - GitHub Pages/);
-  assert.match(html,/Not Production - Live Firebase Backend/);
+  assert.match(html,/Not Production - Isolated Lab Configuration/);
   assert.match(html,/PR #23/);
   assert.match(html,/1111111/);
   assert.equal((html.match(/github-pages-test-site-banner/g)||[]).length,1);
@@ -130,7 +156,7 @@ test('Pages staging changes only the supplied build directory',()=>{
   const result=stagePagesDirectory(dir,identity);
   assert.equal(result.htmlFiles,2);
   assert.match(fs.readFileSync(path.join(dir,'index.html'),'utf8'),/TEST SITE - GitHub Pages/);
-  assert.match(fs.readFileSync(path.join(dir,'faculty-admin.html'),'utf8'),/Live Firebase Backend/);
+  assert.match(fs.readFileSync(path.join(dir,'faculty-admin.html'),'utf8'),/Isolated Lab Configuration/);
   assert.ok(fs.existsSync(path.join(dir,'.nojekyll')));
   assert.ok(fs.existsSync(path.join(dir,'faculty-dashboard.html')));
 

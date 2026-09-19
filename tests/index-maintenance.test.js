@@ -24,7 +24,7 @@ test('session writes add derived faculty IDs',()=>{
 test('session mutations update derived settings from exact before and after records',()=>{
  const index=read('timetable.js'),approval=read('approval-workflow.js'),admin=read('faculty-admin.js'),maintenance=read('index-maintenance.js');
  assert.match(index,/UCVM_INDEX_MAINTENANCE\.updateDerivedIndexes\(db,changes/);
- assert.match(index,/\{before:existing\|\|null,after:next\}/);
+ assert.match(index,/updateDerivedIndexes\(\[\{before:existing\|\|null,after:savedNext\}\]/);
  assert.match(index,/\{before:s,after:null\}/);
  assert.match(approval,/updateDerivedIndexes\?\.\(\[\{before:current,after/);
  assert.match(admin,/writeDerivedIndexes/);
@@ -35,9 +35,6 @@ test('session mutations update derived settings from exact before and after reco
 test('derived settings writes are limited to administrators',()=>{
  const rules=read('firestore.rules');
  assert.match(rules,/id in \['faculty_index','schedule_stats','faculty_swap_map'\].*admin\(\)/s);
- // The sanitized projections are additionally pinned to a document envelope, so
- // a writer cannot smuggle private fields into a document that ordinary faculty
- // accounts are allowed to read.
  assert.match(rules,/id == 'faculty_swap_index' && swapIndexShapeValid\(request\.resource\.data\) && \(\(teachingWritesOpen\(\) && admin\(\)\)/);
  assert.match(rules,/id == 'people_index' && peopleIndexShapeValid\(request\.resource\.data\) && admin\(\)/);
  assert.match(rules,/function swapIndexShapeValid\(d\)\{return d\.keys\(\)\.hasOnly\(\['schemaVersion','entries','generatedAt'\]\)/);
@@ -180,4 +177,33 @@ test('writeDerivedIndexes commits all four settings documents in one batch',asyn
  await api.writeDerivedIndexes(db,[{__id:'1001',preferredFullName:'Alex',active:true}],[],{uid:'g',name:'General'});
  assert.equal(db.commits.length,1);
  assert.deepEqual(db.commits[0].map(row=>row.id).sort(),['faculty_index','faculty_swap_index','faculty_swap_map','schedule_stats']);
+});
+
+test('incremental derived DOE maintenance preserves missing-credit error state instead of treating it as zero',()=>{
+ const api=require(path.join(root,'index-maintenance.js'));
+ const dataIndex=require(path.join(root,'data-index.js'));
+ const faculty=[{__id:'1001',preferredFullName:'Alex',facultySummary2026_27:{sourceNonTimetableTeachingDOE:2}}];
+ const before={id:'s1',assignments:[{ucid:'1001',doeCredit:1,doePolicyVersionId:'policy-v1'}]};
+ const initial=dataIndex.buildFacultyIndex(faculty,[before]);
+ const after={id:'s1',assignments:[{ucid:'1001',creditedHours:4,doeRate:.3}]};
+ const result=api.applySessionChanges(initial,{sessionCount:1,assignedFacultyCount:1,courseCounts:{}},[{before,after}]);
+ const entry=result.facultyIndex.entries[0];
+ assert.equal(entry.missingDoeCount,1);
+ assert.equal(entry.calculationStatus,'error');
+ assert.equal(entry.assignedTeachingDOE,2);
+});
+
+test('incremental derived maintenance keeps legacy evidence mixed when policy-versioned sessions change',()=>{
+ const api=require(path.join(root,'index-maintenance.js'));
+ const dataIndex=require(path.join(root,'data-index.js'));
+ const faculty=[{__id:'1001',preferredFullName:'Alex',managedRoles2026_27:[{action:'add',doeCredit:1}],facultySummary2026_27:{sourceNonTimetableTeachingDOE:2}}];
+ const before={id:'s1',assignments:[{ucid:'1001',doeCredit:1,doePolicyVersionId:'policy-v1'}]};
+ const initial=dataIndex.buildFacultyIndex(faculty,[before]);
+ const after={id:'s1',assignments:[{ucid:'1001',doeCredit:1.5,doePolicyVersionId:'policy-v1'}]};
+ const result=api.applySessionChanges(initial,{sessionCount:1,assignedFacultyCount:1,courseCounts:{}},[{before,after}]);
+ const entry=result.facultyIndex.entries[0];
+ assert.equal(entry.assignedTeachingDOE,4.5);
+ assert.equal(entry.legacyDoeEvidenceOnly,true);
+ assert.equal(entry.calculationStatus,'mixed');
+ assert.equal(entry.policyVersionId,'mixed');
 });
