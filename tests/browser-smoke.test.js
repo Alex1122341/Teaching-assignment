@@ -19,7 +19,7 @@ test('static smoke server cannot escape the deployment directory',()=>{
  const site=path.resolve('/tmp/ucvm-site');
  assert.equal(safeStaticPath(site,'/index.html'),path.join(site,'index.html'));
  assert.equal(safeStaticPath(site,'/bundles/a.bundle.js'),path.join(site,'bundles/a.bundle.js'));
- assert.equal(safeStaticPath(site,'/%2e%2e/firestore.rules'),null);
+ assert.equal(safeStaticPath(site,'/%2e%2e%2ffirestore.rules'),null);
  assert.equal(safeStaticPath(site,'/%00bad'),null);
 });
 
