@@ -52,6 +52,20 @@ test('AFC PDF helpers form one ordered lazy deployment bundle',()=>{
  assert.doesNotMatch(loader,/loadScriptOnce\('afc-pdf-browser\.js'/);
 });
 
+test('approval compatibility and workflow form one ordered lazy deployment bundle',()=>{
+ const approval=config.lazyBundles.find(bundle=>bundle.output==='bundles/approval-workflow.lazy.bundle.js');
+ assert.ok(approval);
+ assert.deepEqual(approval.sources,['faculty-swap-handoff.js','approval-workflow.js']);
+ const text=build.bundleText(approval.sources.map(source=>({source,content:read(source)})));
+ assert.ok(text.indexOf('/* SOURCE: faculty-swap-handoff.js */')<text.indexOf('/* SOURCE: approval-workflow.js */'));
+ const loader=read('asset-loader.js'),access=read('faculty-access.js');
+ assert.match(loader,/loadScriptOnce\('bundles\/approval-workflow\.lazy\.bundle\.js'\)/);
+ assert.doesNotMatch(loader,/loadScriptOnce\('faculty-swap-handoff\.js'/);
+ assert.doesNotMatch(loader,/loadScriptOnce\('approval-workflow\.js'/);
+ assert.match(access,/UCVM_ASSETS\?\.ensureApprovalWorkflow/);
+ assert.doesNotMatch(access,/load\('approval-workflow\.js'/);
+});
+
 test('shared approval request bundle removes cross-page duplication without reordering',()=>{
  const shared=config.bundles.find(bundle=>bundle.output==='bundles/shared-approval-request.bundle.js');
  assert.ok(shared);
@@ -88,13 +102,14 @@ test('bundle output preserves source order and adds auditable source markers',()
  assert.doesNotMatch(text,/\/\* END SOURCE:/);
 });
 
-test('deployment plan replaces startup sources and bundled AFC lazy helpers',()=>{
+test('deployment plan replaces startup sources and both verified lazy helper groups',()=>{
  const plan=build.deploymentPlan({root,sourceManifest,config});
- assert.equal(plan.generatedBundles.length,11);
- assert.equal(plan.deployedJsCount,21);
- for(const source of ['afc-form-values.js','afc-pdf-browser.js'])assert.equal(plan.copyAssets.includes(source),false,source);
- for(const lazy of ['approval-workflow.js','faculty-swap-safe.js','faculty-swap-handoff.js','faculty-admin-enhancements.js'])assert.ok(plan.copyAssets.includes(lazy),lazy);
+ assert.equal(plan.generatedBundles.length,12);
+ assert.equal(plan.deployedJsCount,20);
+ for(const source of ['afc-form-values.js','afc-pdf-browser.js','faculty-swap-handoff.js','approval-workflow.js'])assert.equal(plan.copyAssets.includes(source),false,source);
+ for(const lazy of ['faculty-swap-safe.js','faculty-admin-enhancements.js'])assert.ok(plan.copyAssets.includes(lazy),lazy);
  for(const source of ['faculty-doe.js','scheduling-core.js','data-index.js','index-maintenance.js','audit-details.js','firebase-config.js','faculty-access.js'])assert.equal(plan.copyAssets.includes(source),false,source);
  assert.ok(plan.generatedBundles.includes('bundles/afc-pdf.lazy.bundle.js'));
+ assert.ok(plan.generatedBundles.includes('bundles/approval-workflow.lazy.bundle.js'));
  for(const page of ['index.html','faculty-admin.html','user-management.html','password.html'])assert.ok(plan.copyAssets.includes(page),page);
 });

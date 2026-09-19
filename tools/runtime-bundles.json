@@ -147,6 +147,13 @@
         "afc-form-values.js",
         "afc-pdf-browser.js"
       ]
+    },
+    {
+      "output": "bundles/approval-workflow.lazy.bundle.js",
+      "sources": [
+        "faculty-swap-handoff.js",
+        "approval-workflow.js"
+      ]
     }
   ]
 }

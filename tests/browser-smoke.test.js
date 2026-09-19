@@ -51,3 +51,11 @@ test('authenticated browser smoke exercises the AFC lazy helper bundle',()=>{
  assert.match(source,/UCVM_AFC_FORM_VALUES/);
  assert.match(source,/UCVM_AFC_PDF/);
 });
+
+test('authenticated browser smoke verifies one centralized approval lazy bundle',()=>{
+ const source=require('node:fs').readFileSync(path.join(__dirname,'..','tools/browser-smoke.js'),'utf8');
+ assert.match(source,/UCVM_ASSETS\.ensureApprovalWorkflow\(\)/);
+ assert.match(source,/approval-workflow\.lazy\.bundle\.js/);
+ assert.match(source,/UCVM_SAFE_SWAP_HANDOFF/);
+ assert.match(source,/expected exactly once/);
+});

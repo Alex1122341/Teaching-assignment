@@ -106,6 +106,6 @@ const config=window.UCVM_FIREBASE_CONFIG;
 (()=>{
  const page=(location.pathname.split('/').pop()||'index.html').toLowerCase();
  const load=(src,key)=>{if(document.querySelector(`script[data-${key}]`))return;const s=document.createElement('script');s.src=src;s.dataset[key.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]='1';s.async=false;document.head.appendChild(s)};
- const run=()=>{if(page==='index.html')load('approval-workflow.js','ucvm-approval-workflow');if(page==='faculty-admin.html')load('faculty-admin-enhancements.js','ucvm-faculty-admin-enhancements')};
+ const run=()=>{if(page==='index.html')window.UCVM_ASSETS?.ensureApprovalWorkflow?.().catch(error=>console.error('[approval workflow loader]',error));if(page==='faculty-admin.html')load('faculty-admin-enhancements.js','ucvm-faculty-admin-enhancements')};
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(run,0),{once:true});else setTimeout(run,0);
 })();

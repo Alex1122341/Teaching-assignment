@@ -273,6 +273,15 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture}){
   if(afcLazy.exceptionDetails)throw Error(`AFC lazy bundle failed: ${exceptionText(afcLazy.exceptionDetails)}`);
   if(!afcLazy.result?.value?.ok||!afcLazy.result?.value?.values||!afcLazy.result?.value?.pdf)throw Error('AFC lazy bundle did not expose the expected runtime globals.');
 
+  const approvalLazy=await cdp.send('Runtime.evaluate',{
+   expression:`(async()=>{await window.UCVM_ASSETS.ensureApprovalWorkflow();const scripts=[...document.scripts].filter(script=>String(script.src||'').includes('bundles/approval-workflow.lazy.bundle.js'));return{handoff:window.UCVM_SAFE_SWAP_HANDOFF?.mode||'',scripts:scripts.length}})()`,
+   returnByValue:true,
+   awaitPromise:true
+  });
+  if(approvalLazy.exceptionDetails)throw Error(`Approval lazy bundle failed: ${exceptionText(approvalLazy.exceptionDetails)}`);
+  if(approvalLazy.result?.value?.handoff!=='direct-session-modal')throw Error('Approval lazy bundle did not execute the compatibility handoff first.');
+  if(approvalLazy.result?.value?.scripts!==1)throw Error(`Approval lazy bundle loaded ${approvalLazy.result?.value?.scripts||0} times; expected exactly once.`);
+
   await navigate('faculty-admin.html');
   await waitForCondition(cdp,`(()=>document.getElementById('auth-gate')?.classList.contains('hidden')===true&&document.getElementById('admin-chip')?.textContent.includes('Browser Smoke Owner'))()`,'Faculty Dashboard owner access');
 

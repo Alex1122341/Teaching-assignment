@@ -60,9 +60,11 @@ test('approval routing and state engines load before timetable workflow consumer
  assert.ok(html.indexOf('approval-office-view.js')<html.indexOf('asset-loader.js'));
  assert.ok(html.indexOf('approval-lifecycle.js')<html.indexOf('asset-loader.js'));
  assert.ok(html.indexOf('approval-finalizer.js')<html.indexOf('asset-loader.js'));
- const loader=read('asset-loader.js');
- assert.ok(loader.includes("loadScriptOnce('approval-workflow.js')"));
+ const loader=read('asset-loader.js'),access=read('faculty-access.js');
+ assert.ok(loader.includes("loadScriptOnce('bundles/approval-workflow.lazy.bundle.js')"));
  assert.ok(loader.includes("loadScriptOnce('bundles/afc-pdf.lazy.bundle.js','UCVM_AFC_PDF')"));
+ assert.match(access,/UCVM_ASSETS\?\.ensureApprovalWorkflow/);
+ assert.doesNotMatch(access,/load\('approval-workflow\.js'/);
 });
 
 test('DOE API runtime deploys and loads before Faculty and Timetable consumers without browser policy engine/storage',()=>{
