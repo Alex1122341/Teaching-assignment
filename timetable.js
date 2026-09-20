@@ -1562,11 +1562,11 @@
           if (code === 'permission-denied') {
             msg = 'Firestore denied access to users/{uid}. Publish the V7 Firestore Rules from README_FIRST.txt.';
           } else if (code === 'ucvm/profile-not-found') {
-            msg = 'Authentication succeeded, but this UID has no document under Firestore > users. Add users/{UID} with active=true and role=viewer or editor.';
+            msg = 'Authentication succeeded, but this UID has no document under Firestore > users. Add users/{UID} with active=true and a supported UCVM role.';
           } else if (code === 'ucvm/profile-inactive') {
             msg = 'This account exists but active is not true in Firestore.';
           } else if (code === 'ucvm/invalid-role') {
-            msg = 'Firestore role must be exactly viewer, editor, or admin (lowercase recommended).';
+            msg = 'Firestore role must be a supported UCVM role, including developer, owner, administrator, faculty, HICC, VISC, ADC or LAB.';
           }
           setAppLocked(true, 'Access denied. Sign in with an authorized account.');
           await auth.signOut().catch(() => {});
