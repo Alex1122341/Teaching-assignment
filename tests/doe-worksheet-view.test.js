@@ -56,13 +56,16 @@ test('worksheet detail renders immutable rule and Reference provenance',()=>{
  assert.match(html,/c1/);
 });
 
-test('Faculty Lookup and DOE List consume the server worksheet API when configured',()=>{
+test('Faculty Lookup and DOE List consume the shared server worksheet API cache when configured',()=>{
  const lookup=read('faculty-admin.js');
  const list=read('faculty-admin-enhancements.js');
  assert.match(lookup,/UCVM_DOE_API\.getFacultyWorksheet/);
+ assert.match(lookup,/UCVM_DOE_API\.listFacultyDoe/);
  assert.match(lookup,/UCVM_DOE_WORKSHEET_VIEW/);
- assert.match(list,/UCVM_DOE_API\.listFacultyDoe/);
+ assert.match(list,/UCVM_ADMIN_DATA/);
+ assert.match(list,/loadDoeSummaryList/);
  assert.match(list,/UCVM_DOE_WORKSHEET_VIEW/);
+ assert.doesNotMatch(list,/UCVM_DOE_API\.listFacultyDoe/);
 });
 
 test('Lookup and DOE List fail closed instead of rendering legacy DOE when API is unavailable',()=>{
