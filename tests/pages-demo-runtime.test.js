@@ -57,3 +57,16 @@ test('Pages demo defaults role testing to Developer and exposes synthetic DOE su
  assert.equal(rows.length,2);assert.equal(facultyRow.assignedTeachingDoe,40);assert.equal(facultyRow.teachingLineCount,1);
  assert.ok(serverOnly);assert.equal(serverOnly.serverOnlyDemo,true);assert.equal(serverOnly.assignedTeachingDoe,22);
 });
+
+
+test('Pages demo secondary Auth creates a synthetic login without replacing Developer',async()=>{
+ const values=new Map(),storage={getItem:key=>values.get(key)||null,setItem:(key,value)=>values.set(key,value)},sessionStorage={setItem(){}};
+ const seed={documents:[{path:'users/uid-developer',data:{name:'VISTA Developer',email:'developer@example.test',role:'developer',active:true,mustChangePassword:false}}]};
+ const root={localStorage:storage,sessionStorage,document:{readyState:'loading',addEventListener(){},getElementById(){return null},createElement(){return{}},head:{appendChild(){}},body:{appendChild(){}}},location:{reload(){}}};
+ const demo=runtime.createDemoFirebase(root,seed),app=demo.firebase.initializeApp({projectId:'demo'},'ucvm-provisioning'),secondary=app.auth();
+ assert.equal(demo.auth.currentUser.uid,'uid-developer');assert.equal(secondary.currentUser,null);
+ const credential=await secondary.createUserWithEmailAndPassword('new.office@example.test','DemoPass123!');
+ assert.match(credential.user.uid,/^demo-auth-[0-9a-f]{8}$/);assert.equal(credential.user.email,'new.office@example.test');assert.equal(demo.auth.currentUser.uid,'uid-developer');
+ await assert.rejects(()=>secondary.createUserWithEmailAndPassword('new.office@example.test','DemoPass123!'),error=>error.code==='auth/email-already-in-use');
+ await secondary.signOut();assert.equal(demo.auth.currentUser.uid,'uid-developer');
+});

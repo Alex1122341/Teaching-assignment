@@ -297,8 +297,16 @@
     terminate(){return Promise.resolve()}
   }
 
-  function uidForEmail(email){
-    const local=String(email||'').toLowerCase().split('@')[0];
+  function createdUidForEmail(email){
+    const value=String(email||'').trim().toLowerCase();let hash=2166136261;
+    for(let index=0;index<value.length;index++){hash^=value.charCodeAt(index);hash=Math.imul(hash,16777619)}
+    return`demo-auth-${(hash>>>0).toString(16).padStart(8,'0')}`;
+  }
+
+  function uidForEmail(email,registry){
+    const normalized=String(email||'').trim().toLowerCase();
+    if(registry?.has(normalized))return registry.get(normalized);
+    const local=normalized.split('@')[0];
     if(local.includes('developer'))return'uid-developer';
     if(local.includes('owner'))return'uid-owner';
     if(local.includes('hicc'))return'uid-hicc-1';
@@ -310,11 +318,11 @@
     return DEFAULT_UID;
   }
 
-  function createAuth(store,storage,sessionStorage){
-    const listeners=new Set();
-    let selected;
-    try{selected=storage?.getItem(USER_KEY)||DEFAULT_UID}catch(_){selected=DEFAULT_UID}
-    let current=selected===SIGNED_OUT?null:selected;
+  function createAuth(store,storage,sessionStorage,options={}){
+    const listeners=new Set(),registry=options.registry||new Map(),defaultUid=Object.prototype.hasOwnProperty.call(options,'defaultUid')?options.defaultUid:DEFAULT_UID;
+    let selected=defaultUid;
+    try{const saved=storage?.getItem(USER_KEY);if(saved!==null&&saved!==undefined&&saved!=='')selected=saved}catch(_){selected=defaultUid}
+    let current=!selected||selected===SIGNED_OUT?null:selected;
     const profileFor=uid=>store.read(`users/${uid}`)||{};
     const userFor=(uid,emailOverride='')=>{
       if(!uid)return null;
@@ -345,7 +353,8 @@
       get currentUser(){return currentUser},
       setPersistence:async()=>undefined,
       onAuthStateChanged(callback){listeners.add(callback);queueMicrotask(()=>callback(currentUser));return()=>listeners.delete(callback)},
-      signInWithEmailAndPassword:async email=>({user:select(uidForEmail(email),email)}),
+      signInWithEmailAndPassword:async email=>({user:select(uidForEmail(email,registry),email)}),
+      createUserWithEmailAndPassword:async(email,password)=>{const normalized=String(email||'').trim().toLowerCase();if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(normalized)){const error=Error('The email address is invalid.');error.code='auth/invalid-email';throw error}if(String(password||'').length<6){const error=Error('The password must be at least 6 characters.');error.code='auth/weak-password';throw error}if(registry.has(normalized)){const error=Error('The email address is already in use.');error.code='auth/email-already-in-use';throw error}const uid=createdUidForEmail(normalized);registry.set(normalized,uid);return{user:select(uid,normalized)}} ,
       signInWithPhoneNumber:async()=>({confirm:async()=>({user:select(DEFAULT_UID)})}),
       signOut:async()=>{select(null)},
       sendPasswordResetEmail:async()=>undefined,
@@ -445,8 +454,9 @@
 
   function createDemoFirebase(root,seed){
     const store=createStore(seed,root.localStorage);
-    const db=new DemoFirestore(store);
-    const auth=createAuth(store,root.localStorage,root.sessionStorage);
+    const db=new DemoFirestore(store),authRegistry=new Map();
+    for(const row of store.list('users')){const email=text(row.data?.email).toLowerCase(),uid=String(row.path).split('/').pop();if(email)authRegistry.set(email,uid)}
+    const auth=createAuth(store,root.localStorage,root.sessionStorage,{registry:authRegistry});
     const authFn=()=>auth;
     authFn.Auth={Persistence:{LOCAL:'local',SESSION:'session',NONE:'none'}};
     authFn.RecaptchaVerifier=class{render(){return Promise.resolve(1)}clear(){}};
@@ -454,10 +464,13 @@
     const firestoreFn=()=>db;
     firestoreFn.FieldValue=FieldValue;
     firestoreFn.Timestamp=DemoTimestamp;
+    const apps=[];
+    const makeApp=(name,appAuth,options={})=>({name,options:{projectId:'vista-teaching-lab-demo',...(options||{})},auth:()=>appAuth,firestore:()=>db});
+    const defaultApp=makeApp('[DEFAULT]',auth);apps.push(defaultApp);
     const firebase={
-      apps:[{name:'[DEFAULT]',options:{projectId:'vista-teaching-lab-demo'}}],
-      initializeApp:()=>firebase.apps[0],
-      app:()=>firebase.apps[0],
+      apps,
+      initializeApp:(options={},name='[DEFAULT]')=>{const appName=name||'[DEFAULT]',existing=apps.find(item=>item.name===appName);if(existing)return existing;const secondary=createAuth(store,null,null,{registry:authRegistry,defaultUid:''}),app=makeApp(appName,secondary,options);apps.push(app);return app},
+      app:(name='[DEFAULT]')=>{const found=apps.find(item=>item.name===(name||'[DEFAULT]'));if(!found)throw Error(`Demo Firebase app not found: ${name}`);return found},
       auth:authFn,
       firestore:firestoreFn,
       SDK_VERSION:'pages-demo'

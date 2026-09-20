@@ -647,6 +647,11 @@ async function verifyUserManagementRoleMatrix({debugPort,origin,setupCdp}){
    await waitForCondition(cdp,"(()=>document.getElementById('content')?.hidden===false&&!document.getElementById('accounts')?.hidden)()",'Developer User Management access',12000);
    const state=await userManagementState(cdp);
    if(state.developerOptionDisabled||state.developerEditDisabled||state.selectedRole!=='faculty')throw Error('Developer account management state is incorrect: '+JSON.stringify(state));
+   const email='demo.created.adc@example.test',name='Demo Created ADC';
+   const create=await cdp.send('Runtime.evaluate',{expression:`(()=>{const set=(id,value)=>{const el=document.getElementById(id);if(!el)return false;el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return true};const ok=[set('account-role','adc'),set('account-office-name',${JSON.stringify(name)}),set('account-office-email',${JSON.stringify(email)}),set('account-password','DemoPass123!')].every(Boolean);const form=document.getElementById('account-form');if(!ok||!form)return{ok:false};form.requestSubmit();return{ok:true}})()`,returnByValue:true});
+   if(create.exceptionDetails||!create.result?.value?.ok)throw Error('Developer Demo account creation form could not be submitted');
+   await waitForCondition(cdp,`(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},profile=Object.entries(records).find(([path,row])=>path.startsWith('users/')&&row?.email===${JSON.stringify(email)}&&row?.role==='adc'&&row?.active===true),audit=Object.values(records).find(row=>row?.action==='account_provisioned'&&row?.targetEmail===${JSON.stringify(email)}&&row?.role==='adc'&&row?.changedBy==='uid-developer');return !!profile&&!!audit&&window.firebase?.auth?.().currentUser?.uid==='uid-developer'&&/Account saved/i.test(document.getElementById('status')?.textContent||'')})()`,'Developer secondary-auth account creation',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true});
   });
 
   await withDemoRolePage({debugPort,origin,setupCdp,page:'user-management.html',uid:'uid-owner',label:'Owner User Management'},async cdp=>{
