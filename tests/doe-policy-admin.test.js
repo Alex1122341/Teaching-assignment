@@ -155,3 +155,25 @@ test('Rule Book permission gates consume the authoritative version returned by b
  assert.match(load,/state\.bundle=await state\.service\.loadPolicyBundle/);
  assert.match(load,/state\.versions\[at\]=\{\.\.\.state\.versions\[at\],\.\.\.current\}/);
 });
+
+
+test('Impact Preview renderer presents operational risk categories and attention queue',()=>{
+ const html=ADMIN.impactPreviewHtml({
+  status:'passed',policyVersionId:'v2',policyRevision:4,facultyCount:5,calculationCount:9,
+  changedFacultyCount:2,increaseCount:1,decreaseCount:1,unchangedCount:1,newNeedsReviewCount:1,
+  resolvedCurrentGapCount:1,missingMappingCount:1,largestIncreaseDoe:6,largestDecreaseDoe:-4,
+  largeIncreaseCount:1,largeDecreaseCount:0,errorCount:1,warningCount:1,
+  rows:[
+   {facultyId:'increase',currentDoe:10,draftDoe:16,difference:6,impactStatus:'increase',affectedRules:['teaching.lecture'],warnings:[{code:'LARGE_INCREASE',message:'Review increase'}],errors:[]},
+   {facultyId:'mapping',currentDoe:12,draftDoe:null,difference:null,impactStatus:'missing_mapping',missingMappingCount:1,affectedRules:[],warnings:[],errors:[{code:'COURSE_MAPPING_REQUIRED',message:'Course mapping required'}]},
+   {facultyId:'resolved',currentDoe:null,draftDoe:8,difference:null,impactStatus:'resolved_current_gap',currentUnavailableCount:1,affectedRules:['role.hicc'],warnings:[],errors:[]}
+  ]
+ });
+ for(const value of ['Increases','Decreases','Draft Needs Review','Resolved current gaps','Missing mapping','Largest increase','Largest decrease','Attention queue','All faculty impact']){
+  assert.match(html,new RegExp(value));
+ }
+ assert.match(html,/10\.00%\s*→\s*16\.00%/);
+ assert.match(html,/Missing Mapping/);
+ assert.match(html,/Resolved Current Gap/);
+ assert.match(html,/COURSE_MAPPING_REQUIRED/);
+});
