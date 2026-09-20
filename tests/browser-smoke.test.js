@@ -114,3 +114,26 @@ test('authenticated browser smoke opens DOE Reconciliation and renders the Needs
  assert.match(source,/COURSE_MAPPING_REQUIRED/);
  assert.match(source,/DOE Reconciliation work queue render/);
 });
+
+
+test('DOE browser smoke fixture carries structured explanation evidence for an existing Faculty profile',()=>{
+ const worksheet=doeSmokeResponse('/__doe-smoke/api/doe/faculty/fac-001/worksheet?academicYear=2026-27','GET');
+ assert.equal(worksheet.statusCode,200);
+ const line=worksheet.body.lines[0];
+ assert.equal(line.lineId,'session-smoke--assignment-smoke');
+ assert.equal(line.explanation.inputs.hours,2);
+ assert.equal(line.explanation.parameters.rate,14);
+ assert.equal(line.explanation.rule.name,'Lecture standard rate');
+ assert.equal(line.explanation.facts.teachingRole,'Primary Instructor');
+ assert.equal(line.calculationId,'calc-smoke-lecture');
+});
+
+test('authenticated browser smoke opens a DOE explanation modal from the generated Faculty profile',()=>{
+ const source=require('node:fs').readFileSync(path.join(__dirname,'..','tools/browser-smoke.js'),'utf8');
+ assert.match(source,/data-doe-explain-line/);
+ assert.match(source,/doe-explain-modal/);
+ assert.match(source,/Lecture standard rate/);
+ assert.match(source,/Primary Instructor/);
+ assert.match(source,/calc-smoke-lecture/);
+ assert.match(source,/DOE explanation modal render/);
+});
