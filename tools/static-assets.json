@@ -29,6 +29,7 @@
   "firebase-config.js",
   "faculty-access.js",
   "session-workflow.js",
+  "work-queue.js",
   "office-capabilities.js",
   "faculty-account-planner.js",
   "account-profile.js",

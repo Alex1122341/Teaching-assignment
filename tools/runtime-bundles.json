@@ -14,7 +14,8 @@
       "sources": [
         "faculty-doe.js",
         "scheduling-core.js",
-        "session-workflow.js"
+        "session-workflow.js",
+        "work-queue.js"
       ],
       "pages": [
         "index.html",
