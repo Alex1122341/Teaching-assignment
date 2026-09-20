@@ -67,3 +67,13 @@ test('office profile save clears legacy faculty routing and checks existing UIDs
  assert.match(source,/readProfile:[^\n]*source:'server'/);
  assert.match(source,/patch\.facultyId=firebase\.firestore\.FieldValue\.delete\(\)/);
 });
+
+
+test('Developer account hierarchy is enforced in User Management UI',()=>{
+ const source=read('user-management.js');
+ assert.match(source,/developerActor/);
+ assert.match(source,/developerAccount/);
+ assert.match(source,/Only Developer can create or modify Developer accounts/);
+ assert.match(source,/Developer protected/);
+ assert.match(source,/option\[value="developer"\]/);
+});
