@@ -581,7 +581,7 @@ async function hydrateApprovalImpacts(){if(!isAdfaApprover())return;
     if(!confirm(`TIMETABLE CONFLICT DETECTED${warningText}\n\nOverride and approve despite the timetable conflict(s)? This override will be recorded in the audit log.`))return;
   }else if(!confirm(`Approve and apply this ${r.requestType==='faculty_swap'?'faculty swap':'session change'} to the live timetable?${warningText}`))return;
   try{
-    if(!doeApiReady('saveSessionChange'))throw Error(doeApiUnavailable());
+    if(!doeApi?.saveSessionChange||((typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured())&&!doeApi?.canQueueSessionChanges?.()))throw Error(typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured and the Firebase recalculation queue is unavailable.':'DOE API is unavailable.');
     const after={...current,...patch},saved=await doeApi.saveSessionChange({academicYear:current.academicYear||'',sessionId:current.id,afterSession:after,trigger:'approved_legacy_change'}),savedAfter=saved.session||after;
     const batch=db.batch(),reqRef=db.doc(`${REQUESTS}/${id}`),logRef=db.collection(LOGS).doc();
     batch.set(logRef,{...log,requestId:id,sessionId:r.sessionId,course:savedAfter.course||current.course||r.course||'',date:ymd(savedAfter.date||current.date),topic:savedAfter.topic||current.topic||'',override:conflictOverride,doeChanges:saved.doeChanges||[],changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});
