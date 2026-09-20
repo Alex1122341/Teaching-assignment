@@ -444,7 +444,7 @@ service cloud.firestore {
   match /sessions/{id} {
    allow read: if privateReader();
    allow create: if adcSessionCreate(id) || (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
-   allow update: if adcSessionUpdate(id) || labSessionUpdate(id) || routedSessionApply(id) || (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || doeRecalculationSessionWrite() || maintenanceSessionWrite(id);
+   allow update: if routedSessionApply(id) || adcSessionUpdate(id) || labSessionUpdate(id) || (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || doeRecalculationSessionWrite() || maintenanceSessionWrite(id);
    allow delete: if (teachingWritesOpen() && admin() && !existsAfter(calendarPath(id))) || maintenanceSessionDelete(id);
   }
   match /faculty/{id} {
