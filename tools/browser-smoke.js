@@ -550,6 +550,7 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
   if(rulebookOpen.exceptionDetails)throw Error(`Rule Book navigation failed: ${exceptionText(rulebookOpen.exceptionDetails)}`);
   if(!rulebookOpen.result?.value?.tab)throw Error('Rule Book smoke could not find the DOE Rules tab.');
   await waitForCondition(cdp,`(()=>{const status=document.getElementById('doe-policy-status')?.textContent||'',version=document.getElementById('doe-policy-version')?.value||'',clone=document.getElementById('doe-clone-draft');return status.includes('ACTIVE')&&version==='smoke-policy-2026-27-v1'&&clone&&!clone.disabled})()`,'Rule Book Active policy loaded');
+  process.stdout.write('Rule Book smoke checkpoint: active policy loaded.\n');
 
   const cloneDraft=await cdp.send('Runtime.evaluate',{
    expression:`(()=>{document.getElementById('doe-clone-draft')?.click();return true})()`,
@@ -557,6 +558,7 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
   });
   if(cloneDraft.exceptionDetails)throw Error(`Rule Book clone failed: ${exceptionText(cloneDraft.exceptionDetails)}`);
   await waitForCondition(cdp,`(()=>{const status=document.getElementById('doe-policy-status')?.textContent||'',version=document.getElementById('doe-policy-version')?.value||'',validate=document.getElementById('doe-validate'),preview=document.getElementById('doe-preview'),publish=document.getElementById('doe-publish');return status.includes('DRAFT')&&status.includes('revision 0')&&version==='smoke-policy-2026-27-v2'&&validate&&!validate.disabled&&preview?.disabled===true&&publish?.disabled===true})()`,'Rule Book Draft loaded');
+  process.stdout.write('Rule Book smoke checkpoint: Draft cloned.\n');
 
   const openRule=await cdp.send('Runtime.evaluate',{
    expression:`(()=>{const button=document.querySelector('.doe-edit-rule[data-rule-id="smoke-rule-lecture"]');button?.click();return{button:!!button,visible:!document.getElementById('doe-rule-editor')?.classList.contains('hidden')}})()`,
@@ -571,6 +573,7 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
   if(editRule.exceptionDetails)throw Error(`Rule Book rule save failed: ${exceptionText(editRule.exceptionDetails)}`);
   if(!editRule.result?.value?.name||!editRule.result?.value?.rate)throw Error('Rule Book smoke could not edit the Draft lecture rule.');
   await waitForCondition(cdp,`(()=>{const status=document.getElementById('doe-policy-status')?.textContent||'',modal=document.getElementById('doe-rule-editor'),row=document.querySelector('[data-doe-rule-id="smoke-rule-lecture"]')?.textContent||'';return modal?.classList.contains('hidden')&&status.includes('revision 1')&&row.includes('Lecture operational smoke rate')})()`,'Rule Book Draft rule save');
+  process.stdout.write('Rule Book smoke checkpoint: rule saved.\n');
 
   const mappingPanel=await cdp.send('Runtime.evaluate',{
    expression:`(()=>{const tab=[...document.querySelectorAll('[data-doe-rulebook-tab]')].find(node=>node.dataset.doeRulebookTab==='course-mapping');tab?.click();const panel=document.querySelector('[data-doe-rulebook-panel="course-mapping"]'),add=document.getElementById('doe-add-course-mapping');const panelVisible=!!panel&&!panel.classList.contains('hidden'),addEnabled=!!add&&!add.disabled;if(panelVisible&&addEnabled)add.click();return{tab:!!tab,panelVisible,addEnabled,visible:!document.getElementById('doe-mapping-editor')?.classList.contains('hidden')}})()`,
@@ -585,22 +588,27 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
   if(saveMapping.exceptionDetails)throw Error(`Rule Book mapping save failed: ${exceptionText(saveMapping.exceptionDetails)}`);
   if(!Object.values(saveMapping.result?.value||{}).every(Boolean))throw Error('Rule Book smoke could not populate the Course Mapping editor.');
   await waitForCondition(cdp,`(()=>{const status=document.getElementById('doe-policy-status')?.textContent||'',modal=document.getElementById('doe-mapping-editor'),mapping=document.getElementById('doe-course-mapping-body')?.textContent||'',impact=document.getElementById('doe-impact-preview')?.textContent||'',preview=document.getElementById('doe-preview'),publish=document.getElementById('doe-publish');return modal?.classList.contains('hidden')&&status.includes('revision 2')&&mapping.includes('VTMD 999')&&impact.includes('OUTDATED')&&preview?.disabled===true&&publish?.disabled===true})()`,'Rule Book stale gates after edit');
+  process.stdout.write('Rule Book smoke checkpoint: mapping saved and stale gates enforced.\n');
 
   const validateDraft=await cdp.send('Runtime.evaluate',{expression:`(()=>{document.getElementById('doe-validate')?.click();return true})()`,returnByValue:true});
   if(validateDraft.exceptionDetails)throw Error(`Rule Book validation failed: ${exceptionText(validateDraft.exceptionDetails)}`);
   await waitForCondition(cdp,`(()=>{const impact=document.getElementById('doe-impact-preview')?.textContent||'',preview=document.getElementById('doe-preview'),publish=document.getElementById('doe-publish');return impact.includes('Validation is current')&&preview?.disabled===false&&publish?.disabled===true})()`,'Rule Book validation gate');
+  process.stdout.write('Rule Book smoke checkpoint: validation current.\n');
 
   const impactPreview=await cdp.send('Runtime.evaluate',{expression:`(()=>{document.getElementById('doe-preview')?.click();return true})()`,returnByValue:true});
   if(impactPreview.exceptionDetails)throw Error(`Rule Book Impact Preview failed: ${exceptionText(impactPreview.exceptionDetails)}`);
   await waitForCondition(cdp,`(()=>{const impact=document.getElementById('doe-impact-preview')?.textContent||'',publish=document.getElementById('doe-publish');return impact.includes('Impact Preview PASSED')&&impact.includes('fac-001')&&impact.includes('42.00%')&&publish?.disabled===false})()`,'Rule Book Impact Preview gate');
+  process.stdout.write('Rule Book smoke checkpoint: Impact Preview passed.\n');
 
   const publishDraft=await cdp.send('Runtime.evaluate',{expression:`(()=>{document.getElementById('doe-publish')?.click();return true})()`,returnByValue:true});
   if(publishDraft.exceptionDetails)throw Error(`Rule Book publish failed: ${exceptionText(publishDraft.exceptionDetails)}`);
   await waitForCondition(cdp,`(()=>{const status=document.getElementById('doe-policy-status')?.textContent||'',version=document.getElementById('doe-policy-version')?.value||'',recalculate=document.getElementById('doe-recalculate');return status.includes('ACTIVE')&&version==='smoke-policy-2026-27-v2'&&recalculate?.disabled===false})()`,'Rule Book publish transition');
+  process.stdout.write('Rule Book smoke checkpoint: Draft published.\n');
 
   const recalculate=await cdp.send('Runtime.evaluate',{expression:`(()=>{window.confirm=()=>true;document.getElementById('doe-recalculate')?.click();return true})()`,returnByValue:true});
   if(recalculate.exceptionDetails)throw Error(`Rule Book recalculation failed: ${exceptionText(recalculate.exceptionDetails)}`);
   await waitForCondition(cdp,`(()=>{const text=document.getElementById('doe-recalculate-status')?.textContent||'';return text.includes('Recalculation complete: 3/3')&&text.includes('Derived indexes refreshed')})()`,'Rule Book recalculation dry-run and execution');
+  process.stdout.write('Rule Book smoke checkpoint: recalculation completed.\n');
 
   await navigate('user-management.html');
   await waitForCondition(cdp,`(()=>document.getElementById('content')?.hidden===false&&document.getElementById('accounts')?.hidden===false&&document.getElementById('identity')?.textContent.includes('Browser Smoke Owner'))()`,'User Management owner access');
