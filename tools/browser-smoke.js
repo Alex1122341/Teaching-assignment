@@ -428,6 +428,7 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(problems.length)throw Error(`${expectation.page}: ${problems.join('; ')}`);
   if(demoMode&&expectation.page==='index.html')await verifyTimetableRoleMatrix({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoSessionAuditWorkflow({debugPort,origin,setupCdp:cdp});
+  if(demoMode&&expectation.page==='index.html')await verifyDemoFacultySwapAuditWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='user-management.html')await verifyUserManagementRoleMatrix({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='faculty-admin.html'){
    if(!state.reconciliationTab)throw Error('faculty-admin.html: DOE Reconciliation tab is missing in Frontend Demo');
@@ -555,6 +556,38 @@ async function verifyDemoSessionAuditWorkflow({debugPort,origin,setupCdp}){
    const history=await cdp.send('Runtime.evaluate',{expression:"(()=>({text:(document.getElementById('audit-body')?.textContent||'').trim(),status:(document.getElementById('audit-status')?.textContent||'').trim()}))()",returnByValue:true});
    if(history.exceptionDetails)throw Error('Change History inspection failed: '+exceptionText(history.exceptionDetails));
    const value=history.result?.value||{};if(!value.text.includes(markerRoom)||!value.text.includes('VISTA Developer')||!value.text.includes('Changed'))throw Error('Change History did not render the Developer session update: '+JSON.stringify(value));
+  });
+ }finally{
+  try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
+ }
+}
+async function verifyDemoFacultySwapAuditWorkflow({debugPort,origin,setupCdp}){
+ let sessionId='',fromName='',toName='',toFacultyId='';
+ try{
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-developer',label:'Developer Faculty SWAP workflow'},async cdp=>{
+   await waitForCondition(cdp,"(()=>document.getElementById('cal-list-btn')&&!document.body.classList.contains('auth-locked'))()",'Developer timetable ready for SWAP',12000);
+   const candidate=await cdp.send('Runtime.evaluate',{expression:`(()=>{window.confirm=()=>true;const records=window.UCVM_PAGES_DEMO?.export?.()||{},today=new Date().toISOString().slice(0,10),facultyIds=new Set(Object.keys(records).filter(path=>path.startsWith('faculty/')&&!path.slice('faculty/'.length).includes('/')).map(path=>path.slice('faculty/'.length))),rows=Object.entries(records).filter(([path,row])=>path.startsWith('sessions/')&&!path.slice('sessions/'.length).includes('/')&&String(row?.date||'')>=today&&Array.isArray(row?.assignments)&&row.assignments.some(a=>String(a?.ucid||a?.facultyId||'').trim())&&!row?.isCcc&&!row?.isUniversityClosure).filter(([,row])=>{const assigned=new Set((row.assignments||[]).map(a=>String(a?.ucid||a?.facultyId||'')).filter(Boolean));return [...facultyIds].some(id=>!assigned.has(id))}).sort((a,b)=>String(b[1]?.date||'').localeCompare(String(a[1]?.date||'')));const hit=rows[0];if(!hit)return{ok:false,today};document.getElementById('cal-list-btn').click();const first=hit[1].assignments.find(a=>String(a?.ucid||a?.facultyId||'').trim())||{};return{ok:true,id:hit[0].slice('sessions/'.length),fromId:String(first.ucid||first.facultyId||''),fromName:String(first.name||'')}})()`,returnByValue:true});
+   if(candidate.exceptionDetails)throw Error('SWAP candidate selection failed: '+exceptionText(candidate.exceptionDetails));
+   const selected=candidate.result?.value||{};if(!selected.ok)throw Error('no future swappable Demo session found for '+(selected.today||'today'));sessionId=selected.id;
+   await waitForCondition(cdp,"(()=>!!document.querySelector('[data-session-id=\\\""+sessionId+"\\\"]'))()",'SWAP session visible in List view',12000);
+   const opened=await cdp.send('Runtime.evaluate',{expression:"(()=>{document.querySelector('[data-session-id=\\\""+sessionId+"\\\"]')?.click();return true})()",returnByValue:true});
+   if(opened.exceptionDetails)throw Error('could not open SWAP session detail: '+exceptionText(opened.exceptionDetails));
+   await waitForCondition(cdp,"(()=>!!document.getElementById('detail-swap'))()",'SWAP Faculty button',12000);
+   const openSwap=await cdp.send('Runtime.evaluate',{expression:"(()=>{window.confirm=()=>true;document.getElementById('detail-swap')?.click();return true})()",returnByValue:true});
+   if(openSwap.exceptionDetails)throw Error('could not open SWAP Faculty modal: '+exceptionText(openSwap.exceptionDetails));
+   await waitForCondition(cdp,"(()=>!!document.querySelector('#swap-candidate-body [data-swap-faculty]'))()",'SWAP replacement candidates',12000);
+   const swap=await cdp.send('Runtime.evaluate',{expression:"(()=>{window.confirm=()=>true;const records=window.UCVM_PAGES_DEMO?.export?.()||{},session=records['sessions/"+sessionId+"'],out=Number(document.getElementById('swap-out-select')?.value||0),before=session?.assignments?.[out]||{},button=document.querySelector('#swap-candidate-body [data-swap-faculty]');if(!button)return{ok:false};const id=String(button.dataset.swapFaculty||''),faculty=records['faculty/'+id]||{};button.click();return{ok:true,fromId:String(before.ucid||before.facultyId||''),fromName:String(before.name||''),toId:id,toName:String(faculty.preferredFullName||faculty.name||faculty.hrFirstLast||faculty.hrFullName||id)}})()",returnByValue:true});
+   if(swap.exceptionDetails)throw Error('SWAP click failed: '+exceptionText(swap.exceptionDetails));
+   const change=swap.result?.value||{};if(!change.ok||!change.toId)throw Error('SWAP replacement candidate could not be selected');fromName=change.fromName||change.fromId;toName=change.toName||change.toId;toFacultyId=change.toId;
+   await waitForCondition(cdp,"(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},session=records['sessions/"+sessionId+"'],logs=Object.entries(records).filter(([path,row])=>path.startsWith('session_change_log/')&&row?.sessionId==='"+sessionId+"'&&row?.action==='swap_faculty'),queues=Object.entries(records).filter(([path,row])=>path.startsWith('doe_recalculation_requests/')&&row?.sessionId==='"+sessionId+"'&&row?.status==='pending');return Array.isArray(session?.assignments)&&session.assignments.some(a=>String(a?.ucid||a?.facultyId||'')==='"+toFacultyId+"')&&logs.some(([,row])=>row.changedBy==='uid-developer'&&String(row.toFaculty?.ucid||'')==='"+toFacultyId+"')&&queues.some(([,row])=>row.requestedBy==='uid-developer')})()",'Demo Faculty SWAP session/audit/DOE queue update',12000);
+  });
+
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'faculty-admin.html',uid:'uid-developer',label:'Developer Faculty SWAP Change History'},async cdp=>{
+   await waitForCondition(cdp,"(()=>document.getElementById('auth-gate')?.classList.contains('hidden')===true&&document.getElementById('admin-chip')?.textContent.includes('VISTA Developer'))()",'Developer Faculty Dashboard access for SWAP history',12000);
+   const opened=await cdp.send('Runtime.evaluate',{expression:"(()=>{const tab=document.querySelector('.tab[data-tab=\\\"history\\\"]');tab?.click();return{tab:!!tab}})()",returnByValue:true});
+   if(opened.exceptionDetails||!opened.result?.value?.tab)throw Error('Change History tab is unavailable for SWAP verification');
+   const historyExpression="(()=>{const text=document.getElementById('audit-body')?.textContent||'';return text.includes('Faculty changed')&&text.includes("+JSON.stringify(fromName)+")&&text.includes("+JSON.stringify(toName)+")&&text.includes('VISTA Developer')})()";
+   await waitForCondition(cdp,historyExpression,'Faculty SWAP visible in Change History',12000);
   });
  }finally{
   try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
