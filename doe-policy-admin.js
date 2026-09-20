@@ -169,7 +169,9 @@
  }
 
  function selectedVersion(){
-  return state.versions.find(version=>version.policyVersionId===$('doe-policy-version')?.value)||state.bundle?.version||null;
+  const selectedId=$('doe-policy-version')?.value||'';
+  if(state.bundle?.version?.policyVersionId===selectedId)return state.bundle.version;
+  return state.versions.find(version=>version.policyVersionId===selectedId)||state.bundle?.version||null;
  }
 
  function isDraft(){return selectedVersion()?.status==='draft'}
@@ -317,6 +319,12 @@
   if(!versionId){state.bundle=null;renderBundle();return}
   setStatus('Loading DOE policy…');
   state.bundle=await state.service.loadPolicyBundle(versionId);
+  const current=state.bundle?.version;
+  if(current){
+   const at=state.versions.findIndex(version=>version.policyVersionId===current.policyVersionId);
+   if(at>=0)state.versions[at]={...state.versions[at],...current};
+   else state.versions.push({...current});
+  }
   renderBundle();
   await renderStoredPreview();
  }
