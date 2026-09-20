@@ -63,7 +63,7 @@
  $('account-form').onsubmit=event=>{event.preventDefault();action(async()=>{
   if(!UCVM.general(me))throw Error('Owner access is required.');
   const faculty=selectedFaculty(),role=$('account-role').value,fields=profileFields(faculty,role),old=editingUser;
-  if(old?.uid===auth.currentUser.uid&&(role!=='owner'||!fields.active))throw Error('You cannot demote or disable your own Owner account.');
+  if(old?.uid===auth.currentUser.uid){const currentRole=roleForForm(old.accountRole||old.role);if(!fields.active)throw Error('You cannot disable your own account.');if(currentRole==='developer'&&role!=='developer')throw Error('You cannot demote your own Developer account.');if(currentRole==='owner'&&!['developer','owner'].includes(role))throw Error('You cannot demote your own Owner account below Owner.');}
   const uid=old?.uid||await profilePolicy.resolveNewUid({existingUid:profilePolicy.facultyFacingRole(role)?'':$('account-existing-uid').value,email:fields.email,password:$('account-password').value,readProfile:id=>db.doc(`users/${id}`).get({source:'server'}),createAuthenticationUser});
   await saveAccountProfile(uid,fields,old,old?'account_updated':'account_provisioned');selectAccount(null);
  },'Account saved.')};
