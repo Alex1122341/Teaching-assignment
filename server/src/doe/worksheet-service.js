@@ -77,11 +77,25 @@ function createWorksheetService({repository}={}){
    for(const facultyId of ids||[])worksheets.push(await buildFacultyWorksheet({facultyId,academicYear:year}));
   }
   return worksheets.map(row=>{
-   const roleAssignments=(row.lines||[]).filter(line=>lineSection(line.category)==='roles'&&text(line.sourceEntityType)==='doe_assignment').map(line=>({
+   const lines=Array.isArray(row.lines)?row.lines:[],roleLines=lines.filter(line=>lineSection(line.category)==='roles');
+   const roleAssignments=roleLines.filter(line=>text(line.sourceEntityType)==='doe_assignment').map(line=>({
     assignmentFactId:text(line.assignmentFactId||line.sourceEntityId),roleType:text(line.roleType),courseCode:text(line.courseCode),subjectKey:text(line.subjectKey),
     resultDoe:finite(line.resultDoe),status:text(line.status),ruleKey:text(line.ruleKey),ruleId:text(line.ruleId),reference:line.reference||null
    }));
-   return{facultyId:row.facultyId,displayName:row.displayName,academicYear:row.academicYear,policyVersionId:row.policyVersionId,status:row.status,lastCalculatedAt:row.lastCalculatedAt,target:{...(row.target||{})},roleAssignmentCount:roleAssignments.length,roleAssignments,...row.totals};
+   const lineIssueCodes=lines.map(line=>text(line.errorCode)).filter(Boolean),worksheetIssueCodes=(row.errors||[]).map(error=>text(error.code)).filter(Boolean);
+   const issueCodes=[...new Set([...lineIssueCodes,...worksheetIssueCodes])];
+   const mappingCode=code=>/(?:^|_)MAPPING_(?:REQUIRED|AMBIGUOUS)$/.test(text(code).toUpperCase());
+   const unratedLineCount=lines.filter(line=>finite(line.resultDoe)===null||['needs_review','error'].includes(text(line.status).toLowerCase())).length;
+   const missingMappingCount=lines.filter(line=>mappingCode(line.errorCode)).length;
+   const teachingLineCount=lines.filter(line=>lineSection(line.category)==='scheduledTeaching').length;
+   const supervisionLineCount=lines.filter(line=>lineSection(line.category)==='supervision').length;
+   const adjustmentLineCount=lines.filter(line=>lineSection(line.category)==='adjustments').length;
+   return{
+    facultyId:row.facultyId,displayName:row.displayName,academicYear:row.academicYear,policyVersionId:row.policyVersionId,status:row.status,lastCalculatedAt:row.lastCalculatedAt,
+    target:{...(row.target||{})},roleAssignmentCount:roleAssignments.length,roleAssignments,
+    teachingLineCount,supervisionLineCount,adjustmentLineCount,serverFactCount:lines.length,unratedLineCount,missingMappingCount,issueCount:(row.errors||[]).length,issueCodes,
+    ...row.totals
+   };
   });
  }
  return Object.freeze({buildFacultyWorksheet,listFacultyDoe});
