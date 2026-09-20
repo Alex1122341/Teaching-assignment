@@ -76,7 +76,13 @@ function createWorksheetService({repository}={}){
    const ids=await repository.listFacultyIdsForDoe(year);
    for(const facultyId of ids||[])worksheets.push(await buildFacultyWorksheet({facultyId,academicYear:year}));
   }
-  return worksheets.map(row=>({facultyId:row.facultyId,displayName:row.displayName,academicYear:row.academicYear,policyVersionId:row.policyVersionId,status:row.status,lastCalculatedAt:row.lastCalculatedAt,target:{...(row.target||{})},...row.totals}));
+  return worksheets.map(row=>{
+   const roleAssignments=(row.lines||[]).filter(line=>lineSection(line)==='roles'&&text(line.sourceEntityType)==='doe_assignment').map(line=>({
+    assignmentFactId:text(line.assignmentFactId||line.sourceEntityId),roleType:text(line.roleType),courseCode:text(line.courseCode),subjectKey:text(line.subjectKey),
+    resultDoe:finite(line.resultDoe),status:text(line.status),ruleKey:text(line.ruleKey),ruleId:text(line.ruleId),reference:line.reference||null
+   }));
+   return{facultyId:row.facultyId,displayName:row.displayName,academicYear:row.academicYear,policyVersionId:row.policyVersionId,status:row.status,lastCalculatedAt:row.lastCalculatedAt,target:{...(row.target||{})},roleAssignmentCount:roleAssignments.length,roleAssignments,...row.totals};
+  });
  }
  return Object.freeze({buildFacultyWorksheet,listFacultyDoe});
 }
