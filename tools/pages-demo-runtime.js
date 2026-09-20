@@ -4,10 +4,10 @@
   if(typeof module==='object'&&module.exports)module.exports=api;
   if(root)api.install(root);
 })(typeof window!=='undefined'?window:null,function(){
-  const STORAGE_KEY='ucvm-pages-demo-firestore-v1';
-  const USER_KEY='ucvm-pages-demo-user-v1';
+  const STORAGE_KEY='ucvm-pages-demo-firestore-v2';
+  const USER_KEY='ucvm-pages-demo-user-v2';
   const SIGNED_OUT='__signed_out__';
-  const DEFAULT_UID='uid-adfa-general';
+  const DEFAULT_UID='uid-developer';
   const DELETE_SENTINEL='delete';
   let generatedId=0;
 
@@ -299,6 +299,7 @@
 
   function uidForEmail(email){
     const local=String(email||'').toLowerCase().split('@')[0];
+    if(local.includes('developer'))return'uid-developer';
     if(local.includes('owner'))return'uid-owner';
     if(local.includes('hicc'))return'uid-hicc-1';
     if(local.includes('visc'))return'uid-visc-1';
@@ -353,31 +354,63 @@
     };
   }
 
+  function demoDoeRows(store,academicYear='2026-27'){
+    const faculty=store.list('faculty').sort((a,b)=>a.path.localeCompare(b.path));
+    const sessions=store.list('sessions');
+    const stats=new Map();
+    for(const session of sessions){
+      const assignments=Array.isArray(session.data?.assignments)?session.data.assignments:[];
+      for(const assignment of assignments){
+        const facultyId=text(assignment.facultyId||assignment.ucid);
+        if(!facultyId)continue;
+        const row=stats.get(facultyId)||{teachingLineCount:0,scheduledTeachingDoe:0};
+        row.teachingLineCount+=1;
+        row.scheduledTeachingDoe+=Number(assignment.doeCredit||0);
+        stats.set(facultyId,row);
+      }
+    }
+    const rows=[];
+    faculty.forEach((record,index)=>{
+      if(index%7===5)return;
+      const data=record.data||{},facultyId=record.path.split('/').pop(),summary=data.facultySummary2026_27||{},legacy=Number(summary.assignedTeachingDOE??data.doe??data.teachingDOE??40),target=Number(data.doeOverride2026_27?.value??data.doe??data.teachingDOE??legacy),stat=stats.get(facultyId)||{teachingLineCount:0,scheduledTeachingDoe:0};
+      let assigned=legacy,status='calculated',issueCodes=[],missingMappingCount=0,unratedLineCount=0;
+      if(index%7===1)assigned=Number((legacy+3).toFixed(2));
+      if(index%7===2){assigned=null;status='needs_review';issueCodes=['COURSE_MAPPING_REQUIRED'];missingMappingCount=1;unratedLineCount=1}
+      if(index%7===3){assigned=null;status='needs_review';issueCodes=['DOE_SOURCE_PROVENANCE_INCOMPLETE'];unratedLineCount=1}
+      const roleAssignmentCount=Array.isArray(data.managedRoles2026_27)?data.managedRoles2026_27.length:0,scheduledTeachingDoe=Number(stat.scheduledTeachingDoe.toFixed(4)),roleDoe=0,rawSupervisionDoe=0,appliedSupervisionDoe=0,adjustmentDoe=assigned===null?null:Number((assigned-scheduledTeachingDoe).toFixed(4));
+      rows.push({
+        facultyId,displayName:text(data.preferredFullName||data.hrFirstLast||[data.firstName,data.lastName].filter(Boolean).join(' ')||facultyId),academicYear,
+        scheduledTeachingDoe,roleDoe,rawSupervisionDoe,appliedSupervisionDoe,adjustmentDoe,assignedTeachingDoe:assigned,effectiveTargetDoe:target,remainingDoe:assigned===null?null:Number((target-assigned).toFixed(4)),
+        policyVersionId:'demo-synthetic-2026-27-v1',status,lastCalculatedAt:'2026-09-20T12:00:00Z',
+        teachingLineCount:stat.teachingLineCount,roleAssignmentCount,supervisionLineCount:0,adjustmentLineCount:assigned===null?0:1,
+        serverFactCount:stat.teachingLineCount+roleAssignmentCount+(assigned===null?0:1),unratedLineCount,missingMappingCount,issueCount:issueCodes.length,issueCodes,
+        demoOnly:true
+      });
+    });
+    return rows;
+  }
+
   function installToolbar(root,seed,store,auth){
     const render=()=>{
       if(root.document.getElementById('ucvm-pages-demo-toolbar'))return;
-      const users=(seed?.documents||[]).filter(row=>String(row.path||'').startsWith('users/')).map(row=>({uid:String(row.path).split('/')[1],...(row.data||{})})).filter(row=>row.active!==false&&row.mustChangePassword!==true);
+      const priority={developer:0,owner:1,administrator:2,adfa_general:3,adfa_regular:4,adc:5,lab:6,hicc:7,visc:8,faculty:9};
+      const users=(seed?.documents||[]).filter(row=>String(row.path||'').startsWith('users/')).map(row=>({uid:String(row.path).split('/')[1],...(row.data||{})})).filter(row=>row.active!==false&&row.mustChangePassword!==true).sort((a,b)=>(priority[a.role]??99)-(priority[b.role]??99)||String(a.name||a.uid).localeCompare(String(b.name||b.uid)));
       const style=root.document.createElement('style');
       style.id='ucvm-pages-demo-toolbar-style';
-      style.textContent='#ucvm-pages-demo-toolbar{position:fixed;left:10px;top:10px;z-index:2147483646;background:#202124;color:#fff;padding:8px 10px;border-radius:8px;font:600 11px/1.35 Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3)}#ucvm-pages-demo-toolbar select,#ucvm-pages-demo-toolbar button{margin-left:6px;font:600 11px Arial,sans-serif}#ucvm-pages-demo-toolbar small{display:block;color:#d7d7d7;margin-top:4px;font-weight:500}';
+      style.textContent='#ucvm-pages-demo-toolbar{position:fixed;left:12px;bottom:12px;z-index:2147483646;width:min(410px,calc(100vw - 24px));background:#fff3cd;color:#3d3300;padding:10px 12px;border:2px solid #8a6d00;border-radius:10px;font:600 12px/1.35 Arial,sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.28)}#ucvm-pages-demo-toolbar .demo-title{font-size:13px;font-weight:900;letter-spacing:.04em}#ucvm-pages-demo-toolbar .demo-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:7px}#ucvm-pages-demo-toolbar label{font-weight:800}#ucvm-pages-demo-toolbar select,#ucvm-pages-demo-toolbar button{font:700 12px Arial,sans-serif;padding:5px 7px;border-radius:6px;border:1px solid #8a6d00;background:#fff;color:#3d3300}#ucvm-pages-demo-toolbar select{min-width:210px;flex:1}#ucvm-pages-demo-toolbar small{display:block;color:#665a21;margin-top:6px;font-weight:600}';
       root.document.head.appendChild(style);
-      const bar=root.document.createElement('div');
-      bar.id='ucvm-pages-demo-toolbar';
-      const select=root.document.createElement('select');
+      const bar=root.document.createElement('div');bar.id='ucvm-pages-demo-toolbar';
+      const title=root.document.createElement('div');title.className='demo-title';title.textContent='DEMO ROLE TESTER';
+      const controls=root.document.createElement('div');controls.className='demo-controls';
+      const label=root.document.createElement('label');label.textContent='Test as role';
+      const select=root.document.createElement('select');select.setAttribute('aria-label','Test as role');
       for(const user of users){
-        const option=root.document.createElement('option');
-        option.value=user.uid;option.textContent=`${user.name||user.uid} · ${user.role||'unknown'}`;
-        if(auth.currentUser?.uid===user.uid)option.selected=true;
-        select.appendChild(option);
+        const option=root.document.createElement('option');option.value=user.uid;option.textContent=`${user.role==='developer'?'★ ':''}${user.name||user.uid} · ${user.role||'unknown'}`;if(auth.currentUser?.uid===user.uid)option.selected=true;select.appendChild(option);
       }
       select.addEventListener('change',()=>{auth._select(select.value);root.location.reload()});
-      const reset=root.document.createElement('button');
-      reset.type='button';reset.textContent='Reset demo data';
-      reset.addEventListener('click',()=>{store.reset();root.location.reload()});
-      bar.append(root.document.createTextNode('FRONTEND DEMO '),select,reset);
-      const note=root.document.createElement('small');
-      note.textContent='Synthetic browser-local data · no cloud writes · authoritative DOE backend off';
-      bar.appendChild(note);
+      const reset=root.document.createElement('button');reset.type='button';reset.textContent='Reset demo data';reset.addEventListener('click',()=>{store.reset();root.location.reload()});
+      controls.append(label,select,reset);bar.append(title,controls);
+      const note=root.document.createElement('small');note.textContent='Developer is highest permission · role switching reloads the current page · synthetic browser-local data only';bar.appendChild(note);
       root.document.body.appendChild(bar);
     };
     if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',render,{once:true});else render();
@@ -414,6 +447,7 @@
       reset:()=>runtime.store.reset(),
       export:()=>runtime.store.export(),
       selectUser:uid=>runtime.auth._select(uid),
+      doeRows:academicYear=>demoDoeRows(runtime.store,academicYear),
       backend:'browser-memory',
       doeAuthoritative:false
     });
@@ -421,5 +455,5 @@
     return runtime;
   }
 
-  return{DemoTimestamp,FieldValue,createStore,createDemoFirebase,install,filterMatches,mergeObject};
+  return{DemoTimestamp,FieldValue,createStore,createDemoFirebase,demoDoeRows,install,filterMatches,mergeObject};
 });
