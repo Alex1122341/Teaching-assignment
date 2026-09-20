@@ -71,6 +71,8 @@ node tools/build-static.js    # writes .deploy-static/
 | `npm run config:generate` | regenerate `firebase-config.js` |
 | `npm run config:pin:lab` | fetch and pin the public `vista-teaching-lab` Web SDK config |
 | `npm run lab:bootstrap-user` | create/reuse a lab Auth user and synchronize its `users/{uid}` profile using Admin credentials |
+| `npm run lab:auth:check` | verify Email/Password + Pages authorized-domain readiness using Admin credentials |
+| `npm run lab:auth:configure` | enforce the lab Auth boundary with exact project confirmation |
 
 ---
 
@@ -116,8 +118,7 @@ For normal Firebase-only timetable mutations, authorized admins may create stric
 
 One-time setup for the lab:
 
-1. In Firebase Authentication for `vista-teaching-lab`, enable Email/Password.
-2. Add `alex1122341.github.io` to **Authentication > Settings > Authorized domains**.
+1. Before merge, enable Email/Password and add `alex1122341.github.io` to the lab Authentication authorized domains manually if required. After merge, **Firebase Lab Auth Setup > configure** can enforce both settings through the lab Admin credential.
 3. Create test-only Authentication accounts and matching `users/{uid}` profiles. After merge, the manual **Firebase Lab Bootstrap** workflow can keep these synchronized without password inputs.
 4. Run `npm run config:pin:lab` after `firebase login`, then commit the generated public `tools/lab-firebase-web-config.json`.
 5. Create GitHub Environment `firebase-lab-admin` and add test-only secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`.

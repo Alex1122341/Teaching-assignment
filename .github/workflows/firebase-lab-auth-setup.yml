@@ -1,0 +1,66 @@
+name: Firebase Lab Auth Setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Check current Auth readiness or configure the lab Auth boundary
+        required: true
+        type: choice
+        options:
+          - check
+          - configure
+      confirmation:
+        description: For configure enter CONFIGURE-AUTH:vista-teaching-lab
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-lab-auth-setup
+  cancel-in-progress: false
+
+jobs:
+  auth_setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: firebase-lab-admin
+    env:
+      FIREBASE_PROJECT_ID: vista-teaching-lab
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_LAB_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - name: Check out selected repository revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install Firebase Admin dependency
+        run: npm --prefix server ci
+
+      - name: Verify Auth setup contract
+        run: node --test tests/firebase-lab-auth-setup.test.js tests/firebase-lab-bootstrap.test.js
+
+      - name: Require lab Admin credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "FIREBASE_LAB_SERVICE_ACCOUNT_JSON is not configured in the firebase-lab-admin Environment." >&2
+            exit 1
+          fi
+
+      - name: Check or configure Firebase Authentication
+        run: >-
+          node tools/configure-lab-auth.js
+          --operation "${{ inputs.operation }}"
+          --confirmation "${{ inputs.confirmation }}"

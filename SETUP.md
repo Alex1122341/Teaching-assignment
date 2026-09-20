@@ -74,8 +74,7 @@ The GitHub Pages workflow never points at `tester-teaching` and never injects a 
 
 1. In GitHub repository **Settings > Pages**, set the Pages source to **GitHub Actions**.
 2. Keep the standard `github-pages` Environment available to same-repository pull-request deployments.
-3. In Firebase Console for `vista-teaching-lab`, enable Email/Password Authentication.
-4. Add `alex1122341.github.io` under **Authentication > Settings > Authorized domains**.
+3. Before merge, enable Email/Password Authentication and add `alex1122341.github.io` under **Authentication > Settings > Authorized domains** manually if needed. After the setup workflow exists on `main`, **Firebase Lab Auth Setup > configure** can perform both changes using the lab Admin credential.
 5. Before merge, create test-only Authentication users in `vista-teaching-lab` and matching Firestore `users/{uid}` profiles manually if needed. After the bootstrap workflow is available on `main`, **Firebase Lab Bootstrap** can create or synchronize both sides without accepting a password; use the Firebase password-reset flow to establish the initial password.
 6. Run `firebase login` and `npm run config:pin:lab`, then commit the generated public `tools/lab-firebase-web-config.json` for `vista-teaching-lab`.
 7. Seed synthetic data with `npm run db:seed`, then run `npm run db:verify`.
@@ -84,6 +83,15 @@ The GitHub Pages workflow never points at `tester-teaching` and never injects a 
 The Pages workflow fails closed unless `tools/lab-firebase-web-config.json` contains a real Web SDK config for exactly `vista-teaching-lab`, emulator mode is disabled and the DOE API base URL is blank. The visible banner is **TEST SITE - GitHub Pages / Isolated Firebase Lab / vista-teaching-lab**.
 
 The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site. Firebase Hosting is not used for the active browser test path; GitHub Pages remains the fixed test host.
+
+### Firebase Lab Auth Setup
+
+After the `firebase-lab-admin` Environment credential exists, the manual **Firebase Lab Auth Setup** workflow can verify or configure the Authentication boundary without using the Firebase Console:
+
+- `check` reads the Identity Toolkit project configuration and fails with a readiness summary when Email/Password or the Pages domain is missing.
+- `configure` requires exact confirmation `CONFIGURE-AUTH:vista-teaching-lab`, enables email/password sign-in, preserves existing authorized domains, and adds `alex1122341.github.io`.
+
+The service account needs permission to read Auth project config for `check` and update it for `configure`. The workflow is lab-locked and never accepts a production project id.
 
 ### Firebase Lab Bootstrap
 
