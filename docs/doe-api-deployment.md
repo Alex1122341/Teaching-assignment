@@ -66,15 +66,26 @@ The main Test and GitHub Pages workflows also execute `npm run test:all`, so fro
 
 ## Production deployment gate
 
-Production deployment is intentionally outside this plan's automatic actions. Before deployment, require all of the following:
+The repository includes the manual `.github/workflows/azure-doe-api-production-deploy.yml` workflow. It never runs on a push or pull request. It accepts only an exact commit SHA and refuses to deploy unless that SHA is the current `main` head.
+
+One-time GitHub/Azure configuration:
+
+- create the Azure App Service with Node.js 22;
+- set GitHub Actions variable `DOE_API_APP_NAME` to the App Service name;
+- set GitHub Actions variable `PRODUCTION_DOE_API_BASE_URL` to its HTTPS base URL;
+- add `AZURE_DOE_API_PUBLISH_PROFILE` as a secret in the GitHub `production` Environment;
+- configure the App Service settings listed above, including the authorized Firebase project/credential, `DOE_REPOSITORY=firestore`, and `ALLOWED_ORIGINS`.
+
+The staged App Service artifact now has a root `package.json` whose `npm start` delegates to `npm --prefix server start`. The deployment workflow installs production server dependencies into the staged package, creates an immutable zip, deploys that exact zip with the pinned Azure Web Apps deploy action, and then retries the production `/api/health` + CORS verifier.
+
+Before deployment, require all of the following:
 
 - exact-head root/unit/server CI green;
 - exact-head Firestore/Auth emulator suite green;
 - GitHub Pages test build green;
 - non-destructive UI acceptance complete;
-- approved Azure App Service and Key Vault configuration;
-- a committed/reviewed locked server dependency graph for the production artifact;
-- explicit authorization to deploy Azure production;
-- separate explicit authorization for any Firebase production Rules/data migration/recalculation.
+- approved Azure App Service and Key Vault/runtime credential configuration;
+- the required GitHub production Environment secret and Actions variables;
+- separate authorization for any Firebase production Rules/data migration/recalculation.
 
 Deploying the DOE API does not itself authorize a production data migration or administrative recalculation.

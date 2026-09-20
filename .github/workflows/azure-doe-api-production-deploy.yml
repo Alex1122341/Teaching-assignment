@@ -1,0 +1,124 @@
+name: Azure DOE API Production Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Exact current main commit SHA to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: azure-doe-api-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: production
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          fetch-depth: 1
+
+      - name: Verify exact current main commit
+        shell: bash
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          test "$(git rev-parse HEAD)" = "$COMMIT_SHA"
+          test "$(git rev-parse origin/main)" = "$COMMIT_SHA"
+
+      - name: Validate Azure production deployment settings
+        shell: bash
+        env:
+          DOE_API_APP_NAME: ${{ vars.DOE_API_APP_NAME }}
+          PRODUCTION_DOE_API_BASE_URL: ${{ vars.PRODUCTION_DOE_API_BASE_URL }}
+          AZURE_DOE_API_PUBLISH_PROFILE: ${{ secrets.AZURE_DOE_API_PUBLISH_PROFILE }}
+        run: |
+          set -euo pipefail
+          test -n "$DOE_API_APP_NAME"
+          test -n "$PRODUCTION_DOE_API_BASE_URL"
+          test -n "$AZURE_DOE_API_PUBLISH_PROFILE"
+          node -e "require('./tools/verify-production-doe-api.js').cleanBaseUrl(process.env.PRODUCTION_DOE_API_BASE_URL)"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install and test DOE API
+        run: |
+          npm --prefix server ci --no-audit --no-fund
+          npm --prefix server test
+
+      - name: Stage deployable DOE API package
+        run: |
+          node tools/build-doe-api.js
+          npm --prefix output/doe-api/server ci --omit=dev --no-audit --no-fund
+
+      - name: Verify staged App Service package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f output/doe-api/package.json
+          test -f output/doe-api/server/src/server.js
+          test -d output/doe-api/server/node_modules/firebase-admin
+          node -e "const p=require('./output/doe-api/package.json'); if(p.scripts?.start!=='npm --prefix server start') process.exit(1)"
+          node -e "require('./output/doe-api/server/src/server.js')"
+
+      - name: Create immutable deployment zip
+        shell: bash
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          cd output/doe-api
+          zip -qr "$RUNNER_TEMP/ucvm-doe-api-$COMMIT_SHA.zip" .
+
+      - name: Deploy DOE API to Azure App Service
+        uses: Azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383
+        with:
+          app-name: ${{ vars.DOE_API_APP_NAME }}
+          publish-profile: ${{ secrets.AZURE_DOE_API_PUBLISH_PROFILE }}
+          package: ${{ runner.temp }}/ucvm-doe-api-${{ inputs.commit_sha }}.zip
+
+      - name: Verify deployed DOE API health and production CORS
+        shell: bash
+        env:
+          PRODUCTION_DOE_API_BASE_URL: ${{ vars.PRODUCTION_DOE_API_BASE_URL }}
+          PRODUCTION_FRONTEND_ORIGIN: https://red-cliff-04871ca0f.5.azurestaticapps.net
+        run: |
+          set -u
+          for attempt in $(seq 1 12); do
+            if node tools/verify-production-doe-api.js; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 12 ]; then sleep 10; fi
+          done
+          exit 1
+
+      - name: Record deployment summary
+        shell: bash
+        env:
+          DOE_API_APP_NAME: ${{ vars.DOE_API_APP_NAME }}
+          PRODUCTION_DOE_API_BASE_URL: ${{ vars.PRODUCTION_DOE_API_BASE_URL }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          {
+            echo "## DOE API production deployment"
+            echo
+            echo "- Commit: `$COMMIT_SHA`"
+            echo "- App Service: `$DOE_API_APP_NAME`"
+            echo "- Health endpoint: `$PRODUCTION_DOE_API_BASE_URL/api/health`"
+            echo "- Post-deploy health/CORS gate: passed"
+          } >> "$GITHUB_STEP_SUMMARY"

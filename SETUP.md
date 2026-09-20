@@ -93,6 +93,25 @@ Production has two gates. The repository-enforced gate is the manual **Azure Pro
 
 Never commit the deployment token, an ARM token, or an Azure access token to the repository. The manual workflow is mandatory even if Environment reviewer protection is accidentally absent.
 
+### DOE API App Service production setup
+
+The DOE API is deployed separately from the static frontend.
+
+1. Create a Node.js 22 Azure App Service for the DOE API.
+2. In GitHub Actions repository variables set:
+   - `DOE_API_APP_NAME` to the Azure App Service name.
+   - `PRODUCTION_DOE_API_BASE_URL` to the App Service HTTPS base URL.
+3. In the GitHub `production` Environment add `AZURE_DOE_API_PUBLISH_PROFILE` containing the publish profile for that App Service.
+4. Configure the App Service settings:
+   - `FIREBASE_PROJECT_ID=tester-teaching`
+   - `FIREBASE_SERVICE_ACCOUNT_JSON` as a Key Vault reference or otherwise approved server credential
+   - `DOE_REPOSITORY=firestore`
+   - `ALLOWED_ORIGINS=https://alex1122341.github.io,https://red-cliff-04871ca0f.5.azurestaticapps.net`
+5. Run **Actions > Azure DOE API Production Deploy > Run workflow** with the exact current `main` SHA.
+6. The workflow re-tests the server, stages a self-contained App Service zip, deploys it, and requires the production health/CORS gate to pass before it reports success.
+
+The DOE API workflow cannot create the Azure subscription resource or invent server credentials. Those remain one-time Azure administration tasks.
+
 ### Routine pull-request and release flow
 
 1. Create a feature branch and open a same-repository pull request targeting `main`.
