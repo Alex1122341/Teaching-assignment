@@ -196,6 +196,6 @@ test('Pages preview fails closed unless a non-placeholder isolated lab Firebase 
   assert.match(workflow,/test -n "\$LAB_FIREBASE_WEB_CONFIG_JSON"/);
   assert.match(verifier,/vista-teaching-lab/);
   assert.match(verifier,/GENERATE_WITH_/);
-  assert.match(verifier,/^\\\/\\^AIza|AIza/);
+  assert.match(verifier,/AIza/);
   assert.match(verifier,/must not be configured to reach a DOE API endpoint/);
 });
