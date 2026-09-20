@@ -46,6 +46,7 @@ test('Developer multi-office routed approvals are explicit in UI and Firestore r
  assert.match(rules,/function developerDecisionOn\(id,office\)/);
  assert.match(rules,/function developerDecisionOffice\(id\)/);
  assert.match(rules,/let actorOffice=developer\(\) \? developerDecisionOffice\(d\.requestId\) : officeName\(\)/);
- assert.match(rules,/developer\(\) \|\| actorOffice in workflow\.requiredOffices/);
- assert.match(rules,/!workflow\.hasFacultyChange \|\| developer\(\) \|\| actorOffice == 'adfa'/);
+ assert.match(rules,/let actorRole=profile\(\)\.role;let actorOffice=officeForRole\(actorRole\);let isDeveloper=actorRole == 'developer'/);
+ assert.match(rules,/isDeveloper \|\| actorOffice in workflow\.requiredOffices/);
+ assert.match(rules,/!workflow\.hasFacultyChange \|\| isDeveloper \|\| actorOffice == 'adfa'/);
 });
