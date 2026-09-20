@@ -31,7 +31,7 @@ test('DOE policy admin loads API client, not browser policy storage or calculati
  assert.match(html,/doe-policy-admin\.css/);
 });
 
-test('ADFA Regular can edit Drafts but only General or Owner can publish/archive/recalculate',()=>{
+test('Developer is highest DOE policy role while Administrator stays Draft-only',()=>{
  const regular=ADMIN.capabilities({role:'adfa_regular'});
  assert.deepEqual(regular,{
   initialize:true,editDraft:true,validate:true,preview:true,publish:false,archive:false,recalculate:false
@@ -40,7 +40,7 @@ test('ADFA Regular can edit Drafts but only General or Owner can publish/archive
  assert.equal(legacy.editDraft,true);
  assert.equal(legacy.publish,false);
 
- for(const role of ['adfa_general','owner']){
+ for(const role of ['developer','adfa_general','owner']){
   const cap=ADMIN.capabilities({role});
   assert.equal(cap.initialize,true,role);
   assert.equal(cap.editDraft,true,role);

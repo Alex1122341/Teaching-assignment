@@ -22,8 +22,8 @@
 
  function capabilities(profile){
   const role=normalizedRole(profile);
-  const editDraft=['adfa_regular','adfa_general'].includes(role);
-  const general=role==='adfa_general';
+  const editDraft=['developer','adfa_regular','adfa_general'].includes(role);
+  const general=['developer','adfa_general'].includes(role);
   return{
    initialize:editDraft,
    editDraft,
@@ -269,9 +269,9 @@
   if(publishButton&&cap.publish&&draft&&!previewCurrent)publishButton.title='A current passing Impact Preview is required';
   for(const id of ['doe-publish','doe-archive','doe-recalculate']){
    const element=$(id);
-   if(element&&!cap.publish)element.title='ADFA General / Owner only';
+   if(element&&!cap.publish)element.title='Developer / Owner only';
   }
-  if(!cap.recalculate)setRecalculateStatus('Administrative recalculation is ADFA General / Owner only.');
+  if(!cap.recalculate)setRecalculateStatus('Administrative recalculation is Developer / Owner only.');
   else if(version?.status==='active')setRecalculateStatus('Run a dry-run preview before executing recalculation.');
   else setRecalculateStatus('Select the Active policy version to recalculate.');
  }
@@ -675,7 +675,7 @@
  async function recalculate(){
   const version=selectedVersion(),cap=capabilities(state.profile);
   if(!version)return;
-  if(!cap.recalculate){setRecalculateStatus('Administrative recalculation is ADFA General / Owner only.','error');say('Administrative DOE recalculation is ADFA General / Owner only.',true);return}
+  if(!cap.recalculate){setRecalculateStatus('Administrative recalculation is Developer / Owner only.','error');say('Administrative DOE recalculation is Developer / Owner only.',true);return}
   if(version.status!=='active'){setRecalculateStatus('Select the Active policy version before recalculating.','error');return}
   if(typeof state.service.previewRecalculate!=='function'||typeof state.service.runRecalculate!=='function'){say('Recalculate workflow is unavailable.',true);return}
   setRecalculateStatus('Running recalculation dry run…');
