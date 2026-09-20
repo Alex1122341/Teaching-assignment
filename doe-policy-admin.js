@@ -747,6 +747,7 @@
   if(!cap.initialize)return false;
   const api=root?.UCVM_DOE_API;
   if(!api?.listPolicies||!api?.loadPolicyBundle||!api?.saveRule)return false;
+  if(typeof api.isConfigured==='function'&&!api.isConfigured())return false;
   state.profile=profile;state.user=user;state.toast=toast;state.service=api;
   state.initialized=true;
   wire();

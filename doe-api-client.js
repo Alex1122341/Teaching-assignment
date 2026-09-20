@@ -19,6 +19,7 @@
    fetchImpl=unavailable;
   }
   async function request(path,{method='GET',body}={}){
+   if(!base)throw Object.assign(Error('DOE API is not configured.'),{code:'DOE_API_NOT_CONFIGURED'});
    const token=await tokenProvider();
    const response=await fetchImpl(`${base}${path}`,{
     method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
@@ -65,10 +66,77 @@
    deactivateRoleAssignment:assignmentFactId=>request(`/api/doe/role-assignments/${enc(assignmentFactId)}`,{method:'DELETE'})
   });
  }
+
+ const clone=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value));
+ const same=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
+ const DOE_FIELDS=['doeCredit','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId','doeRate','resultDoe','policyVersionId','ruleId','ruleKey','calculationId'];
+ function academicYearForSession(session={}){
+  const explicit=text(session?.academicYear);if(explicit)return explicit;
+  const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(text(session?.date));
+  if(!match)throw Object.assign(Error('A valid session date is required to resolve Academic Year.'),{code:'ACADEMIC_YEAR_REQUIRED'});
+  const year=Number(match[1]),month=Number(match[2]),semester=text(session?.semester).toLowerCase();
+  const start=semester==='winter'?year-1:(semester==='spring'||semester==='fall'?year:(month<=4?year-1:year));
+  return`${start}-${String(start+1).slice(-2)}`;
+ }
+ function assignmentId(session,assignment,index){return text(assignment?.assignmentId)||`${text(session?.sessionId||session?.id)||'session'}--assignment--${index+1}`}
+ function stripAssignmentDoe(assignment={}){const next={...(assignment||{})};for(const field of DOE_FIELDS)delete next[field];return next}
+ function durationHours(session={}){
+  if(session?.timeUnknown===true)return null;
+  const parse=value=>{const match=/^(\d{1,2}):(\d{2})$/.exec(text(value));if(!match)return null;const h=Number(match[1]),m=Number(match[2]);return h>=0&&h<=23&&m>=0&&m<=59?h*60+m:null};
+  const start=parse(session.start),end=parse(session.end);return start===null||end===null||end<=start?null:(end-start)/60;
+ }
+ function prepareQueuedSessionChange({academicYear='',sessionId='',beforeSession=null,afterSession=null,patch=null,trigger='session_updated'}={}){
+  const before=beforeSession&&typeof beforeSession==='object'?clone(beforeSession):null;
+  const requested=afterSession&&typeof afterSession==='object'?clone(afterSession):{...(before||{}),...(patch&&typeof patch==='object'?clone(patch):{})};
+  const id=text(sessionId||requested?.sessionId||requested?.id||before?.sessionId||before?.id);
+  if(!id)throw Object.assign(Error('Session ID is required.'),{code:'SESSION_ID_REQUIRED'});
+  const candidate={...(before||{}),...(requested||{}),id,sessionId:id};
+  const beforeAssignments=Array.isArray(before?.assignments)?before.assignments:[],nextAssignments=[];
+  for(const [index,raw] of (Array.isArray(candidate.assignments)?candidate.assignments:[]).entries()){
+   const clean=stripAssignmentDoe(raw||{}),idValue=assignmentId(candidate,clean,index);
+   const previous=beforeAssignments.find(row=>text(row?.assignmentId)&&text(row.assignmentId)===idValue)||beforeAssignments[index]||null;
+   clean.assignmentId=idValue;
+   if(previous&&same(clean.creditedHours,previous.creditedHours)){
+    const oldDuration=durationHours(before||{}),newDuration=durationHours(candidate);
+    if(!same(oldDuration,newDuration))clean.creditedHours=newDuration;
+   }
+   nextAssignments.push(clean);
+  }
+  const year=text(academicYear)||academicYearForSession(candidate);
+  candidate.academicYear=year;
+  candidate.assignments=nextAssignments;
+  candidate.facultyIds=[...new Set(nextAssignments.map(row=>text(row?.facultyId||row?.ucid)).filter(Boolean))];
+  candidate.instructor=nextAssignments.map(row=>text(row?.name)).filter(Boolean).join('; ');
+  delete candidate.__id;
+  const sourceEntityIds=nextAssignments.map((row,index)=>text(row?.facultyId||row?.ucid)?`${id}--assignment--${index+1}`:'').filter(Boolean);
+  const facultyIds=[...new Set([...candidate.facultyIds,...beforeAssignments.map(row=>text(row?.facultyId||row?.ucid)).filter(Boolean)])];
+  return{academicYear:year,session:candidate,calculationRecords:[],doeChanges:[],facultyImpacts:[],queued:true,queue:{sessionId:id,sourceEntityType:'session_assignment',sourceEntityIds,facultyIds,trigger:text(trigger)||'session_updated'}};
+ }
+ function canQueueSessionChanges(){return Boolean(root?.firebase?.firestore&&root?.firebase?.auth&&root?.UCVM_CALENDAR_SESSION?.fromSource)}
+ async function saveQueuedSessionChange(payload={}){
+  if(!canQueueSessionChanges())throw Object.assign(Error('Firebase DOE recalculation queue is unavailable.'),{code:'DOE_QUEUE_UNAVAILABLE'});
+  const auth=root.firebase.auth(),user=auth.currentUser;if(!user)throw Object.assign(Error('An authenticated Firebase user is required to queue DOE recalculation.'),{code:'AUTH_REQUIRED'});
+  const db=root.firebase.firestore(),id=text(payload.sessionId||payload.afterSession?.sessionId||payload.afterSession?.id);
+  if(!id)throw Object.assign(Error('Session ID is required.'),{code:'SESSION_ID_REQUIRED'});
+  const sessionRef=db.collection('sessions').doc(id),beforeSnap=await sessionRef.get(),before=beforeSnap.exists?{id:beforeSnap.id,...beforeSnap.data()}:null;
+  const prepared=prepareQueuedSessionChange({...payload,sessionId:id,beforeSession:before}),queueNeeded=prepared.queue.sourceEntityIds.length>0;
+  const stamp=root.firebase.firestore.FieldValue.serverTimestamp(),actorName=text(user.displayName||user.email);
+  const normalized=root?.UCVM_INDEX_MAINTENANCE?.sessionForWrite?root.UCVM_INDEX_MAINTENANCE.sessionForWrite(prepared.session):{...prepared.session};
+  const stored={...clone(normalized),id,sessionId:id,updatedBy:user.uid,updatedByName:actorName,updatedByEmail:text(user.email),updatedAt:stamp};delete stored.__id;
+  const batch=db.batch();batch.set(sessionRef,stored,{merge:true});batch.set(db.collection('calendar_sessions').doc(id),root.UCVM_CALENDAR_SESSION.fromSource(prepared.session,id));
+  let requestId='';
+  if(queueNeeded){
+   const queueRef=db.collection('doe_recalculation_requests').doc();requestId=queueRef.id;
+   batch.set(queueRef,{requestId,academicYear:prepared.academicYear,sessionId:id,sourceEntityType:'session_assignment',sourceEntityIds:prepared.queue.sourceEntityIds,facultyIds:prepared.queue.facultyIds,trigger:prepared.queue.trigger,status:'pending',requestedBy:user.uid,requestedByName:actorName,requestedAt:stamp});
+  }
+  await batch.commit();
+  return{...prepared,session:prepared.session,queued:queueNeeded,recalculationRequestId:requestId};
+ }
  let singleton=null;
  const defaultClient=()=>singleton||(singleton=createClient());
- const methods=['listPolicies','listVersions','loadPolicyBundle','listAudit','getImpactPreview','getPolicyYear','copyPolicyYear','createPolicyYear','cloneAsDraft','validateDraft','testRule','runImpactPreview','publish','archive','previewRecalculate','runRecalculate','saveRule','saveException','saveReference','saveReservePolicy','saveCourseMapping','saveSubjectMapping','getFacultyWorksheet','saveFacultyTarget','listFacultyDoe','previewAssignment','previewSessionChange','previewFacultyTransfer','saveSessionChange','listRoleAssignments','saveRoleAssignment','deactivateRoleAssignment'];
- const api={createClient,isConfigured:()=>Boolean(defaultBaseUrl()),baseUrl:defaultBaseUrl};
+ const methods=['listPolicies','listVersions','loadPolicyBundle','listAudit','getImpactPreview','getPolicyYear','copyPolicyYear','createPolicyYear','cloneAsDraft','validateDraft','testRule','runImpactPreview','publish','archive','previewRecalculate','runRecalculate','saveRule','saveException','saveReference','saveReservePolicy','saveCourseMapping','saveSubjectMapping','getFacultyWorksheet','saveFacultyTarget','listFacultyDoe','previewAssignment','previewSessionChange','previewFacultyTransfer','listRoleAssignments','saveRoleAssignment','deactivateRoleAssignment'];
+ const api={createClient,isConfigured:()=>Boolean(defaultBaseUrl()),baseUrl:defaultBaseUrl,canQueueSessionChanges,prepareQueuedSessionChange,academicYearForSession,stripAssignmentDoe};
  for(const method of methods)api[method]=(...args)=>defaultClient()[method](...args);
+ api.saveSessionChange=payload=>api.isConfigured()?defaultClient().saveSessionChange(payload):saveQueuedSessionChange(payload);
  return Object.freeze(api);
 });
