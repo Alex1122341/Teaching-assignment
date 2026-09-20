@@ -2,7 +2,7 @@
 const {randomUUID}=require('node:crypto');
 const {ApiError}=require('../http/errors.js');
 
-const adminRoles=new Set(['owner','administrator','admin','adfa_general','adfa_regular']);
+const adminRoles=new Set(['developer','owner','administrator','admin','adfa_general','adfa_regular']);
 const text=value=>String(value??'').trim();
 const role=value=>text(value).toLowerCase();
 const finite=value=>{if(value===null||value===undefined||value==='')return null;const parsed=Number(value);return Number.isFinite(parsed)?parsed:null};
