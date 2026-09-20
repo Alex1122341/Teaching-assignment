@@ -88,3 +88,22 @@ test('Teaching Summary uses the authoritative bulk DOE list instead of the legac
  assert.match(fn,/UCVM_DOE_WORKSHEET_VIEW\.renderDoeListRow/);
  assert.doesNotMatch(fn,/liveAssignedDOE\(/);
 });
+
+
+test('DOE role editor loads, updates, and deactivates authoritative server assignments',()=>{
+ const client=read('doe-api-client.js');
+ assert.match(client,/listRoleAssignments/);
+ assert.match(client,/deactivateRoleAssignment/);
+ const source=read('faculty-admin-enhancements.js');
+ assert.match(source,/UCVM_DOE_API\.listRoleAssignments/);
+ assert.match(source,/UCVM_DOE_API\.deactivateRoleAssignment/);
+ assert.match(source,/assignmentFactId/);
+ assert.match(source,/removedRoleIds/);
+});
+
+test('DOE routes expose admin-only role assignment list and deactivate operations',()=>{
+ const source=read('server/src/routes/doe-routes.js');
+ assert.match(source,/role-assignments/);
+ assert.match(source,/listRoleAssignments/);
+ assert.match(source,/deactivateRoleAssignment/);
+});
