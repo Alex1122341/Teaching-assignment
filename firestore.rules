@@ -13,8 +13,8 @@ service cloud.firestore {
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
   function explicitRole(r){return r in ['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
   function restrictedOffice(){return signedIn() && profile().role in ['adc','lab'];}
-  function adc(){return ready() && profile().role == 'adc';}
-  function lab(){return ready() && profile().role == 'lab';}
+  function adc(){return ready() && profile().role in ['developer','adc'];}
+  function lab(){return ready() && profile().role in ['developer','lab'];}
   function adfaApprover(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
   function officeForRole(r){return r == 'adc' ? 'adc' : (r == 'lab' ? 'lab' : (r in ['developer','owner','administrator','admin','adfa_general','adfa_regular'] ? 'adfa' : ''));}
   function officeUser(){return ready() && officeForRole(profile().role) != '';}
