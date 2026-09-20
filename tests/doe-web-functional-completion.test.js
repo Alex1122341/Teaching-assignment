@@ -38,7 +38,7 @@ test('worksheet view can resolve the authoritative DOE line for a timetable assi
  ]};
  assert.equal(VIEW.sessionAssignmentLine(worksheet,'s1','a2')?.resultDoe,.3);
  assert.equal(VIEW.sessionAssignmentLine(worksheet,'s1','missing'),null);
- assert.equal(VIEW.sessionAssignmentLine({lines:[worksheet.lines[0]},'s1','')?.resultDoe,.6);
+ assert.equal(VIEW.sessionAssignmentLine({lines:[worksheet.lines[0]]},'s1','')?.resultDoe,.6);
 });
 
 test('Faculty Lookup activity DOE cells use the server worksheet instead of raw legacy assignment credit',()=>{
