@@ -76,7 +76,7 @@ function createWorksheetService({repository}={}){
    const ids=await repository.listFacultyIdsForDoe(year);
    for(const facultyId of ids||[])worksheets.push(await buildFacultyWorksheet({facultyId,academicYear:year}));
   }
-  return worksheets.map(row=>({facultyId:row.facultyId,displayName:row.displayName,academicYear:row.academicYear,policyVersionId:row.policyVersionId,status:row.status,lastCalculatedAt:row.lastCalculatedAt,...row.totals}));
+  return worksheets.map(row=>({facultyId:row.facultyId,displayName:row.displayName,academicYear:row.academicYear,policyVersionId:row.policyVersionId,status:row.status,lastCalculatedAt:row.lastCalculatedAt,target:{...(row.target||{})},...row.totals}));
  }
  return Object.freeze({buildFacultyWorksheet,listFacultyDoe});
 }
