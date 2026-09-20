@@ -42,3 +42,16 @@ test('Pages demo Firebase auto-signs a synthetic admin and persists browser-loca
   await db.collection('sessions').doc('s1').update({topic:'After'});
   assert.equal((await db.collection('sessions').doc('s1').get()).data().topic,'After');
 });
+
+
+test('Pages demo defaults role testing to Developer and exposes synthetic DOE summaries',()=>{
+ const source=require('node:fs').readFileSync(require('node:path').resolve(__dirname,'../tools/pages-demo-runtime.js'),'utf8');
+ assert.match(source,/DEFAULT_UID='uid-developer'/);assert.match(source,/DEMO ROLE TESTER/);assert.match(source,/Test as role/);
+ const memory=new Map(),storage={getItem:key=>memory.get(key)||null,setItem:(key,value)=>memory.set(key,value)};
+ const seed={documents:[
+  {path:'users/uid-developer',data:{name:'VISTA Developer',role:'developer',active:true,mustChangePassword:false}},
+  {path:'faculty/f1',data:{firstName:'Demo',lastName:'Faculty',doe:40,facultySummary2026_27:{assignedTeachingDOE:40},managedRoles2026_27:[]}},
+  {path:'sessions/s1',data:{assignments:[{facultyId:'f1',doeCredit:10}]}}
+ ]};
+ const store=runtime.createStore(seed,storage),rows=runtime.demoDoeRows(store,'2026-27');assert.equal(rows.length,1);assert.equal(rows[0].facultyId,'f1');assert.equal(rows[0].assignedTeachingDoe,40);assert.equal(rows[0].teachingLineCount,1);
+});
