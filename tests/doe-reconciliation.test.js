@@ -115,3 +115,18 @@ test('Faculty Dashboard reconciliation enhancement parses as browser JavaScript'
   const source=read('faculty-admin-enhancements.js');
   assert.doesNotThrow(()=>new Function(source));
 });
+
+
+test('Frontend Demo feeds synthetic DOE summaries into reconciliation without enabling authoritative writes',()=>{
+ const source=read('faculty-admin-enhancements.js');
+ assert.match(source,/function demoDoeReady\(\)/);
+ assert.match(source,/function doeDataReady\(\)/);
+ assert.match(source,/UCVM_PAGES_DEMO\.doeRows\(year\)/);
+ assert.match(source,/Frontend Demo reconciliation/);
+ assert.match(source,/not authoritative/);
+ const reconciliation=source.slice(source.indexOf('function renderReconciliation'),source.indexOf('function openBaseEditor'));
+ assert.doesNotMatch(reconciliation,/saveRoleAssignment|runRecalculate|publish\(/);
+ const admin=read('faculty-admin.js');
+ assert.match(admin,/Teaching DOE · Frontend Demo preview/);
+ assert.match(admin,/Synthetic DOE preview/);
+});
