@@ -85,6 +85,73 @@
   $('doe-list-reset').onclick=()=>{['doe-list-search','doe-rank-filter','doe-specialty-filter','doe-status-filter'].forEach(id=>$(id).value='');renderDoeList()};
   $('roles-search')?.addEventListener('input',()=>setTimeout(queueManagedRoles,180));$('role-type-filter')?.addEventListener('change',()=>setTimeout(queueManagedRoles,0));const roleTab=[...document.querySelectorAll('.tab')].find(x=>x.dataset.tab==='roles');roleTab?.addEventListener('click',()=>setTimeout(queueManagedRoles,0));
  }
+
+ function reconciliationRows(){
+  const api=window.UCVM_DOE_RECONCILIATION;if(!api)return[];
+  return api.buildReconciliationRows(faculty.filter(f=>f.active!==false),serverDoeRows);
+ }
+ function reconciliationIssueText(row){
+  const codes=Array.isArray(row.issueCodes)?row.issueCodes:[],parts=[];
+  if(row.status==='legacy_only')parts.push('Legacy/source evidence has no current server Worksheet row');
+  if(row.status==='server_only')parts.push('Current server DOE exists without legacy/source DOE evidence');
+  if(row.status==='different_doe'&&row.differenceDoe!==null)parts.push(\`Worksheet differs from source by \${row.differenceDoe>0?'+':''}\${pct(row.differenceDoe)}\`);
+  if(row.flags?.includes('role_count_mismatch'))parts.push(\`Legacy managed roles \${row.legacyManagedRoleCount} vs server roles \${row.serverRoleCount}\`);
+  for(const code of codes.slice(0,4))parts.push(String(code).replace(/_/g,' '));
+  if(!parts.length&&row.status!=='matched')parts.push('Review DOE evidence and current assignment facts');
+  return parts.join(' · ')||'No reconciliation issues';
+ }
+ function reconciliationBadge(row){return \`<span class="reconciliation-status \${esc(row.status)}">\${esc(row.statusLabel||'Needs Review')}</span>\`}
+ function reconciliationCards(rows){
+  const counts=window.UCVM_DOE_RECONCILIATION?.summarize?.(rows)||{},card=(label,value)=>\`<div class="summary-card"><div class="summary-card-label">\${esc(label)}</div><div class="summary-card-value">\${esc(value??0)}</div></div>\`;
+  return[card('Faculty compared',counts.total||0),card('Matched',counts.matched||0),card('Action queue',counts.actionable||0),card('DOE differences',counts.different_doe||0),card('Missing mapping',counts.missing_mapping||0),card('Needs Review',counts.needs_review||0),card('Legacy only',counts.legacy_only||0),card('Server only',counts.server_only||0)].join('');
+ }
+ function filteredReconciliationRows(rows){
+  const q=norm($('doe-reconciliation-search')?.value),status=$('doe-reconciliation-status')?.value||'',issue=$('doe-reconciliation-issue')?.value||'';
+  return rows.filter(row=>{
+   const blob=norm([row.displayName,row.facultyId,row.status,row.statusLabel,row.policyVersionId,(row.issueCodes||[]).join(' '),reconciliationIssueText(row)].join(' '));
+   const issueMatch=!issue||(issue==='role_count_mismatch'?row.flags?.includes('role_count_mismatch'):(row.issueCodes||[]).some(code=>String(code).includes(issue)));
+   return(!q||blob.includes(q))&&(!status||row.status===status)&&issueMatch;
+  });
+ }
+ function wireReconciliationActions(){
+  document.querySelectorAll('[data-reconcile-view]').forEach(button=>button.onclick=()=>window.dispatchEvent(new CustomEvent('ucvm:doe-open-faculty',{detail:{facultyId:button.dataset.reconcileView}})));
+  document.querySelectorAll('[data-reconcile-edit]').forEach(button=>button.onclick=()=>openBaseEditor(button.dataset.reconcileEdit));
+ }
+ function renderReconciliation(){
+  const body=$('doe-reconciliation-body'),queueBody=$('doe-reconciliation-queue-body'),summaryBox=$('doe-reconciliation-summary');if(!body||!queueBody||!summaryBox)return;
+  if(!window.UCVM_DOE_RECONCILIATION){body.innerHTML=queueBody.innerHTML='<tr><td colspan="10" class="empty">DOE reconciliation logic is unavailable.</td></tr>';summaryBox.innerHTML='';return}
+  if(!apiDoeReady()){body.innerHTML=queueBody.innerHTML='<tr><td colspan="10" class="empty">DOE API is not configured on this host. Reconciliation remains read-only and will become available when the DOE server endpoint is connected.</td></tr>';summaryBox.innerHTML='';return}
+  if(serverDoeLoading||!serverDoeLoaded||serverDoeYear!==doeListAcademicYear()){body.innerHTML=queueBody.innerHTML='<tr><td colspan="10" class="empty">Loading authoritative DOE summary for reconciliation…</td></tr>';summaryBox.innerHTML='';return}
+  if(serverDoeError){body.innerHTML=queueBody.innerHTML=\`<tr><td colspan="10" class="empty">\${esc(serverDoeError)}</td></tr>\`;summaryBox.innerHTML='';return}
+  const allRows=reconciliationRows(),rows=filteredReconciliationRows(allRows),queue=window.UCVM_DOE_RECONCILIATION.workQueue(rows),formatDiff=value=>value===null?'—':\`\${value>0?'+':''}\${pct(value)}\`;
+  summaryBox.innerHTML=reconciliationCards(allRows);
+  queueBody.innerHTML=queue.map(row=>\`<tr><td><strong>\${esc(row.displayName)}</strong><div class="muted">\${esc(row.facultyId)}</div></td><td>\${reconciliationBadge(row)}</td><td>\${pct(row.legacyAssignedDoe)} → <strong>\${pct(row.worksheetAssignedDoe)}</strong></td><td>\${formatDiff(row.differenceDoe)}</td><td class="doe-note-cell">\${esc(reconciliationIssueText(row))}</td><td><button class="btn btn-small" data-reconcile-view="\${esc(row.facultyId)}">View DOE</button> <button class="btn btn-small" data-reconcile-edit="\${esc(row.facultyId)}">Edit Faculty</button></td></tr>\`).join('')||'<tr><td colspan="6" class="empty">No actionable reconciliation rows match these filters.</td></tr>';
+  body.innerHTML=rows.map(row=>\`<tr><td><strong>\${esc(row.displayName)}</strong><div class="muted">\${esc(row.facultyId)}</div></td><td>\${pct(row.legacyAssignedDoe)}<div class="muted">source roles \${row.sourceRoleCount} · managed \${row.legacyManagedRoleCount}</div></td><td><strong>\${pct(row.worksheetAssignedDoe)}</strong><div class="muted">\${esc(row.calculationStatus||'—')}</div></td><td>\${formatDiff(row.differenceDoe)}</td><td>\${row.serverFactCount}<div class="muted">roles \${row.serverRoleCount}</div></td><td>\${row.unratedLineCount||0}</td><td class="doe-note-cell">\${esc(reconciliationIssueText(row))}</td><td>\${esc(row.policyVersionId||'—')}</td><td>\${reconciliationBadge(row)}</td><td><button class="btn btn-small" data-reconcile-view="\${esc(row.facultyId)}">View DOE</button> <button class="btn btn-small" data-reconcile-edit="\${esc(row.facultyId)}">Edit Faculty</button></td></tr>\`).join('')||'<tr><td colspan="10" class="empty">No reconciliation rows match these filters.</td></tr>';
+  wireReconciliationActions();
+ }
+ async function loadReconciliationData(){
+  if(reconciliationLoading)return reconciliationLoading;
+  reconciliationLoading=(async()=>{
+   const shared=window.UCVM_ADMIN_DATA;
+   if(typeof shared?.ensureAdminDataset==='function')await shared.ensureAdminDataset();
+   faculty=(shared?.faculty?.()||faculty).sort((a,b)=>facultyName(a).localeCompare(facultyName(b)));facultyById=new Map(faculty.map(f=>[String(f.__id),f]));sessions=shared?.sessions?.()||sessions;
+   if(apiDoeReady())await loadDoeList();
+   renderReconciliation();
+   return reconciliationRows();
+  })().finally(()=>{reconciliationLoading=null});
+  return reconciliationLoading;
+ }
+ function ensureReconciliationView(){
+  const tabs=document.querySelector('.tabs');if(!tabs||$('doe-reconciliation-tab'))return;
+  const listTab=$('doe-list-tab');if(!listTab)return;
+  const tab=document.createElement('button');tab.className='tab';tab.id='doe-reconciliation-tab';tab.dataset.tab='doe-reconciliation';tab.type='button';tab.textContent='DOE Reconciliation';listTab.insertAdjacentElement('afterend',tab);
+  const main=document.querySelector('main.shell');if(!main)return;
+  const sec=document.createElement('section');sec.id='doe-reconciliation-view';sec.className='panel hidden';sec.innerHTML=\`<div class="doe-note"><strong>Read-only reconciliation.</strong> Compare legacy/source workload evidence with current server DOE facts and the authoritative Worksheet. This page never publishes, recalculates, or writes DOE.</div><div class="summary-grid reconciliation-kpis" id="doe-reconciliation-summary"></div><div class="doe-reconciliation-toolbar"><input class="input" id="doe-reconciliation-search" placeholder="Search faculty, issue, policy or status…"><select class="select" id="doe-reconciliation-status"><option value="">All reconciliation status</option><option value="missing_mapping">Missing Mapping</option><option value="needs_review">Needs Review</option><option value="different_doe">DOE Difference</option><option value="legacy_only">Legacy Only</option><option value="server_only">Server Only</option><option value="matched">Matched</option></select><select class="select" id="doe-reconciliation-issue"><option value="">All issue types</option><option value="MAPPING_REQUIRED">Mapping required</option><option value="PROVENANCE">Provenance</option><option value="role_count_mismatch">Role count mismatch</option></select><button type="button" class="btn" id="doe-reconciliation-reset">Reset</button></div><div class="reconciliation-section"><h3>Needs Review work queue</h3><div class="doe-note">Actionable rows are prioritized before matched rows. Use View DOE for calculation evidence or Edit Faculty for assignment facts and approved target overrides.</div><div class="table-wrap"><table class="data-table"><thead><tr><th>Faculty</th><th>Priority</th><th>Legacy → Worksheet</th><th>Difference</th><th>Why it needs attention</th><th>Actions</th></tr></thead><tbody id="doe-reconciliation-queue-body"></tbody></table></div></div><div class="reconciliation-section"><h3>All reconciliation</h3><div class="table-wrap"><table class="data-table"><thead><tr><th>Faculty</th><th>Legacy/source DOE</th><th>Worksheet DOE</th><th>Difference</th><th>Server facts</th><th>Unrated</th><th>Issues</th><th>Policy</th><th>Status</th><th>Actions</th></tr></thead><tbody id="doe-reconciliation-body"></tbody></table></div></div>\`;main.appendChild(sec);
+  tab.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===tab));['lookup','summary','roles','doe-list','doe-rules','sessional','database','history'].forEach(id=>$(\`\${id}-view\`)?.classList.add('hidden'));sec.classList.remove('hidden');renderReconciliation();loadReconciliationData().catch(error=>{console.error(error);serverDoeError=error?.message||String(error);renderReconciliation()})};
+  document.querySelectorAll('.tab').forEach(other=>{if(other===tab)return;other.addEventListener('click',()=>sec.classList.add('hidden'))});
+  ['doe-reconciliation-search','doe-reconciliation-status','doe-reconciliation-issue'].forEach(id=>$(id)?.addEventListener(id==='doe-reconciliation-search'?'input':'change',renderReconciliation));
+  $('doe-reconciliation-reset').onclick=()=>{['doe-reconciliation-search','doe-reconciliation-status','doe-reconciliation-issue'].forEach(id=>$(id).value='');renderReconciliation()};
+ }
  function updateDoeFilters(){if(!$('doe-rank-filter'))return;const ranks=[...new Set(faculty.map(f=>String(f.rank||f.currentTitle||'').trim()).filter(Boolean))].sort(),specs=[...new Set(faculty.map(specialty).filter(Boolean))].sort();const fill=(id,vals,label)=>{const e=$(id),old=e.value;e.innerHTML=`<option value="">${label}</option>`+vals.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');if(vals.includes(old))e.value=old};fill('doe-rank-filter',ranks,'All ranks');fill('doe-specialty-filter',specs,'All specialties')}
  function renderDoeList(){
   if(!$('doe-list-body'))return;if(apiDoeReady()&&serverDoeLoading){$('doe-list-body').innerHTML='<tr><td colspan="14" class="empty">Loading authoritative DOE worksheets…</td></tr>';return}if(apiDoeReady()&&serverDoeLoaded&&serverDoeError){$('doe-list-body').innerHTML=`<tr><td colspan="14" class="empty">${esc(serverDoeError)} DOE values are unavailable until the server responds.</td></tr>`;return}const q=norm($('doe-list-search')?.value),rank=$('doe-rank-filter')?.value||'',spec=$('doe-specialty-filter')?.value||'',status=$('doe-status-filter')?.value||'';
