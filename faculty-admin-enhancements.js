@@ -145,7 +145,7 @@
   for(const assignmentFactId of removedRoleIds)await window.UCVM_DOE_API.deactivateRoleAssignment(assignmentFactId);
   for(const facts of roles)await window.UCVM_DOE_API.saveRoleAssignment({academicYear:doeListAcademicYear(),facultyId:p.id,facts});
   if(overrideChanged)await window.UCVM_DOE_API.saveFacultyTarget(p.id,doeListAcademicYear(),afterOverride?{value:afterOverride.value,reason:afterOverride.reason,notes:afterOverride.notes}:null);
-  if(roles.length||removedRoleIds.length||overrideChanged){serverDoeLoaded=false;await loadDoeList({force:true})}
+  if(roles.length||removedRoleIds.length||overrideChanged){serverDoeLoaded=false;const refresh=window.UCVM_ADMIN_DATA?.refreshDoeFaculty;if(typeof refresh==='function')await refresh(p.id);else await loadDoeList({force:true})}
  }
 
  function appendManagedRoleRows(){
