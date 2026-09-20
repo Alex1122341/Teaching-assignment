@@ -90,25 +90,18 @@ async function loadSelfFaculty(facultyId){if(!facultyId)throw new Error('Your ac
 function setDoeRulesAccess(profile){const tab=document.querySelector('[data-tab="doe-rules"]'),cap=window.UCVM_DOE_POLICY_ADMIN?.capabilities?.(profile),allowed=!selfMode&&cap?.initialize===true;if(tab)tab.classList.toggle('hidden',!allowed);return allowed}
 async function enterSelfMode(user,p){selfMode=true;document.body.classList.add('faculty-self-mode');installSelfModeStyles();currentProfile=p;currentUser={uid:user.uid,email:user.email||p.email||'',name:p.name||user.displayName||user.email||'Faculty',role:p.role};window.UCVM_DOE_POLICY_ADMIN?.destroy?.();setDoeRulesAccess(p);$('admin-chip').textContent=`${currentUser.name} · ${UCVM.label(p.role)}`;$('user-management-link').classList.add('hidden');const heading=document.querySelector('.headline h1'),copy=document.querySelector('.headline p');if(heading)heading.textContent='My Faculty Profile';if(copy)copy.textContent='Your 2026-27 teaching, workload, roles, appointments, and availability profile.';unlock();await loadSelfFaculty(p.facultyId);window.dispatchEvent(new Event('ucvm:self-ready'))}
 let adminEnhancementsPromise=null;
-function loadFacultyAdminScript(src,datasetKey){
- return new Promise((resolve,reject)=>{
-  const existing=[...document.scripts].find(script=>script.src.endsWith('/'+src)||script.getAttribute('src')===src);
-  if(existing){if(existing.dataset.loaded==='1'||src==='doe-reconciliation.js'&&window.UCVM_DOE_RECONCILIATION)return resolve(true);existing.addEventListener('load',()=>resolve(true),{once:true});existing.addEventListener('error',()=>reject(Error('Could not load '+src+'.')),{once:true});return}
-  const script=document.createElement('script');
-  script.src=src;script.async=false;script.dataset[datasetKey]='1';
-  script.onload=()=>{script.dataset.loaded='1';resolve(true)};
-  script.onerror=()=>reject(Error('Could not load '+src+'.'));
-  document.head.appendChild(script);
- });
-}
 function ensureFacultyAdminEnhancements(){
  if(adminEnhancementsPromise)return adminEnhancementsPromise;
- if(document.querySelector('script[data-ucvm-faculty-admin-enhancements]')&&window.UCVM_DOE_RECONCILIATION)return Promise.resolve(true);
- adminEnhancementsPromise=(async()=>{
-  if(!window.UCVM_DOE_RECONCILIATION)await loadFacultyAdminScript('doe-reconciliation.js','ucvmDoeReconciliation');
-  if(!document.querySelector('script[data-ucvm-faculty-admin-enhancements]'))await loadFacultyAdminScript('faculty-admin-enhancements.js','ucvmFacultyAdminEnhancements');
-  return true;
- })().catch(error=>{adminEnhancementsPromise=null;throw error});
+ if(document.querySelector('script[data-ucvm-faculty-admin-enhancements]'))return Promise.resolve(true);
+ adminEnhancementsPromise=new Promise((resolve,reject)=>{
+  const script=document.createElement('script');
+  script.src='faculty-admin-enhancements.js';
+  script.async=true;
+  script.dataset.ucvmFacultyAdminEnhancements='1';
+  script.onload=()=>resolve(true);
+  script.onerror=()=>{adminEnhancementsPromise=null;reject(Error('Could not load Faculty Dashboard DOE enhancements.'))};
+  document.head.appendChild(script);
+ });
  return adminEnhancementsPromise;
 }
 function enterAdminMode(user,p){selfMode=false;document.body.classList.remove('faculty-self-mode');currentProfile=p;applyGeneralImportVisibility();currentUser={uid:user.uid,email:user.email||'',name:p.name||user.displayName||user.email||'Administrator',role:p.role};const doeAllowed=setDoeRulesAccess(p),doeReady=doeAllowed&&window.UCVM_DOE_POLICY_ADMIN?.init?.({db,profile:p,user:currentUser,toast})===true;if(doeAllowed&&!doeReady){const tab=document.querySelector('[data-tab="doe-rules"]');if(tab)tab.classList.add('hidden');console.error('[DOE Rules] Could not initialize DOE policy administration.')}$('admin-chip').textContent=`${currentUser.name} · ${UCVM.label(p.role)}`;$('user-management-link').classList.toggle('hidden',!UCVM.general(p));unlock();subscribeFaculty();subscribeSessions();if(doeApiConfigured())loadDoeSummaryList().catch(error=>console.error(error));ensureFacultyAdminEnhancements().catch(error=>{console.error('[Faculty Dashboard enhancements]',error);toast('DOE List enhancements could not be loaded.',true)});window.dispatchEvent(new Event('ucvm:admin-ready'))}
