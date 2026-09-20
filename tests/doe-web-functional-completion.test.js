@@ -69,7 +69,7 @@ test('Faculty Dashboard actually loads deferred DOE admin enhancements for admin
  const loaderEnd=source.indexOf('\nfunction',loaderStart+20);
  const loader=source.slice(loaderStart,loaderEnd);
  assert.ok(loaderStart>=0);
- assert.match(loader,/faculty-admin-enhancements\\.js/);
+ assert.match(loader,/faculty-admin-enhancements\.js/);
  const adminStart=source.indexOf('function enterAdminMode');
  const adminEnd=source.indexOf('\nfunction',adminStart+20);
  assert.match(source.slice(adminStart,adminEnd),/ensureFacultyAdminEnhancements/);
