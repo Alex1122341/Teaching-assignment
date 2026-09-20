@@ -40,6 +40,12 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
   assert.match(workflow,/node tools\/build-firebase-config\.js --from-json tools\/production-firebase-web-config\.json/);
   assert.match(workflow,/node tools\/verify-preview-client-config\.js/);
+  assert.match(workflow,/PRODUCTION_DOE_API_BASE_URL/);
+  assert.match(workflow,/PAGES_DOE_API_BASE_URL/);
+  assert.match(workflow,/--doe-api-base-url/);
+  assert.match(workflow,/Verify DOE API health and GitHub Pages CORS when configured/);
+  assert.match(workflow,/PRODUCTION_FRONTEND_ORIGIN:\s*https:\/\/alex1122341\.github\.io/);
+  assert.match(workflow,/node tools\/verify-production-doe-api\.js/);
   assert.ok(workflow.indexOf('Prepare live Firebase compatibility configuration')<workflow.indexOf('Build static site'));
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
@@ -69,7 +75,7 @@ test('setup docs define the fixed Pages live Firebase compatibility boundary',()
   assert.match(setup,/GitHub Pages/i);
   assert.match(setup,/tester-teaching/);
   assert.match(setup,/Live Firebase Compatibility Mode|live Firebase compatibility/i);
-  assert.match(setup,/DOE API.*not configured|DOE API.*disabled/i);
+  assert.match(setup,/DOE API.*GitHub Pages|GitHub Pages.*DOE API/i);
   assert.match(setup,/alex1122341\.github\.io/);
   assert.match(setup,/Authorized domains/i);
   assert.match(setup,/latest successful.*pull request|latest successful.*PR/i);
@@ -197,7 +203,7 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 
-test('Pages compatibility preview uses the pinned tester-teaching Web SDK config but no DOE API',()=>{
+test('Pages compatibility preview uses the pinned tester-teaching Web SDK config and accepts only a verified HTTPS DOE API',()=>{
   const workflow=read('.github/workflows/github-pages-test.yml');
   const verifier=read('tools/verify-preview-client-config.js');
   assert.match(workflow,/tools\/production-firebase-web-config\.json/);
@@ -206,6 +212,7 @@ test('Pages compatibility preview uses the pinned tester-teaching Web SDK config
   assert.match(verifier,/tester-teaching/);
   assert.match(verifier,/GENERATE_WITH_/);
   assert.match(verifier,/AIza/);
-  assert.match(verifier,/must not be configured to reach a DOE API endpoint/);
+  assert.match(verifier,/cleanBaseUrl/);
+  assert.doesNotMatch(verifier,/must not be configured to reach a DOE API endpoint/);
 });
 })();
