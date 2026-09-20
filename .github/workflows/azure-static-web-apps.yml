@@ -43,18 +43,13 @@ jobs:
       - name: Prepare production client configuration
         shell: bash
         env:
-          PRODUCTION_FIREBASE_WEB_CONFIG_JSON: ${{ vars.PRODUCTION_FIREBASE_WEB_CONFIG_JSON }}
           PRODUCTION_DOE_API_BASE_URL: ${{ vars.PRODUCTION_DOE_API_BASE_URL }}
           EXPECTED_FIREBASE_PROJECT_ID: tester-teaching
         run: |
           set -euo pipefail
-          test -n "$PRODUCTION_FIREBASE_WEB_CONFIG_JSON"
           test -n "$PRODUCTION_DOE_API_BASE_URL"
-          config_file="$RUNNER_TEMP/firebase-web-config.json"
-          printf '%s' "$PRODUCTION_FIREBASE_WEB_CONFIG_JSON" > "$config_file"
-          node tools/build-firebase-config.js --from-json "$config_file" --doe-api-base-url "$PRODUCTION_DOE_API_BASE_URL"
+          node tools/build-firebase-config.js --from-json tools/production-firebase-web-config.json --doe-api-base-url "$PRODUCTION_DOE_API_BASE_URL"
           node tools/verify-production-client-config.js
-          rm -f "$config_file"
 
       - name: Verify production DOE API health and CORS
         env:
