@@ -83,7 +83,14 @@ function doeSmokeResponse(requestUrl,method='GET'){
  const summary={
   facultyId:'browser-smoke-faculty',displayName:'Browser Smoke Faculty',academicYear:year,policyVersionId:'ucvm-workload-smoke-v1',status:'calculated',
   lastCalculatedAt:'2026-09-20T01:00:00Z',target:{effectiveTargetDoe:40,overrideDoe:null,overrideReason:'',source:'contract'},
-  roleAssignmentCount:1,roleAssignments:[roleAssignment],scheduledTeachingDoe:28,roleDoe:12,rawSupervisionDoe:0,appliedSupervisionDoe:0,adjustmentDoe:0,assignedTeachingDoe:40,effectiveTargetDoe:40,remainingDoe:0
+  roleAssignmentCount:1,roleAssignments:[roleAssignment],teachingLineCount:1,supervisionLineCount:0,adjustmentLineCount:0,serverFactCount:2,unratedLineCount:0,missingMappingCount:0,issueCount:0,issueCodes:[],
+  scheduledTeachingDoe:28,roleDoe:12,rawSupervisionDoe:0,appliedSupervisionDoe:0,adjustmentDoe:0,assignedTeachingDoe:40,effectiveTargetDoe:40,remainingDoe:0
+ };
+ const mappingSummary={
+  facultyId:'browser-smoke-mapping',displayName:'Browser Smoke Mapping',academicYear:year,policyVersionId:'ucvm-workload-smoke-v1',status:'needs_review',
+  lastCalculatedAt:'2026-09-20T01:00:00Z',target:{effectiveTargetDoe:30,overrideDoe:null,overrideReason:'',source:'contract'},
+  roleAssignmentCount:1,roleAssignments:[],teachingLineCount:0,supervisionLineCount:0,adjustmentLineCount:0,serverFactCount:1,unratedLineCount:1,missingMappingCount:1,issueCount:1,issueCodes:['COURSE_MAPPING_REQUIRED'],
+  scheduledTeachingDoe:null,roleDoe:null,rawSupervisionDoe:0,appliedSupervisionDoe:0,adjustmentDoe:0,assignedTeachingDoe:null,effectiveTargetDoe:30,remainingDoe:null
  };
  const worksheet={
   facultyId:summary.facultyId,displayName:summary.displayName,academicYear:year,policyVersionId:summary.policyVersionId,status:'calculated',lastCalculatedAt:summary.lastCalculatedAt,
@@ -95,7 +102,7 @@ function doeSmokeResponse(requestUrl,method='GET'){
    {lineId:'role-smoke-hicc',category:'role',sourceEntityType:'doe_assignment',sourceEntityId:'role-smoke-hicc',assignmentFactId:'role-smoke-hicc',roleType:'HICC',courseCode:'VTMD 204',label:'HICC · VTMD 204',calculationText:'Rule Book role assignment',resultDoe:12,status:'calculated',policyVersionId:summary.policyVersionId,ruleId:'rule-hicc-smoke',ruleKey:'role.hicc',reference,calculationId:'calc-smoke-hicc'}
   ]
  };
- if(parsed.pathname==='/__doe-smoke/api/doe/list')return{statusCode:200,body:[summary]};
+ if(parsed.pathname==='/__doe-smoke/api/doe/list')return{statusCode:200,body:[summary,mappingSummary]};
  if(parsed.pathname==='/__doe-smoke/api/doe/policies')return{statusCode:200,body:[]};
  if(parsed.pathname==='/__doe-smoke/api/doe/faculty/browser-smoke-faculty/role-assignments')return{statusCode:200,body:[{...roleAssignment,academicYear:year,facultyId:summary.facultyId,active:true,doeCredit:12,doeRuleKey:roleAssignment.ruleKey,doeRuleId:roleAssignment.ruleId}]};
  if(parsed.pathname==='/__doe-smoke/api/doe/faculty/browser-smoke-faculty/worksheet')return{statusCode:200,body:worksheet};
@@ -342,6 +349,14 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
   const rendered=doeWorksheet.result?.value||{};
   if(!rendered.configured||!String(rendered.base||'').includes('/__doe-smoke'))throw Error('DOE browser smoke did not use the local read-only server endpoint.');
   if(!String(rendered.text||'').includes('Teaching DOE · server worksheet')||!String(rendered.text||'').includes('40.00%')||!String(rendered.text||'').includes('calc-smoke-lecture'))throw Error('DOE browser smoke did not render authoritative Worksheet totals and calculation evidence.');
+
+  const reconciliationNavigation=await cdp.send('Runtime.evaluate',{
+   expression:`(()=>{const tab=document.getElementById('doe-reconciliation-tab'),view=document.getElementById('doe-reconciliation-view');tab?.click();return{tab:!!tab,visible:!!view&&!view.classList.contains('hidden')}})()`,
+   returnByValue:true
+  });
+  if(reconciliationNavigation.exceptionDetails)throw Error(`DOE Reconciliation navigation smoke failed: ${exceptionText(reconciliationNavigation.exceptionDetails)}`);
+  if(!reconciliationNavigation.result?.value?.tab||!reconciliationNavigation.result?.value?.visible)throw Error('DOE Reconciliation tab did not become visible.');
+  await waitForCondition(cdp,`(()=>{const queue=document.getElementById('doe-reconciliation-queue-body')?.textContent||'',all=document.getElementById('doe-reconciliation-body')?.textContent||'',summary=document.getElementById('doe-reconciliation-summary')?.textContent||'';return queue.includes('Browser Smoke Mapping')&&queue.includes('Missing Mapping')&&queue.includes('COURSE MAPPING REQUIRED')&&all.includes('Browser Smoke Faculty')&&summary.includes('Action queue')})()`,'DOE Reconciliation work queue render');
 
   await navigate('user-management.html');
   await waitForCondition(cdp,`(()=>document.getElementById('content')?.hidden===false&&document.getElementById('accounts')?.hidden===false&&document.getElementById('identity')?.textContent.includes('Browser Smoke Owner'))()`,'User Management owner access');
