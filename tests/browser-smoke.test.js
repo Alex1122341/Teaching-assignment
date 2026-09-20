@@ -71,7 +71,7 @@ test('browser smoke resolves logical bundle names to hashed deployment paths',()
 
 
 test('authenticated browser smoke exercises deferred DOE List navigation',()=>{
- const source=read('tools/browser-smoke.js');
+ const source=require('node:fs').readFileSync(path.join(__dirname,'..','tools/browser-smoke.js'),'utf8');
  assert.match(source,/DOE List deferred enhancement/);
  assert.match(source,/doe-list-tab/);
  assert.match(source,/doe-list-view/);
