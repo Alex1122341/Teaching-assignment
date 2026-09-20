@@ -228,3 +228,16 @@ test('Faculty Profile role section includes current server assignments even when
  assert.match(fn,/Source evidence/);
  assert.doesNotMatch(fn,/if\(!s\|\|!s\.roles\?\.length\)return/);
 });
+
+
+test('DOE assignment and target saves invalidate the selected Faculty Worksheet and refresh the shared bulk summary',()=>{
+ const core=read('faculty-admin.js'),enhancement=read('faculty-admin-enhancements.js');
+ assert.match(core,/async function refreshDoeFaculty/);
+ assert.match(core,/doeWorksheetByFaculty\.delete/);
+ assert.match(core,/loadDoeSummaryList\(\{force:true\}\)/);
+ assert.match(core,/refreshDoeFaculty/);
+ const start=enhancement.indexOf('async function saveExtras');
+ const end=enhancement.indexOf('function appendManagedRoleRows',start);
+ const save=enhancement.slice(start,end);
+ assert.match(save,/UCVM_ADMIN_DATA\?\.refreshDoeFaculty/);
+});
