@@ -151,7 +151,7 @@ function doeRulebookSmokeResponse(state,requestUrl,method='GET',body={}){
  if(verb==='PUT'&&match){
   const versionId=decodeURIComponent(match[1]),bundle=smokeRulebookBundle(state,versionId);
   if(!bundle||bundle.version.status!=='draft')return respond(409,{code:'DRAFT_REQUIRED',message:'Smoke Draft is required.'});
-  const rule={...(body?.rule||{}),policyVersionId,ruleId:decodeURIComponent(match[2])},at=(bundle.rules||[]).findIndex(row=>row.ruleId===rule.ruleId);
+  const rule={...(body?.rule||{}),policyVersionId:versionId,ruleId:decodeURIComponent(match[2])},at=(bundle.rules||[]).findIndex(row=>row.ruleId===rule.ruleId);
   if(at>=0)bundle.rules[at]=cloneSmoke(rule);else bundle.rules.push(cloneSmoke(rule));
   bundle.__state=state;invalidateSmokeDraft(bundle);state.bundles.set(versionId,bundle);
   state.audits.push({policyVersionId:versionId,academicYear:bundle.version.academicYear,action:'rule_saved',entityType:'rule',entityId:rule.ruleId,changedAt:'2026-09-20T04:01:00Z',changedByName:'Browser Smoke Owner'});
