@@ -298,6 +298,7 @@ service cloud.firestore {
   function bulkSessionImportChange(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']);}
   function clientCreatedSessionHasNoAuditMarker(){return !request.resource.data.keys().hasAny(['auditEventId']);}
   function clientKeptSessionAuditMarker(){return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['auditEventId']);}
+  function sessionApprovalMarkerChanged(){return request.resource.data.diff(resource.data).affectedKeys().hasAny(['approvalRequestId','approvalRevision']);}
 
   function systemStateExists(){return exists(/databases/$(database)/documents/settings/system_state);}
   function teachingLocked(){return systemStateExists() && get(/databases/$(database)/documents/settings/system_state).data.get('teachingDataWriteLocked',false) == true;}
@@ -444,7 +445,7 @@ service cloud.firestore {
   match /sessions/{id} {
    allow read: if privateReader();
    allow create: if adcSessionCreate(id) || (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
-   allow update: if routedSessionApply(id) || adcSessionUpdate(id) || labSessionUpdate(id) || (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || doeRecalculationSessionWrite() || maintenanceSessionWrite(id);
+   allow update: if sessionApprovalMarkerChanged() ? routedSessionApply(id) : (adcSessionUpdate(id) || labSessionUpdate(id) || (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || doeRecalculationSessionWrite() || maintenanceSessionWrite(id));
    allow delete: if (teachingWritesOpen() && admin() && !existsAfter(calendarPath(id))) || maintenanceSessionDelete(id);
   }
   match /faculty/{id} {
