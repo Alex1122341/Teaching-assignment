@@ -54,7 +54,15 @@ test('Pages demo defaults role testing to Developer and exposes synthetic DOE su
   {path:'sessions/s1',data:{assignments:[{facultyId:'f1',doeCredit:10}]}}
  ]};
  const store=runtime.createStore(seed,storage),rows=runtime.demoDoeRows(store,'2026-27'),facultyRow=rows.find(row=>row.facultyId==='f1'),serverOnly=rows.find(row=>row.facultyId==='demo-server-only');
- assert.equal(rows.length,2);assert.equal(facultyRow.assignedTeachingDoe,40);assert.equal(facultyRow.teachingLineCount,1);
+ assert.equal(rows.length,2);
+ // The DOE List now reports the calculation, not the legacy summary value, so the
+ // row is internally consistent: scheduled teaching is the aggregated DOE credit
+ // and the effective target comes from the existing contract Teaching DOE.
+ assert.equal(facultyRow.scheduledTeachingDoe,10);
+ assert.equal(facultyRow.assignedTeachingDoe,10);
+ assert.equal(facultyRow.effectiveTargetDoe,40);
+ assert.equal(facultyRow.remainingDoe,30);
+ assert.equal(facultyRow.teachingLineCount,1);
  assert.ok(serverOnly);assert.equal(serverOnly.serverOnlyDemo,true);assert.equal(serverOnly.assignedTeachingDoe,22);
 });
 
@@ -72,4 +80,107 @@ test('Pages demo secondary Auth creates a synthetic login without replacing Deve
  demo.reset();
  const recreated=await secondary.createUserWithEmailAndPassword('new.office@example.test','DemoPass123!');
  assert.equal(recreated.user.uid,credential.user.uid);assert.equal(demo.auth.currentUser.uid,'uid-developer');
+});
+
+// ---------------------------------------------------------------------------
+// Frontend Demo DOE calculation (spec section 19 / 23H)
+// ---------------------------------------------------------------------------
+const doeSeed={documents:[
+ {path:'faculty/f1',data:{preferredFullName:'Dr One',doe:40,facultySummary2026_27:{assignedTeachingDOE:40}}},
+ {path:'faculty/f2',data:{preferredFullName:'Dr Two',doe:30,facultySummary2026_27:{assignedTeachingDOE:30}}},
+ {path:'faculty/f3',data:{preferredFullName:'Dr Override',doe:40,doeOverride2026_27:{value:28,reason:'0.8 FTE'}}},
+ {path:'sessions/s1',data:{course:'601',topic:'Neuro',assignments:[{facultyId:'f1',name:'Dr One',role:'Lecture',creditedHours:2,doeRate:6,doeCredit:12}]}},
+ {path:'sessions/s2',data:{course:'602',topic:'Anatomy',assignments:[{facultyId:'f1',name:'Dr One',role:'Lecture',creditedHours:2,doeRate:4,doeCredit:8}]}},
+ {path:'sessions/s3',data:{course:'603',topic:'No evidence',assignments:[{facultyId:'f2',name:'Dr Two',role:'Lecture'}]}}
+]};
+const doeStore=()=>{const memory=new Map();return runtime.createStore(doeSeed,{getItem:key=>memory.get(key)||null,setItem:(key,value)=>memory.set(key,value)})};
+
+test('demo DOE List and worksheet are produced from one shared calculation source',()=>{
+ const store=doeStore(),rows=runtime.demoDoeRows(store,'2026-27'),worksheet=runtime.demoDoeWorksheet(store,'f1','2026-27');
+ const row=rows.find(item=>item.facultyId==='f1');
+ assert.ok(row);assert.ok(worksheet);
+ assert.equal(row.scheduledTeachingDoe,worksheet.totals.scheduledTeachingDoe);
+ assert.equal(row.assignedTeachingDoe,worksheet.totals.assignedTeachingDoe);
+ assert.equal(row.effectiveTargetDoe,worksheet.totals.effectiveTargetDoe);
+ assert.equal(row.remainingDoe,worksheet.totals.remainingDoe);
+ assert.equal(runtime.demoDoeWorksheet(store,'nobody','2026-27'),null);
+});
+
+test('a normal demo Faculty row is internally consistent',()=>{
+ const rows=runtime.demoDoeRows(doeStore(),'2026-27'),row=rows.find(item=>item.facultyId==='f1');
+ assert.equal(row.status,'calculated');
+ assert.equal(row.scheduledTeachingDoe,20);
+ assert.equal(row.effectiveTargetDoe,40);
+ assert.equal(row.assignedTeachingDoe,20);
+ assert.equal(row.remainingDoe,20);
+ assert.equal(row.teachingLineCount,2);
+ assert.equal(row.unratedLineCount,0);
+ assert.equal(row.demoOnly,true);
+ assert.equal(row.authoritative,false);
+ // Every faculty record is listed; no row is dropped to fabricate gaps.
+ assert.deepEqual(rows.map(item=>item.facultyId).sort(),['demo-server-only','f1','f2','f3']);
+});
+
+test('the worksheet carries one calculation line per assignment with evidence',()=>{
+ const worksheet=runtime.demoDoeWorksheet(doeStore(),'f1','2026-27');
+ assert.equal(worksheet.lines.length,2);
+ for(const line of worksheet.lines){
+  assert.equal(line.status,'calculated');
+  assert.equal(typeof line.resultDoe,'number');
+  assert.equal(line.sourceEntityType,'session_assignment');
+  assert.match(line.lineId,/^s\d+--\d+$/);
+  assert.ok(line.courseCode);
+  assert.ok(line.calculationText);
+  assert.ok(line.ruleKey);
+  assert.ok(line.policyVersionId);
+  assert.ok(line.calculationId);
+ }
+ assert.equal(worksheet.label,'Frontend Demo DOE — non-authoritative');
+ assert.equal(worksheet.authoritative,false);
+});
+
+test('an assignment without DOE evidence becomes Needs Review instead of assuming zero',()=>{
+ const store=doeStore(),rows=runtime.demoDoeRows(store,'2026-27'),row=rows.find(item=>item.facultyId==='f2');
+ assert.equal(row.status,'needs_review');
+ assert.equal(row.unratedLineCount,1);
+ // No fabricated total: a total is withheld rather than reported as 0.
+ assert.equal(row.assignedTeachingDoe,null);
+ assert.equal(row.remainingDoe,null);
+ assert.equal(row.scheduledTeachingDoe,0);
+ const worksheet=runtime.demoDoeWorksheet(store,'f2','2026-27');
+ assert.equal(worksheet.status,'needs_review');
+ assert.equal(worksheet.lines.length,1);
+ assert.equal(worksheet.lines[0].status,'needs_review');
+ assert.equal(worksheet.lines[0].resultDoe,null);
+ assert.equal(worksheet.lines[0].errorCode,'DOE_SOURCE_PROVENANCE_INCOMPLETE');
+ assert.equal(worksheet.totals.assignedTeachingDoe,null);
+ assert.ok(worksheet.errors.length>0);
+});
+
+test('an explicit demo override wins over the contract Teaching DOE target',()=>{
+ const row=runtime.demoDoeRows(doeStore(),'2026-27').find(item=>item.facultyId==='f3');
+ assert.equal(row.effectiveTargetDoe,28);
+});
+
+test('reconciliation fixtures cover the six states without corrupting normal DOE rows',()=>{
+ const store=doeStore(),rows=runtime.demoDoeRows(store,'2026-27'),fixtures=runtime.demoReconciliationRows(store,'2026-27');
+ const states=fixtures.map(row=>row.status).sort();
+ for(const status of ['different_doe','legacy_only','matched','missing_mapping','needs_review','server_only'])assert.ok(states.includes(status),status);
+ assert.ok(fixtures.every(row=>row.reconciliationFixture===true&&row.demoOnly===true));
+ // Normal Faculty rows stay internally consistent: the healthy row equals its own worksheet.
+ for(const row of rows.filter(item=>!item.serverOnlyDemo)){
+  const worksheet=runtime.demoDoeWorksheet(store,row.facultyId,'2026-27');
+  assert.equal(row.assignedTeachingDoe,worksheet.totals.assignedTeachingDoe);
+  assert.equal(row.scheduledTeachingDoe,worksheet.totals.scheduledTeachingDoe);
+ }
+ assert.equal(rows.find(item=>item.facultyId==='f1').status,'calculated');
+});
+
+test('demo DOE rows never present a reconciliation anomaly as a normal Faculty result',()=>{
+ const rows=runtime.demoDoeRows(doeStore(),'2026-27');
+ for(const row of rows){
+  if(row.serverOnlyDemo)continue;
+  assert.notEqual(row.issueCodes.includes('COURSE_MAPPING_REQUIRED'),true,row.facultyId);
+  assert.equal(row.authoritative,false);
+ }
 });

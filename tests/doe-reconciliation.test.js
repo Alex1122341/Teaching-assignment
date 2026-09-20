@@ -127,6 +127,12 @@ test('Frontend Demo feeds synthetic DOE summaries into reconciliation without en
  const reconciliation=source.slice(source.indexOf('function renderReconciliation'),source.indexOf('function openBaseEditor'));
  assert.doesNotMatch(reconciliation,/saveRoleAssignment|runRecalculate|publish\(/);
  const admin=read('faculty-admin.js');
- assert.match(admin,/Teaching DOE · Frontend Demo preview/);
- assert.match(admin,/Synthetic DOE preview/);
+ // The Frontend Demo no longer shows a placeholder: it renders the real DOE
+ // Worksheet UI from the demo calculation source and labels it non-authoritative.
+ assert.match(admin,/Teaching DOE · Frontend Demo/);
+ assert.match(admin,/Frontend Demo DOE — non-authoritative/);
+ assert.match(admin,/UCVM_DOE_WORKSHEET_VIEW\.worksheetHtml\(worksheet\)/);
+ assert.match(admin,/UCVM_PAGES_DEMO/);
+ assert.match(admin,/doeWorksheet/);
+ assert.doesNotMatch(admin,/Synthetic DOE preview/);
 });

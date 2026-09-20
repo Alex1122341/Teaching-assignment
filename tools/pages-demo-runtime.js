@@ -363,67 +363,178 @@
     };
   }
 
-  function demoDoeRows(store,academicYear='2026-27'){
-    const faculty=store.list('faculty').sort((a,b)=>a.path.localeCompare(b.path));
-    const sessions=store.list('sessions');
-    const stats=new Map();
-    for(const session of sessions){
-      const assignments=Array.isArray(session.data?.assignments)?session.data.assignments:[];
-      for(const assignment of assignments){
-        const facultyId=text(assignment.facultyId||assignment.ucid);
-        if(!facultyId)continue;
-        const row=stats.get(facultyId)||{teachingLineCount:0,scheduledTeachingDoe:0};
-        row.teachingLineCount+=1;
-        row.scheduledTeachingDoe+=Number(assignment.doeCredit||0);
-        stats.set(facultyId,row);
-      }
-    }
-    const rows=[];
-    faculty.forEach((record,index)=>{
-      if(index%7===5)return;
-      const data=record.data||{},facultyId=record.path.split('/').pop(),summary=data.facultySummary2026_27||{},legacy=Number(summary.assignedTeachingDOE??data.doe??data.teachingDOE??40),target=Number(data.doeOverride2026_27?.value??data.doe??data.teachingDOE??legacy),stat=stats.get(facultyId)||{teachingLineCount:0,scheduledTeachingDoe:0};
-      let assigned=legacy,status='calculated',issueCodes=[],missingMappingCount=0,unratedLineCount=0;
-      if(index%7===1)assigned=Number((legacy+3).toFixed(2));
-      if(index%7===2){assigned=null;status='needs_review';issueCodes=['COURSE_MAPPING_REQUIRED'];missingMappingCount=1;unratedLineCount=1}
-      if(index%7===3){assigned=null;status='needs_review';issueCodes=['DOE_SOURCE_PROVENANCE_INCOMPLETE'];unratedLineCount=1}
-      const roleAssignmentCount=Array.isArray(data.managedRoles2026_27)?data.managedRoles2026_27.length:0,scheduledTeachingDoe=Number(stat.scheduledTeachingDoe.toFixed(4)),roleDoe=0,rawSupervisionDoe=0,appliedSupervisionDoe=0,adjustmentDoe=assigned===null?null:Number((assigned-scheduledTeachingDoe).toFixed(4));
-      rows.push({
-        facultyId,displayName:text(data.preferredFullName||data.hrFirstLast||[data.firstName,data.lastName].filter(Boolean).join(' ')||facultyId),academicYear,
-        scheduledTeachingDoe,roleDoe,rawSupervisionDoe,appliedSupervisionDoe,adjustmentDoe,assignedTeachingDoe:assigned,effectiveTargetDoe:target,remainingDoe:assigned===null?null:Number((target-assigned).toFixed(4)),
-        policyVersionId:'demo-synthetic-2026-27-v1',status,lastCalculatedAt:'2026-09-20T12:00:00Z',
-        teachingLineCount:stat.teachingLineCount,roleAssignmentCount,supervisionLineCount:0,adjustmentLineCount:assigned===null?0:1,
-        serverFactCount:stat.teachingLineCount+roleAssignmentCount+(assigned===null?0:1),unratedLineCount,missingMappingCount,issueCount:issueCodes.length,issueCodes,
-        demoOnly:true
+  /* ------------------------------------------------------------------ *
+   * Frontend Demo DOE calculation.
+   *
+   * One calculation source feeds both the DOE List (doeRows) and the
+   * per-Faculty worksheet (doeWorksheet) so the two can never disagree.
+   * Values are deterministic, browser-local and explicitly NON-authoritative.
+   *
+   * Teaching DOE is aggregated from the demo sessions' assignments[].doeCredit.
+   * An assignment without stored DOE evidence becomes a needs_review line with
+   * resultDoe = null. It is never silently treated as 0, and a total is only
+   * published when every required line is rateable.
+   * ------------------------------------------------------------------ */
+  const DEMO_POLICY_VERSION='demo-synthetic-2026-27-v1';
+  const DEMO_LAST_CALCULATED='2026-09-20T12:00:00Z';
+  const DEMO_REFERENCE={title:'UCVM Workload Guideline 2026-27',section:'3.2',table:'Teaching DOE rates'};
+  const round4=value=>Math.round(Number(value)*10000)/10000;
+  const finite=value=>{if(value===null||value===undefined||value==='')return null;const n=Number(value);return Number.isFinite(n)?n:null};
+
+  function demoDoeCalculation(store,academicYear='2026-27'){
+    const facultyRecords=store.list('faculty').sort((a,b)=>a.path.localeCompare(b.path));
+    const byFaculty=new Map();
+    for(const session of store.list('sessions')){
+      const data=session.data||{},sessionId=String(session.path).split('/').pop();
+      const assignments=Array.isArray(data.assignments)?data.assignments:[];
+      assignments.forEach((assignment,index)=>{
+        const facultyId=text(assignment?.facultyId||assignment?.ucid);
+        if(!facultyId)return;
+        const bucket=byFaculty.get(facultyId)||[];
+        bucket.push({sessionId,index,assignment,data});
+        byFaculty.set(facultyId,bucket);
       });
-    });
+    }
+    const rows=[],worksheets=new Map();
+    for(const record of facultyRecords){
+      const data=record.data||{},facultyId=String(record.path).split('/').pop();
+      const summary=data.facultySummary2026_27&&typeof data.facultySummary2026_27==='object'?data.facultySummary2026_27:{};
+      const displayName=text(data.preferredFullName||data.hrFirstLast||data.hrFullName||[data.firstName,data.lastName].filter(Boolean).join(' ')||facultyId);
+      // Effective target: an explicit demo override wins, otherwise the existing
+      // contract Teaching DOE. No target is invented.
+      const override=finite(data.doeOverride2026_27?.value);
+      const contractTarget=[data.doe,data.teachingDOE,data.contractTeachingDOE,summary.assignedTeachingDOE].map(finite).find(value=>value!==null);
+      const effectiveTargetDoe=override!==null?override:(contractTarget!==undefined?contractTarget:null);
+      const entries=byFaculty.get(facultyId)||[];
+      const lines=entries.map(entry=>{
+        const assignment=entry.assignment,credit=finite(assignment.doeCredit),hours=finite(assignment.creditedHours),rate=finite(assignment.doeRate);
+        const lineId=`${entry.sessionId}--${entry.index}`;
+        const rateable=credit!==null;
+        const course=text(entry.data.course),topic=text(entry.data.topic||assignment.topic);
+        return{
+          lineId,
+          label:[course,topic].filter(Boolean).join(' · ')||'Teaching assignment',
+          category:'Teaching',
+          status:rateable?'calculated':'needs_review',
+          resultDoe:rateable?credit:null,
+          errorCode:rateable?'':'DOE_SOURCE_PROVENANCE_INCOMPLETE',
+          calculationText:rateable?`${hours===null?'—':hours} h × ${rate===null?'—':rate}% = ${credit}%`:'This assignment has no stored DOE credit evidence; recalculation is required before a DOE total can be published.',
+          ruleKey:text(assignment.doeRuleKey||'teaching.assignment.rate'),
+          ruleId:text(assignment.doeRuleId||'teaching-assignment-v1'),
+          policyVersionId:text(assignment.doePolicyVersionId||data.teachingDoeModel2026_27||DEMO_POLICY_VERSION),
+          reference:{...DEMO_REFERENCE},
+          calculationId:text(assignment.doeCalculationId||lineId),
+          calculatedAt:DEMO_LAST_CALCULATED,
+          sourceEntityType:'session_assignment',
+          sourceEntityId:entry.sessionId,
+          assignmentFactId:lineId,
+          roleType:text(assignment.role),
+          courseCode:course,
+          subjectKey:topic,
+          teachingRole:text(assignment.role),
+          explanation:{
+            trigger:'frontend_demo',
+            source:'Frontend Demo sessions (browser-local)',
+            rule:{name:'Teaching assignment rate',calculationMode:'hours × rate',category:'Teaching'},
+            facts:{sessionId:entry.sessionId,course,topic,role:text(assignment.role)},
+            inputs:{creditedHours:hours,doeRate:rate},
+            parameters:{doeCredit:rateable?credit:null,evidencePresent:rateable}
+          }
+        };
+      });
+      const unrated=lines.filter(line=>line.status!=='calculated');
+      const scheduledTeachingDoe=round4(lines.filter(line=>line.status==='calculated').reduce((total,line)=>total+line.resultDoe,0));
+      const roleDoe=0,rawSupervisionDoe=0,appliedSupervisionDoe=0,adjustmentDoe=0;
+      // A total is only published when every required line is rateable.
+      const calculable=unrated.length===0;
+      const assignedTeachingDoe=calculable?round4(scheduledTeachingDoe+roleDoe+appliedSupervisionDoe+adjustmentDoe):null;
+      const remainingDoe=assignedTeachingDoe===null||effectiveTargetDoe===null?null:round4(effectiveTargetDoe-assignedTeachingDoe);
+      const errors=unrated.length?[{code:'DOE_NEEDS_REVIEW',message:`${unrated.length} assignment line(s) have no stored DOE credit evidence.`}]:[];
+      const status=!calculable?'needs_review':(effectiveTargetDoe===null?'needs_review':'calculated');
+      const row={
+        facultyId,displayName,academicYear,
+        scheduledTeachingDoe,roleDoe,rawSupervisionDoe,appliedSupervisionDoe,adjustmentDoe,
+        assignedTeachingDoe,effectiveTargetDoe,remainingDoe,
+        policyVersionId:DEMO_POLICY_VERSION,status,lastCalculatedAt:DEMO_LAST_CALCULATED,
+        teachingLineCount:lines.length,roleAssignmentCount:0,supervisionLineCount:0,adjustmentLineCount:0,
+        serverFactCount:lines.length,unratedLineCount:unrated.length,missingMappingCount:0,
+        issueCount:errors.length,issueCodes:errors.map(error=>error.code),
+        demoOnly:true,authoritative:false
+      };
+      rows.push(row);
+      worksheets.set(facultyId,{
+        facultyId,displayName,academicYear,
+        policyVersionId:DEMO_POLICY_VERSION,status,lastCalculatedAt:DEMO_LAST_CALCULATED,
+        totals:{
+          scheduledTeachingDoe,roleDoe,rawSupervisionDoe,appliedSupervisionDoe,adjustmentDoe,
+          assignedTeachingDoe,effectiveTargetDoe,remainingDoe
+        },
+        reserve:{initialTraineeReserve:null,unappliedSupervision:0},
+        errors,lines,
+        demoOnly:true,authoritative:false,
+        label:'Frontend Demo DOE — non-authoritative'
+      });
+    }
+    return{rows,worksheets};
+  }
+
+  function demoDoeRows(store,academicYear='2026-27'){
+    const rows=demoDoeCalculation(store,academicYear).rows;
+    // Explicit server-only synthetic record so the reconciliation "Server Only"
+    // state stays reachable without corrupting any real Faculty calculation.
     rows.push({
       facultyId:'demo-server-only',
       displayName:'Demo Server-only DOE Record',
       academicYear,
-      scheduledTeachingDoe:22,
-      roleDoe:0,
-      rawSupervisionDoe:0,
-      appliedSupervisionDoe:0,
-      adjustmentDoe:0,
-      assignedTeachingDoe:22,
-      effectiveTargetDoe:40,
-      remainingDoe:18,
-      policyVersionId:`demo-synthetic-${academicYear}-v1`,
-      status:'calculated',
-      lastCalculatedAt:'2026-09-20T12:00:00Z',
-      teachingLineCount:1,
-      roleAssignmentCount:0,
-      supervisionLineCount:0,
-      adjustmentLineCount:0,
-      serverFactCount:1,
-      unratedLineCount:0,
-      missingMappingCount:0,
-      issueCount:0,
-      issueCodes:[],
-      demoOnly:true,
-      serverOnlyDemo:true
+      scheduledTeachingDoe:22,roleDoe:0,rawSupervisionDoe:0,appliedSupervisionDoe:0,adjustmentDoe:0,
+      assignedTeachingDoe:22,effectiveTargetDoe:40,remainingDoe:18,
+      policyVersionId:`demo-synthetic-${academicYear}-v1`,status:'calculated',lastCalculatedAt:DEMO_LAST_CALCULATED,
+      teachingLineCount:1,roleAssignmentCount:0,supervisionLineCount:0,adjustmentLineCount:0,
+      serverFactCount:1,unratedLineCount:0,missingMappingCount:0,issueCount:0,issueCodes:[],
+      demoOnly:true,serverOnlyDemo:true,authoritative:false
     });
     return rows;
+  }
+
+  function demoDoeWorksheet(store,facultyId,academicYear='2026-27'){
+    const calculation=demoDoeCalculation(store,academicYear);
+    return calculation.worksheets.get(text(facultyId))||null;
+  }
+
+  /* Reconciliation-only anomaly fixtures. These are deliberately separated from
+   * the normal DOE calculation display: a Faculty row in the DOE List always
+   * shows internally consistent values, and only this explicitly labelled set
+   * exercises the six reconciliation states. */
+  function demoReconciliationRows(store,academicYear='2026-27'){
+    const calculation=demoDoeCalculation(store,academicYear);
+    const base=(facultyId,displayName,status,overrides={})=>{
+      const statusLabel={matched:'Matched',different_doe:'DOE Difference',missing_mapping:'Missing Mapping',needs_review:'Needs Review',legacy_only:'Legacy Only',server_only:'Server Only'}[status];
+      return{
+        facultyId,displayName,status,statusLabel,
+        flags:[status],legacyAssignedDoe:40,worksheetAssignedDoe:40,differenceDoe:0,
+        sourceRoleCount:0,legacyManagedRoleCount:0,serverRoleCount:0,serverFactCount:1,
+        teachingLineCount:1,supervisionLineCount:0,adjustmentLineCount:0,unratedLineCount:0,
+        issueCount:0,issueCodes:[],missingMappingCount:0,
+        policyVersionId:DEMO_POLICY_VERSION,calculationStatus:status==='matched'?'calculated':'needs_review',
+        lastCalculatedAt:DEMO_LAST_CALCULATED,legacyEvidence:true,serverExists:true,
+        reconciliationFixture:true,demoOnly:true,authoritative:false,
+        ...overrides
+      };
+    };
+    // One healthy row proves a normal, internally consistent comparison.
+    const healthy=calculation.rows.filter(row=>!row.serverOnlyDemo).slice(0,1).map(row=>base(row.facultyId,row.displayName,'matched',{
+      legacyAssignedDoe:row.assignedTeachingDoe,worksheetAssignedDoe:row.assignedTeachingDoe,differenceDoe:0,
+      serverFactCount:row.serverFactCount,teachingLineCount:row.teachingLineCount,
+      calculationStatus:row.status
+    }));
+    return[
+      ...healthy,
+      base('demo-recon-difference','Demo Reconciliation · DOE Difference','different_doe',{legacyAssignedDoe:40,worksheetAssignedDoe:43,differenceDoe:3,flags:['different_doe']}),
+      base('demo-recon-mapping','Demo Reconciliation · Missing Mapping','missing_mapping',{missingMappingCount:1,issueCodes:['COURSE_MAPPING_REQUIRED'],issueCount:1,flags:['missing_mapping','needs_review']}),
+      base('demo-recon-review','Demo Reconciliation · Needs Review','needs_review',{unratedLineCount:1,issueCodes:['DOE_SOURCE_PROVENANCE_INCOMPLETE'],issueCount:1,worksheetAssignedDoe:null,differenceDoe:null,flags:['needs_review']}),
+      base('demo-recon-legacy','Demo Reconciliation · Legacy Only','legacy_only',{serverExists:false,worksheetAssignedDoe:null,differenceDoe:null,serverFactCount:0,teachingLineCount:0,calculationStatus:'not_found',flags:['legacy_only']}),
+      base('demo-server-only','Demo Server-only DOE Record','server_only',{legacyEvidence:false,legacyAssignedDoe:null,differenceDoe:null,worksheetAssignedDoe:22,flags:['server_only']})
+    ];
   }
 
   function installToolbar(root,seed,store,auth){
@@ -490,6 +601,9 @@
       export:()=>runtime.store.export(),
       selectUser:uid=>runtime.auth._select(uid),
       doeRows:academicYear=>demoDoeRows(runtime.store,academicYear),
+      doeWorksheet:(facultyId,academicYear)=>demoDoeWorksheet(runtime.store,facultyId,academicYear),
+      doeReconciliationRows:academicYear=>demoReconciliationRows(runtime.store,academicYear),
+      doeLabel:'Frontend Demo DOE — non-authoritative',
       backend:'browser-memory',
       doeAuthoritative:false
     });
@@ -497,5 +611,5 @@
     return runtime;
   }
 
-  return{DemoTimestamp,FieldValue,createStore,createDemoFirebase,demoDoeRows,install,filterMatches,mergeObject};
+  return{DemoTimestamp,FieldValue,createStore,createDemoFirebase,demoDoeRows,demoDoeCalculation,demoDoeWorksheet,demoReconciliationRows,install,filterMatches,mergeObject};
 });

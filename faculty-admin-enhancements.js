@@ -94,6 +94,13 @@
 
  function reconciliationRows(){
   const api=window.UCVM_DOE_WORKSHEET_VIEW;if(!api)return[];
+  // Frontend Demo keeps its reconciliation anomalies in a dedicated, explicitly
+  // labelled fixture set so a normal Faculty DOE calculation is never corrupted
+  // just to reach the six reconciliation states.
+  if(window.UCVM_FRONTEND_DEMO_MODE&&window.UCVM_PAGES_DEMO?.doeReconciliationRows){
+   const fixtures=window.UCVM_PAGES_DEMO.doeReconciliationRows(serverDoeYear||doeListAcademicYear());
+   if(Array.isArray(fixtures)&&fixtures.length)return fixtures;
+  }
   return api.buildReconciliationRows(faculty.filter(f=>f.active!==false),serverDoeRows);
  }
  function reconciliationIssueText(row){
