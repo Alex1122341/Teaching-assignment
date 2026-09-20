@@ -189,3 +189,11 @@ test('Faculty Dashboard labels authoritative DOE summaries separately from legac
  assert.match(html,/Current server role assignments are authoritative/);
  assert.match(html,/legacy migration evidence/i);
 });
+
+
+test('Roles search and type filters re-append current server and legacy evidence rows after the base table rerenders',()=>{
+ const source=read('faculty-admin-enhancements.js');
+ assert.match(source,/roles-search/);
+ assert.match(source,/role-type-filter/);
+ assert.match(source,/scheduleRoleAppend/);
+});
