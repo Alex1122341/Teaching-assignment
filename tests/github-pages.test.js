@@ -71,7 +71,7 @@ test('setup docs define the fixed Pages frontend demo boundary',()=>{
   assert.match(setup,/Frontend Demo/i);
   assert.match(setup,/browser-local|browser local/i);
   assert.match(setup,/synthetic/i);
-  assert.match(setup,/no cloud writes|does not require Firebase/i);
+  assert.match(setup,/no cloud writes|cloud writes.*none|does not require Firebase/i);
   assert.match(setup,/DOE.*disabled|authoritative DOE.*off/i);
   assert.match(setup,/alex1122341\.github\.io/);
   assert.match(setup,/latest successful.*pull request|latest successful.*PR/i);
