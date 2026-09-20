@@ -1975,10 +1975,28 @@
       finally { refreshing = false; }
     };
     window.UCVM_WORK_QUEUE_REFRESH = refresh;
-    refresh();
+    // Outstanding work is not limited to the week on screen, so load the
+    // academic-year range. This is retried because the first attempt can run
+    // before authentication has produced a current user.
+    let yearLoaded = false, yearLoading = false;
+    const ensureYear = async () => {
+      if (yearLoaded || yearLoading) return;
+      const range = queue.academicYearRange(queue.academicYearForDate());
+      if (!range || typeof ensureSessionsForRange !== 'function') { yearLoaded = true; return; }
+      yearLoading = true;
+      try {
+        const rows = await ensureSessionsForRange(range.start, range.end);
+        if (Array.isArray(rows) && rows.length) yearLoaded = true;
+      } catch (error) { console.error('[work queue range]', error); }
+      finally { yearLoading = false; }
+      if (yearLoaded) refresh();
+    };
+    const refreshAll = () => { refresh(); ensureYear(); };
+    window.UCVM_WORK_QUEUE_REFRESH = refreshAll;
+    refreshAll();
     // Refresh after any write that can change required work.
-    for (const event of ['ucvm:assignment-recheck-required', 'ucvm:sessions-changed', 'ucvm:approval-applied']) window.addEventListener(event, refresh);
-    setInterval(refresh, 5000);
+    for (const event of ['ucvm:assignment-recheck-required', 'ucvm:sessions-changed', 'ucvm:sessions-updated', 'ucvm:approval-applied']) window.addEventListener(event, refreshAll);
+    setInterval(refreshAll, 5000);
     return controller;
   }
 

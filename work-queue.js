@@ -24,6 +24,21 @@
  const text=value=>String(value??'').trim();
  const esc=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
+ /* The Work Queue answers "what is outstanding", which is not limited to the week
+  * currently on screen, so it needs the academic-year date range. */
+ function academicYearForDate(date=new Date()){
+  const value=date instanceof Date?date:new Date(date);
+  if(Number.isNaN(value.getTime()))return'';
+  const year=value.getFullYear(),month=value.getMonth()+1,start=month>=8?year:year-1;
+  return`${start}-${String((start+1)%100).padStart(2,'0')}`;
+ }
+ function academicYearRange(academicYear){
+  const match=String(academicYear||'').match(/^(\d{4})-(\d{2})$/);
+  if(!match)return null;
+  const start=Number(match[1]);
+  return{start:`${start}-08-01`,end:`${start+1}-07-31`};
+ }
+
  /* Pure view model. Never mutates the sessions it is given. */
  function buildViewModel({sessions=[],role='',context={},workflow=null}={}){
   const api=workflow||(typeof window!=='undefined'?window.UCVM_SESSION_WORKFLOW:null);
@@ -147,5 +162,5 @@
   };
  }
 
- return Object.freeze({PANEL_ID,BUTTON_ID,STAGE_LABEL,buildViewModel,officeSummaries,panelHtml,itemHtml,createController});
+ return Object.freeze({PANEL_ID,BUTTON_ID,STAGE_LABEL,buildViewModel,officeSummaries,panelHtml,itemHtml,createController,academicYearForDate,academicYearRange});
 });

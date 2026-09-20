@@ -431,6 +431,7 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(demoMode&&expectation.page==='index.html')await verifyDemoFacultySwapAuditWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoSessionCreateDeleteWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoRoutedApprovalWorkflow({debugPort,origin,setupCdp:cdp});
+  if(demoMode&&expectation.page==='index.html')await verifyDemoWorkQueue({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='user-management.html')await verifyUserManagementRoleMatrix({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='faculty-admin.html'){
    if(!state.reconciliationTab)throw Error('faculty-admin.html: DOE Reconciliation tab is missing in Frontend Demo');
@@ -506,10 +507,14 @@ async function timetableToolState(cdp){
 async function verifyTimetableRoleMatrix({debugPort,origin,setupCdp}){
  const cases=[
   {uid:'uid-developer',label:'Developer',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true}},
-  {uid:'uid-owner',label:'Owner',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true}},
-  {uid:'uid-admin',label:'Administrator',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:false,facultyDashboard:true,outlook:true,publish:true}},
+  // ADFA operational roles (Owner / Administrator) are FACULTY ASSIGNMENT ONLY
+  // for timetable operational scope: no Add One, no Add Sessions, no general
+  // selection. Their administrative authority lives on the admin pages.
+  {uid:'uid-owner',label:'Owner',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:true,facultyDashboard:true,outlook:true,publish:true}},
+  {uid:'uid-admin',label:'Administrator',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:true,publish:true}},
   {uid:'uid-adc-1',label:'ADC',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
-  {uid:'uid-lab-1',label:'LAB',expect:{bulkAdd:false,addOne:false,select:true,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
+  // LAB works from the Work Queue, so it does not get unrestricted selection.
+  {uid:'uid-lab-1',label:'LAB',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
   {uid:'uid-otheroffice',label:'Other Office',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,myTeaching:false,afcRequest:false,myHistory:true,myTimetable:false}},
   {uid:'uid-hicc-1',label:'HICC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:true,facultyDashboard:true,outlook:false,publish:false}},
   {uid:'uid-visc-1',label:'VISC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false}},
@@ -704,6 +709,62 @@ async function verifyDemoRoutedApprovalWorkflow({debugPort,origin,setupCdp}){
   try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
  }
 }
+async function verifyDemoWorkQueue({debugPort,origin,setupCdp}){
+ const clickExpression=id=>`(()=>{const el=document.getElementById(${JSON.stringify(id)});if(!el)return false;el.click();return true})()`;
+ const stateExpression="(()=>{const b=document.getElementById('ucvm-work-queue-btn'),p=document.getElementById('ucvm-work-queue-panel');return{button:!!b,hidden:!!b&&b.classList.contains('hidden'),label:(b?.textContent||'').trim(),panel:!!p,panelHidden:!!p&&p.classList.contains('hidden'),text:(p?.textContent||'').replace(/\\s+/g,' ').trim(),url:location.href}})()";
+ const readState=async cdp=>{
+  const result=await cdp.send('Runtime.evaluate',{expression:stateExpression,returnByValue:true});
+  if(result.exceptionDetails)throw Error('Work Queue inspection failed: '+exceptionText(result.exceptionDetails));
+  return result.result?.value||{};
+ };
+ const ready=cdp=>waitForCondition(cdp,"(()=>!document.body.classList.contains('auth-locked'))()",'timetable ready for the Work Queue',12000);
+ try{
+ // Developer sees every office's outstanding work.
+ await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-developer',label:'Developer Work Queue'},async cdp=>{
+  await ready(cdp);
+  const probe=await cdp.send('Runtime.evaluate',{expression:"(()=>({q:typeof window.UCVM_WORK_QUEUE,wf:typeof window.UCVM_SESSION_WORKFLOW}))()",returnByValue:true});
+  if(probe.exceptionDetails)throw Error('Work Queue probe failed: '+exceptionText(probe.exceptionDetails));
+  const probed=probe.result?.value||{};
+  if(probed.q!=='object'||probed.wf!=='object')throw Error('Work Queue modules are not loaded: '+JSON.stringify(probed));
+  await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')&&/^All Work \\(\\d+\\)$/.test((b.textContent||'').trim())})()",'Developer All Work button',12000);
+  const before=await readState(cdp);
+  if(!/^All Work \([1-9]\d*\)$/.test(before.label))throw Error('Developer Work Queue button must carry a positive count: '+before.label);
+  const opened=await cdp.send('Runtime.evaluate',{expression:clickExpression('ucvm-work-queue-btn'),returnByValue:true});
+  if(opened.exceptionDetails||!opened.result?.value)throw Error('Work Queue button could not be clicked');
+  await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),text=p?.textContent||'';return !!p&&!p.classList.contains('hidden')&&/ADC Work/.test(text)&&/LAB Work/.test(text)&&/READY/.test(text)&&/WAITING/.test(text)})()",'Work Queue panel content',12000);
+  // Closing only hides the panel.
+  await cdp.send('Runtime.evaluate',{expression:"(()=>{document.querySelector('#ucvm-work-queue-panel [data-work-close]')?.click();return true})()",returnByValue:true});
+  await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),b=document.getElementById('ucvm-work-queue-btn');return !!p&&p.classList.contains('hidden')&&!!b&&!b.classList.contains('hidden')})()",'Work Queue closed with the button retained',12000);
+  const closed=await readState(cdp);
+  if(closed.label!==before.label)throw Error('Closing the Work Queue must not change the outstanding work count');
+  // Reopening must work without a page reload.
+  await cdp.send('Runtime.evaluate',{expression:clickExpression('ucvm-work-queue-btn'),returnByValue:true});
+  await waitForCondition(cdp,"(()=>!document.getElementById('ucvm-work-queue-panel').classList.contains('hidden'))()",'Work Queue reopened',12000);
+  const reopened=await readState(cdp);
+  if(reopened.url!==before.url)throw Error('Reopening the Work Queue must not reload the page');
+  if(!/READY/.test(reopened.text))throw Error('Reopened Work Queue lost its work items');
+ });
+
+ // LAB works from the Work Queue and owns outstanding LAB work.
+ await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-lab-1',label:'LAB Work Queue'},async cdp=>{
+  await ready(cdp);
+  await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')&&/^LAB Work \\(\\d+\\)$/.test((b.textContent||'').trim())})()",'LAB Work button',12000);
+  await cdp.send('Runtime.evaluate',{expression:clickExpression('ucvm-work-queue-btn'),returnByValue:true});
+  await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),text=p?.textContent||'';return !!p&&!p.classList.contains('hidden')&&/LAB Work/.test(text)&&/Missing:/.test(text)})()",'LAB Work Queue items',12000);
+  const labState=await readState(cdp);
+  if(!/READY — [1-9]/.test(labState.text))throw Error('LAB Work Queue must report ready LAB work: '+labState.text.slice(0,200));
+ });
+
+ // A role with no outstanding required work must not show a Work Queue button.
+ await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-admin',label:'ADFA Work Queue'},async cdp=>{
+  await ready(cdp);
+  await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&b.classList.contains('hidden')})()",'ADFA Work Queue hidden when nothing is outstanding',12000);
+ });
+ }finally{
+  try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
+ }
+}
+
 async function userManagementState(cdp){
  const result=await cdp.send('Runtime.evaluate',{expression:"(()=>{const byId=id=>document.getElementById(id),devOption=document.querySelector('#account-role option[value=\\\"developer\\\"]'),devEdit=document.querySelector('button[data-edit=\\\"uid-developer\\\"]');return{uid:window.firebase?.auth?.().currentUser?.uid||'',contentVisible:byId('content')?.hidden===false,accountsVisible:byId('accounts')?.hidden===false,groupsTitle:(byId('groups-title')?.textContent||'').trim(),groupId:byId('group-picker')?.value||'',groupOptions:[...(byId('group-picker')?.options||[])].map(option=>option.value),groupNameDisabled:!!byId('group-name')?.disabled,groupOwnerDisabled:!!byId('group-owner')?.disabled,groupCoursesDisabled:!!byId('group-courses')?.disabled,groupNewHidden:!!byId('group-new')?.hidden,groupDeleteHidden:!!byId('group-delete')?.hidden,developerOptionDisabled:!!devOption?.disabled,developerEditDisabled:!!devEdit?.disabled,selectedRole:byId('account-role')?.value||'',status:(byId('status')?.textContent||'').trim()}})()",returnByValue:true});
  if(result.exceptionDetails)throw Error('User Management state inspection failed: '+exceptionText(result.exceptionDetails));
