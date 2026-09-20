@@ -59,12 +59,14 @@
    previewSessionChange:payload=>request('/api/doe/session-changes/preview',{method:'POST',body:payload}),
    previewFacultyTransfer:payload=>request('/api/doe/faculty-transfer/preview',{method:'POST',body:payload}),
    saveSessionChange:payload=>request('/api/doe/session-changes',{method:'POST',body:payload}),
-   saveRoleAssignment:payload=>request('/api/doe/role-assignments',{method:'POST',body:payload})
+   listRoleAssignments:(facultyId,academicYear)=>request(`/api/doe/faculty/${enc(facultyId)}/role-assignments?academicYear=${enc(academicYear)}`),
+   saveRoleAssignment:payload=>request('/api/doe/role-assignments',{method:'POST',body:payload}),
+   deactivateRoleAssignment:assignmentFactId=>request(`/api/doe/role-assignments/${enc(assignmentFactId)}`,{method:'DELETE'})
   });
  }
  let singleton=null;
  const defaultClient=()=>singleton||(singleton=createClient());
- const methods=['listPolicies','listVersions','loadPolicyBundle','getImpactPreview','getPolicyYear','copyPolicyYear','createPolicyYear','cloneAsDraft','validateDraft','testRule','runImpactPreview','publish','archive','previewRecalculate','runRecalculate','saveRule','saveException','saveReference','saveReservePolicy','saveCourseMapping','saveSubjectMapping','getFacultyWorksheet','saveFacultyTarget','listFacultyDoe','previewAssignment','previewSessionChange','previewFacultyTransfer','saveSessionChange','saveRoleAssignment'];
+ const methods=['listPolicies','listVersions','loadPolicyBundle','getImpactPreview','getPolicyYear','copyPolicyYear','createPolicyYear','cloneAsDraft','validateDraft','testRule','runImpactPreview','publish','archive','previewRecalculate','runRecalculate','saveRule','saveException','saveReference','saveReservePolicy','saveCourseMapping','saveSubjectMapping','getFacultyWorksheet','saveFacultyTarget','listFacultyDoe','previewAssignment','previewSessionChange','previewFacultyTransfer','saveSessionChange','listRoleAssignments','saveRoleAssignment','deactivateRoleAssignment'];
  const api={createClient,isConfigured:()=>Boolean(defaultBaseUrl()),baseUrl:defaultBaseUrl};
  for(const method of methods)api[method]=(...args)=>defaultClient()[method](...args);
  return Object.freeze(api);
