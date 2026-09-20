@@ -119,6 +119,21 @@ test('lab Firebase Web config is pinned tools-only and supports one-command refr
   assert.doesNotMatch(pin,/tester-teaching/);
 });
 
+test('lab config pin helper validates only a real vista-teaching-lab Web config',()=>{
+  const pin=require('../tools/pin-lab-firebase-web-config.js');
+  const good={
+    apiKey:'AIza'+'A'.repeat(35),
+    authDomain:'vista-teaching-lab.firebaseapp.com',
+    projectId:'vista-teaching-lab',
+    storageBucket:'vista-teaching-lab.firebasestorage.app',
+    messagingSenderId:'123456789012',
+    appId:'1:123456789012:web:abcdef0123456789abcdef'
+  };
+  assert.equal(pin.validateLabConfig(good).projectId,'vista-teaching-lab');
+  assert.throws(()=>pin.validateLabConfig({...good,projectId:'tester-teaching'}),/vista-teaching-lab/);
+  assert.throws(()=>pin.validateLabConfig({...good,apiKey:'GENERATE_WITH_npm_run_config:pin:lab'}),/API key/);
+});
+
 test('preview config verifier accepts only the isolated lab project with DOE API disabled',()=>{
   const {validatePreview}=require('../tools/verify-preview-client-config.js');
   const good={
