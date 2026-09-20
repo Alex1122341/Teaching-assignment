@@ -600,6 +600,12 @@ async function verifyDemoSessionCreateDeleteWorkflow({debugPort,origin,setupCdp}
  try{
   await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-developer',label:'Developer session create/delete workflow'},async cdp=>{
    await waitForCondition(cdp,"(()=>document.getElementById('add-session-btn')&&!document.getElementById('add-session-btn').classList.contains('hidden')&&!document.body.classList.contains('auth-locked')&&/Live Firestore schedule/.test(document.getElementById('conn-text')?.textContent||''))()",'Developer Add Session + live timetable ready',12000);
+   await waitForCondition(cdp,"(()=>/No sessions in this view/.test(document.getElementById('conn-text')?.textContent||'')&&!document.getElementById('bulk-add-session-btn')?.classList.contains('hidden'))()",'Developer empty timetable range',12000);
+   const bulkOpen=await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('bulk-add-session-btn')?.click();return true})()",returnByValue:true});
+   if(bulkOpen.exceptionDetails)throw Error('Bulk Add modal failed: '+exceptionText(bulkOpen.exceptionDetails));
+   await waitForCondition(cdp,"(()=>!!document.getElementById('bulk-session-form')&&!!document.getElementById('bulk-add-row'))()",'Bulk Add form in empty timetable range',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('bulk-cancel')?.click();return true})()",returnByValue:true});
+   await waitForCondition(cdp,"(()=>!document.getElementById('bulk-session-form'))()",'Bulk Add form close',12000);
    const open=await cdp.send('Runtime.evaluate',{expression:`(()=>{window.confirm=()=>true;const records=window.UCVM_PAGES_DEMO?.export?.()||{},today=new Date().toISOString().slice(0,10),dates=Object.entries(records).filter(([path,row])=>path.startsWith('sessions/')&&!path.slice('sessions/'.length).includes('/')&&String(row?.date||'')>=today).map(([,row])=>String(row.date)).filter(Boolean).sort();const date=dates.at(-1)||'2027-04-12';document.getElementById('add-session-btn').click();return{date}})()`,returnByValue:true});
    if(open.exceptionDetails)throw Error('Add Session modal failed: '+exceptionText(open.exceptionDetails));
    const targetDate=open.result?.value?.date||'2027-04-12';
