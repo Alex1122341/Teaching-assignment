@@ -108,7 +108,7 @@
   candidate.facultyIds=[...new Set(nextAssignments.map(row=>text(row?.facultyId||row?.ucid)).filter(Boolean))];
   candidate.instructor=nextAssignments.map(row=>text(row?.name)).filter(Boolean).join('; ');
   delete candidate.__id;
-  const sourceEntityIds=nextAssignments.map((row,index)=>text(row?.facultyId||row?.ucid)?`${id}--assignment--${index+1}`:'').filter(Boolean);
+  const sourceEntityIds=nextAssignments.map((row,index)=>text(row?.facultyId||row?.ucid)?(text(row?.assignmentId)||`${id}--assignment--${index+1}`):'').filter(Boolean);
   const facultyIds=[...new Set([...candidate.facultyIds,...beforeAssignments.map(row=>text(row?.facultyId||row?.ucid)).filter(Boolean)])];
   return{academicYear:year,session:candidate,calculationRecords:[],doeChanges:[],facultyImpacts:[],queued:true,queue:{sessionId:id,sourceEntityType:'session_assignment',sourceEntityIds,facultyIds,trigger:text(trigger)||'session_updated'}};
  }

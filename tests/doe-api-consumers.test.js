@@ -202,6 +202,9 @@ test('queued session preparation strips authoritative DOE evidence and refreshes
  for(const field of ['doeCredit','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId','doeRate'])assert.equal(row[field],undefined);
  assert.deepEqual(prepared.queue.sourceEntityIds,['s1--assignment--1']);
  assert.deepEqual(prepared.queue.facultyIds,['f1']);
+ const custom={...before,assignments:[{...before.assignments[0],assignmentId:'custom-assignment'}]};
+ const customPrepared=api.prepareQueuedSessionChange({beforeSession:custom,afterSession:custom});
+ assert.deepEqual(customPrepared.queue.sourceEntityIds,['custom-assignment']);
 });
 
 test('unconfigured HTTP DOE client fails before attempting a relative network request',async()=>{

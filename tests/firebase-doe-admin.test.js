@@ -82,3 +82,11 @@ test('DOE queue processor leaves failed requests pending for retry',async()=>{
   const result=await cli.processRecalculationQueue({firestore,policyAdminService:{getPolicyYear:async()=>{throw Error('unused')},runRecalculate:async()=>{}},actor:{uid:'job'},clock:()=> '2026-09-20T12:00:00Z'});
   assert.equal(result.failed,1);assert.equal(updates.at(-1).status,'pending');assert.equal(updates.at(-1).lastErrorCode,'SESSION_NOT_FOUND');
 });
+
+
+test('DOE queue scope preserves explicit assignment ids and falls back to ordinals',()=>{
+  assert.deepEqual(
+    cli.currentSessionScope({assignments:[{facultyId:'f1',assignmentId:'custom-1'},{facultyId:'f2'},{}]},'s9'),
+    {sourceEntityIds:['custom-1','s9--assignment--2'],facultyIds:['f1','f2']}
+  );
+});

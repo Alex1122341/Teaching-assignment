@@ -60,7 +60,7 @@ function currentSessionScope(session={},sessionId=''){
   const sourceEntityIds=[],facultyIds=[];
   for(const [index,row] of (Array.isArray(session.assignments)?session.assignments:[]).entries()){
     const facultyId=text(row?.facultyId||row?.ucid);if(!facultyId)continue;
-    sourceEntityIds.push(`${id}--assignment--${index+1}`);facultyIds.push(facultyId);
+    sourceEntityIds.push(text(row?.assignmentId)||`${id}--assignment--${index+1}`);facultyIds.push(facultyId);
   }
   return{sourceEntityIds,facultyIds:[...new Set(facultyIds)]};
 }
