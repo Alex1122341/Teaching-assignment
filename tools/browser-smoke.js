@@ -86,6 +86,7 @@ function doeSmokeResponse(requestUrl,method='GET'){
   roleAssignmentCount:1,roleAssignments:[roleAssignment],teachingLineCount:1,supervisionLineCount:0,adjustmentLineCount:0,serverFactCount:2,unratedLineCount:0,missingMappingCount:0,issueCount:0,issueCodes:[],
   scheduledTeachingDoe:28,roleDoe:12,rawSupervisionDoe:0,appliedSupervisionDoe:0,adjustmentDoe:0,assignedTeachingDoe:40,effectiveTargetDoe:40,remainingDoe:0
  };
+ const explainSummary={...summary,facultyId:'fac-001',displayName:'Avery Lindqvist'};
  const mappingSummary={
   facultyId:'browser-smoke-mapping',displayName:'Browser Smoke Mapping',academicYear:year,policyVersionId:'ucvm-workload-smoke-v1',status:'needs_review',
   lastCalculatedAt:'2026-09-20T01:00:00Z',target:{effectiveTargetDoe:30,overrideDoe:null,overrideReason:'',source:'contract'},
@@ -98,14 +99,16 @@ function doeSmokeResponse(requestUrl,method='GET'){
   totals:{scheduledTeachingDoe:28,roleDoe:12,rawSupervisionDoe:0,appliedSupervisionDoe:0,adjustmentDoe:0,assignedTeachingDoe:40,effectiveTargetDoe:40,remainingDoe:0},
   sections:{scheduledTeaching:{subtotal:28},roles:{subtotal:12},supervision:{rawSubtotal:0,appliedSubtotal:0},adjustments:{subtotal:0}},errors:[],
   lines:[
-   {lineId:'session-smoke--assignment-smoke',category:'teaching',sourceEntityType:'session_assignment',sourceEntityId:'session-smoke',label:'Browser Smoke Lecture',calculationText:'2 h × 14.00% DOE/h',resultDoe:28,status:'calculated',policyVersionId:summary.policyVersionId,ruleId:'rule-lecture-smoke',ruleKey:'teaching.lecture',reference,calculationId:'calc-smoke-lecture'},
+   {lineId:'session-smoke--assignment-smoke',category:'teaching',sourceEntityType:'session_assignment',sourceEntityId:'session-smoke',label:'Browser Smoke Lecture',calculationText:'2 h × 14.00% DOE/h = 28.00%',resultDoe:28,status:'calculated',policyVersionId:summary.policyVersionId,ruleId:'rule-lecture-smoke',ruleKey:'teaching.lecture',reference,calculationId:'calc-smoke-lecture',calculatedAt:'2026-09-20T01:00:00Z',explanation:{rule:{name:'Lecture standard rate',calculationMode:'rate',category:'teaching'},facts:{activityType:'Lecture',teachingRole:'Primary Instructor',courseCode:'VETM 301'},inputs:{hours:2},parameters:{rate:14},trigger:'session_assignment',source:'active_policy'}},
    {lineId:'role-smoke-hicc',category:'role',sourceEntityType:'doe_assignment',sourceEntityId:'role-smoke-hicc',assignmentFactId:'role-smoke-hicc',roleType:'HICC',courseCode:'VTMD 204',label:'HICC · VTMD 204',calculationText:'Rule Book role assignment',resultDoe:12,status:'calculated',policyVersionId:summary.policyVersionId,ruleId:'rule-hicc-smoke',ruleKey:'role.hicc',reference,calculationId:'calc-smoke-hicc'}
   ]
  };
- if(parsed.pathname==='/__doe-smoke/api/doe/list')return{statusCode:200,body:[summary,mappingSummary]};
+ const explainWorksheet={...worksheet,facultyId:'fac-001',displayName:'Avery Lindqvist'};
+ if(parsed.pathname==='/__doe-smoke/api/doe/list')return{statusCode:200,body:[summary,mappingSummary,explainSummary]};
  if(parsed.pathname==='/__doe-smoke/api/doe/policies')return{statusCode:200,body:[]};
  if(parsed.pathname==='/__doe-smoke/api/doe/faculty/browser-smoke-faculty/role-assignments')return{statusCode:200,body:[{...roleAssignment,academicYear:year,facultyId:summary.facultyId,active:true,doeCredit:12,doeRuleKey:roleAssignment.ruleKey,doeRuleId:roleAssignment.ruleId}]};
  if(parsed.pathname==='/__doe-smoke/api/doe/faculty/browser-smoke-faculty/worksheet')return{statusCode:200,body:worksheet};
+ if(parsed.pathname==='/__doe-smoke/api/doe/faculty/fac-001/worksheet')return{statusCode:200,body:explainWorksheet};
  return{statusCode:404,body:{code:'SMOKE_ROUTE_NOT_FOUND',message:'Unsupported DOE browser smoke route.'}};
 }
 function createStaticServer(siteRoot=site){
@@ -357,6 +360,23 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
   if(reconciliationNavigation.exceptionDetails)throw Error(`DOE Reconciliation navigation smoke failed: ${exceptionText(reconciliationNavigation.exceptionDetails)}`);
   if(!reconciliationNavigation.result?.value?.tab||!reconciliationNavigation.result?.value?.visible)throw Error('DOE Reconciliation tab did not become visible.');
   await waitForCondition(cdp,`(()=>{const queue=document.getElementById('doe-reconciliation-queue-body')?.textContent||'',all=document.getElementById('doe-reconciliation-body')?.textContent||'',summary=document.getElementById('doe-reconciliation-summary')?.textContent||'';return queue.includes('Browser Smoke Mapping')&&queue.includes('Missing Mapping')&&queue.includes('COURSE MAPPING REQUIRED')&&all.includes('Browser Smoke Faculty')&&summary.includes('Action queue')})()`,'DOE Reconciliation work queue render');
+
+  const explainOpen=await cdp.send('Runtime.evaluate',{
+   expression:`(()=>{window.dispatchEvent(new CustomEvent('ucvm:doe-open-faculty',{detail:{facultyId:'fac-001'}}));return true})()`,
+   returnByValue:true
+  });
+  if(explainOpen.exceptionDetails)throw Error(`DOE explanation profile open failed: ${exceptionText(explainOpen.exceptionDetails)}`);
+  await waitForCondition(cdp,`(()=>{const pane=document.getElementById('profile-pane'),button=pane?.querySelector('[data-doe-explain-line="session-smoke--assignment-smoke"]');return !!button&&(pane?.textContent||'').includes('Avery')})()`,'DOE explanation trigger render');
+  const explainClick=await cdp.send('Runtime.evaluate',{
+   expression:`(()=>{const button=document.querySelector('#profile-pane [data-doe-explain-line="session-smoke--assignment-smoke"]');button?.click();const modal=document.getElementById('doe-explain-modal'),body=document.getElementById('doe-explain-body');return{button:!!button,visible:!!modal&&!modal.classList.contains('hidden'),text:body?.textContent||''}})()`,
+   returnByValue:true
+  });
+  if(explainClick.exceptionDetails)throw Error(`DOE explanation modal click failed: ${exceptionText(explainClick.exceptionDetails)}`);
+  const explanation=explainClick.result?.value||{};
+  if(!explanation.button||!explanation.visible)throw Error('DOE explanation modal did not open from the Faculty profile.');
+  for(const required of ['Lecture standard rate','Primary Instructor','Hours','2','Rate','14','ucvm-workload-smoke-v1','teaching.lecture','calc-smoke-lecture','UCVM Workload Guidelines']){
+   if(!String(explanation.text||'').includes(required))throw Error(`DOE explanation modal render missing "${required}".`);
+  }
 
   await navigate('user-management.html');
   await waitForCondition(cdp,`(()=>document.getElementById('content')?.hidden===false&&document.getElementById('accounts')?.hidden===false&&document.getElementById('identity')?.textContent.includes('Browser Smoke Owner'))()`,'User Management owner access');
