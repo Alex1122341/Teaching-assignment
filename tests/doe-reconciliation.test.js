@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('reconciliation classifies matched and DOE-difference rows from source evidence versus server Worksheet totals',()=>{
-  const R=require('../doe-reconciliation.js');
+  const R=require('../doe-worksheet-view.js');
   const faculty={__id:'f1',preferredFullName:'Dr One',facultySummary2026_27:{assignedTeachingDOE:40},managedRoles2026_27:[{type:'HICC',assignment:'VTMD 204',doeCredit:12}]};
   const matched=R.reconcileFaculty(faculty,{facultyId:'f1',assignedTeachingDoe:40,status:'calculated',policyVersionId:'v1',roleAssignmentCount:1,issueCodes:[]});
   assert.equal(matched.status,'matched');
@@ -21,7 +21,7 @@ test('reconciliation classifies matched and DOE-difference rows from source evid
 });
 
 test('reconciliation distinguishes legacy-only, server-only, Needs Review, and missing mapping',()=>{
-  const R=require('../doe-reconciliation.js');
+  const R=require('../doe-worksheet-view.js');
   const legacy={__id:'legacy',facultySummary2026_27:{assignedTeachingDOE:18}};
   assert.equal(R.reconcileFaculty(legacy,null).status,'legacy_only');
 
@@ -43,7 +43,7 @@ test('reconciliation distinguishes legacy-only, server-only, Needs Review, and m
 });
 
 test('reconciliation rows include source-role and server-fact counts and build an actionable work queue',()=>{
-  const R=require('../doe-reconciliation.js');
+  const R=require('../doe-worksheet-view.js');
   const faculty=[
     {__id:'a',preferredFullName:'A',facultySummary2026_27:{assignedTeachingDOE:10,roles:[{type:'HICC'}]},managedRoles2026_27:[{type:'HICC',doeCredit:1}]},
     {__id:'b',preferredFullName:'B',facultySummary2026_27:{assignedTeachingDOE:10}}
@@ -95,13 +95,16 @@ test('Faculty Dashboard has a read-only DOE Reconciliation tab and Needs Review 
   assert.doesNotMatch(source.slice(source.indexOf('function renderReconciliation'),source.indexOf('function openBaseEditor')),/saveRoleAssignment|runRecalculate|publish\(/);
 });
 
-test('admin-only deferred loader includes reconciliation logic without loading it in Faculty self mode',()=>{
+test('reconciliation reuses the existing DOE worksheet runtime and remains admin-only',()=>{
+  const view=require('../doe-worksheet-view.js');
+  assert.equal(typeof view.buildReconciliationRows,'function');
+  assert.equal(typeof view.workQueue,'function');
   const source=read('faculty-admin.js');
   const loaderStart=source.indexOf('function ensureFacultyAdminEnhancements');
   const loaderEnd=source.indexOf('\nfunction',loaderStart+20);
   const loader=source.slice(loaderStart,loaderEnd);
-  assert.match(loader,/doe-reconciliation\.js/);
   assert.match(loader,/faculty-admin-enhancements\.js/);
+  assert.doesNotMatch(loader,/doe-reconciliation\.js/);
   const selfStart=source.indexOf('async function enterSelfMode');
   const selfEnd=source.indexOf('\nfunction',selfStart+20);
   assert.doesNotMatch(source.slice(selfStart,selfEnd),/ensureFacultyAdminEnhancements/);
