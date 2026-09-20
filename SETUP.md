@@ -33,10 +33,10 @@ VISTA uses Firebase Authentication and Firestore on the Spark-compatible client 
    Do this before relying on the new User Management page. Legacy `admin` still retains timetable and Faculty Dashboard access but is not ADFA General.
 5. From the repository root deploy **rules and indexes** for initial activation:
    ```bash
-   npx firebase deploy --project tester-teaching --only firestore:rules,firestore:indexes
+   npx firebase deploy --project vista-teaching-lab --only firestore:rules,firestore:indexes
    ```
    If the local Firebase CLI dependency is unavailable later, any Firebase CLI installation can deploy these rules; Cloud Functions are not required.
-6. Complete the one-time GitHub Pages, Firebase Authorized Domain, and gated Azure production setup in **Web deployment** below. Use a pull request to publish the frontend to the fixed GitHub Pages test site before any production approval.
+6. Complete the one-time GitHub Pages, Firebase Authorized Domain, and **Firebase DOE Admin Job** setup in **Web deployment** below. Azure production setup is paused and is not required for the active development path.
 7. Sign in once as Owner / ADFA General or another administrator and open **Faculty Dashboard**. If the privacy-safe faculty replacement directory does not exist yet, the dashboard creates `settings/faculty_swap_index` and the admin-only `settings/faculty_swap_map` from the current Faculty Database.
 8. Open User Management.
 9. To add one person, choose their faculty profile in **New account**. The profile supplies the name and email; choose the access role and enter a temporary password. Firebase supplies the Authentication UID after creation.
@@ -135,29 +135,25 @@ The DOE API is deployed separately from the static frontend.
 
 The DOE API workflow cannot create the Azure subscription resource or invent server credentials. Those remain one-time Azure administration tasks.
 
-### Routine pull-request and release flow
+### Routine pull-request and test flow
 
 1. Create a feature branch and open a same-repository pull request targeting `main`.
 2. The independent **Test** workflow runs static/unit tests and the Firestore/Auth emulator suite.
-3. The **GitHub Pages Test Site** workflow independently runs `npm ci`, `npm run test:all`, `npm run test:emulator`, builds `.deploy-static`, applies Pages-only staging, and publishes the verified artifact to the fixed GitHub Pages test URL.
-4. Open `https://alex1122341.github.io/Teaching-assignment/` and manually validate sign-in, Timetable, Faculty Dashboard, and the changed workflow. Confirm the **TEST SITE / Isolated Firebase Lab / vista-teaching-lab** banner is present. During this temporary mode, treat normal writes as live-data operations; destructive/failure-injection testing must remain on the Emulator. If `PRODUCTION_DOE_API_BASE_URL` is configured and its Pages CORS gate passes, DOE server features are available on this test site; otherwise they remain disabled.
-5. Additional commits to the same or another same-repository PR update the single fixed Pages test site after their verification passes. The latest successful PR version is the version visible at the fixed URL.
-6. Only after the browser test is accepted, merge the pull request to `main`.
-7. The `main` push starts the **Azure Static Web Apps** workflow. Its `validate_and_build` job runs the full test suite again, requires the production DOE API Actions variable, generates and verifies the `tester-teaching` Firebase client configuration from the tools-only public config plus the HTTPS DOE API base URL, calls the DOE API `/api/health` endpoint with the Azure production Origin to verify service identity and CORS, builds `.deploy-static`, adds the canonical `staticwebapp.config.json`, and uploads an immutable `azure-production-${{ github.sha }}` Actions artifact. Missing/invalid production client configuration or an unhealthy/misconfigured DOE API fails the build before any artifact is uploaded. The `main` push does not deploy production.
-8. After that build succeeds, an explicit approver opens **Actions > Azure Production Deploy > Run workflow** and enters the successful build's **source run ID** (`source_run_id`) and exact **commit SHA** (`commit_sha`). Starting this workflow is the repository-enforced production approval.
-9. The deployment workflow verifies that the source run was a successful `main` push of `.github/workflows/azure-static-web-apps.yml`, then downloads `azure-production-${commit_sha}` from that exact run. If the `production` Environment has a Required reviewer, GitHub may additionally require **Review deployments** / **Approve and deploy**.
-10. The deployment job sends those already-built bytes to Azure Static Web Apps. It does not check out application code, run tests, or rebuild after approval. A wrong run ID, SHA, branch, workflow, or unsuccessful source run fails closed.
+3. The **GitHub Pages Test Site** workflow independently runs `npm ci`, `npm run test:all`, `npm run test:emulator`, generates the `vista-teaching-lab` client config from `LAB_FIREBASE_WEB_CONFIG_JSON`, builds `.deploy-static`, applies Pages-only staging, and publishes the verified artifact to the fixed GitHub Pages test URL.
+4. Open `https://alex1122341.github.io/Teaching-assignment/` and validate sign-in, Timetable, Faculty Dashboard, and the changed workflow. Confirm the **TEST SITE / Isolated Firebase Lab / vista-teaching-lab** banner is present.
+5. The Pages runtime never receives a DOE API URL. Use **Actions > Firebase DOE Admin Job** for DOE validation, impact preview persistence, policy publication, and recalculation. Destructive failure-injection still belongs in the Emulator Suite.
+6. Additional commits to the same or another same-repository PR update the single fixed Pages test site after verification passes. The latest successful PR version is the version visible at the fixed URL.
+7. Only after the browser test is accepted should the pull request be merged to `main`.
+8. Azure production remains paused. If it is reactivated later, use the gated **Azure Production Deploy** process documented in the paused section above, including its source run ID and exact commit SHA checks. A `main` push does not automatically deploy Azure production.
 
-Azure is production-only in this flow; pull requests do not create Azure preview environments. GitHub Pages is the fixed browser-test host.
-
-The GitHub Pages URL is publicly reachable and is not a security boundary. Firebase Authentication and Firestore Security Rules continue to protect application data.
+The GitHub Pages URL is publicly reachable and is not a security boundary. Firebase Authentication and Firestore Security Rules protect application data. Firebase Hosting is not used for this active test flow.
 
 ### Firestore rule changes
 
 GitHub Actions does not deploy Firestore rules in this workflow. When a pull request changes `firestore.rules`, deploy the rules manually after review:
 
 ```bash
-npx firebase deploy --project tester-teaching --only firestore:rules
+npx firebase deploy --project vista-teaching-lab --only firestore:rules
 ```
 
 Deploy indexes separately when a reviewed change actually modifies `firestore.indexes.json`.
@@ -173,7 +169,7 @@ powershell -NoProfile -Command "Unblock-File -LiteralPath '.\tools\deploy_azure_
 powershell -File .\tools\deploy_azure_static_web.ps1
 ```
 
-Routine releases should use the GitHub Pages test site, merge to `main`, GitHub production approval, and Azure deployment instead of this local fallback.
+During the current Firebase-only development phase, routine testing uses GitHub Pages and `vista-teaching-lab`. The Azure fallback remains dormant unless production deployment is explicitly reactivated.
 
 ## Faculty replacement requests
 
@@ -231,4 +227,4 @@ New AFC requests require both the off-campus contact address and telephone numbe
 
 Install the root development dependencies with `npm ci`. Run static tests with `npm test`; run the Firestore rule suite with `npm run test:emulator`. The `test-support/` modules are pure policy fixtures used by those tests and are excluded from the web deployment bundle.
 
-Build the Azure publishing directory with `node tools/build-static.js`. The application bundle comes from the exact allowlist in `tools/static-assets.json`; Azure deployment metadata is staged afterward. Current query counts, migration hashes, rollback exports, and the 50,000-read estimate are recorded in `PERFORMANCE_REPORT.md`.
+Build the deployable static directory with `node tools/build-static.js`. The application bundle comes from the exact allowlist in `tools/static-assets.json`; host-specific metadata is staged afterward. Current query counts, migration hashes, rollback exports, and the 50,000-read estimate are recorded in `PERFORMANCE_REPORT.md`.
