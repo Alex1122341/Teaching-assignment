@@ -128,3 +128,15 @@ test('DOE list summaries carry authoritative target metadata for badges and mana
  assert.equal(rows[0].target.overrideDoe,25);
  assert.equal(rows[0].target.overrideReason,'RSL');
 });
+
+
+test('Roles and Appointments never presents legacy workload calculations as current DOE',()=>{
+ const source=read('faculty-admin.js');
+ const start=source.indexOf('function roleDoeHtml');
+ const end=source.indexOf('function rolesHtml',start);
+ const fn=source.slice(start,end);
+ assert.match(fn,/cachedDoeWorksheet/);
+ assert.match(fn,/server Worksheet/);
+ assert.doesNotMatch(fn,/workloadOf\(/);
+ assert.doesNotMatch(fn,/roleWorkloadMatches\(/);
+});
