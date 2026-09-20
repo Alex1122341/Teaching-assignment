@@ -303,6 +303,7 @@
   const runId=text(version.lastImpactRunId);
   if(!runId){
    if(version.status==='draft'&&version.lastValidationPassed===true&&Number(version.lastValidatedRevision)===Number(version.revision||0))previewMessage('Validation is current. Run Impact Preview before Publish.');
+   else if(version.status==='draft'&&Number(version.revision||0)>0)previewMessage('Impact Preview OUTDATED — validate this Draft revision again, then run a new Impact Preview.','outdated');
    else if(version.status==='draft')previewMessage('Validate this Draft revision before running Impact Preview.');
    else previewMessage('No stored Impact Preview for this policy version.');
    return;
