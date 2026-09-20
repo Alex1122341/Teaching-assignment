@@ -3,7 +3,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const {
- PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,bundlePathMap,emulatorOrigin,safeStaticPath,contentType,chromeCandidates,localAssetFailure
+ PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,bundlePathMap,emulatorOrigin,safeStaticPath,contentType,chromeCandidates,localAssetFailure,doeSmokeResponse
 }=require('../tools/browser-smoke.js');
 
 test('browser smoke covers every generated application page',()=>{
@@ -76,4 +76,27 @@ test('authenticated browser smoke exercises deferred DOE List navigation',()=>{
  assert.match(source,/doe-list-tab/);
  assert.match(source,/doe-list-view/);
  assert.match(source,/doe-rules-view/);
+});
+
+
+test('browser smoke DOE endpoint is read-only and returns authoritative summary plus worksheet fixtures',()=>{
+ const list=doeSmokeResponse('/__doe-smoke/api/doe/list?academicYear=2026-27','GET');
+ assert.equal(list.statusCode,200);
+ assert.equal(list.body[0].facultyId,'browser-smoke-faculty');
+ assert.equal(list.body[0].assignedTeachingDoe,40);
+ assert.equal(list.body[0].roleAssignmentCount,1);
+ const worksheet=doeSmokeResponse('/__doe-smoke/api/doe/faculty/browser-smoke-faculty/worksheet?academicYear=2026-27','GET');
+ assert.equal(worksheet.statusCode,200);
+ assert.equal(worksheet.body.totals.assignedTeachingDoe,40);
+ assert.equal(worksheet.body.lines[0].calculationId,'calc-smoke-lecture');
+ const denied=doeSmokeResponse('/__doe-smoke/api/doe/recalculate','POST');
+ assert.equal(denied.statusCode,405);
+});
+
+test('authenticated browser smoke renders mocked server DOE values in the generated Faculty Dashboard',()=>{
+ const source=require('node:fs').readFileSync(path.join(__dirname,'..','tools/browser-smoke.js'),'utf8');
+ assert.match(source,/__doe-smoke/);
+ assert.match(source,/Browser Smoke Faculty/);
+ assert.match(source,/40\.00%/);
+ assert.match(source,/Teaching DOE · server worksheet/);
 });
