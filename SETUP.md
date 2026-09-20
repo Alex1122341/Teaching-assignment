@@ -130,7 +130,7 @@ The manual **Firebase DOE Admin Job** remains the future trusted execution path 
 
 ### Paused Azure production setup
 
-The Azure material below is retained for a possible future production restart. It is **not required** for the active Firebase/GitHub Pages development path.
+The Azure material below is retained for a possible future production restart. It is **not required** for the active GitHub Pages Frontend Demo path. If Azure production is reactivated, the manual deployment must use the verified **source run ID** and the exact **commit SHA** from the approved `main` artifact; a `main` push does not automatically deploy production.
 
 ### One-time gated Azure production setup (paused)
 
