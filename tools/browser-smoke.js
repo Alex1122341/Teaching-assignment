@@ -73,6 +73,147 @@ function contentType(filename){
  const ext=path.extname(filename).toLowerCase();
  return({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.pdf':'application/pdf'}[ext]||'application/octet-stream');
 }
+function cloneSmoke(value){return value===undefined?undefined:JSON.parse(JSON.stringify(value))}
+function createRulebookSmokeState(){
+ const policy={policyId:'smoke-policy-2026-27',academicYear:'2026-27',name:'UCVM Workload 2026-27',currentActiveVersionId:'smoke-policy-2026-27-v1'};
+ const version={
+  policyVersionId:'smoke-policy-2026-27-v1',policyId:policy.policyId,academicYear:policy.academicYear,versionNumber:1,status:'active',revision:3,
+  name:'2026-27 active smoke policy',lastValidationPassed:true,lastValidatedRevision:3,rulesChecksum:'smoke-checksum-active-v1',
+  lastImpactRunId:'smoke-impact-active-v1',lastImpactRevision:3,lastImpactChecksum:'smoke-checksum-active-v1',lastImpactDatasetChecksum:'smoke-dataset-active-v1',
+  reservePolicy:{strategy:'flexible_teaching_reserve',splitThreshold:20,splitRatio:.5,highTeachingTraineeCeiling:15,teachingFocusedTraineeCeiling:20,rollingAverageYears:3,referenceId:'ref-smoke',reviewStatus:'reviewed'}
+ };
+ const reference={referenceId:'ref-smoke',policyVersionId:version.policyVersionId,academicYear:policy.academicYear,title:'UCVM Workload Guidelines',versionDate:'2026-07-01',section:'6.4',table:'Table 3',page:5,effectiveDate:'2026-07-01',reviewStatus:'reviewed',adminNote:'Browser smoke reference'};
+ const rule={
+  ruleId:'smoke-rule-lecture',policyVersionId:version.policyVersionId,ruleKey:'teaching.lecture',name:'Lecture standard rate',category:'teaching',
+  calculationMode:'rate',resultKind:'credit',priority:10,enabled:true,reviewStatus:'reviewed',referenceId:reference.referenceId,guidelineReference:'§6.4 · Table 3',sourceType:'workload_guideline',mappingRequirement:'course',
+  selectors:[{selectorId:'smoke-selector-lecture',field:'activityType',operator:'equals',valueText:'Lecture'}],
+  inputs:[{ruleInputId:'smoke-input-hours',inputName:'hours',inputType:'number',source:'assignment.creditedHours',required:true}],
+  parameters:[{parameterId:'smoke-param-rate',name:'rate',valueNumber:14,unit:'% DOE/h',required:true}],tiers:[]
+ };
+ const courseMapping={mappingId:'course-existing',policyVersionId:version.policyVersionId,academicYear:policy.academicYear,courseCode:'VTMD 204',unitCount:2,referenceId:reference.referenceId,reviewStatus:'reviewed',adminNote:'Existing smoke mapping',enabled:true};
+ const bundle={policy:cloneSmoke(policy),version:cloneSmoke(version),references:[cloneSmoke(reference)],rules:[cloneSmoke(rule)],exceptions:[],courseMappings:[cloneSmoke(courseMapping)],subjectMappings:[]};
+ return{
+  policy,
+  versions:new Map([[version.policyVersionId,cloneSmoke(version)]]),
+  bundles:new Map([[version.policyVersionId,bundle]]),
+  impactRuns:new Map([['smoke-impact-active-v1',{impactRunId:'smoke-impact-active-v1',policyVersionId:version.policyVersionId,policyRevision:3,policyChecksum:version.rulesChecksum,inputDatasetChecksum:version.lastImpactDatasetChecksum,status:'passed',facultyCount:1,calculationCount:2,changedFacultyCount:0,largeIncreaseCount:0,largeDecreaseCount:0,errorCount:0,warningCount:0,rows:[]}]]),
+  audits:[],
+  nextImpact:1,
+  nextBatch:1
+ };
+}
+function smokeRulebookBundle(state,versionId){return state?.bundles?.get(String(versionId||''))||null}
+function invalidateSmokeDraft(bundle){
+ const version=bundle.version;version.revision=Number(version.revision||0)+1;version.lastValidationPassed=false;version.lastValidatedRevision=null;version.rulesChecksum='';
+ version.lastImpactRunId='';version.lastImpactRevision=null;version.lastImpactChecksum='';version.lastImpactDatasetChecksum='';
+ stateVersionSync(bundle);
+}
+function stateVersionSync(bundle){
+ const state=bundle.__state;if(state)state.versions.set(bundle.version.policyVersionId,cloneSmoke(bundle.version));
+ delete bundle.__state;
+}
+function doeRulebookSmokeResponse(state,requestUrl,method='GET',body={}){
+ if(!state)return null;
+ const parsed=new URL(String(requestUrl||'/'),'http://127.0.0.1'),path=parsed.pathname,verb=String(method||'GET').toUpperCase();
+ if(!path.startsWith('/__doe-smoke/api/doe/'))return null;
+ const respond=(statusCode,payload)=>({statusCode,body:cloneSmoke(payload)});
+ if(verb==='GET'&&path==='/__doe-smoke/api/doe/policies')return respond(200,[state.policy]);
+ let match=path.match(/^\/__doe-smoke\/api\/doe\/policies\/([^/]+)\/versions$/);
+ if(verb==='GET'&&match){
+  const policyId=decodeURIComponent(match[1]);
+  return respond(200,[...state.versions.values()].filter(row=>row.policyId===policyId).sort((a,b)=>Number(a.versionNumber||0)-Number(b.versionNumber||0)));
+ }
+ match=path.match(/^\/__doe-smoke\/api\/doe\/policy-versions\/([^/]+)\/bundle$/);
+ if(verb==='GET'&&match){
+  const bundle=smokeRulebookBundle(state,decodeURIComponent(match[1]));
+  return bundle?respond(200,bundle):respond(404,{code:'POLICY_VERSION_NOT_FOUND',message:'Smoke Policy Version not found.'});
+ }
+ match=path.match(/^\/__doe-smoke\/api\/doe\/policy-versions\/([^/]+)\/audit$/);
+ if(verb==='GET'&&match)return respond(200,state.audits.filter(row=>row.policyVersionId===decodeURIComponent(match[1])));
+ match=path.match(/^\/__doe-smoke\/api\/doe\/impact-runs\/([^/]+)$/);
+ if(verb==='GET'&&match){
+  const run=state.impactRuns.get(decodeURIComponent(match[1]));
+  return run?respond(200,run):respond(404,{code:'IMPACT_RUN_NOT_FOUND',message:'Smoke Impact Preview not found.'});
+ }
+ match=path.match(/^\/__doe-smoke\/api\/doe\/policy-versions\/([^/]+)\/clone$/);
+ if(verb==='POST'&&match){
+  const source=smokeRulebookBundle(state,decodeURIComponent(match[1]));
+  if(!source)return respond(404,{code:'POLICY_VERSION_NOT_FOUND',message:'Smoke source Policy Version not found.'});
+  const numbers=[...state.versions.values()].filter(row=>row.policyId===source.version.policyId).map(row=>Number(row.versionNumber||0));
+  const versionNumber=Math.max(0,...numbers)+1,policyVersionId=`${source.version.policyId}-v${versionNumber}`;
+  const version={...cloneSmoke(source.version),policyVersionId,versionNumber,status:'draft',revision:0,name:`${source.version.academicYear} smoke Draft v${versionNumber}`,lastValidationPassed:false,lastValidatedRevision:null,rulesChecksum:'',lastImpactRunId:'',lastImpactRevision:null,lastImpactChecksum:'',lastImpactDatasetChecksum:''};
+  const reversion=row=>({...cloneSmoke(row),policyVersionId,academicYear:version.academicYear,reviewStatus:row.reviewStatus==='reviewed'?'updated':row.reviewStatus});
+  const bundle={policy:cloneSmoke(state.policy),version,rules:(source.rules||[]).map(reversion),exceptions:(source.exceptions||[]).map(reversion),references:(source.references||[]).map(reversion),courseMappings:(source.courseMappings||[]).map(reversion),subjectMappings:(source.subjectMappings||[]).map(reversion)};
+  state.versions.set(policyVersionId,cloneSmoke(version));state.bundles.set(policyVersionId,bundle);state.audits.push({policyVersionId,academicYear:version.academicYear,action:'draft_cloned',entityType:'policy_version',changedAt:'2026-09-20T04:00:00Z',changedByName:'Browser Smoke Owner'});
+  return respond(200,{version});
+ }
+ match=path.match(/^\/__doe-smoke\/api\/doe\/drafts\/([^/]+)\/rules\/([^/]+)$/);
+ if(verb==='PUT'&&match){
+  const versionId=decodeURIComponent(match[1]),bundle=smokeRulebookBundle(state,versionId);
+  if(!bundle||bundle.version.status!=='draft')return respond(409,{code:'DRAFT_REQUIRED',message:'Smoke Draft is required.'});
+  const rule={...(body?.rule||{}),policyVersionId,ruleId:decodeURIComponent(match[2])},at=(bundle.rules||[]).findIndex(row=>row.ruleId===rule.ruleId);
+  if(at>=0)bundle.rules[at]=cloneSmoke(rule);else bundle.rules.push(cloneSmoke(rule));
+  bundle.__state=state;invalidateSmokeDraft(bundle);state.bundles.set(versionId,bundle);
+  state.audits.push({policyVersionId:versionId,academicYear:bundle.version.academicYear,action:'rule_saved',entityType:'rule',entityId:rule.ruleId,changedAt:'2026-09-20T04:01:00Z',changedByName:'Browser Smoke Owner'});
+  return respond(200,bundle);
+ }
+ match=path.match(/^\/__doe-smoke\/api\/doe\/drafts\/([^/]+)\/(course|subject)-mappings\/([^/]+)$/);
+ if(verb==='PUT'&&match){
+  const versionId=decodeURIComponent(match[1]),type=match[2],bundle=smokeRulebookBundle(state,versionId);
+  if(!bundle||bundle.version.status!=='draft')return respond(409,{code:'DRAFT_REQUIRED',message:'Smoke Draft is required.'});
+  const key=type==='course'?'courseMappings':'subjectMappings',mapping={...(body?.mapping||{}),mappingId:decodeURIComponent(match[3]),policyVersionId:versionId,academicYear:bundle.version.academicYear};
+  const rows=bundle[key]||[],at=rows.findIndex(row=>row.mappingId===mapping.mappingId);if(at>=0)rows[at]=cloneSmoke(mapping);else rows.push(cloneSmoke(mapping));bundle[key]=rows;
+  bundle.__state=state;invalidateSmokeDraft(bundle);state.bundles.set(versionId,bundle);
+  state.audits.push({policyVersionId:versionId,academicYear:bundle.version.academicYear,action:`${type}_mapping_saved`,entityType:`${type}_mapping`,entityId:mapping.mappingId,changedAt:'2026-09-20T04:02:00Z',changedByName:'Browser Smoke Owner'});
+  return respond(200,mapping);
+ }
+ match=path.match(/^\/__doe-smoke\/api\/doe\/drafts\/([^/]+)\/validate$/);
+ if(verb==='POST'&&match){
+  const versionId=decodeURIComponent(match[1]),bundle=smokeRulebookBundle(state,versionId);
+  if(!bundle||bundle.version.status!=='draft')return respond(409,{code:'DRAFT_REQUIRED',message:'Smoke Draft is required.'});
+  const checksum=`smoke-checksum-r${bundle.version.revision}`;bundle.version.lastValidationPassed=true;bundle.version.lastValidatedRevision=bundle.version.revision;bundle.version.rulesChecksum=checksum;state.versions.set(versionId,cloneSmoke(bundle.version));
+  state.audits.push({policyVersionId:versionId,academicYear:bundle.version.academicYear,action:'draft_validated',entityType:'policy_version',changedAt:'2026-09-20T04:03:00Z',changedByName:'Browser Smoke Owner'});
+  return respond(200,{valid:true,errors:[],warnings:[],policyChecksum:checksum});
+ }
+ match=path.match(/^\/__doe-smoke\/api\/doe\/drafts\/([^/]+)\/impact-preview$/);
+ if(verb==='POST'&&match){
+  const versionId=decodeURIComponent(match[1]),bundle=smokeRulebookBundle(state,versionId),version=bundle?.version;
+  if(!bundle||version.status!=='draft')return respond(409,{code:'DRAFT_REQUIRED',message:'Smoke Draft is required.'});
+  if(version.lastValidationPassed!==true||Number(version.lastValidatedRevision)!==Number(version.revision)||!version.rulesChecksum)return respond(409,{code:'VALIDATION_REQUIRED',message:'Validate the current smoke Draft first.'});
+  const impactRunId=`smoke-impact-${state.nextImpact++}`,run={impactRunId,policyVersionId:versionId,policyRevision:version.revision,policyChecksum:version.rulesChecksum,inputDatasetChecksum:'smoke-dataset-current',status:'passed',facultyCount:3,calculationCount:4,changedFacultyCount:1,largeIncreaseCount:0,largeDecreaseCount:0,errorCount:0,warningCount:0,rows:[{facultyId:'fac-001',currentDoe:40,draftDoe:42,difference:2,affectedRules:['teaching.lecture'],warnings:[],errors:[]}]};
+  state.impactRuns.set(impactRunId,run);version.lastImpactRunId=impactRunId;version.lastImpactRevision=version.revision;version.lastImpactChecksum=version.rulesChecksum;version.lastImpactDatasetChecksum=run.inputDatasetChecksum;state.versions.set(versionId,cloneSmoke(version));
+  state.audits.push({policyVersionId:versionId,academicYear:version.academicYear,action:'impact_preview_completed',entityType:'policy_version',changedAt:'2026-09-20T04:04:00Z',changedByName:'Browser Smoke Owner'});
+  return respond(200,run);
+ }
+ match=path.match(/^\/__doe-smoke\/api\/doe\/drafts\/([^/]+)\/publish$/);
+ if(verb==='POST'&&match){
+  const versionId=decodeURIComponent(match[1]),bundle=smokeRulebookBundle(state,versionId),version=bundle?.version;
+  if(!bundle||version.status!=='draft')return respond(409,{code:'DRAFT_REQUIRED',message:'Smoke Draft is required.'});
+  const current=version.lastValidationPassed===true&&Number(version.lastValidatedRevision)===Number(version.revision)&&version.lastImpactRunId&&Number(version.lastImpactRevision)===Number(version.revision)&&version.lastImpactChecksum===version.rulesChecksum&&!!version.lastImpactDatasetChecksum;
+  if(!current)return respond(409,{code:'IMPACT_PREVIEW_REQUIRED',message:'A current passing smoke Impact Preview is required.'});
+  for(const [id,row] of state.versions){if(row.policyId===version.policyId&&row.status==='active'){row.status='archived';state.versions.set(id,row);const old=state.bundles.get(id);if(old)old.version.status='archived'}}
+  version.status='active';state.policy.currentActiveVersionId=versionId;bundle.policy.currentActiveVersionId=versionId;state.versions.set(versionId,cloneSmoke(version));
+  state.audits.push({policyVersionId:versionId,academicYear:version.academicYear,action:'policy_published',entityType:'policy_version',changedAt:'2026-09-20T04:05:00Z',changedByName:'Browser Smoke Owner'});
+  return respond(200,version);
+ }
+ if(verb==='POST'&&path==='/__doe-smoke/api/doe/recalculate/preview'){
+  const version=state.versions.get(String(body?.policyVersionId||''));if(!version||version.status!=='active')return respond(409,{code:'ACTIVE_POLICY_REQUIRED',message:'Select the Active smoke policy.'});
+  return respond(200,{academicYear:version.academicYear,policyVersionId:version.policyVersionId,scope:'all',facultyAffected:1,assignmentsAffected:3,roleSupervisionAffected:0,changedDoeCount:1,errors:[],warnings:[],rows:[{facultyId:'fac-001',currentDoe:40,nextDoe:42,difference:2}]});
+ }
+ if(verb==='POST'&&path==='/__doe-smoke/api/doe/recalculate'){
+  const version=state.versions.get(String(body?.policyVersionId||''));if(!version||version.status!=='active')return respond(409,{code:'ACTIVE_POLICY_REQUIRED',message:'Select the Active smoke policy.'});
+  const batchId=`smoke-recalc-${state.nextBatch++}`;state.audits.push({policyVersionId:version.policyVersionId,academicYear:version.academicYear,action:'recalculation_completed',entityType:'recalculation',entityId:batchId,changedAt:'2026-09-20T04:06:00Z',changedByName:'Browser Smoke Owner'});
+  return respond(200,{batchId,status:'completed',completedRows:3,totalRows:3,resumeFrom:3});
+ }
+ return null;
+}
+async function readSmokeJson(req){
+ const chunks=[];let size=0;
+ for await(const chunk of req){size+=chunk.length;if(size>1024*1024)throw Error('Browser smoke request body is too large.');chunks.push(chunk)}
+ if(!chunks.length)return{};
+ const raw=Buffer.concat(chunks).toString('utf8').trim();if(!raw)return{};
+ try{return JSON.parse(raw)}catch{throw Error('Browser smoke request body is not valid JSON.')}
+}
 function doeSmokeResponse(requestUrl,method='GET'){
  const parsed=new URL(String(requestUrl||'/'),'http://127.0.0.1');
  if(!parsed.pathname.startsWith('/__doe-smoke/api/doe/'))return null;
@@ -112,13 +253,19 @@ function doeSmokeResponse(requestUrl,method='GET'){
  return{statusCode:404,body:{code:'SMOKE_ROUTE_NOT_FOUND',message:'Unsupported DOE browser smoke route.'}};
 }
 function createStaticServer(siteRoot=site){
- return http.createServer((req,res)=>{
-  const smoke=doeSmokeResponse(req.url||'/',req.method||'GET');
-  if(smoke){res.writeHead(smoke.statusCode,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(smoke.body));return}
-  const filename=safeStaticPath(siteRoot,req.url||'/');
-  if(!filename||!fs.existsSync(filename)||!fs.statSync(filename).isFile()){res.writeHead(404,{'content-type':'text/plain'});res.end('Not found');return}
-  res.writeHead(200,{'content-type':contentType(filename),'cache-control':'no-store'});
-  fs.createReadStream(filename).pipe(res);
+ const rulebookState=createRulebookSmokeState();
+ return http.createServer(async(req,res)=>{
+  try{
+   const method=String(req.method||'GET').toUpperCase(),body=method==='GET'||method==='HEAD'?{}:await readSmokeJson(req);
+   const rulebook=doeRulebookSmokeResponse(rulebookState,req.url||'/',method,body);
+   if(rulebook){res.writeHead(rulebook.statusCode,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(rulebook.body));return}
+   const smoke=doeSmokeResponse(req.url||'/',method);
+   if(smoke){res.writeHead(smoke.statusCode,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(smoke.body));return}
+   const filename=safeStaticPath(siteRoot,req.url||'/');
+   if(!filename||!fs.existsSync(filename)||!fs.statSync(filename).isFile()){res.writeHead(404,{'content-type':'text/plain'});res.end('Not found');return}
+   res.writeHead(200,{'content-type':contentType(filename),'cache-control':'no-store'});
+   fs.createReadStream(filename).pipe(res);
+  }catch(error){res.writeHead(500,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify({code:'SMOKE_SERVER_ERROR',message:error?.message||String(error)}))}
  });
 }
 function chromeCandidates(env=process.env){
@@ -456,4 +603,4 @@ async function run(){
  }
 }
 if(require.main===module)run().catch(error=>{console.error(error.stack||error);process.exit(1)});
-module.exports={PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,readDeploymentMetadata,bundlePathMap,emulatorOrigin,createAuthenticatedFixture,safeStaticPath,contentType,chromeCandidates,findChrome,localAssetFailure,doeSmokeResponse,createStaticServer};
+module.exports={PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,readDeploymentMetadata,bundlePathMap,emulatorOrigin,createAuthenticatedFixture,safeStaticPath,contentType,chromeCandidates,findChrome,localAssetFailure,doeSmokeResponse,createRulebookSmokeState,doeRulebookSmokeResponse,createStaticServer};
