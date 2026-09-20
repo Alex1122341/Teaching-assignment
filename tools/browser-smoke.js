@@ -434,6 +434,8 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
    const recon=await cdp.send('Runtime.evaluate',{expression:`(()=>({rows:document.querySelectorAll('#doe-reconciliation-body tr').length,queue:document.querySelectorAll('#doe-reconciliation-queue-body tr').length,text:(document.getElementById('doe-reconciliation-body')?.textContent||'').trim()}))()`,returnByValue:true});
    if(recon.exceptionDetails)throw Error(`faculty-admin.html: DOE Reconciliation inspection failed: ${exceptionText(recon.exceptionDetails)}`);
    if(Number(recon.result?.value?.rows||0)<1)throw Error('faculty-admin.html: DOE Reconciliation rendered no demo rows');
+   const reconciliationText=String(recon.result?.value?.text||'');
+   for(const label of ['Matched','DOE Difference','Missing Mapping','Needs Review','Legacy Only','Server Only'])if(!reconciliationText.includes(label))throw Error('faculty-admin.html: DOE Reconciliation demo is missing status '+label);
    await verifyDemoRoleSwitching(cdp);
   }
   return{page:expectation.page,finalUrl:state.href,title:state.title,requiredAsset,requests:requested.filter(url=>url.startsWith(origin)).length};
