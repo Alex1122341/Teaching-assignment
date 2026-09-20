@@ -1,6 +1,11 @@
 name: Firebase Lab Data Setup
 
 on:
+  push:
+    branches:
+      - feature/doe-operational-readiness
+    paths:
+      - .github/workflows/firebase-lab-data-setup.yml
   workflow_dispatch:
     inputs:
       operation:
@@ -18,7 +23,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: firebase-lab-data-setup
@@ -33,11 +38,20 @@ jobs:
     env:
       FIREBASE_PROJECT_ID: vista-teaching-lab
       FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_LAB_SERVICE_ACCOUNT_JSON }}
+      LAB_SETUP_OPERATION: ${{ github.event_name == 'push' && 'provision' || inputs.operation }}
     steps:
       - name: Check out selected repository revision
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Restrict automatic provision branch
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "feature/doe-operational-readiness"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -63,12 +77,12 @@ jobs:
             exit 1
           fi
 
-      - name: Verify confirmation for write operations
-        if: inputs.operation != 'verify-data'
+      - name: Verify confirmation for manual write operations
+        if: github.event_name == 'workflow_dispatch' && env.LAB_SETUP_OPERATION != 'verify-data'
         shell: bash
         run: |
           set -euo pipefail
-          case "${{ inputs.operation }}" in
+          case "$LAB_SETUP_OPERATION" in
             seed-data) expected="SEED:vista-teaching-lab" ;;
             deploy-firestore) expected="DEPLOY-FIRESTORE:vista-teaching-lab" ;;
             provision) expected="PROVISION:vista-teaching-lab" ;;
@@ -79,24 +93,54 @@ jobs:
             exit 1
           fi
 
-      - name: Verify synthetic lab data
-        if: inputs.operation == 'verify-data'
-        run: node tools/seed-lab-admin.js --mode verify
-
-      - name: Seed and verify synthetic lab data
-        if: inputs.operation == 'seed-data' || inputs.operation == 'provision'
-        run: node tools/seed-lab-admin.js --mode seed
-
       - name: Prepare Application Default Credentials for Firebase CLI
-        if: inputs.operation == 'deploy-firestore' || inputs.operation == 'provision'
+        if: env.LAB_SETUP_OPERATION == 'deploy-firestore' || env.LAB_SETUP_OPERATION == 'provision'
         shell: bash
         run: |
           set -euo pipefail
           credential_path="$RUNNER_TEMP/firebase-lab-service-account.json"
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$credential_path"
           chmod 600 "$credential_path"
+          node -e "const fs=require('node:fs');const a=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));if(a.project_id!=='vista-teaching-lab')throw Error('Wrong Firebase project credential');" "$credential_path"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$credential_path" >> "$GITHUB_ENV"
 
+      - name: Ensure Web App and pin public Firebase lab config
+        if: env.LAB_SETUP_OPERATION == 'provision'
+        run: npm run config:pin:lab
+
+      - name: Verify pinned Pages client boundary
+        if: env.LAB_SETUP_OPERATION == 'provision'
+        env:
+          EXPECTED_FIREBASE_PROJECT_ID: vista-teaching-lab
+        run: |
+          node tools/build-firebase-config.js --from-json tools/lab-firebase-web-config.json
+          node tools/verify-preview-client-config.js
+          git restore firebase-config.js
+
+      - name: Verify synthetic lab data
+        if: env.LAB_SETUP_OPERATION == 'verify-data'
+        run: node tools/seed-lab-admin.js --mode verify
+
+      - name: Seed and verify synthetic lab data
+        if: env.LAB_SETUP_OPERATION == 'seed-data' || env.LAB_SETUP_OPERATION == 'provision'
+        run: node tools/seed-lab-admin.js --mode seed
+
       - name: Deploy reviewed Firestore rules and indexes
-        if: inputs.operation == 'deploy-firestore' || inputs.operation == 'provision'
+        if: env.LAB_SETUP_OPERATION == 'deploy-firestore' || env.LAB_SETUP_OPERATION == 'provision'
         run: npx firebase deploy --only firestore --project vista-teaching-lab --non-interactive
+
+      - name: Commit pinned public Web config
+        if: env.LAB_SETUP_OPERATION == 'provision'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- tools/lab-firebase-web-config.json; then
+            echo "Pinned Firebase lab Web config is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/lab-firebase-web-config.json
+          git commit -m "chore: pin real Firebase lab Web config"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"

@@ -34,6 +34,12 @@ jobs:
           node-version: '22'
           cache: npm
 
+      - name: Require pinned Firebase lab Web config
+        run: >-
+          node -e "const fs=require('node:fs'); const pin=require('./tools/pin-lab-firebase-web-config.js');
+          pin.validateLabConfig(JSON.parse(fs.readFileSync('tools/lab-firebase-web-config.json','utf8')));
+          console.log('Pinned Firebase lab Web config is ready.');"
+
       - name: Set up Java for Firebase emulators
         uses: actions/setup-java@v4
         with:
