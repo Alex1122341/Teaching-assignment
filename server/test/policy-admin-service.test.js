@@ -114,3 +114,19 @@ test('legacy impact rows never infer current DOE from doeRate times hours',()=>{
  const built=buildImpactDataset({sessions:[{id:'s1',assignments:[{assignmentId:'a1',ucid:'f1',doeRate:.3,creditedHours:2}]}]},'2026-27');
  assert.equal(built.calculations[0].currentDoe,null);
 });
+
+
+test('policy admin exposes selected-version audit history newest first',async()=>{
+ const repositoryFor=()=>({
+  async listAudit(policyVersionId){
+   assert.equal(policyVersionId,'v1');
+   return[
+    {auditId:'a1',policyVersionId:'v1',action:'rule_created',changedAt:'2026-09-19T10:00:00Z'},
+    {auditId:'a2',policyVersionId:'v1',action:'policy_published',changedAt:'2026-09-20T10:00:00Z'}
+   ];
+  }
+ });
+ const service=createPolicyAdminService({serviceFor:()=>({}),repositoryFor,engine:{validatePolicy:()=>({valid:true}),calculate:()=>({})}});
+ const rows=await service.listAudit({actor:general,policyVersionId:'v1'});
+ assert.deepEqual(rows.map(row=>row.auditId),['a2','a1']);
+});
