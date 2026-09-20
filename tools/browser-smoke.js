@@ -353,6 +353,11 @@ async function evaluateState(cdp){
   ready:document.readyState,
   href:location.href,
   emulator:window.UCVM_FIREBASE_EMULATOR===true,
+  demo:window.UCVM_FRONTEND_DEMO_MODE===true,
+  demoBackend:window.UCVM_PAGES_DEMO?.backend||'',
+  demoDoeAuthoritative:window.UCVM_PAGES_DEMO?.doeAuthoritative,
+  demoUid:window.firebase?.auth?.().currentUser?.uid||'',
+  demoToolbar:!!document.getElementById('ucvm-pages-demo-toolbar'),
   hasFirebase:typeof window.firebase==='object',
   hasUcvm:typeof window.UCVM==='object',
   runtimeError:(document.getElementById('runtime-error')?.textContent||'').trim()
@@ -367,7 +372,7 @@ async function evaluateState(cdp){
  }
  throw Error('Could not evaluate browser state.');
 }
-async function inspectPage({debugPort,origin,expectation,bundlePaths}){
+async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=false}){
  const target=await newTarget(debugPort),cdp=await connectCdp(target.webSocketDebuggerUrl);
  const requests=new Map(),requested=[],exceptions=[],assetFailures=[],cloudRequests=[];
  const off=cdp.on(message=>{
@@ -401,14 +406,20 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths}){
   const problems=[];
   if(!expectation.titles.includes(state.title))problems.push(`unexpected title "${state.title}"`);
   if(state.ready!=='complete')problems.push(`document.readyState=${state.ready}`);
-  if(!state.emulator)problems.push('Firebase emulator mode is not enabled');
+  if(demoMode){
+   if(!state.demo)problems.push('Pages Frontend Demo mode is not enabled');
+   if(state.demoBackend!=='browser-memory')problems.push(`unexpected demo backend "${state.demoBackend}"`);
+   if(state.demoDoeAuthoritative!==false)problems.push('Pages demo must keep authoritative DOE disabled');
+   if(!state.demoUid)problems.push('Pages demo did not auto-sign a synthetic user');
+   if(!state.demoToolbar)problems.push('Pages demo toolbar is missing');
+  }else if(!state.emulator)problems.push('Firebase emulator mode is not enabled');
   if(!state.hasFirebase)problems.push('Firebase SDK global is missing');
   if(!state.hasUcvm)problems.push('UCVM shared runtime global is missing');
   if(state.runtimeError)problems.push(state.runtimeError);
   if(!requestedRequired)problems.push(`required generated asset was not requested: ${requiredAsset}`);
   if(exceptions.length)problems.push(`uncaught browser exception(s): ${exceptions.join(' | ')}`);
   if(assetFailures.length)problems.push(`local asset failure(s): ${assetFailures.join(' | ')}`);
-  if(cloudRequests.length)problems.push(`unexpected Firebase cloud request(s) in emulator smoke: ${cloudRequests.join(' | ')}`);
+  if(cloudRequests.length)problems.push(`unexpected Firebase cloud request(s) in ${demoMode?'Pages demo':'emulator smoke'}: ${cloudRequests.join(' | ')}`);
   if(problems.length)throw Error(`${expectation.page}: ${problems.join('; ')}`);
   return{page:expectation.page,finalUrl:state.href,title:state.title,requiredAsset,requests:requested.filter(url=>url.startsWith(origin)).length};
  }finally{
@@ -626,6 +637,8 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
 }
 async function run(){
  const authenticated=process.argv.includes('--authenticated');
+ const demoMode=process.argv.includes('--demo');
+ if(authenticated&&demoMode)throw Error('--authenticated and --demo are mutually exclusive smoke modes.');
  if(!fs.existsSync(metadataPath))throw Error('Build .deploy-static before running browser smoke.');
  const bundlePaths=bundlePathMap();
  const authFixture=authenticated?await createAuthenticatedFixture():null;
@@ -645,8 +658,8 @@ async function run(){
  try{
   const debugPort=await waitForDebugPort(userDataDir,child);
   const results=[];
-  for(const expectation of PAGE_EXPECTATIONS)results.push(await inspectPage({debugPort,origin,expectation,bundlePaths}));
-  process.stdout.write(`Browser smoke passed ${results.length}/${PAGE_EXPECTATIONS.length} signed-out pages in emulator mode.\n`);
+  for(const expectation of PAGE_EXPECTATIONS)results.push(await inspectPage({debugPort,origin,expectation,bundlePaths,demoMode}));
+  process.stdout.write(`Browser smoke passed ${results.length}/${PAGE_EXPECTATIONS.length} pages in ${demoMode?'Pages Frontend Demo':'emulator'} mode.\n`);
   for(const item of results)process.stdout.write(`- ${item.page}: ${item.requiredAsset} loaded; ${item.requests} local requests; final ${item.finalUrl}\n`);
   if(authFixture){
    const owner=await authenticatedOwnerSmoke({debugPort,origin,fixture:authFixture,bundlePaths});

@@ -200,3 +200,14 @@ test('authenticated Chrome smoke exercises Rule Book Draft gates without Azure o
  assert.match(source,/Rule Book publish transition/);
  assert.match(source,/Rule Book recalculation dry-run and execution/);
 });
+
+
+test('Pages staged browser smoke verifies demo mode without cloud backend writes',()=>{
+ const source=require('node:fs').readFileSync(path.join(__dirname,'..','tools/browser-smoke.js'),'utf8');
+ assert.match(source,/process\.argv\.includes\('--demo'\)/);
+ assert.match(source,/UCVM_FRONTEND_DEMO_MODE/);
+ assert.match(source,/browser-memory/);
+ assert.match(source,/demoDoeAuthoritative!==false/);
+ assert.match(source,/Pages demo toolbar is missing/);
+ assert.match(source,/unexpected Firebase cloud request\(s\) in \$\{demoMode\?'Pages demo':'emulator smoke'\}/);
+});

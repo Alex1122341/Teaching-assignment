@@ -60,6 +60,9 @@ jobs:
           --head-sha "${{ github.event.pull_request.head.sha }}"
           --build-sha "${{ github.event.pull_request.head.sha }}"
 
+      - name: Browser smoke staged frontend demo
+        run: node tools/browser-smoke.js --demo
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
 

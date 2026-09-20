@@ -44,6 +44,9 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
+  assert.match(workflow,/node tools\/browser-smoke\.js --demo/);
+  assert.ok(workflow.indexOf('Stage GitHub Pages frontend demo')<workflow.indexOf('Browser smoke staged frontend demo'));
+  assert.ok(workflow.indexOf('Browser smoke staged frontend demo')<workflow.indexOf('Configure GitHub Pages'));
   assert.match(workflow,/--pr\s+["']?\$\{\{ github\.event\.pull_request\.number \}\}["']?/);
   assert.match(workflow,/--head-sha\s+["']?\$\{\{ github\.event\.pull_request\.head\.sha \}\}["']?/);
   assert.match(workflow,/--build-sha\s+["']?\$\{\{ github\.event\.pull_request\.head\.sha \}\}["']?/);
