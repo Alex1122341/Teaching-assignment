@@ -143,10 +143,10 @@ service cloud.firestore {
   function requiredApprovalMatches(id,workflow,office){let approval=get(requestApprovalPath(id,office)).data;return approval.status == 'approved' && approval.fields == workflow.scopes.get(office,[]) && approval.scopeSignature == workflow.scopeSignatures.get(office,'');}
   function approvedScope(id,workflow,office){return !(office in workflow.requiredOffices) || (exists(requestApprovalPath(id,office)) && requiredApprovalMatches(id,workflow,office));}
   function allRequiredApproved(id,workflow){return approvedScope(id,workflow,'adc') && approvedScope(id,workflow,'lab') && approvedScope(id,workflow,'adfa');}
-  function routedApplyContextValid(id,before,after,workflow){let actorOffice=officeName();return officeUser() && routedRequest(before) && before.status == 'pending' && after.status == 'approved'
+  function routedApplyContextValid(id,before,after,workflow){let actorRole=profile().role;let actorOffice=officeForRole(actorRole);let isDeveloper=actorRole == 'developer';return ready() && actorOffice != '' && routedRequest(before) && before.status == 'pending' && after.status == 'approved'
    && before.revision == after.revision && after.appliedRevision == before.revision && after.appliedAt == request.time && after.updatedAt == request.time
    && workflow.requestId == id && workflow.revision == before.revision && workflowMatchesRequest(workflow,before) && allRequiredApproved(id,workflow)
-   && (developer() || actorOffice in workflow.requiredOffices) && (!workflow.hasFacultyChange || developer() || actorOffice == 'adfa');}
+   && (isDeveloper || actorOffice in workflow.requiredOffices) && (!workflow.hasFacultyChange || isDeveloper || actorOffice == 'adfa');}
   function validRoutedApply(id){let before=resource.data;let after=request.resource.data;let workflow=get(requestWorkflowPath(id)).data;return routedApplyContextValid(id,before,after,workflow)
    && after.diff(before).affectedKeys().hasOnly(['status','editableFields','requesterMessage','appliedRevision','appliedAt','updatedAt'])
    && after.editableFields is list && after.editableFields.size() == 0 && after.requesterMessage == '';}
