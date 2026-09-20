@@ -51,9 +51,11 @@ Firestore authoritative DOE collections (vista-teaching-lab)
 
 ## GitHub configuration
 
-Repository Actions variable:
+Pinned public client configuration:
 
-- `LAB_FIREBASE_WEB_CONFIG_JSON` — public Web SDK JSON for `vista-teaching-lab`
+- `tools/lab-firebase-web-config.json` — public Web SDK JSON for `vista-teaching-lab`
+- refresh with `npm run config:pin:lab` after an authenticated `firebase login`
+- this file contains client metadata only; it must never contain a service-account credential or private key
 
 GitHub Environment `firebase-lab-admin`:
 

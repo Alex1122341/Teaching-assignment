@@ -18,7 +18,7 @@ The lab project fixes that:
 | --- | --- | --- |
 | Data | synthetic only (`tools/seed/dataset.js`) | real |
 | Public exposure | fixed GitHub Pages test site; synthetic/test data only | not used by the active test site |
-| Configuration | committed lab-targeting template (`firebase-config.js`); GitHub Pages injects public Web SDK config from `LAB_FIREBASE_WEB_CONFIG_JSON` | legacy/future production configuration retained separately |
+| Configuration | committed lab-targeting template (`firebase-config.js`); GitHub Pages builds from the pinned public Web SDK config in `tools/lab-firebase-web-config.json` | legacy/future production configuration retained separately |
 
 ---
 
@@ -26,7 +26,7 @@ The lab project fixes that:
 
 | File | Purpose |
 | --- | --- |
-| `firebase-config.js` | **Single source of truth** for client Firebase configuration. The committed template targets the lab project with placeholder SDK values. GitHub Pages regenerates this file from `LAB_FIREBASE_WEB_CONFIG_JSON` before building. |
+| `firebase-config.js` | **Single source of truth** for client Firebase configuration. The committed template targets the lab project with placeholder SDK values. GitHub Pages regenerates this file from the pinned public config in `tools/lab-firebase-web-config.json` before building. |
 | `.firebaserc` | Project aliases. `default` is the lab project, so a deploy without `--project` cannot reach production. |
 | `firebase.json` | Rules, indexes, hosting and emulator ports. |
 | `firestore.rules` | Authorisation model. See `docs/database/SCHEMA.md`. |
@@ -69,6 +69,7 @@ node tools/build-static.js    # writes .deploy-static/
 | `npm run db:seed:emulator` | seed the emulator |
 | `npm run db:deploy` | deploy rules and indexes to the lab project |
 | `npm run config:generate` | regenerate `firebase-config.js` |
+| `npm run config:pin:lab` | fetch and pin the public `vista-teaching-lab` Web SDK config |
 
 ---
 
@@ -95,7 +96,7 @@ The active browser test runtime is the fixed GitHub Pages site:
 
 `https://alex1122341.github.io/Teaching-assignment/`
 
-The workflow requires repository Actions variable `LAB_FIREBASE_WEB_CONFIG_JSON`. It must contain the public Firebase Web SDK configuration for **`vista-teaching-lab`**. The workflow writes it only to a runner temporary file, regenerates `firebase-config.js`, and fails closed unless the resulting project is exactly `vista-teaching-lab`, emulator mode is off, and `UCVM_DOE_API_BASE_URL` is blank.
+The workflow reads `tools/lab-firebase-web-config.json`, regenerates `firebase-config.js`, and fails closed unless the pinned configuration is a real Web SDK config for **`vista-teaching-lab`**, emulator mode is off, and `UCVM_DOE_API_BASE_URL` is blank. Refresh the pinned file with `npm run config:pin:lab` after `firebase login`.
 
 The Firebase Web SDK configuration is public client metadata. It is not a service credential and must never contain a private key.
 
@@ -117,7 +118,7 @@ One-time setup for the lab:
 1. In Firebase Authentication for `vista-teaching-lab`, enable Email/Password.
 2. Add `alex1122341.github.io` to **Authentication > Settings > Authorized domains**.
 3. Create test-only Authentication accounts and matching `users/{uid}` profiles.
-4. In GitHub **Settings > Secrets and variables > Actions > Variables**, create `LAB_FIREBASE_WEB_CONFIG_JSON` with the lab Web SDK JSON.
+4. Run `npm run config:pin:lab` after `firebase login`, then commit the generated public `tools/lab-firebase-web-config.json`.
 5. Create GitHub Environment `firebase-lab-admin` and add test-only secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`.
 6. Seed synthetic Firestore data with `npm run db:seed`, then verify with `npm run db:verify`.
 7. Deploy lab Firestore rules/indexes with `npm run db:deploy`.

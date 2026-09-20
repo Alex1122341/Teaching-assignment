@@ -77,11 +77,11 @@ The GitHub Pages workflow never points at `tester-teaching` and never injects a 
 3. In Firebase Console for `vista-teaching-lab`, enable Email/Password Authentication.
 4. Add `alex1122341.github.io` under **Authentication > Settings > Authorized domains**.
 5. Create test-only Authentication users in `vista-teaching-lab` and matching Firestore `users/{uid}` profiles. Do not reuse production credentials.
-6. In GitHub **Settings > Secrets and variables > Actions > Variables**, add `LAB_FIREBASE_WEB_CONFIG_JSON` containing the public Firebase Web SDK JSON for `vista-teaching-lab`.
+6. Run `firebase login` and `npm run config:pin:lab`, then commit the generated public `tools/lab-firebase-web-config.json` for `vista-teaching-lab`.
 7. Seed synthetic data with `npm run db:seed`, then run `npm run db:verify`.
 8. Deploy lab rules/indexes with `npm run db:deploy`.
 
-The Pages workflow fails closed unless the injected Web SDK config resolves to exactly `vista-teaching-lab`, emulator mode is disabled and the DOE API base URL is blank. The visible banner is **TEST SITE - GitHub Pages / Isolated Firebase Lab / vista-teaching-lab**.
+The Pages workflow fails closed unless `tools/lab-firebase-web-config.json` contains a real Web SDK config for exactly `vista-teaching-lab`, emulator mode is disabled and the DOE API base URL is blank. The visible banner is **TEST SITE - GitHub Pages / Isolated Firebase Lab / vista-teaching-lab**.
 
 The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site. Firebase Hosting is not used for the active browser test path; GitHub Pages remains the fixed test host.
 
@@ -140,7 +140,7 @@ The DOE API workflow cannot create the Azure subscription resource or invent ser
 
 1. Create a feature branch and open a same-repository pull request targeting `main`.
 2. The independent **Test** workflow runs static/unit tests and the Firestore/Auth emulator suite.
-3. The **GitHub Pages Test Site** workflow independently runs `npm ci`, `npm run test:all`, `npm run test:emulator`, generates the `vista-teaching-lab` client config from `LAB_FIREBASE_WEB_CONFIG_JSON`, builds `.deploy-static`, applies Pages-only staging, and publishes the verified artifact to the fixed GitHub Pages test URL.
+3. The **GitHub Pages Test Site** workflow independently runs `npm ci`, `npm run test:all`, `npm run test:emulator`, generates the `vista-teaching-lab` client config from the pinned `tools/lab-firebase-web-config.json`, builds `.deploy-static`, applies Pages-only staging, and publishes the verified artifact to the fixed GitHub Pages test URL.
 4. Open `https://alex1122341.github.io/Teaching-assignment/` and validate sign-in, Timetable, Faculty Dashboard, and the changed workflow. Confirm the **TEST SITE / Isolated Firebase Lab / vista-teaching-lab** banner is present.
 5. The Pages runtime never receives a DOE API URL. Authorized timetable/session saves write the source Firestore facts and, when faculty assignments are present, create a non-authoritative pending DOE recalculation request while stripping old DOE provenance from the edited assignment. Use **Actions > Firebase DOE Admin Job > recalculate-queue** with `PROCESS-QUEUE` to calculate authoritative DOE afterward. Policy validation, impact preview persistence, publication, and full recalculation also remain in the Admin Job. Destructive failure-injection still belongs in the Emulator Suite.
 6. Additional commits to the same or another same-repository PR update the single fixed Pages test site after verification passes. The latest successful PR version is the version visible at the fixed URL.

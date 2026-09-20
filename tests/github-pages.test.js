@@ -37,10 +37,9 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/npm ci/);
   assert.match(workflow,/npm run test:all/);
   assert.match(workflow,/npm run test:emulator/);
-  assert.match(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON:\s*\$\{\{ vars\.LAB_FIREBASE_WEB_CONFIG_JSON \}\}/);
+  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
   assert.match(workflow,/EXPECTED_FIREBASE_PROJECT_ID:\s*vista-teaching-lab/);
-  assert.match(workflow,/RUNNER_TEMP\/lab-firebase-web-config\.json/);
-  assert.match(workflow,/node tools\/build-firebase-config\.js --from-json "\$RUNNER_TEMP\/lab-firebase-web-config\.json"/);
+  assert.match(workflow,/node tools\/build-firebase-config\.js --from-json tools\/lab-firebase-web-config\.json/);
   assert.match(workflow,/node tools\/verify-preview-client-config\.js/);
   assert.doesNotMatch(workflow,/PRODUCTION_DOE_API_BASE_URL|PAGES_DOE_API_BASE_URL|verify-production-doe-api|--doe-api-base-url/);
   assert.ok(workflow.indexOf('Prepare isolated Firebase lab configuration')<workflow.indexOf('Build static site'));
@@ -72,7 +71,8 @@ test('setup docs define the fixed Pages isolated Firebase lab boundary',()=>{
   assert.match(setup,/GitHub Pages/i);
   assert.match(setup,/vista-teaching-lab/);
   assert.match(setup,/Isolated Firebase Lab/i);
-  assert.match(setup,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(setup,/tools\/lab-firebase-web-config\.json/);
+  assert.match(setup,/config:pin:lab/);
   assert.match(setup,/DOE API.*blank|never injects a DOE API URL|no DOE API/i);
   assert.match(setup,/alex1122341\.github\.io/);
   assert.match(setup,/Authorized domains/i);
@@ -204,7 +204,8 @@ const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 test('Pages preview uses isolated lab Web SDK config and rejects DOE API wiring',()=>{
   const workflow=read('.github/workflows/github-pages-test.yml');
   const verifier=read('tools/verify-preview-client-config.js');
-  assert.match(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/tools\/lab-firebase-web-config\.json/);
+  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
   assert.doesNotMatch(workflow,/tools\/production-firebase-web-config\.json/);
   assert.match(workflow,/EXPECTED_FIREBASE_PROJECT_ID:\s*vista-teaching-lab/);
   assert.match(verifier,/vista-teaching-lab/);

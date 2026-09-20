@@ -101,6 +101,24 @@ test('production Firebase Web config is pinned tools-only and excluded from prev
 });
 
 
+test('lab Firebase Web config is pinned tools-only and supports one-command refresh',()=>{
+  const config=JSON.parse(read('tools/lab-firebase-web-config.json'));
+  assert.equal(config.projectId,'vista-teaching-lab');
+  assert.equal(config.authDomain,'vista-teaching-lab.firebaseapp.com');
+  assert.ok(config.apiKey==='GENERATE_WITH_npm_run_config:pin:lab'||REAL_API_KEY.test(config.apiKey));
+  const manifest=JSON.parse(read('tools/static-assets.json'));
+  assert.equal(manifest.includes('tools/lab-firebase-web-config.json'),false);
+  const workflow=read('.github/workflows/github-pages-test.yml');
+  assert.match(workflow,/--from-json tools\/lab-firebase-web-config\.json/);
+  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  const pkg=JSON.parse(read('package.json'));
+  assert.equal(pkg.scripts['config:pin:lab'],'node tools/pin-lab-firebase-web-config.js');
+  const pin=read('tools/pin-lab-firebase-web-config.js');
+  assert.match(pin,/apps:sdkconfig/);
+  assert.match(pin,/vista-teaching-lab/);
+  assert.doesNotMatch(pin,/tester-teaching/);
+});
+
 test('preview config verifier accepts only the isolated lab project with DOE API disabled',()=>{
   const {validatePreview}=require('../tools/verify-preview-client-config.js');
   const good={
