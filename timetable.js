@@ -1782,7 +1782,7 @@
   function updateAuthUI() {
     const b = $('account-toggle');
     const showAdminTools=canEdit()||UCVM.general(currentUser)||currentUser?.role==='hicc';
-    const historyOnly=UCVM.role(currentUser?.role)==='other_office';
+    const historyOnly=currentUser?.role==='other_office';
     b.textContent = currentUser ? `${currentUser.name} - ${currentUser.role}` : 'Sign in';
     b.classList.toggle('is-admin', canEdit());
     $('bulk-add-session-btn').classList.toggle('hidden', !canAddSessions());

@@ -73,6 +73,6 @@ test('empty timetable ranges remain connected and allow creating the first sessi
 test('Other Office uses the sanitized calendar collection and history-only timetable controls',()=>{
  const source=read('timetable.js');
  assert.match(source,/\['adc','lab','other_office'\]\.includes\(UCVM\.role\(currentUser\?\.role\)\)\?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION/);
- assert.match(source,/const historyOnly=UCVM\.role\(currentUser\?\.role\)==='other_office'/);
+ assert.match(source,/const historyOnly=currentUser\?\.role==='other_office'/);
  assert.match(source,/my-change-history-btn/);
 });
