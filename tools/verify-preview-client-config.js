@@ -1,6 +1,7 @@
 'use strict';
 const path=require('node:path');
 const {loadRuntimeConfig}=require('./verify-production-client-config');
+const {cleanBaseUrl}=require('./verify-production-doe-api');
 
 function validatePreview(runtime,{expectedProjectId='tester-teaching'}={}){
   if(!runtime?.firebaseConfig)throw Error('Preview Firebase client configuration is missing.');
@@ -16,9 +17,8 @@ function validatePreview(runtime,{expectedProjectId='tester-teaching'}={}){
   if(String(config.authDomain||'')!==`${expectedProjectId}.firebaseapp.com`){
     throw Error('Preview Firebase authDomain does not match the expected Firebase project.');
   }
-  if(String(runtime.doeApiBaseUrl||'').trim()){
-    throw Error('GitHub Pages compatibility preview must not be configured to reach a DOE API endpoint.');
-  }
+  const doeApiBaseUrl=String(runtime.doeApiBaseUrl||'').trim();
+  if(doeApiBaseUrl)cleanBaseUrl(doeApiBaseUrl);
   return true;
 }
 
@@ -26,7 +26,7 @@ function main(){
   const expected=process.env.EXPECTED_FIREBASE_PROJECT_ID||'tester-teaching';
   const runtime=loadRuntimeConfig(path.resolve(__dirname,'..','firebase-config.js'),'alex1122341.github.io');
   validatePreview(runtime,{expectedProjectId:expected});
-  console.log(`Preview client configuration verified for isolated project "${runtime.projectId}".`);
+  console.log(`Preview client configuration verified for project "${runtime.projectId}"${runtime.doeApiBaseUrl?' with an HTTPS DOE API endpoint':' in Firebase-only compatibility mode'}.`);
 }
 
 if(require.main===module){
