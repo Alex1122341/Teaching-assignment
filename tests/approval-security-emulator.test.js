@@ -42,3 +42,26 @@ check('ADFA may read the private assignment record and legacy requests',async()=
 check('another Faculty account cannot read someone else public request',async()=>{
  const {assertFails}=require('@firebase/rules-unit-testing');await assertFails(env.authenticatedContext('other').firestore().doc('change_requests/r1').get());
 });
+
+
+check('Developer can approve ADC LAB and ADFA routed scopes with one identity',async()=>{
+ const {assertSucceeds}=require('@firebase/rules-unit-testing');
+ const {serverTimestamp}=require('firebase/firestore');
+ await env.withSecurityRulesDisabled(async ctx=>{
+  const db=ctx.firestore();
+  await db.doc('users/developer').set({role:'developer',active:true,mustChangePassword:false,email:'developer@example.test'});
+  for(const office of ['adc','lab','adfa']){
+   const id='dev-'+office,fields=office==='adc'?['date']:office==='lab'?['topic']:['assignments'];
+   await db.doc('change_requests/'+id).set({requestSchema:'office-routing-v1',requesterUid:'faculty',requesterRole:'faculty',sessionId:'s1',requestType:office==='adfa'?'faculty_swap':'session_edit',status:'pending',revision:1,editableFields:[],requesterMessage:''});
+   await db.doc('change_request_approvals/'+id+'_'+office).set({id:id+'_'+office,requestId:id,office,revision:1,fields,scopeSignature:office+'-sig',status:'pending',decidedBy:'',decidedByName:'',decidedAt:null,pushBackReason:'',updatedAt:new Date('2026-09-20T12:00:00Z')});
+  }
+ });
+ const db=env.authenticatedContext('developer').firestore();
+ for(const office of ['adc','lab','adfa']){
+  const id='dev-'+office,requestRef=db.doc('change_requests/'+id),approvalRef=db.doc('change_request_approvals/'+id+'_'+office);
+  await assertSucceeds(db.runTransaction(async tx=>{
+   tx.update(requestRef,{updatedAt:serverTimestamp()});
+   tx.update(approvalRef,{status:'approved',decidedBy:'developer',decidedByName:'VISTA Developer',decidedAt:serverTimestamp(),pushBackReason:'',updatedAt:serverTimestamp()});
+  }));
+ }
+});
