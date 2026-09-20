@@ -320,7 +320,7 @@ async function connectCdp(url){
  function send(method,params={}){
   const id=++nextId;
   return new Promise((resolve,reject)=>{
-   const timer=setTimeout(()=>{pending.delete(id);reject(Error(`Chrome DevTools command timed out: ${method}`))},15000);
+   const timer=setTimeout(()=>{pending.delete(id);const detail=method==='Runtime.evaluate'&&params?.expression?` · ${String(params.expression).replace(/\s+/g,' ').slice(0,220)}`:'';reject(Error(`Chrome DevTools command timed out: ${method}${detail}`))},15000);
    pending.set(id,{resolve,reject,timer,method});
    ws.send(JSON.stringify({id,method,params}));
   });
