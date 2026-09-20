@@ -16,7 +16,9 @@
     "config:pin:lab": "node tools/pin-lab-firebase-web-config.js",
     "lab:bootstrap-user": "node tools/bootstrap-lab-user.js",
     "lab:auth:check": "node tools/configure-lab-auth.js --operation check",
-    "lab:auth:configure": "node tools/configure-lab-auth.js --operation configure --confirmation CONFIGURE-AUTH:vista-teaching-lab"
+    "lab:auth:configure": "node tools/configure-lab-auth.js --operation configure --confirmation CONFIGURE-AUTH:vista-teaching-lab",
+    "lab:data:verify": "node tools/seed-lab-admin.js --mode verify",
+    "lab:data:seed": "node tools/seed-lab-admin.js --mode seed"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",

@@ -73,6 +73,8 @@ node tools/build-static.js    # writes .deploy-static/
 | `npm run lab:bootstrap-user` | create/reuse a lab Auth user and synchronize its `users/{uid}` profile using Admin credentials |
 | `npm run lab:auth:check` | verify Email/Password + Pages authorized-domain readiness using Admin credentials |
 | `npm run lab:auth:configure` | enforce the lab Auth boundary with exact project confirmation |
+| `npm run lab:data:verify` | verify the canonical synthetic dataset through Admin credentials |
+| `npm run lab:data:seed` | seed and verify the canonical synthetic dataset through Admin credentials |
 
 ---
 
@@ -122,8 +124,7 @@ One-time setup for the lab:
 3. Create test-only Authentication accounts and matching `users/{uid}` profiles. After merge, the manual **Firebase Lab Bootstrap** workflow can keep these synchronized without password inputs.
 4. Run `npm run config:pin:lab` after `firebase login`, then commit the generated public `tools/lab-firebase-web-config.json`.
 5. Create GitHub Environment `firebase-lab-admin` and add test-only secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`.
-6. Seed synthetic Firestore data with `npm run db:seed`, then verify with `npm run db:verify`.
-7. Deploy lab Firestore rules/indexes with `npm run db:deploy`.
+6. Before merge, seed/verify and deploy the lab Firestore manually if required. After merge, **Firebase Lab Data Setup > provision** performs the canonical seed/verify and reviewed Firestore deployment using CI Application Default Credentials.
 
 Azure production workflows are retained in the repository as paused/fallback infrastructure. They are not prerequisites for Pages testing, Firebase lab data, or the DOE admin job.
 

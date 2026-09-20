@@ -77,12 +77,22 @@ The GitHub Pages workflow never points at `tester-teaching` and never injects a 
 3. Before merge, enable Email/Password Authentication and add `alex1122341.github.io` under **Authentication > Settings > Authorized domains** manually if needed. After the setup workflow exists on `main`, **Firebase Lab Auth Setup > configure** can perform both changes using the lab Admin credential.
 5. Before merge, create test-only Authentication users in `vista-teaching-lab` and matching Firestore `users/{uid}` profiles manually if needed. After the bootstrap workflow is available on `main`, **Firebase Lab Bootstrap** can create or synchronize both sides without accepting a password; use the Firebase password-reset flow to establish the initial password.
 6. Run `firebase login` and `npm run config:pin:lab`, then commit the generated public `tools/lab-firebase-web-config.json` for `vista-teaching-lab`.
-7. Seed synthetic data with `npm run db:seed`, then run `npm run db:verify`.
-8. Deploy lab rules/indexes with `npm run db:deploy`.
+7. Before merge, seed/verify and deploy rules manually if needed. After merge, **Firebase Lab Data Setup > provision** can perform the canonical seed/verify plus reviewed Firestore rules/index deployment through the lab Admin credential.
 
 The Pages workflow fails closed unless `tools/lab-firebase-web-config.json` contains a real Web SDK config for exactly `vista-teaching-lab`, emulator mode is disabled and the DOE API base URL is blank. The visible banner is **TEST SITE - GitHub Pages / Isolated Firebase Lab / vista-teaching-lab**.
 
 The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site. Firebase Hosting is not used for the active browser test path; GitHub Pages remains the fixed test host.
+
+### Firebase Lab Data Setup
+
+After `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` is configured, the manual **Firebase Lab Data Setup** workflow removes the remaining personal-CLI dependency for test data and Firestore configuration:
+
+- `verify-data` checks that every canonical synthetic seed document exists.
+- `seed-data` requires `SEED:vista-teaching-lab`, writes the deterministic `tools/seed/dataset.js` dataset with Admin SDK access, then verifies it.
+- `deploy-firestore` requires `DEPLOY-FIRESTORE:vista-teaching-lab` and deploys the reviewed Firestore rules/indexes using Firebase CLI Application Default Credentials.
+- `provision` requires `PROVISION:vista-teaching-lab` and performs both seed/verify and Firestore deployment.
+
+The workflow never accepts another Firebase project id. The lab service account must have the Firestore data permissions needed for seeding and Firebase Rules permissions needed for rules deployment.
 
 ### Firebase Lab Auth Setup
 
