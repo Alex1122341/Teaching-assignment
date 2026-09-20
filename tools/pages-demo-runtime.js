@@ -387,6 +387,33 @@
         demoOnly:true
       });
     });
+    rows.push({
+      facultyId:'demo-server-only',
+      displayName:'Demo Server-only DOE Record',
+      academicYear,
+      scheduledTeachingDoe:22,
+      roleDoe:0,
+      rawSupervisionDoe:0,
+      appliedSupervisionDoe:0,
+      adjustmentDoe:0,
+      assignedTeachingDoe:22,
+      effectiveTargetDoe:40,
+      remainingDoe:18,
+      policyVersionId:`demo-synthetic-${academicYear}-v1`,
+      status:'calculated',
+      lastCalculatedAt:'2026-09-20T12:00:00Z',
+      teachingLineCount:1,
+      roleAssignmentCount:0,
+      supervisionLineCount:0,
+      adjustmentLineCount:0,
+      serverFactCount:1,
+      unratedLineCount:0,
+      missingMappingCount:0,
+      issueCount:0,
+      issueCodes:[],
+      demoOnly:true,
+      serverOnlyDemo:true
+    });
     return rows;
   }
 
