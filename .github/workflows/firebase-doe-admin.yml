@@ -13,9 +13,10 @@ on:
           - publish-policy
           - recalculate-preview
           - recalculate
+          - recalculate-queue
       policy_version_id:
-        description: DOE Policy Version ID
-        required: true
+        description: DOE Policy Version ID (not required for recalculate-queue)
+        required: false
         type: string
       academic_year:
         description: Academic Year (required for recalculation, for example 2026-27)
@@ -27,7 +28,7 @@ on:
         default: all
         type: string
       confirmation:
-        description: For publish use PUBLISH:<policyVersionId>; for recalculate use RECALCULATE:<policyVersionId>:<academicYear>
+        description: For publish use PUBLISH:<policyVersionId>; recalculate uses RECALCULATE:<policyVersionId>:<academicYear>; queue uses PROCESS-QUEUE
         required: false
         type: string
 

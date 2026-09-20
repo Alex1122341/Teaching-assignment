@@ -67,7 +67,7 @@
   });
  }
 
- const clone=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value));
+ const copySession=value=>value&&typeof value==='object'?{...value,...(Array.isArray(value.assignments)?{assignments:value.assignments.map(row=>({...row}))}:{})}:value;
  const same=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
  const DOE_FIELDS=['doeCredit','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId','doeRate','resultDoe','policyVersionId','ruleId','ruleKey','calculationId'];
  function academicYearForSession(session={}){
@@ -86,8 +86,8 @@
   const start=parse(session.start),end=parse(session.end);return start===null||end===null||end<=start?null:(end-start)/60;
  }
  function prepareQueuedSessionChange({academicYear='',sessionId='',beforeSession=null,afterSession=null,patch=null,trigger='session_updated'}={}){
-  const before=beforeSession&&typeof beforeSession==='object'?clone(beforeSession):null;
-  const requested=afterSession&&typeof afterSession==='object'?clone(afterSession):{...(before||{}),...(patch&&typeof patch==='object'?clone(patch):{})};
+  const before=beforeSession&&typeof beforeSession==='object'?copySession(beforeSession):null;
+  const requested=afterSession&&typeof afterSession==='object'?copySession(afterSession):{...(before||{}),...(patch&&typeof patch==='object'?{...patch}:{})};
   const id=text(sessionId||requested?.sessionId||requested?.id||before?.sessionId||before?.id);
   if(!id)throw Object.assign(Error('Session ID is required.'),{code:'SESSION_ID_REQUIRED'});
   const candidate={...(before||{}),...(requested||{}),id,sessionId:id};
@@ -122,7 +122,7 @@
   const prepared=prepareQueuedSessionChange({...payload,sessionId:id,beforeSession:before}),queueNeeded=prepared.queue.sourceEntityIds.length>0;
   const stamp=root.firebase.firestore.FieldValue.serverTimestamp(),actorName=text(user.displayName||user.email);
   const normalized=root?.UCVM_INDEX_MAINTENANCE?.sessionForWrite?root.UCVM_INDEX_MAINTENANCE.sessionForWrite(prepared.session):{...prepared.session};
-  const stored={...clone(normalized),id,sessionId:id,updatedBy:user.uid,updatedByName:actorName,updatedByEmail:text(user.email),updatedAt:stamp};delete stored.__id;
+  const stored={...normalized,id,sessionId:id,updatedBy:user.uid,updatedByName:actorName,updatedByEmail:text(user.email),updatedAt:stamp};delete stored.__id;
   const batch=db.batch();batch.set(sessionRef,stored,{merge:true});batch.set(db.collection('calendar_sessions').doc(id),root.UCVM_CALENDAR_SESSION.fromSource(prepared.session,id));
   let requestId='';
   if(queueNeeded){

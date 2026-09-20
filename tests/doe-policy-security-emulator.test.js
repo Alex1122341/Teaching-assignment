@@ -238,3 +238,15 @@ check('authoritative DOE assignments cannot be written directly by browser clien
   }));
  }
 });
+
+
+check('ADFA admins can submit pending DOE recalculation requests but cannot forge completion',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
+ const stamp=require('firebase/firestore').serverTimestamp;
+ const regular=env.authenticatedContext('regular').firestore(),faculty=env.authenticatedContext('faculty').firestore();
+ const valid={requestId:'queue-regular',academicYear:'2027-28',sessionId:'s1',sourceEntityType:'session_assignment',sourceEntityIds:['s1--assignment--1'],facultyIds:['f1'],trigger:'session_updated',status:'pending',requestedBy:'regular',requestedByName:'Regular Admin',requestedAt:stamp()};
+ await assertSucceeds(regular.doc('doe_recalculation_requests/queue-regular').set(valid));
+ await assertFails(regular.doc('doe_recalculation_requests/queue-regular').update({status:'completed'}));
+ await assertFails(regular.doc('doe_recalculation_requests/queue-forged').set({...valid,requestId:'queue-forged',status:'completed'}));
+ await assertFails(faculty.doc('doe_recalculation_requests/queue-faculty').set({...valid,requestId:'queue-faculty',requestedBy:'faculty',requestedByName:'Faculty'}));
+});
