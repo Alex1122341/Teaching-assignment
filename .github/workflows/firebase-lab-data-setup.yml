@@ -63,7 +63,14 @@ jobs:
         run: npm ci
 
       - name: Install Firebase Admin dependency
-        run: npm --prefix server ci
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f server/package-lock.json ]; then
+            npm --prefix server ci --no-audit --no-fund
+          else
+            npm --prefix server install --no-audit --no-fund
+          fi
 
       - name: Verify lab data setup contract
         run: node --test tests/firebase-lab-data-setup.test.js tests/firebase-lab-bootstrap.test.js
