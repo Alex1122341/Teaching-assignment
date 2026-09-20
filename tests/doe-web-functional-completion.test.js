@@ -77,3 +77,14 @@ test('Faculty Dashboard actually loads deferred DOE admin enhancements for admin
  const selfEnd=source.indexOf('\nfunction',selfStart+20);
  assert.doesNotMatch(source.slice(selfStart,selfEnd),/ensureFacultyAdminEnhancements/);
 });
+
+
+test('Teaching Summary uses the authoritative bulk DOE list instead of the legacy derived index',()=>{
+ const source=read('faculty-admin.js');
+ assert.match(source,/UCVM_DOE_API\.listFacultyDoe/);
+ const start=source.indexOf('function renderSummary');
+ const end=source.indexOf('function allRoleRows',start);
+ const fn=source.slice(start,end);
+ assert.match(fn,/UCVM_DOE_WORKSHEET_VIEW\.renderDoeListRow/);
+ assert.doesNotMatch(fn,/liveAssignedDOE\(/);
+});
