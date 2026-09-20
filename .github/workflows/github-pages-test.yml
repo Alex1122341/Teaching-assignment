@@ -49,6 +49,18 @@ jobs:
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator
 
+      - name: Prepare isolated lab client configuration
+        shell: bash
+        env:
+          LAB_FIREBASE_WEB_CONFIG_JSON: ${{ vars.LAB_FIREBASE_WEB_CONFIG_JSON }}
+          EXPECTED_FIREBASE_PROJECT_ID: vista-teaching-lab
+        run: |
+          set -euo pipefail
+          test -n "$LAB_FIREBASE_WEB_CONFIG_JSON"
+          printf '%s' "$LAB_FIREBASE_WEB_CONFIG_JSON" > "$RUNNER_TEMP/lab-firebase-web-config.json"
+          node tools/build-firebase-config.js --from-json "$RUNNER_TEMP/lab-firebase-web-config.json"
+          node tools/verify-preview-client-config.js
+
       - name: Build static site
         run: node tools/build-static.js
 
