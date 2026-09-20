@@ -107,3 +107,23 @@ test('DOE routes expose admin-only role assignment list and deactivate operation
  assert.match(source,/listRoleAssignments/);
  assert.match(source,/deactivateRoleAssignment/);
 });
+
+
+test('Faculty Lookup list uses one bulk DOE summary and reserves full worksheet loads for selected detail',()=>{
+ const source=read('faculty-admin.js');
+ const start=source.indexOf('function lookupDoeMeta');
+ const end=source.indexOf('function display',start);
+ const fn=source.slice(start,end);
+ assert.match(fn,/doeListByFaculty/);
+ assert.match(fn,/loadDoeSummaryList/);
+ assert.match(fn,/selfMode/);
+});
+
+test('DOE list summaries carry authoritative target metadata for badges and management context',async()=>{
+ const repository={
+  async listFacultyWorksheetSources(){return[{facultyId:'f1',academicYear:'2027-28',displayName:'Dr Example',policyStatus:'single',target:{effectiveTargetDoe:25,overrideDoe:25,overrideReason:'RSL',source:'approved_override'},lines:[]}]}
+ };
+ const rows=await createWorksheetService({repository,getFacultyWorksheetSource:repository.listFacultyWorksheetSources}).listFacultyDoe({academicYear:'2027-28'});
+ assert.equal(rows[0].target.overrideDoe,25);
+ assert.equal(rows[0].target.overrideReason,'RSL');
+});
