@@ -73,8 +73,11 @@ The two frontend hosts intentionally use different Firebase environments. Pull-r
 1. In GitHub repository **Settings > Pages**, set the Pages source to **GitHub Actions**.
 2. Keep the standard `github-pages` Environment available to pull-request deployments. Do not restrict that environment to `main`, because the fixed test site is updated from same-repository pull requests.
 3. In Firebase Console, open **Authentication > Settings > Authorized domains** and add `alex1122341.github.io`. This is required so Firebase Authentication can sign users in from the GitHub Pages host.
-4. The fixed Pages URL always shows the latest successful same-repository pull request deployed by `.github/workflows/github-pages-test.yml`. A newer successful PR replaces the previous test version.
-5. The Pages build injects a visible **TEST SITE - GitHub Pages / Not Production - Isolated Lab Configuration** banner with the PR number and commit identifier. That banner exists only in the Pages artifact and never in the Azure production artifact.
+4. In Firebase Console, open **Project settings > General > Your apps** for project `vista-teaching-lab`, create/select the Web app, choose **SDK setup and configuration > Config**, and copy the public Web SDK configuration object. Under **GitHub > Settings > Secrets and variables > Actions > Variables**, create `LAB_FIREBASE_WEB_CONFIG_JSON` containing that JSON object. This Web SDK configuration is public client metadata, not a service-account or server credential. Do not put a service-account key in this variable.
+5. Confirm the lab Firebase Authentication project has Email/Password enabled and at least one dedicated lab test account. Production `tester-teaching` accounts are not automatically valid in `vista-teaching-lab`.
+6. The Pages workflow refuses to deploy when `LAB_FIREBASE_WEB_CONFIG_JSON` is missing, still contains a placeholder/invalid API key, targets any project other than `vista-teaching-lab`, or configures a DOE API endpoint.
+7. The fixed Pages URL always shows the latest successful same-repository pull request deployed by `.github/workflows/github-pages-test.yml`. A newer successful PR replaces the previous test version.
+8. The Pages build injects a visible **TEST SITE - GitHub Pages / Not Production - Isolated Lab Configuration** banner with the PR number and commit identifier. That banner exists only in the Pages artifact and never in the Azure production artifact.
 
 Forked pull requests do not deploy the test site. The Pages workflow uses the normal `pull_request` event and verifies that the PR head repository is the same repository before deployment.
 
