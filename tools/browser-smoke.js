@@ -323,6 +323,7 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
   if(approvalLazy.result?.value?.handoff!=='direct-session-modal')throw Error('Approval lazy bundle did not execute the compatibility handoff first.');
   if(approvalLazy.result?.value?.scripts!==1)throw Error(`Approval lazy bundle loaded ${approvalLazy.result?.value?.scripts||0} times; expected exactly once.`);
 
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{const mockBase=location.origin+'/__doe-smoke';window.UCVM_CONFIG={...(window.UCVM_CONFIG||{}),doeApiBaseUrl:mockBase};let explicit='';Object.defineProperty(window,'UCVM_DOE_API_BASE_URL',{configurable:true,get(){return explicit||mockBase},set(value){const next=String(value||'').trim();if(next)explicit=next}})})()`});
   await navigate('faculty-admin.html');
   await waitForCondition(cdp,`(()=>document.getElementById('auth-gate')?.classList.contains('hidden')===true&&document.getElementById('admin-chip')?.textContent.includes('Browser Smoke Owner'))()`,'Faculty Dashboard owner access');
   await waitForCondition(cdp,`(()=>!!document.getElementById('doe-list-tab')&&!!document.querySelector('script[data-ucvm-faculty-admin-enhancements]'))()`,'DOE List deferred enhancement');
@@ -332,6 +333,15 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
   });
   if(doeNavigation.exceptionDetails)throw Error(`DOE List navigation smoke failed: ${exceptionText(doeNavigation.exceptionDetails)}`);
   if(!doeNavigation.result?.value?.tab||!doeNavigation.result?.value?.listVisible||!doeNavigation.result?.value?.rulesHidden)throw Error('DOE List deferred enhancement did not own the Faculty Dashboard panel state.');
+  await waitForCondition(cdp,`(()=>{const text=document.getElementById('doe-list-body')?.textContent||'';return text.includes('Browser Smoke Faculty')&&text.includes('40.00%')&&text.includes('ucvm-workload-smoke-v1')})()`,'DOE mocked server summary render');
+  const doeWorksheet=await cdp.send('Runtime.evaluate',{
+   expression:`(async()=>{const worksheet=await window.UCVM_DOE_API.getFacultyWorksheet('browser-smoke-faculty','2026-27');const host=document.createElement('div');host.id='doe-smoke-worksheet-render';host.innerHTML=window.UCVM_DOE_WORKSHEET_VIEW.worksheetHtml(worksheet);document.getElementById('doe-list-view')?.appendChild(host);return{configured:window.UCVM_DOE_API.isConfigured(),base:window.UCVM_DOE_API.baseUrl(),text:host.textContent}})()`,
+   returnByValue:true,awaitPromise:true
+  });
+  if(doeWorksheet.exceptionDetails)throw Error(`DOE worksheet render smoke failed: ${exceptionText(doeWorksheet.exceptionDetails)}`);
+  const rendered=doeWorksheet.result?.value||{};
+  if(!rendered.configured||!String(rendered.base||'').includes('/__doe-smoke'))throw Error('DOE browser smoke did not use the local read-only server endpoint.');
+  if(!String(rendered.text||'').includes('Teaching DOE · server worksheet')||!String(rendered.text||'').includes('40.00%')||!String(rendered.text||'').includes('calc-smoke-lecture'))throw Error('DOE browser smoke did not render authoritative Worksheet totals and calculation evidence.');
 
   await navigate('user-management.html');
   await waitForCondition(cdp,`(()=>document.getElementById('content')?.hidden===false&&document.getElementById('accounts')?.hidden===false&&document.getElementById('identity')?.textContent.includes('Browser Smoke Owner'))()`,'User Management owner access');
