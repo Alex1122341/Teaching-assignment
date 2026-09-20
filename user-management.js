@@ -29,7 +29,7 @@
   $('account-faculty').innerHTML='<option value="">Select faculty record</option>'+data.faculty.map(faculty=>`<option value="${e(faculty.id)}">${e(faculty.name)} (${e(faculty.id)})</option>`).join('');
   $('group-picker').innerHTML='<option value="">Select group</option>'+data.groups.map(group=>`<option value="${e(group.id)}">${e(group.name)}</option>`).join('');
   $('group-owner').innerHTML=data.people.filter(person=>person.role==='hicc').map(person=>`<option value="${e(person.uid)}">${e(person.name)}</option>`).join('');
-  renderAccounts();if(!data.groups.some(group=>group.id===groupId))groupId=data.groups[0]?.id||'';selectGroup(groupId);if(editingUser)selectAccount(data.users.find(user=>user.uid===editingUser.uid)||null);else renderAccountIdentity();
+  renderAccounts();if(!data.groups.some(group=>group.id===groupId))groupId=data.groups[0]?.id||'';selectGroup(groupId);if(editingUser)selectAccount(data.users.find(user=>user.uid===editingUser.uid)||null);else selectAccount(null);
  }
  function selectedFaculty(){return data.faculty.find(faculty=>faculty.id===$('account-faculty').value)||null}
  function renderAccountIdentity(autoRole=false){
