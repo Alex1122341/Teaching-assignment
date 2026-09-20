@@ -94,6 +94,8 @@
   if(subjectBody)subjectBody.innerHTML=renderMappingRows(decorated.subject,'subject',state.editable);
   for(const id of ['doe-add-course-mapping','doe-add-visc-mapping','doe-add-reference','doe-edit-reserve']){const button=$(id);if(button)button.disabled=!state.editable}
   renderReferences();renderReserveSummary();
+  const historyPanel=doc()?.querySelector('[data-doe-rulebook-panel="history"]');
+  if(historyPanel&&!historyPanel.classList.contains('hidden'))loadHistory({force:true}).catch(error=>setStatus(error.message||String(error),'error'));
   return bundle;
  }
 
