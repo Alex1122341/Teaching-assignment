@@ -430,6 +430,7 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(demoMode&&expectation.page==='index.html')await verifyDemoSessionAuditWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoFacultySwapAuditWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoSessionCreateDeleteWorkflow({debugPort,origin,setupCdp:cdp});
+  if(demoMode&&expectation.page==='index.html')await verifyDemoRoutedApprovalWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='user-management.html')await verifyUserManagementRoleMatrix({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='faculty-admin.html'){
    if(!state.reconciliationTab)throw Error('faculty-admin.html: DOE Reconciliation tab is missing in Frontend Demo');
@@ -639,6 +640,65 @@ async function verifyDemoSessionCreateDeleteWorkflow({debugPort,origin,setupCdp}
    const opened=await cdp.send('Runtime.evaluate',{expression:"(()=>{const tab=document.querySelector('.tab[data-tab=\\\"history\\\"]');tab?.click();return{tab:!!tab}})()",returnByValue:true});
    if(opened.exceptionDetails||!opened.result?.value?.tab)throw Error('Change History tab is unavailable for create/delete verification');
    await waitForCondition(cdp,"(()=>{const rows=[...document.querySelectorAll('#audit-body tr')].filter(row=>(row.textContent||'').includes('"+markerTopic+"'));const text=rows.map(row=>row.textContent||'').join(' ');return rows.length>=2&&text.includes('Added')&&text.includes('Deleted')&&text.includes('VISTA Developer')&&rows.every(row=>{const when=(row.cells?.[0]?.textContent||'').trim();return !!when&&!/Pending/i.test(when)})})()",'Added Deleted actor and Calgary timestamps in Change History',12000);
+  });
+ }finally{
+  try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
+ }
+}
+
+async function verifyDemoRoutedApprovalWorkflow({debugPort,origin,setupCdp}){
+ const markerRoom='DEMO-ROUTED-ADC-ROOM',markerTopic='DEMO-ROUTED-LAB-TOPIC';
+ let requestId='',sessionId='',beforeRoom='',beforeTopic='',toFacultyId='';
+ try{
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-hicc-1',label:'HICC routed approval request'},async cdp=>{
+   await waitForCondition(cdp,"(()=>!document.body.classList.contains('auth-locked')&&!!window.UCVM_ASSETS)()",'HICC timetable ready for routed request',12000);
+   const createExpression="(async()=>{await window.UCVM_ASSETS.ensureApprovalWorkflow();const records=window.UCVM_PAGES_DEMO?.export?.()||{},sessions=Object.entries(records).filter(([path,row])=>path.startsWith('sessions/')&&!path.slice('sessions/'.length).includes('/')&&String(row?.type||'').toUpperCase()==='LAB'&&Array.isArray(row?.assignments)&&row.assignments.some(a=>String(a?.ucid||a?.facultyId||'').trim())&&!row?.isCcc&&!row?.isUniversityClosure),faculty=Object.entries(records).filter(([path])=>path.startsWith('faculty/')&&!path.slice('faculty/'.length).includes('/'));for(const [path,row] of sessions){const assignment=(row.assignments||[]).find(a=>String(a?.ucid||a?.facultyId||'').trim());if(!assignment)continue;const fromId=String(assignment.ucid||assignment.facultyId||''),incoming=faculty.find(([fpath])=>fpath.slice('faculty/'.length)!==fromId);if(!incoming)continue;const toId=incoming[0].slice('faculty/'.length),toRow=incoming[1]||{},toName=String(toRow.preferredFullName||toRow.hrFirstLast||toRow.hrFullName||toRow.name||toId),base=window.UCVM_APPROVAL_REQUEST.publicSession(row),id=await window.UCVM_APPROVAL_REQUEST.submit({db:firebase.firestore(),requester:{uid:firebase.auth().currentUser.uid,name:'HICC Lead',role:'hicc'},payload:{requestType:'faculty_swap',scope:'hicc',groupId:'group-neuro',groupName:'Neurology Rotation',sessionId:path.slice('sessions/'.length),base,patch:{room:"+JSON.stringify(markerRoom)+",topic:"+JSON.stringify(markerTopic)+"},assignmentIndex:0,fromFaculty:{facultyId:fromId,name:String(assignment.name||fromId)},toFaculty:{facultyId:toId,name:toName},reason:'Frontend Demo routed approval smoke'},now:firebase.firestore.FieldValue.serverTimestamp()});return{ok:true,id,sessionId:path.slice('sessions/'.length),beforeRoom:String(row.room||''),beforeTopic:String(row.topic||''),toId}}return{ok:false,reason:'no suitable LAB session/faculty pair'}})()";
+   const created=await cdp.send('Runtime.evaluate',{expression:createExpression,returnByValue:true,awaitPromise:true});
+   if(created.exceptionDetails)throw Error('routed request creation failed: '+exceptionText(created.exceptionDetails));
+   const value=created.result?.value||{};if(!value.ok)throw Error('routed request fixture failed: '+(value.reason||'unknown error'));
+   requestId=value.id;sessionId=value.sessionId;beforeRoom=value.beforeRoom;beforeTopic=value.beforeTopic;toFacultyId=value.toId;
+   const readyExpression="(()=>{const r=window.UCVM_PAGES_DEMO?.export?.()||{},wf=r['change_request_workflow/"+requestId+"'],req=r['change_requests/"+requestId+"'];return req?.status==='pending'&&JSON.stringify(wf?.requiredOffices||[])===JSON.stringify(['adc','lab','adfa'])&&wf?.hasFacultyChange===true&&r['change_request_approvals/"+requestId+"_adc']?.status==='pending'&&r['change_request_approvals/"+requestId+"_lab']?.status==='pending'&&r['change_request_approvals/"+requestId+"_adfa']?.status==='pending'})()";
+   await waitForCondition(cdp,readyExpression,'ADC LAB ADFA routed request records',12000);
+  });
+
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-adc-1',label:'ADC routed approval'},async cdp=>{
+   await cdp.send('Runtime.evaluate',{expression:"(async()=>{await window.UCVM_ASSETS.ensureApprovalWorkflow();return true})()",returnByValue:true,awaitPromise:true});
+   await waitForCondition(cdp,"(()=>!!document.getElementById('approval-queue-btn'))()",'ADC approval queue button',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('approval-queue-btn')?.click();return true})()",returnByValue:true});
+   const selector='[data-office-decision="approve"][data-office-context="adc"][data-request-id="'+requestId+'"]';
+   await waitForCondition(cdp,"(()=>!!document.querySelector("+JSON.stringify(selector)+"))()",'ADC routed approve action',12000);
+   const approve=await cdp.send('Runtime.evaluate',{expression:"(()=>{window.confirm=()=>true;document.querySelector("+JSON.stringify(selector)+")?.click();return true})()",returnByValue:true});
+   if(approve.exceptionDetails)throw Error('ADC routed approval click failed: '+exceptionText(approve.exceptionDetails));
+   const stateExpression="(()=>{const r=window.UCVM_PAGES_DEMO?.export?.()||{},session=r['sessions/"+sessionId+"'];return r['change_request_approvals/"+requestId+"_adc']?.status==='approved'&&r['change_requests/"+requestId+"']?.status==='pending'&&session?.room==="+JSON.stringify(beforeRoom)+"&&session?.topic==="+JSON.stringify(beforeTopic)+"})()";
+   await waitForCondition(cdp,stateExpression,'ADC approval without early apply',12000);
+  });
+
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-lab-1',label:'LAB routed approval'},async cdp=>{
+   await cdp.send('Runtime.evaluate',{expression:"(async()=>{await window.UCVM_ASSETS.ensureApprovalWorkflow();return true})()",returnByValue:true,awaitPromise:true});
+   await waitForCondition(cdp,"(()=>!!document.getElementById('approval-queue-btn'))()",'LAB approval queue button',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('approval-queue-btn')?.click();return true})()",returnByValue:true});
+   const selector='[data-office-decision="approve"][data-office-context="lab"][data-request-id="'+requestId+'"]';
+   await waitForCondition(cdp,"(()=>!!document.querySelector("+JSON.stringify(selector)+"))()",'LAB routed approve action',12000);
+   const approve=await cdp.send('Runtime.evaluate',{expression:"(()=>{window.confirm=()=>true;document.querySelector("+JSON.stringify(selector)+")?.click();return true})()",returnByValue:true});
+   if(approve.exceptionDetails)throw Error('LAB routed approval click failed: '+exceptionText(approve.exceptionDetails));
+   const stateExpression="(()=>{const r=window.UCVM_PAGES_DEMO?.export?.()||{},session=r['sessions/"+sessionId+"'];return r['change_request_approvals/"+requestId+"_lab']?.status==='approved'&&r['change_requests/"+requestId+"']?.status==='pending'&&r['change_request_approvals/"+requestId+"_adfa']?.status==='pending'&&session?.room==="+JSON.stringify(beforeRoom)+"&&session?.topic==="+JSON.stringify(beforeTopic)+"})()";
+   await waitForCondition(cdp,stateExpression,'LAB approval without early apply',12000);
+  });
+
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-admin',label:'ADFA routed final approval'},async cdp=>{
+   await cdp.send('Runtime.evaluate',{expression:"(async()=>{await window.UCVM_ASSETS.ensureApprovalWorkflow();return true})()",returnByValue:true,awaitPromise:true});
+   await waitForCondition(cdp,"(()=>!!document.getElementById('approval-queue-btn'))()",'ADFA approval queue button',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{window.confirm=()=>true;document.getElementById('approval-queue-btn')?.click();return true})()",returnByValue:true});
+   const selector='[data-office-decision="approve"][data-office-context="adfa"][data-request-id="'+requestId+'"]';
+   await waitForCondition(cdp,"(()=>!!document.querySelector("+JSON.stringify(selector)+"))()",'ADFA routed Approve and apply action',12000);
+   const approve=await cdp.send('Runtime.evaluate',{expression:"(()=>{window.confirm=()=>true;document.querySelector("+JSON.stringify(selector)+")?.click();return true})()",returnByValue:true});
+   if(approve.exceptionDetails)throw Error('ADFA routed approval click failed: '+exceptionText(approve.exceptionDetails));
+   const finalExpression="(()=>{const r=window.UCVM_PAGES_DEMO?.export?.()||{},req=r['change_requests/"+requestId+"'],session=r['sessions/"+sessionId+"'],calendar=r['calendar_sessions/"+sessionId+"'],queues=Object.values(r).filter(row=>row?.sessionId==='"+sessionId+"'&&row?.status==='pending'&&row?.requestedBy==='uid-admin'),logs=Object.values(r).filter(row=>row?.requestId==='"+requestId+"'&&row?.sessionId==='"+sessionId+"'&&row?.action==='swap_faculty');return req?.status==='approved'&&req?.appliedRevision===1&&r['change_request_approvals/"+requestId+"_adfa']?.status==='approved'&&session?.room==="+JSON.stringify(markerRoom)+"&&session?.topic==="+JSON.stringify(markerTopic)+"&&Array.isArray(session?.assignments)&&session.assignments.some(a=>String(a?.ucid||a?.facultyId||'')==="+JSON.stringify(toFacultyId)+")&&calendar?.room==="+JSON.stringify(markerRoom)+"&&calendar?.topic==="+JSON.stringify(markerTopic)+"&&queues.length>0&&logs.some(row=>row.changedBy==='uid-admin')})()";
+   await waitForCondition(cdp,finalExpression,'ADFA final apply and DOE recalculation queue',15000);
+   const evidenceExpression="(()=>{const r=window.UCVM_PAGES_DEMO?.export?.()||{},audits=Object.values(r).filter(row=>row?.requestId==='"+requestId+"'&&String(row?.event||'').startsWith('office_')),applied=Object.values(r).find(row=>row?.requestId==='"+requestId+"'&&row?.event==='request_applied'),queue=Object.values(r).find(row=>row?.sessionId==='"+sessionId+"'&&row?.status==='pending'&&row?.requestedBy==='uid-admin');return{offices:audits.map(row=>row.office).sort(),appliedOffice:applied?.office||'',queueTrigger:queue?.trigger||'',queueRequestedBy:queue?.requestedBy||''}})()";
+   const evidence=await cdp.send('Runtime.evaluate',{expression:evidenceExpression,returnByValue:true});
+   if(evidence.exceptionDetails)throw Error('routed approval evidence inspection failed: '+exceptionText(evidence.exceptionDetails));
+   const value=evidence.result?.value||{};if(JSON.stringify(value.offices)!==JSON.stringify(['adc','adfa','lab'])||value.appliedOffice!=='adfa'||value.queueRequestedBy!=='uid-admin')throw Error('routed approval audit/queue evidence mismatch: '+JSON.stringify(value));
   });
  }finally{
   try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
