@@ -66,17 +66,18 @@ test('Pages workflow leaves the independent Test workflow in place',()=>{
   assert.match(workflow,/push:\s*\n\s+branches:\s*\n\s+- main/);
 });
 
-test('setup docs define the fixed Pages live Firebase compatibility boundary',()=>{
+test('setup docs define the fixed Pages isolated Firebase lab boundary',()=>{
   const setup=read('SETUP.md');
   assert.match(setup,/https:\/\/alex1122341\.github\.io\/Teaching-assignment\//);
   assert.match(setup,/GitHub Pages/i);
-  assert.match(setup,/tester-teaching/);
-  assert.match(setup,/Live Firebase Compatibility Mode|live Firebase compatibility/i);
-  assert.match(setup,/DOE API.*GitHub Pages|GitHub Pages.*DOE API/i);
+  assert.match(setup,/vista-teaching-lab/);
+  assert.match(setup,/Isolated Firebase Lab/i);
+  assert.match(setup,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(setup,/DOE API.*blank|never injects a DOE API URL|no DOE API/i);
   assert.match(setup,/alex1122341\.github\.io/);
   assert.match(setup,/Authorized domains/i);
   assert.match(setup,/latest successful.*pull request|latest successful.*PR/i);
-  assert.match(setup,/TEST SITE|Not Production/i);
+  assert.match(setup,/TEST SITE|fixed test/i);
 });
 
 test('setup docs require manual production approval after merge',()=>{

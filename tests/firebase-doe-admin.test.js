@@ -43,7 +43,7 @@ test('DOE admin workflow is manual, lab-scoped and does not depend on Azure',()=
 test('browser security rules keep authoritative DOE writes out of the client',()=>{
   const rules=read('firestore.rules');
   for(const collection of ['doe_policies','doe_policy_versions','doe_rules','doe_assignments','doe_calculation_records','doe_audit_log']){
-    assert.match(rules,new RegExp(`match /\\${collection}/`));
+    assert.ok(rules.includes(`match /${collection}/`),`${collection} rule is missing`);
   }
   assert.match(rules,/match \/doe_assignments\/\{assignmentId\}[\s\S]*?allow read, create, update, delete: if false;/);
   assert.match(rules,/match \/doe_calculation_records\/\{recordId\}[\s\S]*?allow (?:create, update, delete|write): if false;/);

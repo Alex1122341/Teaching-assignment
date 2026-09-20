@@ -83,7 +83,7 @@ The GitHub Pages workflow never points at `tester-teaching` and never injects a 
 
 The Pages workflow fails closed unless the injected Web SDK config resolves to exactly `vista-teaching-lab`, emulator mode is disabled and the DOE API base URL is blank. The visible banner is **TEST SITE - GitHub Pages / Isolated Firebase Lab / vista-teaching-lab**.
 
-The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site.
+The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site. Firebase Hosting is not used for the active browser test path; GitHub Pages remains the fixed test host.
 
 ### One-time DOE admin job setup
 

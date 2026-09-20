@@ -7,6 +7,7 @@
 - Do not commit feature work directly to `main`; use a feature branch / worktree and open a PR.
 - The active development/test frontend is the fixed GitHub Pages site at `https://alex1122341.github.io/Teaching-assignment/`.
 - Build `.deploy-static` with `node tools/build-static.js` from the source allowlist in `tools/static-assets.json` and the deterministic bundle map in `tools/runtime-bundles.json`.
+- GitHub Pages and any future host must publish the same generated `.deploy-static` artifact.
 - Do not publish the raw repository source tree or maintain a second frontend copy.
 - Azure workflows and `tools/deploy_azure_static_web.ps1` are retained as paused production/fallback history; they are not part of the active Firebase lab development path.
 
