@@ -37,6 +37,10 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/npm ci/);
   assert.match(workflow,/npm run test:all/);
   assert.match(workflow,/npm run test:emulator/);
+  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/node tools\/build-firebase-config\.js --from-json tools\/production-firebase-web-config\.json/);
+  assert.match(workflow,/node tools\/verify-preview-client-config\.js/);
+  assert.ok(workflow.indexOf('Prepare live Firebase compatibility configuration')<workflow.indexOf('Build static site'));
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
   assert.match(workflow,/--pr\s+["']?\$\{\{ github\.event\.pull_request\.number \}\}["']?/);
@@ -59,14 +63,13 @@ test('Pages workflow leaves the independent Test workflow in place',()=>{
   assert.match(workflow,/push:\s*\n\s+branches:\s*\n\s+- main/);
 });
 
-test('setup docs define the fixed Pages test site and isolated lab boundary',()=>{
+test('setup docs define the fixed Pages live Firebase compatibility boundary',()=>{
   const setup=read('SETUP.md');
   assert.match(setup,/https:\/\/alex1122341\.github\.io\/Teaching-assignment\//);
   assert.match(setup,/GitHub Pages/i);
-  assert.match(setup,/vista-teaching-lab/);
-  assert.match(setup,/isolated.*lab|synthetic.*lab/i);
   assert.match(setup,/tester-teaching/);
-  assert.match(setup,/preview must never be configured to reach production/i);
+  assert.match(setup,/Live Firebase Compatibility Mode|live Firebase compatibility/i);
+  assert.match(setup,/DOE API.*not configured|DOE API.*disabled/i);
   assert.match(setup,/alex1122341\.github\.io/);
   assert.match(setup,/Authorized domains/i);
   assert.match(setup,/latest successful.*pull request|latest successful.*PR/i);
@@ -130,11 +133,12 @@ const identity={
   buildSha:'2222222222222222222222222222222222222222'
 };
 
-test('Pages banner identifies test host, isolated lab configuration, PR and short head SHA',()=>{
+test('Pages banner identifies test host, live Firebase compatibility mode, PR and short head SHA',()=>{
   const html=injectTestBanner('<!doctype html><html><body class="app"><main>UCVM</main></body></html>',identity);
   assert.match(html,/id="github-pages-test-site-banner"/);
   assert.match(html,/TEST SITE - GitHub Pages/);
-  assert.match(html,/Not Production - Isolated Lab Configuration/);
+  assert.match(html,/Live Firebase Compatibility Mode/);
+  assert.match(html,/tester-teaching/);
   assert.match(html,/PR #23/);
   assert.match(html,/1111111/);
   assert.equal((html.match(/github-pages-test-site-banner/g)||[]).length,1);
@@ -156,7 +160,7 @@ test('Pages staging changes only the supplied build directory',()=>{
   const result=stagePagesDirectory(dir,identity);
   assert.equal(result.htmlFiles,2);
   assert.match(fs.readFileSync(path.join(dir,'index.html'),'utf8'),/TEST SITE - GitHub Pages/);
-  assert.match(fs.readFileSync(path.join(dir,'faculty-admin.html'),'utf8'),/Isolated Lab Configuration/);
+  assert.match(fs.readFileSync(path.join(dir,'faculty-admin.html'),'utf8'),/Live Firebase Compatibility Mode/);
   assert.ok(fs.existsSync(path.join(dir,'.nojekyll')));
   assert.ok(fs.existsSync(path.join(dir,'faculty-dashboard.html')));
 
@@ -181,5 +185,27 @@ test('tracked web entry points use relative internal URLs for the Pages project 
     const source=fs.readFileSync(path.join(root,name),'utf8');
     assert.doesNotMatch(source,rootNavigation,`${name} has root-absolute browser navigation`);
   }
+});
+})();
+
+
+(() => {
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
+
+test('Pages compatibility preview uses the pinned tester-teaching Web SDK config but no DOE API',()=>{
+  const workflow=read('.github/workflows/github-pages-test.yml');
+  const verifier=read('tools/verify-preview-client-config.js');
+  assert.match(workflow,/tools\/production-firebase-web-config\.json/);
+  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/EXPECTED_FIREBASE_PROJECT_ID:\s*tester-teaching/);
+  assert.match(verifier,/tester-teaching/);
+  assert.match(verifier,/GENERATE_WITH_/);
+  assert.match(verifier,/AIza/);
+  assert.match(verifier,/must not be configured to reach a DOE API endpoint/);
 });
 })();

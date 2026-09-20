@@ -1,7 +1,7 @@
 # CONFIGURATION.md — Databases, Projects and Client Configuration
 
 **Lab project:** `vista-teaching-lab` (Firestore Native, `northamerica-northeast1` / Montreal)
-**Legacy shared project:** `tester-teaching` — no longer referenced by any runtime file.
+**Existing live project:** `tester-teaching` — temporarily used by the GitHub Pages compatibility build and reserved for Azure production.
 
 ---
 
@@ -17,7 +17,7 @@ The lab project fixes that:
 | | Lab project | Production |
 | --- | --- | --- |
 | Data | synthetic only (`tools/seed/dataset.js`) | real |
-| Public exposure | acceptable — nothing real in it | must never be reached from a preview |
+| Public exposure | acceptable — nothing real in it | currently reached by the explicitly labelled GitHub Pages compatibility preview; normal writes are live |
 | Configuration | committed lab-targeting template (`firebase-config.js`); usable cloud values are generated/injected for the preview build | generated at build time from a tools-only public Web SDK config plus the external DOE API URL |
 
 ---
@@ -26,7 +26,7 @@ The lab project fixes that:
 
 | File | Purpose |
 | --- | --- |
-| `firebase-config.js` | **Single source of truth** for client Firebase configuration. The committed template targets the lab project but intentionally contains placeholder SDK values; a cloud preview needs generated/injected lab SDK configuration. |
+| `firebase-config.js` | **Single source of truth** for client Firebase configuration. The committed template targets the lab project with placeholder SDK values. GitHub Pages compatibility and production builds regenerate this file before building. |
 | `.firebaserc` | Project aliases. `default` is the lab project, so a deploy without `--project` cannot reach production. |
 | `firebase.json` | Rules, indexes, hosting and emulator ports. |
 | `firestore.rules` | Authorisation model. See `docs/database/SCHEMA.md`. |
@@ -93,7 +93,7 @@ firebase deploy --only firestore:rules,firestore:indexes --project <project-id>
 
 Production runtime configuration is generated during the `main` build.
 
-The Firebase Web SDK config for production project `tester-teaching` is pinned in `tools/production-firebase-web-config.json`. This is public client configuration, not a server credential. The file is deliberately outside `tools/static-assets.json`, so it is not shipped as a standalone frontend asset and is never used by pull-request previews. PR previews continue to use the isolated lab configuration.
+The Firebase Web SDK config for project `tester-teaching` is pinned in `tools/production-firebase-web-config.json`. This is public client configuration, not a server credential. The file is deliberately outside `tools/static-assets.json`, so it is never shipped as a standalone frontend asset. During the temporary GitHub Pages compatibility period, the Pages workflow uses this file to generate `firebase-config.js` with an empty DOE API endpoint; the later production build uses the same Web SDK config plus the approved production DOE API URL.
 
 Before a production release can build, define this GitHub repository **Actions variable**:
 

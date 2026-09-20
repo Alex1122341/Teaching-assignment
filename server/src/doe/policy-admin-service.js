@@ -88,6 +88,14 @@ function createPolicyAdminService({serviceFor,repositoryFor,engine,annualRuleboo
     return{policy,versions};
   }
   async function loadPolicyBundle({actor,policyVersionId}={}){return service(actor).loadPolicyBundle(policyVersionId)}
+  async function listAudit({actor,policyVersionId}={}){
+    const id=clean(policyVersionId);
+    if(!id)throw new ApiError('POLICY_VERSION_REQUIRED','DOE Policy Version is required.',422);
+    const repo=repository(actor);
+    if(typeof repo.listAudit!=='function')throw new ApiError('REPOSITORY_CAPABILITY_MISSING','DOE policy audit history is unavailable.',503);
+    const rows=await repo.listAudit(id);
+    return(Array.isArray(rows)?rows:[]).sort((a,b)=>clean(b.changedAt).localeCompare(clean(a.changedAt))||clean(b.auditId).localeCompare(clean(a.auditId)));
+  }
   async function getImpactPreview({actor,impactRunId}={}){
     const repo=repository(actor),run=await repo.getImpactRun(impactRunId);
     if(!run)throw new ApiError('IMPACT_RUN_NOT_FOUND','DOE Impact Preview was not found.',404,{impactRunId});
@@ -137,7 +145,7 @@ function createPolicyAdminService({serviceFor,repositoryFor,engine,annualRuleboo
   }
 
   return Object.freeze({
-    listPolicies,listVersions,getPolicyYear,loadPolicyBundle,getImpactPreview,saveRule,saveException,
+    listPolicies,listVersions,getPolicyYear,loadPolicyBundle,listAudit,getImpactPreview,saveRule,saveException,
     createPolicyYear,cloneDraft,validateDraft,runImpactPreview,publish,archive,previewRecalculate,runRecalculate,testRule
   });
 }

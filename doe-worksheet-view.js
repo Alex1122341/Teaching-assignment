@@ -34,6 +34,16 @@
   const parts=[];if(text(reference.title))parts.push(text(reference.title));if(text(reference.section))parts.push(`§${text(reference.section)}`);if(text(reference.table))parts.push(text(reference.table));if(text(reference.page))parts.push(`p.${text(reference.page)}`);return parts.join(' · ');
  }
  function lineResult(row={}){return number(row.resultDoe)===null?'Unavailable':percent(row.resultDoe)}
+ function sessionAssignmentLine(worksheet={},sessionId='',assignmentId=''){
+  const sid=text(sessionId),aid=text(assignmentId),lines=(Array.isArray(worksheet.lines)?worksheet.lines:[]).filter(row=>text(row.sourceEntityType)==='session_assignment'&&text(row.sourceEntityId)===sid);
+  if(!lines.length)return null;
+  if(aid){
+   const exact=lines.find(row=>text(row.lineId)===`${sid}--${aid}`);
+   if(exact)return exact;
+   return null;
+  }
+  return lines.length===1?lines[0]:null;
+ }
  function worksheetHtml(worksheet={}){
   const summary=worksheetSummary(worksheet),status=statusView(worksheet),lines=Array.isArray(worksheet.lines)?worksheet.lines:[],reserve=worksheet.reserve||{};
   const card=(label,value,sub='')=>`<div class="summary-card"><div class="summary-card-label">${esc(label)}</div><div class="summary-card-value">${esc(value)}</div>${sub?`<div class="summary-card-sub">${esc(sub)}</div>`:''}</div>`;
@@ -44,5 +54,5 @@
   const errorNote=status.key==='needs_review'||status.key==='error'||status.key==='unavailable'?`<div class="no-source"><strong>${esc(status.label)}.</strong> ${esc((worksheet.errors||[]).map(error=>error.message||error.code).filter(Boolean).join(' · ')||'Required DOE data or provenance is incomplete.')}</div>`:'';
   return`<section class="section wide doe-worksheet"><div class="section-title">${esc(summary.academicYear||'Annual')} Teaching DOE · server worksheet</div><div class="summary-grid">${card('Assigned Teaching DOE',percent(summary.assignedDoe),status.label)}${card('Scheduled Teaching',percent(summary.scheduledDoe))}${card('Roles',percent(summary.roleDoe))}${card('Applied Supervision',percent(summary.appliedSupervisionDoe),number(summary.rawSupervisionDoe)!==null?`Raw ${percent(summary.rawSupervisionDoe)}`:'')}${card('Effective Target',percent(summary.targetDoe))}${card('Remaining / Over',summary.remainingDoe===null?'Unavailable':status.label)}${card('Policy Version',summary.policyVersionId||'Unavailable',summary.lastCalculatedAt?`Last calculated ${summary.lastCalculatedAt}`:'')}${card('Reserve',number(reserve.initialTraineeReserve)===null?'Unavailable':percent(reserve.initialTraineeReserve),number(reserve.unappliedSupervision)>0?`${percent(reserve.unappliedSupervision)} supervisory load not applied`:'' )}</div>${errorNote}<div class="assignment-wrap"><table class="activity-table doe-worksheet-table"><thead><tr><th>Assignment</th><th>Calculation</th><th>Rule / Policy</th><th>Reference</th><th class="num">DOE / Evidence</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
  }
- return Object.freeze({worksheetSummary,statusView,percent,referenceText,renderLookupDoe,renderDoeListRow,worksheetHtml});
+ return Object.freeze({worksheetSummary,statusView,percent,referenceText,sessionAssignmentLine,renderLookupDoe,renderDoeListRow,worksheetHtml});
 });

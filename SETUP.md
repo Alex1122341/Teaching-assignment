@@ -66,15 +66,17 @@ The routine release path uses two different frontend hosts for two different pur
 - **GitHub Pages test site:** `https://alex1122341.github.io/Teaching-assignment/`
 - **Azure production site:** `https://red-cliff-04871ca0f.5.azurestaticapps.net`
 
-The two frontend hosts intentionally use different Firebase environments. Pull-request GitHub Pages artifacts are configured for the isolated `vista-teaching-lab` project and synthetic data only. Azure production uses the explicitly generated production configuration for `tester-teaching`. A preview must never be configured to reach production. Firebase Hosting is not used for routine web releases.
+**Temporary compatibility mode:** the GitHub Pages test site currently uses the existing `tester-teaching` Firebase Web SDK configuration so existing Firebase Authentication accounts continue to work during feature development. This means Pages also reads/writes the live `tester-teaching` Firestore according to its deployed Security Rules. The DOE API is intentionally not configured on Pages, so server-authoritative DOE actions remain unavailable until the later Azure deployment. The Pages banner identifies this as **Live Firebase Compatibility Mode**. Azure production remains a separate deployment step. Firebase Hosting is not used for routine web releases.
 
 ### One-time GitHub Pages and Firebase setup
 
 1. In GitHub repository **Settings > Pages**, set the Pages source to **GitHub Actions**.
 2. Keep the standard `github-pages` Environment available to pull-request deployments. Do not restrict that environment to `main`, because the fixed test site is updated from same-repository pull requests.
-3. In Firebase Console, open **Authentication > Settings > Authorized domains** and add `alex1122341.github.io`. This is required so Firebase Authentication can sign users in from the GitHub Pages host.
-4. The fixed Pages URL always shows the latest successful same-repository pull request deployed by `.github/workflows/github-pages-test.yml`. A newer successful PR replaces the previous test version.
-5. The Pages build injects a visible **TEST SITE - GitHub Pages / Not Production - Isolated Lab Configuration** banner with the PR number and commit identifier. That banner exists only in the Pages artifact and never in the Azure production artifact.
+3. In Firebase Console, open **Authentication > Settings > Authorized domains** for `tester-teaching` and add `alex1122341.github.io`. This is required so the existing Firebase Authentication accounts can sign in from the GitHub Pages host.
+4. No extra GitHub variable is required for Pages compatibility mode. The workflow regenerates `firebase-config.js` from the already-pinned public Web SDK configuration in `tools/production-firebase-web-config.json`.
+5. The Pages verifier requires project `tester-teaching`, a real non-placeholder Web API key, emulator mode off, and an empty DOE API endpoint. In other words, existing Firebase Auth/Firestore work, while DOE server calls stay disabled until Azure is deployed.
+6. The fixed Pages URL always shows the latest successful same-repository pull request deployed by `.github/workflows/github-pages-test.yml`. A newer successful PR replaces the previous test version.
+7. The Pages build injects a visible **TEST SITE - GitHub Pages / Live Firebase Compatibility Mode / tester-teaching** banner with the PR number and commit identifier. This is a warning that normal writes from the test site may affect live Firebase data.
 
 Forked pull requests do not deploy the test site. The Pages workflow uses the normal `pull_request` event and verifies that the PR head repository is the same repository before deployment.
 
@@ -87,7 +89,7 @@ Production has two gates. The repository-enforced gate is the manual **Azure Pro
 3. Restrict deployment branches/tags so only `main` may deploy to this environment.
 4. Keep **Prevent self-review** disabled when the repository owner must be able to approve a deployment they initiated.
 5. Add `AZURE_STATIC_WEB_APPS_API_TOKEN` as a **production environment secret** containing the deployment token for the existing Azure Static Web App `ucvm-teaching-lab-web`.
-6. Under **Settings > Secrets and variables > Actions > Variables**, add `PRODUCTION_DOE_API_BASE_URL`: the approved HTTPS Azure App Service base URL for the DOE API. The production Firebase Web SDK config is pinned in `tools/production-firebase-web-config.json`; it is public client metadata, excluded from the static source allowlist, and consumed only by the `main` production build. Pull-request previews continue to use the isolated lab config.
+6. Under **Settings > Secrets and variables > Actions > Variables**, add `PRODUCTION_DOE_API_BASE_URL`: the approved HTTPS Azure App Service base URL for the DOE API. The production Firebase Web SDK config is pinned in `tools/production-firebase-web-config.json`; it is public client metadata and is used by both the temporary Pages compatibility build (without DOE API) and the later production build (with the approved DOE API URL).
 7. Confirm the DOE App Service `GET /api/health` endpoint is healthy and its `ALLOWED_ORIGINS` includes `https://red-cliff-04871ca0f.5.azurestaticapps.net`. The main-push production build independently verifies this endpoint with the production Origin header and fails closed if health or CORS is wrong.
 8. After the environment secret is confirmed working, remove the old repository-level copy of `AZURE_STATIC_WEB_APPS_API_TOKEN` so the Azure token is available only to the production job.
 
@@ -117,7 +119,7 @@ The DOE API workflow cannot create the Azure subscription resource or invent ser
 1. Create a feature branch and open a same-repository pull request targeting `main`.
 2. The independent **Test** workflow runs static/unit tests and the Firestore/Auth emulator suite.
 3. The **GitHub Pages Test Site** workflow independently runs `npm ci`, `npm run test:all`, `npm run test:emulator`, builds `.deploy-static`, applies Pages-only staging, and publishes the verified artifact to the fixed GitHub Pages test URL.
-4. Open `https://alex1122341.github.io/Teaching-assignment/` and manually validate sign-in, Timetable, Faculty Dashboard, and the changed workflow. Confirm the TEST SITE / Not Production banner is present. The preview is for synthetic lab data only and must not be repointed to production for acceptance testing.
+4. Open `https://alex1122341.github.io/Teaching-assignment/` and manually validate sign-in, Timetable, Faculty Dashboard, and the changed workflow. Confirm the **TEST SITE / Live Firebase Compatibility Mode / tester-teaching** banner is present. During this temporary mode, treat normal writes as live-data operations; destructive/failure-injection testing must remain on the Emulator. DOE server features remain unavailable because the Pages build intentionally leaves the DOE API endpoint blank.
 5. Additional commits to the same or another same-repository PR update the single fixed Pages test site after their verification passes. The latest successful PR version is the version visible at the fixed URL.
 6. Only after the browser test is accepted, merge the pull request to `main`.
 7. The `main` push starts the **Azure Static Web Apps** workflow. Its `validate_and_build` job runs the full test suite again, requires the production DOE API Actions variable, generates and verifies the `tester-teaching` Firebase client configuration from the tools-only public config plus the HTTPS DOE API base URL, calls the DOE API `/api/health` endpoint with the Azure production Origin to verify service identity and CORS, builds `.deploy-static`, adds the canonical `staticwebapp.config.json`, and uploads an immutable `azure-production-${{ github.sha }}` Actions artifact. Missing/invalid production client configuration or an unhealthy/misconfigured DOE API fails the build before any artifact is uploaded. The `main` push does not deploy production.
@@ -176,7 +178,7 @@ If an import fails after the maintenance lock is acquired, the teaching-data loc
 
 Stale session deletion is not reached until the imported source has been verified. Completion is not reached until final session IDs match, derived indexes are rebuilt, and the provisional index verification passes. Only a terminal `COMPLETED` or `RESTORED` transition releases the lock, in the same Firestore batch as the terminal job update.
 
-Destructive failure-injection, interrupted-import, restore, takeover, and lock-enforcement testing must be run only against the Firebase emulator or another isolated disposable environment. The fixed GitHub Pages test site is a synthetic-data lab preview, not a substitute for emulator-based destructive failure testing.
+Destructive failure-injection, interrupted-import, restore, takeover, and lock-enforcement testing must be run only against the Firebase emulator or another isolated disposable environment. While GitHub Pages is in Live Firebase Compatibility Mode it points at `tester-teaching`, so it must never be used as a substitute for emulator-based destructive failure testing.
 
 This feature depends on the reviewed maintenance rules in `firestore.rules`. Frontend banners and disabled controls are usability guards; Firestore Security Rules are the actual backend enforcement boundary. Deploy the reviewed rules before relying on production maintenance enforcement:
 

@@ -247,3 +247,15 @@ test('policy year read route is admin-only and returns server policy year view',
  assert.equal(ok.body.policy.policyId,'p27');
  assert.equal(calls[0].academicYear,'2027-28');
 });
+
+
+test('Rule Book audit history is admin-only and version scoped',async()=>{
+ const calls=[],policyAdminService={async listAudit(input){calls.push(input);return[{auditId:'a1',policyVersionId:input.policyVersionId}]}};
+ const routes=createDoeRoutes({calculationService:{calculateAssignment:async()=>({})},policyAdminService});
+ const denied=await routes.handle({method:'GET',path:'/api/doe/policy-versions/v1/audit',actor:faculty});
+ assert.equal(denied.statusCode,403);
+ const ok=await routes.handle({method:'GET',path:'/api/doe/policy-versions/v1/audit',actor:regular});
+ assert.equal(ok.statusCode,200);
+ assert.equal(ok.body[0].policyVersionId,'v1');
+ assert.equal(calls[0].actor.uid,regular.uid);
+});

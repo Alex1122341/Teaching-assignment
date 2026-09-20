@@ -99,3 +99,25 @@ test('production Firebase Web config is pinned tools-only and excluded from prev
   assert.match(workflow,/--from-json tools\/production-firebase-web-config\.json/);
   assert.doesNotMatch(read('firebase-config.js'),/tester-teaching/);
 });
+
+
+test('preview config verifier accepts tester-teaching compatibility config only when DOE API is disabled',()=>{
+  const {validatePreview}=require('../tools/verify-preview-client-config.js');
+  const good={
+    firebaseConfig:{
+      apiKey:'AIza'+'A'.repeat(35),
+      authDomain:'tester-teaching.firebaseapp.com',
+      projectId:'tester-teaching',
+      storageBucket:'tester-teaching.firebasestorage.app',
+      messagingSenderId:'123456789012',
+      appId:'1:123456789012:web:abcdef0123456789abcdef'
+    },
+    emulator:false,
+    projectId:'tester-teaching',
+    doeApiBaseUrl:''
+  };
+  assert.equal(validatePreview(good),true);
+  assert.throws(()=>validatePreview({...good,firebaseConfig:{...good.firebaseConfig,apiKey:'GENERATE_WITH_tools_build-firebase-config.js'}}),/placeholder|invalid/i);
+  assert.throws(()=>validatePreview({...good,projectId:'vista-teaching-lab',firebaseConfig:{...good.firebaseConfig,projectId:'vista-teaching-lab',authDomain:'vista-teaching-lab.firebaseapp.com'}}),/tester-teaching/);
+  assert.throws(()=>validatePreview({...good,doeApiBaseUrl:'https://example.azurewebsites.net'}),/must not be configured to reach a DOE API endpoint/);
+});

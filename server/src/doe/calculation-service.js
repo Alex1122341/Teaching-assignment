@@ -114,7 +114,7 @@ function calculationText(result,rule){
   return`${text(rule?.calculationMode)||'rule'} = ${Number(result.resultDoe).toFixed(2)}%`;
 }
 
-function createCalculationService({repository,engine,idFactory=()=>`calc-${crypto.randomUUID()}`,assignmentIdFactory=()=>`role-${crypto.randomUUID()}`,clock=()=>new Date()}={}){
+function createCalculationService({repository,engine,idFactory=()=>`calc-${crypto.randomUUID()}`,assignmentIdFactory=()=>`role-${crypto.randomUUID()}`,auditIdFactory=()=>`audit-${crypto.randomUUID()}`,clock=()=>new Date()}={}){
   if(!repository?.getActivePolicyBundle)throw new Error('DOE calculation repository is required.');
   if(!engine?.matchRule||!engine?.calculate)throw new Error('DOE policy engine is required.');
 
@@ -199,7 +199,35 @@ function createCalculationService({repository,engine,idFactory=()=>`calc-${crypt
     return{assignment,calculation:{...computed.publicResult,calculationId,calculatedAt}};
   }
 
-  return Object.freeze({calculateAssignment,prepareAssignmentCalculation,saveRoleAssignment});
+  async function listRoleAssignments({actor={},facultyId,academicYear}={}){
+    if(!persistRoles.has(text(actor.role).toLowerCase()))throw new ApiError('FORBIDDEN','This account cannot read authoritative DOE role assignments.',403);
+    if(!repository.listFacultyRoleAssignments)throw new ApiError('ASSIGNMENT_REPOSITORY_REQUIRED','DOE role assignment repository is unavailable.',500);
+    const faculty=text(facultyId),year=text(academicYear);
+    if(!faculty)throw new ApiError('FACULTY_ID_REQUIRED','Faculty ID is required.',422);
+    if(!year)throw new ApiError('ACADEMIC_YEAR_REQUIRED','Academic Year is required.',422);
+    return repository.listFacultyRoleAssignments(faculty,year);
+  }
+
+  async function deactivateRoleAssignment({actor={},assignmentFactId}={}){
+    if(!persistRoles.has(text(actor.role).toLowerCase()))throw new ApiError('FORBIDDEN','This account cannot deactivate DOE role assignments.',403);
+    if(!repository.getDoeAssignment||!repository.deactivateDoeAssignment)throw new ApiError('ASSIGNMENT_REPOSITORY_REQUIRED','DOE role assignment repository is unavailable.',500);
+    const id=text(assignmentFactId);
+    if(!id)throw new ApiError('ASSIGNMENT_ID_REQUIRED','DOE assignmentFactId is required.',422);
+    const current=await repository.getDoeAssignment(id);
+    if(!current)throw new ApiError('ASSIGNMENT_NOT_FOUND','DOE assignment was not found.',404,{assignmentFactId:id});
+    if(text(current.category).toLowerCase()!=='role')throw new ApiError('ASSIGNMENT_NOT_ROLE','Only DOE role assignments can be deactivated from the Faculty editor.',409,{assignmentFactId:id});
+    if(current.active===false)return current;
+    const changedAt=clock().toISOString();
+    const auditRecord={
+      auditId:text(auditIdFactory()),action:'doe_assignment_deactivated',entityType:'doe_assignment',entityId:id,
+      academicYear:text(current.academicYear),facultyId:text(current.facultyId),policyVersionId:text(current.doePolicyVersionId||current.policyVersionId),
+      previousResultDoe:Number.isFinite(Number(current.doeCredit))?Number(current.doeCredit):null,
+      changedBy:text(actor.uid),changedByName:text(actor.name),changedByEmail:text(actor.email),changedAt
+    };
+    return repository.deactivateDoeAssignment({assignmentFactId:id,auditRecord});
+  }
+
+  return Object.freeze({calculateAssignment,prepareAssignmentCalculation,saveRoleAssignment,listRoleAssignments,deactivateRoleAssignment});
 }
 
 module.exports={cleanFacts,createCalculationService};

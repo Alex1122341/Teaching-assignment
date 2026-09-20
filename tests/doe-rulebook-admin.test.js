@@ -89,3 +89,14 @@ test('DOE API client exposes Reference and Reserve Draft writes',()=>{
   assert.equal(typeof api.saveReference,'function');
   assert.equal(typeof api.saveReservePolicy,'function');
 });
+
+
+test('Rule Book History is backed by the server DOE audit API',()=>{
+ const api=require('../doe-api-client.js');
+ assert.equal(typeof api.listAudit,'function');
+ const source=read('doe-rulebook-admin.js');
+ assert.match(source,/DOE_API\.listAudit/);
+ assert.match(source,/doe-rulebook-history-body/);
+ assert.match(source,/changedAt/);
+ assert.match(source,/changedByName/);
+});

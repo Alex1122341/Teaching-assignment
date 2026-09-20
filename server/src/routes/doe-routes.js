@@ -54,6 +54,20 @@ function createDoeRoutes({calculationService,rulebookService,worksheetService,wo
           const result=await worksheetService.listFacultyDoe({academicYear:String(query.academicYear||'')});
           return{statusCode:200,body:result};
         }
+        const facultyRolesMatch=path.match(/^\/api\/doe\/faculty\/([^/]+)\/role-assignments$/);
+        if(method==='GET'&&facultyRolesMatch){
+          if(!adminRoles.has(text(actor?.role)))throw new ApiError('FORBIDDEN','This account cannot read DOE role assignments.',403);
+          if(!calculationService?.listRoleAssignments)throw new ApiError('CALCULATION_SERVICE_UNAVAILABLE','DOE role assignment service is unavailable.',503);
+          const result=await calculationService.listRoleAssignments({actor,facultyId:decodeURIComponent(facultyRolesMatch[1]),academicYear:String(query.academicYear||'')});
+          return{statusCode:200,body:result};
+        }
+        const roleAssignmentMatch=path.match(/^\/api\/doe\/role-assignments\/([^/]+)$/);
+        if(method==='DELETE'&&roleAssignmentMatch){
+          if(!adminRoles.has(text(actor?.role)))throw new ApiError('FORBIDDEN','This account cannot deactivate DOE role assignments.',403);
+          if(!calculationService?.deactivateRoleAssignment)throw new ApiError('CALCULATION_SERVICE_UNAVAILABLE','DOE role assignment service is unavailable.',503);
+          const result=await calculationService.deactivateRoleAssignment({actor,assignmentFactId:decodeURIComponent(roleAssignmentMatch[1])});
+          return{statusCode:200,body:result};
+        }
         if(method==='POST'&&path==='/api/doe/role-assignments'){
           if(!adminRoles.has(text(actor?.role)))throw new ApiError('FORBIDDEN','This account cannot save DOE role assignments.',403);
           if(!calculationService?.saveRoleAssignment)throw new ApiError('CALCULATION_SERVICE_UNAVAILABLE','DOE role assignment service is unavailable.',503);
@@ -81,6 +95,12 @@ function createDoeRoutes({calculationService,rulebookService,worksheetService,wo
           if(!policyAdminService?.loadPolicyBundle)throw new ApiError('POLICY_ADMIN_UNAVAILABLE','DOE policy administration service is unavailable.',503);
           if(!adminRoles.has(text(actor?.role)))throw new ApiError('FORBIDDEN','This account cannot read DOE policies.',403);
           return{statusCode:200,body:await policyAdminService.loadPolicyBundle({actor,policyVersionId:decodeURIComponent(policyBundleMatch[1])})};
+        }
+        const policyAuditMatch=path.match(/^\/api\/doe\/policy-versions\/([^/]+)\/audit$/);
+        if(method==='GET'&&policyAuditMatch){
+          if(!policyAdminService?.listAudit)throw new ApiError('POLICY_ADMIN_UNAVAILABLE','DOE policy audit history is unavailable.',503);
+          if(!adminRoles.has(text(actor?.role)))throw new ApiError('FORBIDDEN','This account cannot read DOE policy audit history.',403);
+          return{statusCode:200,body:await policyAdminService.listAudit({actor,policyVersionId:decodeURIComponent(policyAuditMatch[1])})};
         }
         const impactReadMatch=path.match(/^\/api\/doe\/impact-runs\/([^/]+)$/);
         if(method==='GET'&&impactReadMatch){

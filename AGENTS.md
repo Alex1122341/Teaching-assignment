@@ -15,7 +15,7 @@
 - Frontend: vanilla HTML, CSS and JavaScript.
 - Authentication: Firebase Authentication.
 - Database: Cloud Firestore project `tester-teaching`.
-- Pull-request/browser testing uses the isolated lab configuration; localhost uses the Emulator Suite. Production configuration is generated separately and must not be committed.
+- Temporary compatibility mode: pull-request GitHub Pages browser testing uses the existing `tester-teaching` Firebase Web SDK configuration so existing Authentication accounts work; localhost and destructive/security testing use the Emulator Suite. The Pages build must keep the DOE API endpoint blank until the separate Azure deployment. The committed `firebase-config.js` template remains lab-targeting/placeholder.
 - The current production architecture is Spark-compatible for the static frontend; authoritative DOE policy/rulebook calculations are exposed through the DOE API server boundary.
 - Security decisions must be enforced by Firestore rules and by minimizing what data is delivered to the browser.
 - Do not weaken Firestore rules merely to make a UI feature work.

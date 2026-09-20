@@ -49,6 +49,15 @@ jobs:
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator
 
+      - name: Prepare live Firebase compatibility configuration
+        shell: bash
+        env:
+          EXPECTED_FIREBASE_PROJECT_ID: tester-teaching
+        run: |
+          set -euo pipefail
+          node tools/build-firebase-config.js --from-json tools/production-firebase-web-config.json
+          node tools/verify-preview-client-config.js
+
       - name: Build static site
         run: node tools/build-static.js
 
