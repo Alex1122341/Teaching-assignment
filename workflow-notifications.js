@@ -27,7 +27,7 @@ window.UCVM_WORKFLOW_NOTIFICATIONS=(()=>{
   if(!db||!user||!host)return()=>{};
   const role=String(profile?.role||'').toLowerCase(),caps=window.UCVM_OFFICE_CAPABILITIES,office=caps?.officeForRole?.(role)||'';
   if(!office){host.classList.add('hidden');return()=>{}}
-  const fullOverview=['owner','adfa_general'].includes(role);
+  const fullOverview=['developer','owner','adfa_general'].includes(role);
   let query=db.collection(COLLECTION);query=fullOverview?query.orderBy('createdAt','desc').limit(50):query.where('recipientOffice','==',office).orderBy('createdAt','desc').limit(50);
   const unsubscribe=query.onSnapshot(snapshot=>render(host,snapshot.docs.map(doc=>({id:doc.id,...doc.data()})),user),error=>{console.warn('[workflow notifications]',error);host.classList.add('hidden')});
   host.onclick=event=>{if(event.target.closest?.('[data-notification-close]')){host.classList.add('hidden');return}const item=event.target.closest?.('[data-notification-id]');if(!item)return;db.collection(COLLECTION).doc(item.dataset.notificationId).update({readBy:firebase.firestore.FieldValue.arrayUnion(user.uid)}).catch(error=>console.warn('[workflow notification read]',error))};
