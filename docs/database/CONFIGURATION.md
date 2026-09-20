@@ -17,8 +17,8 @@ The lab project fixes that:
 | | Lab project | Production |
 | --- | --- | --- |
 | Data | synthetic only (`tools/seed/dataset.js`) | real |
-| Public exposure | fixed GitHub Pages test site; synthetic/test data only | not used by the active test site |
-| Configuration | committed lab-targeting template (`firebase-config.js`); GitHub Pages builds from the pinned public Web SDK config in `tools/lab-firebase-web-config.json` | legacy/future production configuration retained separately |
+| Public exposure | optional backend-integration target only; the active Pages demo does not connect to it | not used by the active test site |
+| Configuration | committed lab-targeting template (`firebase-config.js`) plus optional lab tooling for a later backend phase | legacy/future production configuration retained separately |
 
 ---
 
@@ -26,7 +26,7 @@ The lab project fixes that:
 
 | File | Purpose |
 | --- | --- |
-| `firebase-config.js` | **Single source of truth** for client Firebase configuration. The committed template targets the lab project with placeholder SDK values. GitHub Pages regenerates this file from the pinned public config in `tools/lab-firebase-web-config.json` before building. |
+| `firebase-config.js` | **Single source of truth** for real Firebase client configuration. The committed template targets the lab project with placeholder SDK values; GitHub Pages Frontend Demo Mode overrides Firebase only in the staged artifact and does not require a real Web config. |
 | `.firebaserc` | Project aliases. `default` is the lab project, so a deploy without `--project` cannot reach production. |
 | `firebase.json` | Rules, indexes, hosting and emulator ports. |
 | `firestore.rules` | Authorisation model. See `docs/database/SCHEMA.md`. |
