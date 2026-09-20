@@ -96,14 +96,17 @@ Store its JSON key only as the `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` secret in the
 
 ### Firebase Lab Data Setup
 
-After `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` is configured, the manual **Firebase Lab Data Setup** workflow removes the remaining personal-CLI dependency for test data and Firestore configuration:
+After `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` is configured, **Firebase Lab Data Setup** removes the remaining personal-CLI dependency for the test environment.
 
+On `feature/doe-operational-readiness`, the workflow has a branch-locked automatic `provision` path that runs when the workflow itself changes. It creates or reuses the lab Firebase Web App, pins the public Web SDK config, seeds/verifies the canonical synthetic dataset, deploys reviewed Firestore rules/indexes, and commits only `tools/lab-firebase-web-config.json` back to the feature branch.
+
+The manual modes remain available after merge:
 - `verify-data` checks that every canonical synthetic seed document exists.
-- `seed-data` requires `SEED:vista-teaching-lab`, writes the deterministic `tools/seed/dataset.js` dataset with Admin SDK access, then verifies it.
-- `deploy-firestore` requires `DEPLOY-FIRESTORE:vista-teaching-lab` and deploys the reviewed Firestore rules/indexes using Firebase CLI Application Default Credentials.
-- `provision` requires `PROVISION:vista-teaching-lab` and performs both seed/verify and Firestore deployment.
+- `seed-data` requires `SEED:vista-teaching-lab`.
+- `deploy-firestore` requires `DEPLOY-FIRESTORE:vista-teaching-lab`.
+- `provision` requires `PROVISION:vista-teaching-lab` and performs the full data + Firestore setup.
 
-The workflow never accepts another Firebase project id. The lab service account must have the Firestore data permissions needed for seeding and Firebase Rules permissions needed for rules deployment.
+The workflow never accepts another Firebase project id. GitHub Pages fails fast while the pinned Web config is still a placeholder.
 
 ### Firebase Lab Auth Setup
 
