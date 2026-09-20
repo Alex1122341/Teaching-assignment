@@ -13,7 +13,8 @@
       "output": "bundles/shared-faculty-scheduling.bundle.js",
       "sources": [
         "faculty-doe.js",
-        "scheduling-core.js"
+        "scheduling-core.js",
+        "session-workflow.js"
       ],
       "pages": [
         "index.html",
