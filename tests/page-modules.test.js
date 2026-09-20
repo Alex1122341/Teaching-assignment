@@ -52,3 +52,9 @@ test('change history uses the full-width Faculty Dashboard panel theme',()=>{
  assert.match(css,/#faculty-audit th:nth-child\(5\)/);
  assert.match(access,/class="audit-table"/);
 });
+
+test('timetable accepts current Developer Owner and Administrator roles',()=>{
+ const source=read('timetable.js');
+ const whitelist=source.match(/if \(!\[(.*?)\]\.includes\(role\)\)/s)?.[1]||'';
+ for(const role of ['developer','owner','administrator'])assert.match(whitelist,new RegExp(`['"]${role}['"]`),role);
+});
