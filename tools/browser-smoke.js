@@ -295,6 +295,13 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
 
   await navigate('faculty-admin.html');
   await waitForCondition(cdp,`(()=>document.getElementById('auth-gate')?.classList.contains('hidden')===true&&document.getElementById('admin-chip')?.textContent.includes('Browser Smoke Owner'))()`,'Faculty Dashboard owner access');
+  await waitForCondition(cdp,`(()=>!!document.getElementById('doe-list-tab')&&!!document.querySelector('script[data-ucvm-faculty-admin-enhancements]'))()`,'DOE List deferred enhancement');
+  const doeNavigation=await cdp.send('Runtime.evaluate',{
+   expression:`(()=>{const tab=document.getElementById('doe-list-tab'),list=document.getElementById('doe-list-view'),rules=document.getElementById('doe-rules-view');tab?.click();return{tab:!!tab,listVisible:!!list&&!list.classList.contains('hidden'),rulesHidden:!!rules&&rules.classList.contains('hidden')}})()`,
+   returnByValue:true
+  });
+  if(doeNavigation.exceptionDetails)throw Error(`DOE List navigation smoke failed: ${exceptionText(doeNavigation.exceptionDetails)}`);
+  if(!doeNavigation.result?.value?.tab||!doeNavigation.result?.value?.listVisible||!doeNavigation.result?.value?.rulesHidden)throw Error('DOE List deferred enhancement did not own the Faculty Dashboard panel state.');
 
   await navigate('user-management.html');
   await waitForCondition(cdp,`(()=>document.getElementById('content')?.hidden===false&&document.getElementById('accounts')?.hidden===false&&document.getElementById('identity')?.textContent.includes('Browser Smoke Owner'))()`,'User Management owner access');
