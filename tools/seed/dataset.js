@@ -197,7 +197,7 @@ function buildFaculty() {
       awayFromCampusSource: 'seed-2026-27',
       awayFromCampusImportedAt: stamp(0),
       awayFromCampusImportedBy: 'uid-owner',
-      facultySummary2026_27: {assignedTeachingDOE: null, sourceNonTimetableTeachingDOE: null},
+      facultySummary2026_27: {assignedTeachingDOE: person.contract, sourceScheduledTeachingDOE: person.contract, sourceNonTimetableTeachingDOE: 0},
       facultySummarySource2026_27: 'seed-2026-27',
       facultySummaryStatus2026_27: 'imported',
       facultySummaryImportedAt: stamp(0),
