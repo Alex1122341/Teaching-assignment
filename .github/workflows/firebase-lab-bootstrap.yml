@@ -12,10 +12,12 @@ on:
         required: true
         type: string
       role:
-        description: Dashboard role for the lab account
+        description: Dashboard role for the lab account (Developer is highest permission)
         required: true
         type: choice
         options:
+          - developer
+          - owner
           - administrator
           - adfa_general
           - adfa_regular
