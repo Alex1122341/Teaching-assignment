@@ -426,8 +426,8 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(assetFailures.length)problems.push(`local asset failure(s): ${assetFailures.join(' | ')}`);
   if(cloudRequests.length)problems.push(`unexpected Firebase cloud request(s) in ${demoMode?'Pages demo':'emulator smoke'}: ${cloudRequests.join(' | ')}`);
   if(problems.length)throw Error(`${expectation.page}: ${problems.join('; ')}`);
-  if(demoMode&&expectation.page==='index.html')await verifyTimetableRoleMatrix(cdp);
-  if(demoMode&&expectation.page==='user-management.html')await verifyUserManagementRoleMatrix(cdp);
+  if(demoMode&&expectation.page==='index.html')await verifyTimetableRoleMatrix({debugPort,origin,setupCdp:cdp});
+  if(demoMode&&expectation.page==='user-management.html')await verifyUserManagementRoleMatrix({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='faculty-admin.html'){
    if(!state.reconciliationTab)throw Error('faculty-admin.html: DOE Reconciliation tab is missing in Frontend Demo');
    const open=await cdp.send('Runtime.evaluate',{expression:`(()=>{document.getElementById('doe-reconciliation-tab')?.click();return true})()`,returnByValue:true});
@@ -465,22 +465,41 @@ async function switchDemoRole(cdp,uid,label){
  await wait(350);
  return change.result.value;
 }
-async function navigateDemoRole(cdp,uid,label){
- const prepared=await cdp.send('Runtime.evaluate',{expression:"(()=>{if(!window.UCVM_PAGES_DEMO?.selectUser)return{ok:false,reason:'demo role API missing'};window.UCVM_PAGES_DEMO.selectUser("+JSON.stringify(uid)+");return{ok:true,url:location.href}})()",returnByValue:true});
- if(prepared.exceptionDetails)throw Error(label+' demo role preparation failed: '+exceptionText(prepared.exceptionDetails));
- if(!prepared.result?.value?.ok)throw Error(label+' demo role preparation failed: '+(prepared.result?.value?.reason||'unknown error'));
- const load=waitForEvent(cdp,'Page.loadEventFired');
- const navigation=await cdp.send('Page.navigate',{url:prepared.result.value.url});
- if(navigation.errorText)throw Error(label+' demo role navigation failed: '+navigation.errorText);
- await load;
- await wait(350);
+async function setStoredDemoRole(cdp,uid){
+ const result=await cdp.send('Runtime.evaluate',{expression:"(()=>{localStorage.setItem('ucvm-pages-demo-user-v2',"+JSON.stringify(uid)+");return localStorage.getItem('ucvm-pages-demo-user-v2')})()",returnByValue:true});
+ if(result.exceptionDetails)throw Error('Could not persist Pages demo role: '+exceptionText(result.exceptionDetails));
+ if(result.result?.value!==uid)throw Error('Pages demo role persistence mismatch for '+uid);
+}
+async function withDemoRolePage({debugPort,origin,setupCdp,page,uid,label},verify){
+ await setStoredDemoRole(setupCdp,uid);
+ const target=await newTarget(debugPort),cdp=await connectCdp(target.webSocketDebuggerUrl);
+ try{
+  await Promise.all([cdp.send('Runtime.enable'),cdp.send('Page.enable')]);
+  const load=waitForEvent(cdp,'Page.loadEventFired');
+  const navigation=await cdp.send('Page.navigate',{url:`${origin}/${page}`});
+  if(navigation.errorText)throw Error(label+' navigation failed: '+navigation.errorText);
+  await load;
+  await wait(500);
+  await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==="+JSON.stringify(uid)+")()",label+' role identity',12000);
+  return await verify(cdp);
+ }catch(error){
+  let diagnostic={};
+  try{
+   const result=await cdp.send('Runtime.evaluate',{expression:"(()=>({href:location.href,stored:localStorage.getItem('ucvm-pages-demo-user-v2'),session:sessionStorage.getItem('ucvm-admin-default-landing'),auth:window.firebase?.auth?.().currentUser?.uid||'',toolbar:document.querySelector('#ucvm-pages-demo-toolbar select')?.value||'',blocked:window.__ucvmSessionGuard?.blocked===true,status:(document.getElementById('status')?.textContent||'').trim()}))()",returnByValue:true});
+   diagnostic=result.result?.value||{};
+  }catch(_){}
+  throw Error(label+' failed: '+error.message+'; diagnostic='+JSON.stringify(diagnostic));
+ }finally{
+  cdp.close();
+  await closeTarget(debugPort,target.id);
+ }
 }
 async function timetableToolState(cdp){
  const result=await cdp.send('Runtime.evaluate',{expression:"(()=>{const visible=id=>{const el=document.getElementById(id);return !!el&&!el.classList.contains('hidden')};return{uid:window.firebase?.auth?.().currentUser?.uid||'',bulkAdd:visible('bulk-add-session-btn'),addOne:visible('add-session-btn'),select:visible('selection-controls'),manageUsers:visible('manage-users-btn'),facultyDashboard:visible('faculty-dashboard-btn'),outlook:visible('outlook-invite-btn'),publish:visible('publish-firestore-schedule')}})()",returnByValue:true});
  if(result.exceptionDetails)throw Error('Timetable role tool inspection failed: '+exceptionText(result.exceptionDetails));
  return result.result?.value||{};
 }
-async function verifyTimetableRoleMatrix(cdp){
+async function verifyTimetableRoleMatrix({debugPort,origin,setupCdp}){
  const cases=[
   {uid:'uid-developer',label:'Developer',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true}},
   {uid:'uid-owner',label:'Owner',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true}},
@@ -491,53 +510,60 @@ async function verifyTimetableRoleMatrix(cdp){
   {uid:'uid-visc-1',label:'VISC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false}},
   {uid:'uid-fac-001',label:'Faculty',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false}}
  ];
- for(const entry of cases){
-  const current=(await timetableToolState(cdp)).uid;
-  if(current!==entry.uid)await navigateDemoRole(cdp,entry.uid,'index.html '+entry.label);
-  await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==="+JSON.stringify(entry.uid)+")()",'Timetable '+entry.label+' role identity',12000);
-  if(['uid-hicc-1','uid-visc-1','uid-fac-001'].includes(entry.uid))await waitForCondition(cdp,"(()=>!document.getElementById('faculty-dashboard-btn')?.classList.contains('hidden'))()",'Timetable '+entry.label+' Faculty Dashboard link',12000);
-  const state=await timetableToolState(cdp);
-  for(const [key,expected] of Object.entries(entry.expect))if(state[key]!==expected)throw Error('index.html: '+entry.label+' expected '+key+'='+expected+' but got '+state[key]);
+ try{
+  for(const entry of cases){
+   await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:entry.uid,label:'Timetable '+entry.label},async cdp=>{
+    if(['uid-hicc-1','uid-visc-1','uid-fac-001'].includes(entry.uid))await waitForCondition(cdp,"(()=>!document.getElementById('faculty-dashboard-btn')?.classList.contains('hidden'))()",'Timetable '+entry.label+' Faculty Dashboard link',12000);
+    const state=await timetableToolState(cdp);
+    for(const [key,expected] of Object.entries(entry.expect))if(state[key]!==expected)throw Error('expected '+key+'='+expected+' but got '+state[key]+'; state='+JSON.stringify(state));
+   });
+  }
+ }finally{
+  await setStoredDemoRole(setupCdp,'uid-developer');
  }
- await navigateDemoRole(cdp,'uid-developer','index.html Developer reset');
- await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==='uid-developer')()",'Timetable Developer reset',12000);
 }
 async function userManagementState(cdp){
  const result=await cdp.send('Runtime.evaluate',{expression:"(()=>{const byId=id=>document.getElementById(id),devOption=document.querySelector('#account-role option[value=\\\"developer\\\"]'),devEdit=document.querySelector('button[data-edit=\\\"uid-developer\\\"]');return{uid:window.firebase?.auth?.().currentUser?.uid||'',contentVisible:byId('content')?.hidden===false,accountsVisible:byId('accounts')?.hidden===false,groupsTitle:(byId('groups-title')?.textContent||'').trim(),groupId:byId('group-picker')?.value||'',groupOptions:[...(byId('group-picker')?.options||[])].map(option=>option.value),groupNameDisabled:!!byId('group-name')?.disabled,groupOwnerDisabled:!!byId('group-owner')?.disabled,groupCoursesDisabled:!!byId('group-courses')?.disabled,groupNewHidden:!!byId('group-new')?.hidden,groupDeleteHidden:!!byId('group-delete')?.hidden,developerOptionDisabled:!!devOption?.disabled,developerEditDisabled:!!devEdit?.disabled,selectedRole:byId('account-role')?.value||'',status:(byId('status')?.textContent||'').trim()}})()",returnByValue:true});
  if(result.exceptionDetails)throw Error('User Management state inspection failed: '+exceptionText(result.exceptionDetails));
  return result.result?.value||{};
 }
-async function verifyUserManagementRoleMatrix(cdp){
- await waitForCondition(cdp,"(()=>document.getElementById('content')?.hidden===false&&!document.getElementById('accounts')?.hidden)()",'Developer User Management access',12000);
- let state=await userManagementState(cdp);
- if(state.uid!=='uid-developer'||state.developerOptionDisabled||state.developerEditDisabled||state.selectedRole!=='faculty')throw Error('user-management.html: Developer account management state is incorrect: '+JSON.stringify(state));
+async function verifyUserManagementRoleMatrix({debugPort,origin,setupCdp}){
+ try{
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'user-management.html',uid:'uid-developer',label:'Developer User Management'},async cdp=>{
+   await waitForCondition(cdp,"(()=>document.getElementById('content')?.hidden===false&&!document.getElementById('accounts')?.hidden)()",'Developer User Management access',12000);
+   const state=await userManagementState(cdp);
+   if(state.developerOptionDisabled||state.developerEditDisabled||state.selectedRole!=='faculty')throw Error('Developer account management state is incorrect: '+JSON.stringify(state));
+  });
 
- await navigateDemoRole(cdp,'uid-owner','user-management.html Owner');
- await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==='uid-owner'&&document.getElementById('content')?.hidden===false&&!document.getElementById('accounts')?.hidden)()",'Owner User Management access',12000);
- state=await userManagementState(cdp);
- if(!state.developerOptionDisabled||!state.developerEditDisabled||state.selectedRole!=='faculty')throw Error('user-management.html: Owner can still control Developer role/account: '+JSON.stringify(state));
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'user-management.html',uid:'uid-owner',label:'Owner User Management'},async cdp=>{
+   await waitForCondition(cdp,"(()=>document.getElementById('content')?.hidden===false&&!document.getElementById('accounts')?.hidden)()",'Owner User Management access',12000);
+   const state=await userManagementState(cdp);
+   if(!state.developerOptionDisabled||!state.developerEditDisabled||state.selectedRole!=='faculty')throw Error('Owner can still control Developer role/account: '+JSON.stringify(state));
+  });
 
- await navigateDemoRole(cdp,'uid-hicc-1','user-management.html HICC');
- await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==='uid-hicc-1'&&document.getElementById('content')?.hidden===false&&document.getElementById('groups-title')?.textContent.includes('My HICC Groups'))()",'HICC User Management access',12000);
- state=await userManagementState(cdp);
- if(state.accountsVisible||state.groupId!=='group-neuro'||state.groupOptions.filter(Boolean).join(',')!=='group-neuro'||!state.groupNameDisabled||!state.groupOwnerDisabled||!state.groupCoursesDisabled||!state.groupNewHidden||!state.groupDeleteHidden)throw Error('user-management.html: HICC group scope is incorrect: '+JSON.stringify(state));
- const membership=await cdp.send('Runtime.evaluate',{expression:"(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},before=records['faculty_groups/group-neuro'];const input=[...document.querySelectorAll('#group-members input[name=\\\"member\\\"]')].find(node=>!node.disabled&&!node.checked);if(!before||!input)return{ok:false,reason:!before?'group fixture missing':'no eligible unchecked member'};const structural={name:before.name,ownerUid:before.ownerUid,courseIds:JSON.stringify(before.courseIds||[])};input.checked=true;document.getElementById('group-form')?.requestSubmit();return{ok:true,uid:input.value,structural}})()",returnByValue:true});
- if(membership.exceptionDetails)throw Error('HICC group membership submission failed: '+exceptionText(membership.exceptionDetails));
- if(!membership.result?.value?.ok)throw Error('HICC group membership fixture failed: '+(membership.result?.value?.reason||'unknown error'));
- const memberUid=membership.result.value.uid,structural=membership.result.value.structural;
- await waitForCondition(cdp,"(()=>{const row=window.UCVM_PAGES_DEMO?.export?.()?.['faculty_groups/group-neuro'];return Array.isArray(row?.memberUids)&&row.memberUids.includes("+JSON.stringify(memberUid)+")})()",'HICC group membership write',12000);
- const afterMembership=await cdp.send('Runtime.evaluate',{expression:"(()=>{const row=window.UCVM_PAGES_DEMO?.export?.()?.['faculty_groups/group-neuro'];return{name:row?.name||'',ownerUid:row?.ownerUid||'',courseIds:JSON.stringify(row?.courseIds||[])}})()",returnByValue:true});
- const after=afterMembership.result?.value||{};
- if(after.name!==structural.name||after.ownerUid!==structural.ownerUid||after.courseIds!==structural.courseIds)throw Error('user-management.html: HICC membership edit changed protected group structure');
- await cdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true});
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'user-management.html',uid:'uid-hicc-1',label:'HICC User Management'},async cdp=>{
+   await waitForCondition(cdp,"(()=>document.getElementById('content')?.hidden===false&&document.getElementById('groups-title')?.textContent.includes('My HICC Groups'))()",'HICC User Management access',12000);
+   const state=await userManagementState(cdp);
+   if(state.accountsVisible||state.groupId!=='group-neuro'||state.groupOptions.filter(Boolean).join(',')!=='group-neuro'||!state.groupNameDisabled||!state.groupOwnerDisabled||!state.groupCoursesDisabled||!state.groupNewHidden||!state.groupDeleteHidden)throw Error('HICC group scope is incorrect: '+JSON.stringify(state));
+   const membership=await cdp.send('Runtime.evaluate',{expression:"(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},before=records['faculty_groups/group-neuro'];const input=[...document.querySelectorAll('#group-members input[name=\\\"member\\\"]')].find(node=>!node.disabled&&!node.checked);if(!before||!input)return{ok:false,reason:!before?'group fixture missing':'no eligible unchecked member'};const structural={name:before.name,ownerUid:before.ownerUid,courseIds:JSON.stringify(before.courseIds||[])};input.checked=true;document.getElementById('group-form')?.requestSubmit();return{ok:true,uid:input.value,structural}})()",returnByValue:true});
+   if(membership.exceptionDetails)throw Error('HICC group membership submission failed: '+exceptionText(membership.exceptionDetails));
+   if(!membership.result?.value?.ok)throw Error('HICC group membership fixture failed: '+(membership.result?.value?.reason||'unknown error'));
+   const memberUid=membership.result.value.uid,structural=membership.result.value.structural;
+   await waitForCondition(cdp,"(()=>{const row=window.UCVM_PAGES_DEMO?.export?.()?.['faculty_groups/group-neuro'];return Array.isArray(row?.memberUids)&&row.memberUids.includes("+JSON.stringify(memberUid)+")})()",'HICC group membership write',12000);
+   const afterMembership=await cdp.send('Runtime.evaluate',{expression:"(()=>{const row=window.UCVM_PAGES_DEMO?.export?.()?.['faculty_groups/group-neuro'];return{name:row?.name||'',ownerUid:row?.ownerUid||'',courseIds:JSON.stringify(row?.courseIds||[])}})()",returnByValue:true});
+   const after=afterMembership.result?.value||{};
+   if(after.name!==structural.name||after.ownerUid!==structural.ownerUid||after.courseIds!==structural.courseIds)throw Error('HICC membership edit changed protected group structure');
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true});
+  });
 
- await navigateDemoRole(cdp,'uid-admin','user-management.html Administrator');
- await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==='uid-admin'&&/User Management is available to Developer \/ Owner/i.test(document.getElementById('status')?.textContent||''))()",'Administrator User Management denial',12000);
- state=await userManagementState(cdp);
- if(state.contentVisible)throw Error('user-management.html: Administrator unexpectedly received User Management content');
-
- await navigateDemoRole(cdp,'uid-developer','user-management.html Developer reset');
- await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==='uid-developer'&&document.getElementById('content')?.hidden===false&&!document.getElementById('accounts')?.hidden)()",'Developer User Management reset',12000);
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'user-management.html',uid:'uid-admin',label:'Administrator User Management'},async cdp=>{
+   await waitForCondition(cdp,"(()=>/User Management is available to Developer \/ Owner/i.test(document.getElementById('status')?.textContent||''))()",'Administrator User Management denial',12000);
+   const state=await userManagementState(cdp);
+   if(state.contentVisible)throw Error('Administrator unexpectedly received User Management content');
+  });
+ }finally{
+  await setStoredDemoRole(setupCdp,'uid-developer');
+ }
 }
 async function verifyDemoRoleSwitching(cdp){
  await switchDemoRole(cdp,'uid-fac-001','Faculty');
