@@ -11,8 +11,10 @@
  const {auth,db}=UCVM.init();
  const $=id=>document.getElementById(id), esc=UCVM.esc;
  const REQUESTS='change_requests', SESSIONS='sessions', LOGS='session_change_log', WORKFLOWS='change_request_workflow', APPROVALS='change_request_approvals', PRIVATE_REQUESTS='change_request_private', REQUEST_AUDIT='change_request_audit', CALENDAR='calendar_sessions', SWAP_INDEX='faculty_swap_index';
- function doeApiReady(method){return Boolean(doeApi?.[method])&&!(typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured())}
- function doeApiUnavailable(){return typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured.':'DOE API is unavailable.'}
+ function doeQueueReady(){return Boolean(doeApi?.saveSessionChange&&doeApi?.canQueueSessionChanges?.())}
+ function doeApiReady(method){if(!doeApi?.[method])return false;const configured=!(typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured());return configured||(method==='saveSessionChange'&&doeQueueReady())}
+ function doeApiUnavailable(){return doeQueueReady()?'DOE preview API is not configured; authoritative session saves will use the Firebase recalculation queue.':(typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured.':'DOE API is unavailable.')}
+
  let me=null,user=null,role='',sessions=new Map(),people=[],peopleByUid=new Map(),groups=[],myGroups=[],hiccScope=new Set();
  let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleLoading=null,renderQueued=false,requestLoadToken=0;
  let approvalFaculty=[],approvalFacultyById=new Map(),approvalFacultyLoaded=false;
@@ -579,12 +581,12 @@ async function hydrateApprovalImpacts(){if(!isAdfaApprover())return;
     if(!confirm(`TIMETABLE CONFLICT DETECTED${warningText}\n\nOverride and approve despite the timetable conflict(s)? This override will be recorded in the audit log.`))return;
   }else if(!confirm(`Approve and apply this ${r.requestType==='faculty_swap'?'faculty swap':'session change'} to the live timetable?${warningText}`))return;
   try{
-    if(!doeApi?.saveSessionChange||(typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured()))throw Error(typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured.':'DOE API is unavailable.');
+    if(!doeApiReady('saveSessionChange'))throw Error(doeApiUnavailable());
     const after={...current,...patch},saved=await doeApi.saveSessionChange({academicYear:current.academicYear||'',sessionId:current.id,afterSession:after,trigger:'approved_legacy_change'}),savedAfter=saved.session||after;
     const batch=db.batch(),reqRef=db.doc(`${REQUESTS}/${id}`),logRef=db.collection(LOGS).doc();
     batch.set(logRef,{...log,requestId:id,sessionId:r.sessionId,course:savedAfter.course||current.course||r.course||'',date:ymd(savedAfter.date||current.date),topic:savedAfter.topic||current.topic||'',override:conflictOverride,doeChanges:saved.doeChanges||[],changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});
     batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:me?.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});
-    await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after:savedAfter}]);toast('Approved and applied to the live timetable.');closeModal();
+    await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after:savedAfter}]);toast(saved?.queued?'Approved and applied to the live timetable. DOE recalculation queued.':'Approved and applied to the live timetable.');closeModal();
   }catch(e){console.error(e);toast(e.message,true)}
  }
  async function rejectRequest(id){

@@ -108,10 +108,13 @@
   if(resolved.special&&!String(request.reason||'').trim())return toast('Sessional / Other requests require a reason or note.',true);
   let doePreview=null;
   if(!resolved.special){
-   if(!doeApi?.previewFacultyTransfer||(typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured()))return toast(`${typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured.':'DOE API is unavailable.'} Approval is blocked.`,true);
-   const outgoing=assignedArray(current)[idx]||{},assignmentId=String(outgoing.assignmentId||`${current.id}--assignment--${idx+1}`);
-   try{doePreview=await doeApi.previewFacultyTransfer({academicYear:current.academicYear||'',sessionId:current.id,assignmentId,incomingFacultyId:resolved.facultyId})}
-   catch(error){console.error('[safe swap DOE preview]',error);return toast(`DOE preview failed: ${error.message}`,true)}
+   const previewConfigured=Boolean(doeApi?.previewFacultyTransfer)&&!(typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured());
+   const queueReady=Boolean(doeApi?.saveSessionChange&&doeApi?.canQueueSessionChanges?.());
+   if(previewConfigured){
+    const outgoing=assignedArray(current)[idx]||{},assignmentId=String(outgoing.assignmentId||`${current.id}--assignment--${idx+1}`);
+    try{doePreview=await doeApi.previewFacultyTransfer({academicYear:current.academicYear||'',sessionId:current.id,assignmentId,incomingFacultyId:resolved.facultyId})}
+    catch(error){console.error('[safe swap DOE preview]',error);return toast(`DOE preview failed: ${error.message}`,true)}
+   }else if(!queueReady)return toast('DOE API and Firebase recalculation queue are unavailable. Approval is blocked.',true);
   }
   const {warnings,check}=await liveIncomingWarnings(resolved,current),warningText=warnings.length?`\n\nWARNING - availability/conflict checks:\n- ${warnings.join('\n- ')}`:'';
   const needsOverride=approvalScheduling.requiresOverride(check);
@@ -123,12 +126,12 @@
   if(resolved.special){delete incoming.facultyId;incoming.ucid=''}
   baseArr[idx]=incoming;const arr=baseArr,patch={assignments:arr,instructor:arr.map(a=>a.name).filter(Boolean).join('; '),facultyIds:UCVM_DATA_INDEX.sessionFacultyIds({...current,assignments:arr})},after={...current,...patch};
   try{
-   if(!doeApi?.saveSessionChange||(typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured()))throw Error(typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured.':'DOE API is unavailable.');
+   if(!doeApi?.saveSessionChange||((typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured())&&!doeApi?.canQueueSessionChanges?.()))throw Error('DOE API and Firebase recalculation queue are unavailable.');
    const saved=await doeApi.saveSessionChange({academicYear:current.academicYear||'',sessionId:current.id,afterSession:after,trigger:'approved_swap_request'}),savedAfter=saved.session||after;
    const reqRef=db.collection(REQUESTS).doc(requestId),logRef=db.collection('session_change_log').doc(),batch=db.batch();
    batch.set(logRef,{action:'swap_faculty',override:conflictOverride,requestId,sessionId:current.id,course:savedAfter.course||current.course||request.course||'',date:ymd(savedAfter.date||current.date),topic:savedAfter.topic||current.topic||'',fromFaculty:request.fromFaculty||{},toFaculty:{...request.toFaculty,facultyId:resolved.facultyId,name:resolved.name,category:incoming.category},role:incoming.role||current.type||'',doePreview:doePreview?{oldDoeCredit:doePreview.sessionDoeCredit,newDoeCredit:doePreview.incomingDoeCredit,outgoing:doePreview.outgoing,incoming:doePreview.incoming}:null,doeChanges:saved.doeChanges||[],changedBy:user.uid,changedByName:profile.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});
    batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:profile.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});
-   await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after:savedAfter}]);closeModal();toast('Approved and applied to the live timetable.');
+   await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after:savedAfter}]);closeModal();toast(saved.queued?'Approved and applied to the live timetable. DOE recalculation queued.':'Approved and applied to the live timetable.');
   }catch(error){console.error('[safe faculty swap approval]',error);toast(error.message,true)}
  }
 

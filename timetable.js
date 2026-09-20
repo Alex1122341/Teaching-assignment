@@ -97,10 +97,15 @@
   function getTimetableDoeRuntime(){
     if(timetableDoeRuntime&&timetableDoeRuntime.db===db)return timetableDoeRuntime;
     const api=window.UCVM_DOE_API,selectionApi=window.UCVM_TIMETABLE_SELECTION;
-    if(!db||!api||!selectionApi)throw new Error('DOE API modules are required for timetable assignment writes.');
-    if(typeof api.isConfigured==='function'&&!api.isConfigured())throw new Error('DOE API is not configured for authoritative timetable writes.');
-    const adapter=selectionApi.createDoeApiAdapter({api});
-    timetableDoeRuntime={db,api,adapter};
+    if(!db||!api||!selectionApi)throw new Error('DOE workflow modules are required for timetable assignment writes.');
+    const httpConfigured=typeof api.isConfigured!=='function'||api.isConfigured();
+    let adapter,mode='api';
+    if(httpConfigured)adapter=selectionApi.createDoeApiAdapter({api});
+    else if(api.canQueueSessionChanges?.()&&typeof api.prepareQueuedSessionChange==='function'){
+      mode='queue';
+      adapter={prepareSession:(before,after,options={})=>Promise.resolve(api.prepareQueuedSessionChange({beforeSession:before,afterSession:after,trigger:options.trigger||'session_updated'}))};
+    }else throw new Error('Neither the DOE API nor the Firebase recalculation queue is available for timetable writes.');
+    timetableDoeRuntime={db,api,adapter,mode};
     return timetableDoeRuntime;
   }
   function doeAuditChanges(changes){
@@ -663,12 +668,12 @@
     catch(error){console.error('[DOE faculty swap calculation]',error);toast(`SWAP blocked: ${error.message||'DOE calculation is unavailable.'}`,true);return}
     const newCredit=swapAssignmentCredit(next.assignments[outIndex]),incomingImpact=(doeResult.facultyImpacts||[]).find(row=>String(row?.facultyId||'')===String(replacement.__id)),currentNew=incomingImpact?.currentAssignedDoe??null,projectedNew=incomingImpact?.projectedAssignedDoe??null;
     const availabilityWarning=av.available===false?`\n\nWARNING: ${newName} is not available for ${session.date} ${session.start||''}-${session.end||''}:\n${assignmentAvailabilityDetail(av,session.date,session.start,session.end)}\n\nAdmin override?`:av.available===null?`\n\nCHECK NEEDED before assigning ${newName}:\n${assignmentAvailabilityDetail(av,session.date,session.start,session.end)}\n\nContinue as admin?`:'';
-    if(!confirm(`Swap ${oldName} to ${newName} for ${session.course} - ${session.topic}?\n\n${newCredit===null?'DOE impact: this activity is unrated.':`DOE credit: ${oldCredit===null?'unrated':oldCredit.toFixed(2)+'%'} → ${newCredit.toFixed(2)}%\n${newName}: ${currentNew===null?'current DOE unavailable':currentNew.toFixed(2)+'%'} → ${projectedNew===null?'projected unavailable':projectedNew.toFixed(2)+'%'}`}${availabilityWarning}`))return;
+    if(!confirm(`Swap ${oldName} to ${newName} for ${session.course} - ${session.topic}?\n\n${doeResult.queued?'DOE impact: authoritative recalculation will be queued after save.':newCredit===null?'DOE impact: this activity is unrated.':`DOE credit: ${oldCredit===null?'unrated':oldCredit.toFixed(2)+'%'} → ${newCredit.toFixed(2)}%\n${newName}: ${currentNew===null?'current DOE unavailable':currentNew.toFixed(2)+'%'} → ${projectedNew===null?'projected unavailable':projectedNew.toFixed(2)+'%'}`}${availabilityWarning}`))return;
     const overrides=confirmSchedulingChanges([next]);if(overrides===null)return;
     try{
       const saved=await doeRuntime.api.saveSessionChange({academicYear:doeResult.academicYear||next.academicYear||'',sessionId:session.id,afterSession:next,trigger:'faculty_swap'}),savedNext=saved.session||next,auditChanges=doeAuditChanges(saved.doeChanges||doeResult.doeChanges);
       await db.collection(SESSION_LOG_COLLECTION).doc().set({action:'swap_faculty',override:overrides.get(String(session.id))||null,requestId:'',sessionId:session.id,course:savedNext.course||session.course,date:savedNext.date||session.date,topic:savedNext.topic||session.topic,role:outgoing.role||session.type||'',doeCredit:swapAssignmentCredit(savedNext.assignments?.[outIndex]),oldDoeCredit:oldCredit,doeChanges:saved.doeChanges||doeResult.doeChanges,changes:auditChanges,fromFaculty:{ucid:String(outgoing.ucid||oldFaculty?.__id||''),name:oldName},toFaculty:{ucid:String(replacement.__id),name:newName},toFacultyCurrentAssignedDOE:currentNew,toFacultyProjectedAssignedDOE:projectedNew,changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
-      invalidateAllSessions(); await updateDerivedIndexes([{before:session,after:savedNext}]); closeModal(); toast(`SWAP complete: ${oldName} → ${newName}. Faculty DOE will update automatically.`);
+      invalidateAllSessions(); await updateDerivedIndexes([{before:session,after:savedNext}]); closeModal(); toast(saved.queued?`SWAP complete: ${oldName} → ${newName}. DOE recalculation queued.`:`SWAP complete: ${oldName} → ${newName}. Faculty DOE updated.`);
     }catch(err){console.error('[faculty swap]',err);toast(`SWAP failed. ${err.message||'DOE API save is unavailable.'}`,true)}
   }
 
