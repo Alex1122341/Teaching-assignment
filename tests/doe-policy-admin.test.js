@@ -141,3 +141,17 @@ test('Impact Preview renderer exposes required summary metrics and per-faculty d
  assert.match(html,/\+6\.00%/);
  assert.match(html,/teaching\.lecture\.standard/);
 });
+
+
+test('Rule Book permission gates consume the authoritative version returned by bundle reload',()=>{
+ const source=read('doe-policy-admin.js');
+ const selectedStart=source.indexOf('function selectedVersion');
+ const selectedEnd=source.indexOf('function isDraft',selectedStart);
+ const selected=source.slice(selectedStart,selectedEnd);
+ assert.match(selected,/state\.bundle\?\.version\?\.policyVersionId===selectedId/);
+ const loadStart=source.indexOf('async function loadBundle');
+ const loadEnd=source.indexOf('async function loadVersions',loadStart);
+ const load=source.slice(loadStart,loadEnd);
+ assert.match(load,/state\.bundle=await state\.service\.loadPolicyBundle/);
+ assert.match(load,/state\.versions\[at\]=\{\.\.\.state\.versions\[at\],\.\.\.current\}/);
+});
