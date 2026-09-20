@@ -109,3 +109,9 @@ test('reconciliation reuses the existing DOE worksheet runtime and remains admin
   const selfEnd=source.indexOf('\nfunction',selfStart+20);
   assert.doesNotMatch(source.slice(selfStart,selfEnd),/ensureFacultyAdminEnhancements/);
 });
+
+
+test('Faculty Dashboard reconciliation enhancement parses as browser JavaScript',()=>{
+  const source=read('faculty-admin-enhancements.js');
+  assert.doesNotThrow(()=>new Function(source));
+});
