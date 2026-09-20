@@ -178,6 +178,7 @@
   });
  }
  function queueManagedRoles(){if(roleAppendQueued)return;roleAppendQueued=true;requestAnimationFrame(()=>{roleAppendQueued=false;appendManagedRoleRows()})}
+ function scheduleRoleAppend(delay=220){setTimeout(queueManagedRoles,Math.max(0,Number(delay)||0))}
 
  function subscribe(){
   if(facultyUnsub)facultyUnsub();if(sessionUnsub)sessionUnsub();
@@ -192,7 +193,7 @@
   new MutationObserver(inspect).observe(document.documentElement,{childList:true,subtree:true});
   document.addEventListener('submit',ev=>{const form=ev.target;if(form?.id!=='edit-form'||!form.querySelector('#ucvm-doe-role-section'))return;const id=String(form.elements.namedItem('ucid')?.value||'').trim(),f=facultyById.get(id)||{},after=readEditorExtras(form);pendingExtra={id,name:String(form.elements.namedItem('preferredFullName')?.value||facultyName(f)||id),before:{roles:managedRoles(f),override:form._ucvmDoeBeforeOverride??null},after};waitForEditorSave(pendingExtra)},true)
  }
- installStyles();watchDom();$('doe-policy-year')?.addEventListener('change',()=>{serverDoeLoaded=false;serverDoeRows=[];serverDoeError='';if(apiDoeReady())loadDoeList({force:true}).catch(error=>console.error(error))});
+ installStyles();watchDom();$('roles-search')?.addEventListener('input',()=>scheduleRoleAppend(220));$('role-type-filter')?.addEventListener('change',()=>scheduleRoleAppend(30));$('doe-policy-year')?.addEventListener('change',()=>{serverDoeLoaded=false;serverDoeRows=[];serverDoeError='';if(apiDoeReady())loadDoeList({force:true}).catch(error=>console.error(error))});
  const startFromPage=()=>{const sharedProfile=window.UCVM_ADMIN_DATA?.profile?.();if(!sharedProfile||sharedProfile.active!==true||!UCVM.admin(sharedProfile))return false;profile=sharedProfile;subscribe();return true};
  auth.onAuthStateChanged(u=>{user=u;profile=null;if(facultyUnsub)facultyUnsub();if(sessionUnsub)sessionUnsub();facultyUnsub=sessionUnsub=null;if(!u)return;if(!startFromPage())window.addEventListener('ucvm:admin-ready',startFromPage,{once:true})});
 })();
