@@ -53,10 +53,28 @@ jobs:
         shell: bash
         env:
           EXPECTED_FIREBASE_PROJECT_ID: tester-teaching
+          PAGES_DOE_API_BASE_URL: ${{ vars.PRODUCTION_DOE_API_BASE_URL }}
         run: |
           set -euo pipefail
-          node tools/build-firebase-config.js --from-json tools/production-firebase-web-config.json
+          if [ -n "$PAGES_DOE_API_BASE_URL" ]; then
+            node tools/build-firebase-config.js --from-json tools/production-firebase-web-config.json --doe-api-base-url "$PAGES_DOE_API_BASE_URL"
+          else
+            node tools/build-firebase-config.js --from-json tools/production-firebase-web-config.json
+          fi
           node tools/verify-preview-client-config.js
+
+      - name: Verify DOE API health and GitHub Pages CORS when configured
+        shell: bash
+        env:
+          PRODUCTION_DOE_API_BASE_URL: ${{ vars.PRODUCTION_DOE_API_BASE_URL }}
+          PRODUCTION_FRONTEND_ORIGIN: https://alex1122341.github.io
+        run: |
+          set -euo pipefail
+          if [ -z "$PRODUCTION_DOE_API_BASE_URL" ]; then
+            echo "DOE API is not configured for GitHub Pages yet; continuing in Firebase-only compatibility mode."
+            exit 0
+          fi
+          node tools/verify-production-doe-api.js
 
       - name: Build static site
         run: node tools/build-static.js
