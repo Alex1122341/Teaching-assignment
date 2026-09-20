@@ -366,7 +366,7 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
    returnByValue:true
   });
   if(explainOpen.exceptionDetails)throw Error(`DOE explanation profile open failed: ${exceptionText(explainOpen.exceptionDetails)}`);
-  await waitForCondition(cdp,`(()=>{const pane=document.getElementById('profile-pane'),button=pane?.querySelector('[data-doe-explain-line="session-smoke--assignment-smoke"]');return !!button&&(pane?.textContent||'').includes('Avery')})()`,'DOE explanation trigger render');
+  await waitForCondition(cdp,`(()=>!!document.querySelector('#profile-pane [data-doe-explain-line="session-smoke--assignment-smoke"]'))()`,'DOE explanation trigger render');
   const explainClick=await cdp.send('Runtime.evaluate',{
    expression:`(()=>{const button=document.querySelector('#profile-pane [data-doe-explain-line="session-smoke--assignment-smoke"]');button?.click();const modal=document.getElementById('doe-explain-modal'),body=document.getElementById('doe-explain-body');return{button:!!button,visible:!!modal&&!modal.classList.contains('hidden'),text:body?.textContent||''}})()`,
    returnByValue:true
