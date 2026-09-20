@@ -363,13 +363,17 @@
   const faculty=view.faculty.proposedName?`<div class="workflow-approval-change${officeContext&&!isDeveloper()&&office()!=='adfa'?' role-locked-field':''}"><strong>Faculty Assignment</strong>${view.faculty.currentName?`${esc(view.faculty.currentName)} → `:''}${esc(view.faculty.proposedName)}${officeContext?` <span class="workflow-pill">ADFA: ${esc(officeStatusText(r,'adfa'))}</span>`:''}</div>`:'';
   return rows+faculty;
  }
- function routedOfficeActionHtml(r,currentOffice){
+function routedOfficeActionHtml(r,currentOffice){
   const own=r?._approvals?.[currentOffice];if(!own||own.status!=='pending'||r.status!=='pending')return'';
-  const otherApproved=(r._workflow?.requiredOffices||[]).filter(name=>name!==currentOffice).every(name=>r._approvals?.[name]?.status==='approved');
-  if(r._workflow?.hasFacultyChange&&currentOffice==='adfa'&&!otherApproved)return `<div class="workflow-note"><strong>ADFA</strong> · Waiting for the other required office approvals before final approval and apply.</div>`;
+  // Approvals are strictly serial: ADC -> LAB -> ADFA. An office whose earlier
+  // required offices are still pending sees a waiting note instead of Approve.
+  // Push Back and Reject stay available so an office can return bad work.
+  const readiness=lifecycle.decisionReadiness({workflow:r._workflow||{},approvals:r._approvals||{},office:currentOffice});
   const label=isDeveloper()?`<strong>${esc(currentOffice.toUpperCase())}</strong> · `:'';
-  return `<div class="workflow-actions">${label}<button class="btn btn-primary" data-office-decision="approve" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Approve${r._workflow?.hasFacultyChange&&currentOffice==='adfa'?' & apply':''}</button><button class="btn btn-secondary" data-office-decision="push_back" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Push Back</button><button class="btn btn-secondary" data-office-decision="reject" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Reject</button></div>`;
- }
+  const waiting=readiness.allowed?'':`<div class="workflow-note"><strong>${esc(currentOffice.toUpperCase())}</strong> · Waiting for ${esc(readiness.waitingFor.map(name=>name.toUpperCase()).join(' then '))} before this office can approve.</div>`;
+  const approve=readiness.allowed?`<button class="btn btn-primary" data-office-decision="approve" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Approve${r._workflow?.hasFacultyChange&&currentOffice==='adfa'?' & apply':''}</button>`:'';
+  return `${waiting}<div class="workflow-actions">${label}${approve}<button class="btn btn-secondary" data-office-decision="push_back" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Push Back</button><button class="btn btn-secondary" data-office-decision="reject" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Reject</button></div>`;
+}
  function routedActionHtml(r){
   const offices=isDeveloper()?(r?._workflow?.requiredOffices||[]).filter(name=>['adc','lab','adfa'].includes(name)):approvalOffices();
   return offices.map(name=>routedOfficeActionHtml(r,name)).filter(Boolean).join('');

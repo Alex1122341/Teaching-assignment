@@ -28,7 +28,13 @@ const rules = fs.readFileSync(path.resolve(__dirname, '../firestore.rules'), 'ut
 // though one Firestore request cannot traverse both rule paths. Keep separate
 // growth guards, then rely on the emulator suite for the real per-request budget.
 const CORE_CEILING = {
-  documentReads: 265,
+  // 265 -> 267: approvalOrderSatisfied() adds two getAfter() reads (the earlier
+  // ADC and LAB approval documents) so an approval write is rejected unless the
+  // preceding applicable stages have already approved. Those reads are only
+  // reached on the approve branch, and the serial-order emulator suite
+  // (tests/approval-order-security-emulator.test.js) confirms the routed
+  // approval path still commits inside the budget.
+  documentReads: 267,
   existenceChecks: 60
 };
 const DOE_CEILING = {

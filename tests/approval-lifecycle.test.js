@@ -123,3 +123,79 @@ test('finalization rejects approved office records whose scope signature no long
   assert.equal(api.requiredApproved(workflow,{adc:{status:'approved',fields:['date'],scopeSignature:'adc-current'},adfa:{status:'approved',fields:['assignments'],scopeSignature:'stale-adfa'}}),false);
   assert.equal(api.requiredApproved(workflow,{adc:{status:'approved',fields:['date'],scopeSignature:'adc-current'},adfa:{status:'approved',fields:['assignments'],scopeSignature:'adfa-current'}}),true);
 });
+
+// ---------------------------------------------------------------------------
+// Strictly serial approval stages: ADC -> LAB -> ADFA (spec section 16 / 23G)
+// ---------------------------------------------------------------------------
+const orderRequest={id:'o1',status:'pending',revision:1,editableFields:[],basePublic:{type:'LAB',date:'2027-05-03',start:'09:00',end:'10:00',topic:'Old',room:'A1'},patchPublic:{date:'2027-05-04',topic:'New'}};
+const orderApprovals={adc:{status:'pending',fields:['date'],scopeSignature:'a'},lab:{status:'pending',fields:['topic'],scopeSignature:'l'},adfa:{status:'pending',fields:['assignments'],scopeSignature:'f'}};
+const orderWorkflow={requestId:'o1',revision:1,requiredOffices:['adc','lab','adfa'],hasFacultyChange:true,finalType:'LAB',scopes:{adc:['date'],lab:['topic'],adfa:['assignments']},scopeSignatures:{adc:'a',lab:'l',adfa:'f'}};
+const decide=(api,office,approvals=orderApprovals,workflow=orderWorkflow,decision='approve')=>api.planDecision({request:orderRequest,workflow,approvals,office,decision,actor:{uid:'u-'+office,name:office.toUpperCase()},now:'NOW'});
+
+test('LAB cannot approve while ADC is still pending',()=>{
+ const api=load();
+ assert.throws(()=>decide(api,'lab'),/ADC must complete this request before LAB can act on it\./);
+});
+
+test('ADFA cannot approve while an applicable LAB stage is still pending',()=>{
+ const api=load();
+ assert.throws(()=>decide(api,'adfa'),/ADC must complete this request before ADFA can act on it\./);
+ const adcDone={...orderApprovals,adc:{status:'approved',fields:['date'],scopeSignature:'a'}};
+ assert.throws(()=>decide(api,'adfa',adcDone),/LAB must complete this request before ADFA can act on it\./);
+});
+
+test('ADC approves first, then LAB, then ADFA in order',()=>{
+ const api=load();
+ const afterAdc=decide(api,'adc');
+ assert.equal(afterAdc.approvalPatches.adc.status,'approved');
+ assert.equal(afterAdc.allRequiredApproved,false);
+ const adcApproved={...orderApprovals,adc:{status:'approved',fields:['date'],scopeSignature:'a'}};
+ const afterLab=decide(api,'lab',adcApproved);
+ assert.equal(afterLab.approvalPatches.lab.status,'approved');
+ assert.equal(afterLab.allRequiredApproved,false);
+ const labApproved={...adcApproved,lab:{status:'approved',fields:['topic'],scopeSignature:'l'}};
+ const afterAdfa=decide(api,'adfa',labApproved);
+ assert.equal(afterAdfa.approvalPatches.adfa.status,'approved');
+ assert.equal(afterAdfa.allRequiredApproved,true);
+});
+
+test('a session type without an applicable LAB stage unlocks ADFA as soon as ADC approves',()=>{
+ const api=load();
+ const workflow={...orderWorkflow,requiredOffices:['adc','adfa'],scopes:{adc:['date'],adfa:['assignments']}};
+ const approvals={adc:{status:'pending',fields:['date'],scopeSignature:'a'},adfa:{status:'pending',fields:['assignments'],scopeSignature:'f'}};
+ assert.throws(()=>decide(api,'adfa',approvals,workflow),/ADC must complete/);
+ const adcApproved={...approvals,adc:{status:'approved',fields:['date'],scopeSignature:'a'}};
+ const plan=decide(api,'adfa',adcApproved,workflow);
+ assert.equal(plan.approvalPatches.adfa.status,'approved');
+ assert.equal(plan.allRequiredApproved,true);
+});
+
+test('decision readiness reports the waiting stage without mutating anything',()=>{
+ const api=load();
+ assert.deepEqual(JSON.parse(JSON.stringify(api.decisionReadiness({workflow:orderWorkflow,approvals:orderApprovals,office:'adc'}))),{allowed:true,waitingFor:[],reason:'ready'});
+ assert.deepEqual(JSON.parse(JSON.stringify(api.decisionReadiness({workflow:orderWorkflow,approvals:orderApprovals,office:'lab'}))),{allowed:false,waitingFor:['adc'],reason:'previous_stage_pending'});
+ assert.deepEqual(JSON.parse(JSON.stringify(api.decisionReadiness({workflow:orderWorkflow,approvals:orderApprovals,office:'adfa'}))),{allowed:false,waitingFor:['adc','lab'],reason:'previous_stage_pending'});
+ assert.deepEqual(JSON.parse(JSON.stringify(api.decisionReadiness({workflow:orderWorkflow,approvals:orderApprovals,office:'faculty'}))),{allowed:false,waitingFor:[],reason:'not_required'});
+});
+
+test('required offices are always normalised to the fixed stage order',()=>{
+ const api=load();
+ assert.deepEqual(Array.from(api.orderedOffices({requiredOffices:['adfa','lab','adc']})),['adc','lab','adfa']);
+ assert.deepEqual(Array.from(api.previousRequiredOffices(orderWorkflow,'adfa')),['adc','lab']);
+ assert.deepEqual(Array.from(api.previousRequiredOffices(orderWorkflow,'adc')),[]);
+});
+
+test('an office that is not required for the request still cannot act',()=>{
+ const api=load();
+ const workflow={...orderWorkflow,requiredOffices:['adc','adfa'],scopes:{adc:['date'],adfa:['assignments']}};
+ assert.throws(()=>decide(api,'lab',orderApprovals,workflow),/This office is not required for the request\./);
+});
+
+test('reject and push back stay available so an office can return work without waiting',()=>{
+ const api=load();
+ const rejected=decide(api,'adfa',orderApprovals,orderWorkflow,'reject');
+ assert.equal(rejected.publicPatch.status,'rejected');
+ const pushed=api.planDecision({request:orderRequest,workflow:orderWorkflow,approvals:orderApprovals,office:'lab',decision:'push_back',message:'LAB returned the topic',actor:{uid:'u-lab',name:'LAB'},now:'NOW'});
+ assert.equal(pushed.publicPatch.status,'update_required');
+ assert.equal(pushed.publicPatch.requesterMessage,'LAB returned the topic');
+});
