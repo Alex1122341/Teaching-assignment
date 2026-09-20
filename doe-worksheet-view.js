@@ -96,15 +96,55 @@
  const reconciliationPriority={missing_mapping:0,needs_review:1,legacy_only:2,different_doe:3,server_only:4,matched:9};
  function workQueue(rows=[]){return(Array.isArray(rows)?rows:[]).filter(row=>row&&row.status!=='matched').sort((a,b)=>(reconciliationPriority[a.status]??8)-(reconciliationPriority[b.status]??8)||a.displayName.localeCompare(b.displayName)||a.facultyId.localeCompare(b.facultyId))}
  function summarizeReconciliation(rows=[]){const list=Array.isArray(rows)?rows:[],counts={total:list.length,matched:0,different_doe:0,legacy_only:0,server_only:0,missing_mapping:0,needs_review:0,actionable:0};for(const row of list){if(Object.hasOwn(counts,row.status))counts[row.status]++;if(row.status!=='matched')counts.actionable++}return counts}
+ function explainObject(value){return value&&typeof value==='object'&&!Array.isArray(value)?{...value}:{}}
+ function explainLabel(key){return text(key).replace(/_/g,' ').replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/^./,ch=>ch.toUpperCase())}
+ function explainValue(value){
+  if(value===null||value===undefined||value==='')return'—';
+  if(typeof value==='boolean')return value?'Yes':'No';
+  if(Array.isArray(value))return value.map(explainValue).join(', ');
+  if(typeof value==='object')return Object.entries(value).map(([key,item])=>`${explainLabel(key)}: ${explainValue(item)}`).join(' · ');
+  return String(value);
+ }
+ function explainLine(row={}){
+  const detail=explainObject(row.explanation),rule=explainObject(detail.rule),facts=explainObject(detail.facts),inputs=explainObject(detail.inputs),parameters=explainObject(detail.parameters);
+  return{
+   lineId:text(row.lineId),title:text(row.label||row.lineId||'DOE line'),category:text(row.category),
+   status:text(row.status||'unavailable'),errorCode:text(row.errorCode),resultDoe:number(row.resultDoe),resultText:lineResult(row),
+   sourceEntityType:text(row.sourceEntityType),sourceEntityId:text(row.sourceEntityId),assignmentFactId:text(row.assignmentFactId),
+   roleType:text(row.roleType),courseCode:text(row.courseCode),subjectKey:text(row.subjectKey),teachingRole:text(row.teachingRole),
+   policyVersionId:text(row.policyVersionId),ruleId:text(row.ruleId),ruleKey:text(row.ruleKey),
+   ruleName:text(rule.name||rule.label||rule.title),calculationMode:text(rule.calculationMode),ruleCategory:text(rule.category||row.category),
+   formula:text(row.calculationText)||'Calculation detail unavailable',facts,inputs,parameters,
+   referenceText:referenceText(row.reference||{}),reference:row.reference||null,
+   calculationId:text(row.calculationId),calculatedAt:text(row.calculatedAt),trigger:text(detail.trigger),source:text(detail.source)
+  };
+ }
+ function explainPairs(title,object){
+  const entries=Object.entries(object||{});
+  return`<section class="doe-explain-section"><h4>${esc(title)}</h4>${entries.length?`<dl class="doe-explain-pairs">${entries.map(([key,value])=>`<div><dt>${esc(explainLabel(key))}</dt><dd>${esc(explainValue(value))}</dd></div>`).join('')}</dl>`:'<div class="muted">No stored values for this calculation.</div>'}</section>`;
+ }
+ function explanationHtml(row={}){
+  const x=explainLine(row),ruleRows={
+   'Policy Version':x.policyVersionId||'Unavailable','Rule Key':x.ruleKey||'Unavailable','Rule ID':x.ruleId||'Unavailable',
+   'Rule Name':x.ruleName||'Unavailable','Calculation Mode':x.calculationMode||'Unavailable','Category':x.ruleCategory||x.category||'Unavailable'
+  },evidence={
+   'Calculation ID':x.calculationId||'No calculation evidence','Calculated At':x.calculatedAt||'Unavailable',
+   'Trigger':x.trigger||'Unavailable','Source':x.source||'Unavailable',
+   'Source Entity': [x.sourceEntityType,x.sourceEntityId].filter(Boolean).join(' · ')||'Unavailable',
+   'Assignment Fact ID':x.assignmentFactId||'—'
+  };
+  const issue=x.errorCode?`<div class="no-source"><strong>${esc(x.status||'Needs Review')}.</strong> ${esc(x.errorCode.replace(/_/g,' '))}</div>`:'';
+  return`<div class="doe-explanation"><div class="doe-explain-hero"><div><div class="eyebrow">DOE explanation</div><h3>${esc(x.title)}</h3><div class="muted">${esc(x.category||'DOE line')}</div></div><div><strong>${esc(x.resultText)}</strong><div class="muted">${esc(x.status||'Unavailable')}</div></div></div>${issue}<section class="doe-explain-section"><h4>Calculation</h4><div class="doe-explain-formula">${esc(x.formula)}</div><div class="muted">Result: ${esc(x.resultText)}</div></section>${explainPairs('Source facts',x.facts)}${explainPairs('Inputs',x.inputs)}${explainPairs('Parameters',x.parameters)}${explainPairs('Rule & policy',ruleRows)}<section class="doe-explain-section"><h4>Reference</h4><div>${esc(x.referenceText||'Reference unavailable')}</div></section>${explainPairs('Calculation evidence',evidence)}</div>`;
+ }
  function worksheetHtml(worksheet={}){
   const summary=worksheetSummary(worksheet),status=statusView(worksheet),lines=Array.isArray(worksheet.lines)?worksheet.lines:[],reserve=worksheet.reserve||{};
   const card=(label,value,sub='')=>`<div class="summary-card"><div class="summary-card-label">${esc(label)}</div><div class="summary-card-value">${esc(value)}</div>${sub?`<div class="summary-card-sub">${esc(sub)}</div>`:''}</div>`;
   const rows=lines.map(row=>{
    const ref=referenceText(row.reference||{}),rule=text(row.ruleKey||row.ruleId),calc=text(row.calculationText)||'Calculation detail unavailable';
-   return`<tr><td><strong>${esc(row.label||row.lineId||'DOE line')}</strong><div class="muted">${esc(row.category||'')}</div></td><td>${esc(calc)}</td><td>${rule?`<strong>${esc(rule)}</strong>`:'—'}<div class="muted">${esc(row.policyVersionId||summary.policyVersionId||'—')}</div></td><td>${esc(ref||'Reference unavailable')}</td><td class="num"><strong>${esc(lineResult(row))}</strong><div class="muted">${esc(row.calculationId||'No calculation evidence')}</div></td></tr>`;
+   return`<tr><td><strong>${esc(row.label||row.lineId||'DOE line')}</strong><div class="muted">${esc(row.category||'')}</div></td><td>${esc(calc)}</td><td>${rule?`<strong>${esc(rule)}</strong>`:'—'}<div class="muted">${esc(row.policyVersionId||summary.policyVersionId||'—')}</div></td><td>${esc(ref||'Reference unavailable')}</td><td class="num"><button type="button" class="btn-link doe-explain-trigger" data-doe-explain-line="${esc(row.lineId)}"><strong>${esc(lineResult(row))}</strong></button><div class="muted">Explain DOE · ${esc(row.calculationId||'No calculation evidence')}</div></td></tr>`;
   }).join('')||'<tr><td colspan="5" class="empty">No DOE assignment lines are available for this Academic Year.</td></tr>';
   const errorNote=status.key==='needs_review'||status.key==='error'||status.key==='unavailable'?`<div class="no-source"><strong>${esc(status.label)}.</strong> ${esc((worksheet.errors||[]).map(error=>error.message||error.code).filter(Boolean).join(' · ')||'Required DOE data or provenance is incomplete.')}</div>`:'';
   return`<section class="section wide doe-worksheet"><div class="section-title">${esc(summary.academicYear||'Annual')} Teaching DOE · server worksheet</div><div class="summary-grid">${card('Assigned Teaching DOE',percent(summary.assignedDoe),status.label)}${card('Scheduled Teaching',percent(summary.scheduledDoe))}${card('Roles',percent(summary.roleDoe))}${card('Applied Supervision',percent(summary.appliedSupervisionDoe),number(summary.rawSupervisionDoe)!==null?`Raw ${percent(summary.rawSupervisionDoe)}`:'')}${card('Effective Target',percent(summary.targetDoe))}${card('Remaining / Over',summary.remainingDoe===null?'Unavailable':status.label)}${card('Policy Version',summary.policyVersionId||'Unavailable',summary.lastCalculatedAt?`Last calculated ${summary.lastCalculatedAt}`:'')}${card('Reserve',number(reserve.initialTraineeReserve)===null?'Unavailable':percent(reserve.initialTraineeReserve),number(reserve.unappliedSupervision)>0?`${percent(reserve.unappliedSupervision)} supervisory load not applied`:'' )}</div>${errorNote}<div class="assignment-wrap"><table class="activity-table doe-worksheet-table"><thead><tr><th>Assignment</th><th>Calculation</th><th>Rule / Policy</th><th>Reference</th><th class="num">DOE / Evidence</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
  }
- return Object.freeze({worksheetSummary,statusView,percent,referenceText,sessionAssignmentLine,renderLookupDoe,renderDoeListRow,legacyAssignedDoe,meaningfulManagedRoles,sourceRoles,hasLegacyEvidence,serverFactCount,reconciliationIssueCodes,reconcileFaculty,buildReconciliationRows,workQueue,summarizeReconciliation,reconciliationStatusLabel,worksheetHtml});
+ return Object.freeze({worksheetSummary,statusView,percent,referenceText,sessionAssignmentLine,renderLookupDoe,renderDoeListRow,legacyAssignedDoe,meaningfulManagedRoles,sourceRoles,hasLegacyEvidence,serverFactCount,reconciliationIssueCodes,reconcileFaculty,buildReconciliationRows,workQueue,summarizeReconciliation,reconciliationStatusLabel,explainLine,explanationHtml,worksheetHtml});
 });
