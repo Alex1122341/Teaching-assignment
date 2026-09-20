@@ -92,20 +92,29 @@ jobs:
           publish-profile: ${{ secrets.AZURE_DOE_API_PUBLISH_PROFILE }}
           package: ${{ runner.temp }}/ucvm-doe-api-${{ inputs.commit_sha }}.zip
 
-      - name: Verify deployed DOE API health and production CORS
+      - name: Verify deployed DOE API health and frontend CORS
         shell: bash
         env:
           PRODUCTION_DOE_API_BASE_URL: ${{ vars.PRODUCTION_DOE_API_BASE_URL }}
-          PRODUCTION_FRONTEND_ORIGIN: https://red-cliff-04871ca0f.5.azurestaticapps.net
         run: |
           set -u
-          for attempt in $(seq 1 12); do
-            if node tools/verify-production-doe-api.js; then
-              exit 0
+          for origin in \
+            "https://red-cliff-04871ca0f.5.azurestaticapps.net" \
+            "https://alex1122341.github.io"
+          do
+            export PRODUCTION_FRONTEND_ORIGIN="$origin"
+            passed=false
+            for attempt in $(seq 1 12); do
+              if node tools/verify-production-doe-api.js; then
+                passed=true
+                break
+              fi
+              if [ "$attempt" -lt 12 ]; then sleep 10; fi
+            done
+            if [ "$passed" != "true" ]; then
+              exit 1
             fi
-            if [ "$attempt" -lt 12 ]; then sleep 10; fi
           done
-          exit 1
 
       - name: Record deployment summary
         shell: bash
