@@ -1,7 +1,7 @@
 'use strict';
 const {ApiError,errorPayload,statusFor}=require('../http/errors.js');
 const adminRoles=new Set(['developer','owner','administrator','admin','adfa_general','adfa_regular']);
-const generalRoles=new Set(['developer','owner','administrator','admin','adfa_general']);
+const generalRoles=new Set(['developer','owner','adfa_general']);
 const selfWorksheetRoles=new Set(['faculty','hicc','visc']);
 const text=value=>String(value??'').trim().toLowerCase();
 
