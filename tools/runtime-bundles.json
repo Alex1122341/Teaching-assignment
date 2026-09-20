@@ -15,7 +15,10 @@
         "faculty-doe.js",
         "scheduling-core.js",
         "session-workflow.js",
-        "work-queue.js"
+        "work-queue.js",
+        "lab-groups.js",
+        "faculty-assignment.js",
+        "faculty-suggestions.js"
       ],
       "pages": [
         "index.html",

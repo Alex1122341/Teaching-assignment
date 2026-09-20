@@ -308,6 +308,17 @@ service cloud.firestore {
   function systemStateExists(){return exists(/databases/$(database)/documents/settings/system_state);}
   function teachingLocked(){return systemStateExists() && get(/databases/$(database)/documents/settings/system_state).data.get('teachingDataWriteLocked',false) == true;}
   function teachingWritesOpen(){return !teachingLocked();}
+  // LAB groups: codes and colour keys are shared with the sanitized calendar, so
+  // any office account may read them.
+  function labGroupWrite(id){return ready() && (developer() || general() || officeName() == 'lab') && request.resource.data.groupId == id && request.resource.data.groupCode is string && request.resource.data.colorKey is string && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time;}
+  // Student rosters are private to LAB, Developer and Owner. ADFA, ADC, Faculty,
+  // VISC, HICC and Other Office never receive student IDs.
+  function rosterReader(){return ready() && (developer() || general() || officeName() == 'lab');}
+  function rosterShapeValid(d){return d.keys().hasOnly(['groupId','studentIds','updatedAt','updatedBy','updatedByName']) && d.groupId is string && d.studentIds is list && d.studentIds.size() <= 500 && d.updatedBy == request.auth.uid && d.updatedAt == request.time;}
+  // Roster-shaped fields must never reach the sanitized calendar read model.
+  // Per-entry map validation is not expressible in Firestore rules, so the code
+  // level sanitizer remains the authority for nested group payloads.
+  function calendarHasNoRosterData(){return !request.resource.data.keys().hasAny(['studentIds','roster','rosters','studentNames']);}
   function maintenanceOwner(){return general() && teachingLocked() && get(/databases/$(database)/documents/settings/system_state).data.get('maintenanceOwnerUid','') == request.auth.uid && get(/databases/$(database)/documents/settings/system_state).data.get('activeImportId','') is string && get(/databases/$(database)/documents/settings/system_state).data.get('activeImportId','').size() > 0;}
   function maintenanceOwnerFor(id){return maintenanceOwner() && get(/databases/$(database)/documents/settings/system_state).data.get('activeImportId','') == id;}
   function maintenanceFacultyUpdate(){return maintenanceOwner() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['teachingDoeModel2026_27','assignedTeachingDOE','doeAssignedTeachingDOE','teachingSummary2026_27','facultySummary2026_27','facultySummaryStatus2026_27','facultySummarySource2026_27','facultySummaryImportedAt','facultySummaryImportedBy','updatedBy','updatedByName']);}
@@ -443,8 +454,8 @@ service cloud.firestore {
   }
   match /calendar_sessions/{id} {
    allow read: if ready();
-   allow create: if officeCalendarCreate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id) || generalCalendarRepair(id);
-   allow update: if officeCalendarUpdate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id) || generalCalendarRepair(id);
+   allow create: if calendarHasNoRosterData() && (officeCalendarCreate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id) || generalCalendarRepair(id));
+   allow update: if calendarHasNoRosterData() && (officeCalendarUpdate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id) || generalCalendarRepair(id));
    allow delete: if (teachingWritesOpen() && admin() && !existsAfter(sessionPath(id))) || maintenanceCalendarDelete(id) || generalCalendarDelete(id);
   }
   match /sessions/{id} {
@@ -645,6 +656,16 @@ service cloud.firestore {
    }
   }
   match /afc_audit/{id} {allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid || resource.data.requesterUid == request.auth.uid || resource.data.reportToUid == request.auth.uid); allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time; allow update,delete: if false;}
+  match /lab_groups/{id} {
+   allow read: if ready() && (officeName() != '' || facultyMember() || general());
+   allow create,update: if teachingWritesOpen() && labGroupWrite(id);
+   allow delete: if false;
+  }
+  match /lab_group_rosters/{id} {
+   allow read: if rosterReader();
+   allow create,update: if teachingWritesOpen() && rosterReader() && rosterShapeValid(request.resource.data) && request.resource.data.groupId == id;
+   allow delete: if false;
+  }
   match /{document=**} {allow read,write: if false;}
  }
 }

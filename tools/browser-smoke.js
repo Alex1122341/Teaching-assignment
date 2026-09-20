@@ -432,6 +432,7 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(demoMode&&expectation.page==='index.html')await verifyDemoSessionCreateDeleteWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoRoutedApprovalWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoWorkQueue({debugPort,origin,setupCdp:cdp});
+  if(demoMode&&expectation.page==='index.html')await verifyDemoOperationalModules({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='user-management.html')await verifyUserManagementRoleMatrix({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='faculty-admin.html'){
    if(!state.reconciliationTab)throw Error('faculty-admin.html: DOE Reconciliation tab is missing in Frontend Demo');
@@ -762,6 +763,56 @@ async function verifyDemoWorkQueue({debugPort,origin,setupCdp}){
  });
  }finally{
   try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
+ }
+}
+
+async function verifyDemoOperationalModules({debugPort,origin,setupCdp}){
+ try{
+ await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-lab-1',label:'Operational modules'},async cdp=>{
+  await waitForCondition(cdp,"(()=>!document.body.classList.contains('auth-locked'))()",'timetable ready for the operational modules',12000);
+  const probe=await cdp.send('Runtime.evaluate',{expression:`(()=>{
+   const groups=window.UCVM_LAB_GROUPS,assignment=window.UCVM_FACULTY_ASSIGNMENT,suggestions=window.UCVM_FACULTY_SUGGESTIONS;
+   if(!groups||!assignment||!suggestions)return{loaded:false};
+   // Roster paste: two columns, a blank row, a duplicate and an invalid id.
+   const parsed=groups.parseRoster('30012345\\tA\\n\\n30012346\\tA\\n30012345\\tA\\nabc\\n');
+   const sanitized=groups.sanitizedGroups({labGroupIds:['g-a']},[groups.createGroup({groupId:'g-a',groupCode:'A'})],{'g-a':{studentIds:['30012345']}});
+   let assigned=assignment.addFaculty({id:'s',topic:'T',assignments:[]},{facultyId:'f-a',name:'Dr A'});
+   assigned=assignment.addFaculty(assigned.session,{facultyId:'f-b',name:'Dr B'});
+   const duplicate=assignment.addFaculty(assigned.session,{facultyId:'f-a',name:'Dr A'});
+   let metadata=suggestions.emptyMetadata();
+   metadata=suggestions.addSuggestion(metadata,suggestions.createSuggestion({candidateKey:'cand-1',displayName:'Dr X',office:'adc'}));
+   let privateRefused=false;
+   try{suggestions.assertSafe({candidateKey:'k',displayName:'n',email:'x@y.z'})}catch(_){privateRefused=true}
+   return{
+    loaded:true,
+    rosterCount:parsed.count,
+    rosterRejected:parsed.invalid.length+parsed.duplicates.length,
+    sanitizedKeys:Object.keys(sanitized[0]||{}).sort().join(','),
+    sanitizedLeaksIds:JSON.stringify(sanitized).includes('30012345'),
+    facultyCount:assigned.session.assignments.length,
+    facultyIds:assigned.session.facultyIds.join(','),
+    instructor:assigned.session.instructor,
+    duplicateRefused:duplicate.added===false,
+    suggestionLines:suggestions.describeForAdfa(metadata).map(row=>row.text).join(' | '),
+    privateRefused
+   };
+  })()`,returnByValue:true});
+  if(probe.exceptionDetails)throw Error('Operational module probe failed: '+exceptionText(probe.exceptionDetails));
+  const value=probe.result?.value||{};
+  if(!value.loaded)throw Error('LAB group / faculty assignment / suggestion modules are not loaded');
+  if(value.rosterCount!==2)throw Error('Roster parser kept the wrong number of students: '+value.rosterCount);
+  if(value.rosterRejected!==2)throw Error('Roster parser did not surface the duplicate and the invalid row: '+value.rosterRejected);
+  if(value.sanitizedKeys!=='colorKey,groupCode,groupId,studentCount')throw Error('Sanitized group projection has unexpected keys: '+value.sanitizedKeys);
+  if(value.sanitizedLeaksIds)throw Error('Sanitized group projection leaked a student id');
+  if(value.facultyCount!==2)throw Error('Multi-Faculty assignment lost a member: '+value.facultyCount);
+  if(value.facultyIds!=='f-a,f-b')throw Error('facultyIds out of sync: '+value.facultyIds);
+  if(value.instructor!=='Dr A; Dr B')throw Error('Derived instructor line is wrong: '+value.instructor);
+  if(!value.duplicateRefused)throw Error('A duplicate Faculty member was accepted');
+  if(value.suggestionLines!=='Suggested by ADC: Dr X')throw Error('ADFA suggestion line is wrong: '+value.suggestionLines);
+  if(!value.privateRefused)throw Error('A suggestion carrying private Faculty data was accepted');
+ });
+ }finally{
+  try{await setStoredDemoRole(setupCdp,'uid-developer')}catch(_){}
  }
 }
 
