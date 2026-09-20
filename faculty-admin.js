@@ -164,7 +164,23 @@ function rolePolicyHtml(r,role){
  if(!match)return'<span class="muted">Legacy/source role is not linked to an authoritative server Worksheet assignment</span>';
  return`<div class="role-policy-line"><span class="policy-tag">Server</span> ${esc(match.ruleKey||match.ruleId||'Rule unavailable')}<div class="policy-ref">${esc(window.UCVM_DOE_WORKSHEET_VIEW.referenceText(match.reference||{})||'Reference unavailable')}</div></div>`;
 }
-function rolesHtml(r,s){if(!s||!s.roles?.length)return'<div class="no-source">No roles/appointments are listed in the source summary for this faculty member.</div>';return`<section class="section wide"><div class="section-title">Roles & appointments · source workbook + DOE basis</div><div class="assignment-wrap"><table class="role-table"><thead><tr><th>Role type</th><th>Assignment</th><th>Workload amount</th><th>DOE credit</th><th>Policy / basis</th><th>Details</th></tr></thead><tbody>${s.roles.map(x=>`<tr><td><span class="role-chip">${esc(x.type)}</span></td><td>${esc(x.assignment||'—')}</td><td>${esc(roleAmount(x))}</td><td>${roleDoeHtml(r,x)}</td><td>${rolePolicyHtml(r,x)}</td><td>${esc(roleDetails(x))}</td></tr>`).join('')}</tbody></table></div></section>`}
+function serverRoleRows(r){
+ const worksheet=cachedDoeWorksheet(r),lines=Array.isArray(worksheet?.lines)?worksheet.lines.filter(line=>norm(line.category)==='role'&&norm(line.sourceEntityType)==='doe assignment'):[];
+ if(lines.length)return lines;
+ const summary=doeListByFaculty.get(String(r?.__id||''));
+ return(Array.isArray(summary?.roleAssignments)?summary.roleAssignments:[]).map(row=>({...row,sourceEntityType:'doe_assignment',sourceEntityId:row.assignmentFactId||'',category:'role'}));
+}
+function rolesHtml(r,s){
+ const current=serverRoleRows(r),source=Array.isArray(s?.roles)?s.roles:[];
+ if(!current.length&&!source.length)return'<div class="no-source">No current server role assignments or source-summary roles are recorded for this faculty member.</div>';
+ const currentRows=current.map(line=>{
+  const assignment=line.courseCode||line.subjectKey||line.label||'—',status=norm(line.status),result=numeric(line.resultDoe),credit=result===null||['needs review','error'].includes(status)?'<span class="doe-status-pill needs_review">Needs Review</span>':`<strong>${esc(window.UCVM_DOE_WORKSHEET_VIEW.percent(result))}</strong>`;
+  const ref=window.UCVM_DOE_WORKSHEET_VIEW.referenceText(line.reference||{}),policy=[line.ruleKey||line.ruleId,line.policyVersionId,ref].filter(Boolean).map(esc).join('<br>');
+  return`<tr><td><span class="role-chip">${esc(line.roleType||'Role')}</span><div class="muted">Current server</div></td><td>${esc(assignment)}</td><td>Authoritative assignment</td><td>${credit}</td><td>${policy||'<span class="muted">Needs Review</span>'}</td><td>${esc(line.calculationId||line.assignmentFactId||line.sourceEntityId||'—')}</td></tr>`;
+ }).join('');
+ const sourceRows=source.map(x=>`<tr><td><span class="role-chip">${esc(x.type)}</span><div class="muted">Source evidence</div></td><td>${esc(x.assignment||'—')}</td><td>${esc(roleAmount(x))}</td><td><span class="muted">Not current authority</span></td><td><span class="muted">Legacy/source summary · current DOE is shown by the server Worksheet</span></td><td>${esc(roleDetails(x))}</td></tr>`).join('');
+ return`<section class="section wide"><div class="section-title">Roles & appointments · current server + source evidence</div><div class="assignment-wrap"><table class="role-table"><thead><tr><th>Role type</th><th>Assignment</th><th>Workload amount</th><th>DOE credit</th><th>Policy / basis</th><th>Details</th></tr></thead><tbody>${currentRows}${sourceRows}</tbody></table></div></section>`;
+}
 function activityAssignmentId(x){
  const sessionId=String(x?.session?.id||x?.session?.sessionId||'').trim(),explicit=String(x?.assignment?.assignmentId||'').trim();
  if(explicit)return explicit;
