@@ -16,7 +16,23 @@
  const facultyName=f=>String(f?.preferredFullName||f?.hrFirstLast||f?.hrFullName||summary(f)?.displayName||f?.__id||'');
  function apiDoeReady(){return Boolean(window.UCVM_DOE_API?.isConfigured?.()&&window.UCVM_DOE_WORKSHEET_VIEW)}
  function doeListAcademicYear(){return String($('doe-policy-year')?.value||YEAR).trim()||YEAR}
- async function loadDoeList({force=false}={}){if(!apiDoeReady())return;if(serverDoeLoading&&!force)return;const year=doeListAcademicYear();if(serverDoeLoaded&&serverDoeYear===year&&!force)return;serverDoeLoading=true;serverDoeError='';renderDoeList();try{const payload=await window.UCVM_DOE_API.listFacultyDoe(year);serverDoeRows=Array.isArray(payload)?payload:Array.isArray(payload?.rows)?payload.rows:Array.isArray(payload?.entries)?payload.entries:[];serverDoeYear=year;serverDoeLoaded=true}catch(error){console.error('[DOE List]',error);serverDoeRows=[];serverDoeYear=year;serverDoeLoaded=true;serverDoeError=error?.message||'Could not load the authoritative DOE List.'}finally{serverDoeLoading=false;renderDoeList()}}
+ async function loadDoeList({force=false}={}){
+  if(!apiDoeReady())return[];
+  const year=doeListAcademicYear(),shared=window.UCVM_ADMIN_DATA;
+  if(!shared?.loadDoeSummaryList||!shared?.doeList)throw Error('Shared Faculty Dashboard DOE cache is unavailable.');
+  const snapshot=shared.doeList();
+  if(!force&&snapshot?.loaded&&snapshot.academicYear===year){
+   serverDoeRows=Array.isArray(snapshot.rows)?snapshot.rows:[];serverDoeYear=year;serverDoeLoaded=true;serverDoeError=snapshot.error||'';renderDoeList();queueManagedRoles();return serverDoeRows;
+  }
+  if(serverDoeLoading&&!force)return serverDoeRows;
+  serverDoeLoading=true;serverDoeError='';renderDoeList();
+  try{
+   await shared.loadDoeSummaryList({force});
+   const next=shared.doeList();
+   serverDoeRows=Array.isArray(next?.rows)?next.rows:[];serverDoeYear=next?.academicYear||year;serverDoeLoaded=Boolean(next?.loaded);serverDoeError=next?.error||'';
+   return serverDoeRows;
+  }finally{serverDoeLoading=false;renderDoeList();queueManagedRoles()}
+ }
  function legacyDoeRows(){
   const built=window.UCVM_DATA_INDEX.buildFacultyIndex(faculty,sessions),entries=new Map((built.entries||[]).map(row=>[String(row.id),row]));
   return faculty.filter(f=>f.active!==false).map(f=>{
@@ -134,18 +150,42 @@
 
  function appendManagedRoleRows(){
   const body=$('roles-body'),filter=$('role-type-filter');if(!body)return;body.querySelectorAll('tr[data-ucvm-managed-role]').forEach(r=>r.remove());
-  const types=[...new Set(faculty.flatMap(f=>managedRoles(f).map(r=>r.type)).filter(Boolean))].sort();if(filter)types.forEach(t=>{if(![...filter.options].some(o=>o.value===t)){const o=document.createElement('option');o.value=t;o.textContent=t;filter.appendChild(o)}});
-  const q=norm($('roles-search')?.value),type=filter?.value||'';const rows=[];faculty.forEach(f=>managedRoles(f).forEach(r=>{const blob=norm(`${facultyName(f)} ${r.type} ${r.assignment} ${r.notes}`);if((!q||blob.includes(q))&&(!type||r.type===type))rows.push({f,r})}));
-  rows.forEach(({f,r})=>{const tr=document.createElement('tr');tr.dataset.ucvmManagedRole='1';const effect=roleEffect(r);tr.innerHTML=`<td><strong>${esc(facultyName(f))}</strong></td><td><span class="role-chip">${esc(r.type)}</span><span class="ucvm-managed-source">Legacy</span></td><td>${esc(r.assignment||'—')}</td><td>${esc(r.action==='remove'?'Approved removal':'Operational assignment')}</td><td><strong>${effect>=0?'+':''}${pct(effect)}</strong></td><td>Legacy ${YEAR} migration evidence · current DOE comes from the server Worksheet</td><td>${esc(r.notes||'—')}</td>`;body.appendChild(tr)})
+  const currentTypes=serverDoeRows.flatMap(row=>(row.roleAssignments||[]).map(r=>r.roleType).filter(Boolean));
+  const legacyTypes=faculty.flatMap(f=>managedRoles(f).map(r=>r.type)).filter(Boolean);
+  const types=[...new Set([...currentTypes,...legacyTypes])].sort();
+  if(filter)types.forEach(t=>{if(![...filter.options].some(o=>o.value===t)){const o=document.createElement('option');o.value=t;o.textContent=t;filter.appendChild(o)}});
+  const q=norm($('roles-search')?.value),type=filter?.value||'',currentRows=[],legacyRows=[];
+  for(const summaryRow of serverDoeRows){
+   const f=facultyById.get(String(summaryRow.facultyId||''))||{__id:String(summaryRow.facultyId||''),preferredFullName:summaryRow.displayName||summaryRow.facultyId};
+   for(const r of summaryRow.roleAssignments||[]){
+    const assignment=r.courseCode||r.subjectKey||'',blob=norm(`${facultyName(f)} ${r.roleType} ${assignment} ${r.ruleKey}`);
+    if((!q||blob.includes(q))&&(!type||r.roleType===type))currentRows.push({f,r,assignment});
+   }
+  }
+  for(const f of faculty)for(const r of managedRoles(f)){
+   const blob=norm(`${facultyName(f)} ${r.type} ${r.assignment} ${r.notes}`);
+   if((!q||blob.includes(q))&&(!type||r.type===type))legacyRows.push({f,r});
+  }
+  currentRows.forEach(({f,r,assignment})=>{
+   const tr=document.createElement('tr');tr.dataset.ucvmManagedRole='1';tr.dataset.source='server';
+   const doe=num(r.resultDoe),status=String(r.status||'').toLowerCase(),credit=doe===null||['needs_review','error'].includes(status)?'<span class="doe-status-pill needs_review">Needs Review</span>':`<strong>${pct(doe)}</strong>`;
+   const ref=r.reference?window.UCVM_DOE_WORKSHEET_VIEW.referenceText(r.reference):'';
+   tr.innerHTML=`<td><strong>${esc(facultyName(f))}</strong></td><td><span class="role-chip">${esc(r.roleType||'Role')}</span><span class="ucvm-managed-source">Current server</span></td><td>${esc(assignment||'—')}</td><td>Authoritative assignment</td><td>${credit}</td><td>${esc(r.ruleKey||r.ruleId||'Needs Review')}${ref?`<div class="muted">${esc(ref)}</div>`:''}</td><td>${esc(r.assignmentFactId||'—')}</td>`;body.appendChild(tr);
+  });
+  legacyRows.forEach(({f,r})=>{
+   const tr=document.createElement('tr');tr.dataset.ucvmManagedRole='1';tr.dataset.source='legacy';const effect=roleEffect(r);
+   tr.innerHTML=`<td><strong>${esc(facultyName(f))}</strong></td><td><span class="role-chip">${esc(r.type)}</span><span class="ucvm-managed-source">Legacy</span></td><td>${esc(r.assignment||'—')}</td><td>${esc(r.action==='remove'?'Approved removal':'Migration evidence')}</td><td><span class="muted">Historical ${effect>=0?'+':''}${pct(effect)}</span></td><td>Legacy ${YEAR} migration evidence · not current DOE authority</td><td>${esc(r.notes||'—')}</td>`;body.appendChild(tr);
+  });
  }
  function queueManagedRoles(){if(roleAppendQueued)return;roleAppendQueued=true;requestAnimationFrame(()=>{roleAppendQueued=false;appendManagedRoleRows()})}
 
  function subscribe(){
   if(facultyUnsub)facultyUnsub();if(sessionUnsub)sessionUnsub();
-  const syncFaculty=()=>{faculty=(window.UCVM_ADMIN_DATA?.faculty?.()||[]).sort((a,b)=>facultyName(a).localeCompare(facultyName(b)));facultyById=new Map(faculty.map(f=>[String(f.__id),f]));updateDoeFilters();if(apiDoeReady())loadDoeList({force:true}).catch(error=>console.error(error));renderDoeList();queueManagedRoles()};
-  const syncSessions=()=>{sessions=window.UCVM_ADMIN_DATA?.sessions?.()||[];if(apiDoeReady())loadDoeList({force:true}).catch(error=>console.error(error));renderDoeList()};
-  window.addEventListener('ucvm:admin-faculty-updated',syncFaculty);window.addEventListener('ucvm:admin-sessions-updated',syncSessions);
-  facultyUnsub=()=>window.removeEventListener('ucvm:admin-faculty-updated',syncFaculty);sessionUnsub=()=>window.removeEventListener('ucvm:admin-sessions-updated',syncSessions);syncFaculty();syncSessions()
+  const syncFaculty=()=>{faculty=(window.UCVM_ADMIN_DATA?.faculty?.()||[]).sort((a,b)=>facultyName(a).localeCompare(facultyName(b)));facultyById=new Map(faculty.map(f=>[String(f.__id),f]));updateDoeFilters();if(apiDoeReady())loadDoeList().catch(error=>console.error(error));renderDoeList();queueManagedRoles()};
+  const syncSessions=()=>{sessions=window.UCVM_ADMIN_DATA?.sessions?.()||[];renderDoeList()};
+  const syncDoe=()=>{const snapshot=window.UCVM_ADMIN_DATA?.doeList?.();if(snapshot){serverDoeRows=Array.isArray(snapshot.rows)?snapshot.rows:[];serverDoeYear=snapshot.academicYear||'';serverDoeLoaded=Boolean(snapshot.loaded);serverDoeError=snapshot.error||'';renderDoeList();queueManagedRoles()}};
+  window.addEventListener('ucvm:admin-faculty-updated',syncFaculty);window.addEventListener('ucvm:admin-sessions-updated',syncSessions);window.addEventListener('ucvm:admin-doe-list-updated',syncDoe);
+  facultyUnsub=()=>{window.removeEventListener('ucvm:admin-faculty-updated',syncFaculty);window.removeEventListener('ucvm:admin-doe-list-updated',syncDoe)};sessionUnsub=()=>window.removeEventListener('ucvm:admin-sessions-updated',syncSessions);syncFaculty();syncSessions();syncDoe()
  }
  function watchDom(){
   const inspect=()=>{ensureDoeView();renameDashboard();const form=$('edit-form');if(form&&form.children.length&&form.elements?.namedItem('ucid'))enhanceEditor(form)};inspect();
