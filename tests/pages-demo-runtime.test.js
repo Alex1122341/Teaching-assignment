@@ -37,7 +37,7 @@ test('Pages demo Firebase auto-signs a synthetic admin and persists browser-loca
   ]};
   const root={localStorage:storage,sessionStorage,document:{readyState:'loading',addEventListener(){},getElementById(){return null},createElement(){return{}},head:{appendChild(){}},body:{appendChild(){}}},location:{reload(){}}};
   const demo=runtime.createDemoFirebase(root,seed);
-  assert.equal(demo.auth.currentUser.uid,'uid-adfa-general');
+  assert.equal(demo.auth.currentUser.uid,'uid-developer');
   const db=demo.firebase.firestore();
   await db.collection('sessions').doc('s1').update({topic:'After'});
   assert.equal((await db.collection('sessions').doc('s1').get()).data().topic,'After');
