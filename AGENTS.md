@@ -5,18 +5,20 @@
 - Production repository: `Alex1122341/Teaching-assignment`.
 - `main` is the only production source of truth.
 - Do not commit feature work directly to `main`; use a feature branch / worktree and open a PR.
-- Firebase Hosting and Microsoft Azure Static Web Apps must publish the same generated `.deploy-static` artifact.
+- The active development/test frontend is the fixed GitHub Pages site at `https://alex1122341.github.io/Teaching-assignment/`.
 - Build `.deploy-static` with `node tools/build-static.js` from the source allowlist in `tools/static-assets.json` and the deterministic bundle map in `tools/runtime-bundles.json`.
-- Do not publish the raw repository source tree or maintain a separate copy of frontend files for either host.
-- Azure practice deployment uses `tools/deploy_azure_static_web.ps1` and must consume the shared generated artifact.
+- Do not publish the raw repository source tree or maintain a second frontend copy.
+- Azure workflows and `tools/deploy_azure_static_web.ps1` are retained as paused production/fallback history; they are not part of the active Firebase lab development path.
 
 ## Application architecture
 
 - Frontend: vanilla HTML, CSS and JavaScript.
 - Authentication: Firebase Authentication.
-- Database: Cloud Firestore project `tester-teaching`.
-- Temporary compatibility mode: pull-request GitHub Pages browser testing uses the existing `tester-teaching` Firebase Web SDK configuration so existing Authentication accounts work; localhost and destructive/security testing use the Emulator Suite. The Pages build must keep the DOE API endpoint blank until the separate Azure deployment. The committed `firebase-config.js` template remains lab-targeting/placeholder.
-- The current production architecture is Spark-compatible for the static frontend; authoritative DOE policy/rulebook calculations are exposed through the DOE API server boundary.
+- Active development/test database: Cloud Firestore project `vista-teaching-lab`, synthetic/test data only.
+- Pull-request GitHub Pages browser testing must use `vista-teaching-lab` through repository variable `LAB_FIREBASE_WEB_CONFIG_JSON`. The Pages runtime must keep the DOE API endpoint blank.
+- Ordinary application data continues to use Firebase Authentication + Firestore. Authoritative DOE policy publication, impact preview persistence and recalculation writes must run only through the manually dispatched `Firebase DOE Admin Job` GitHub Action (or equivalent trusted admin tooling), never directly from the browser.
+- DOE browser writes remain denied by `firestore.rules`. Do not weaken that boundary to make an admin screen work.
+- `tester-teaching` is reserved for future production work and must not be used by the active Pages test site.
 - Security decisions must be enforced by Firestore rules and by minimizing what data is delivered to the browser.
 - Do not weaken Firestore rules merely to make a UI feature work.
 

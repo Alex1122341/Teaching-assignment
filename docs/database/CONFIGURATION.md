@@ -1,7 +1,7 @@
 # CONFIGURATION.md — Databases, Projects and Client Configuration
 
 **Lab project:** `vista-teaching-lab` (Firestore Native, `northamerica-northeast1` / Montreal)
-**Existing live project:** `tester-teaching` — temporarily used by the GitHub Pages compatibility build and reserved for Azure production.
+**Reserved live project:** `tester-teaching` — not used by the active GitHub Pages test path; retained for future production migration.
 
 ---
 
@@ -17,8 +17,8 @@ The lab project fixes that:
 | | Lab project | Production |
 | --- | --- | --- |
 | Data | synthetic only (`tools/seed/dataset.js`) | real |
-| Public exposure | acceptable — nothing real in it | currently reached by the explicitly labelled GitHub Pages compatibility preview; normal writes are live |
-| Configuration | committed lab-targeting template (`firebase-config.js`); usable cloud values are generated/injected for the preview build | generated at build time from a tools-only public Web SDK config plus the external DOE API URL |
+| Public exposure | fixed GitHub Pages test site; synthetic/test data only | not used by the active test site |
+| Configuration | committed lab-targeting template (`firebase-config.js`); GitHub Pages injects public Web SDK config from `LAB_FIREBASE_WEB_CONFIG_JSON` | legacy/future production configuration retained separately |
 
 ---
 
@@ -26,7 +26,7 @@ The lab project fixes that:
 
 | File | Purpose |
 | --- | --- |
-| `firebase-config.js` | **Single source of truth** for client Firebase configuration. The committed template targets the lab project with placeholder SDK values. GitHub Pages compatibility and production builds regenerate this file before building. |
+| `firebase-config.js` | **Single source of truth** for client Firebase configuration. The committed template targets the lab project with placeholder SDK values. GitHub Pages regenerates this file from `LAB_FIREBASE_WEB_CONFIG_JSON` before building. |
 | `.firebaserc` | Project aliases. `default` is the lab project, so a deploy without `--project` cannot reach production. |
 | `firebase.json` | Rules, indexes, hosting and emulator ports. |
 | `firestore.rules` | Authorisation model. See `docs/database/SCHEMA.md`. |
@@ -89,32 +89,38 @@ firebase deploy --only firestore:rules,firestore:indexes --project <project-id>
 
 ---
 
-## 6. Production
+## 6. GitHub Pages lab runtime and trusted DOE administration
 
-Production runtime configuration is generated during the `main` build.
+The active browser test runtime is the fixed GitHub Pages site:
 
-The Firebase Web SDK config for project `tester-teaching` is pinned in `tools/production-firebase-web-config.json`. This is public client configuration, not a server credential. The file is deliberately outside `tools/static-assets.json`, so it is never shipped as a standalone frontend asset. During the temporary GitHub Pages compatibility period, the Pages workflow uses this file to generate `firebase-config.js` with an empty DOE API endpoint; the later production build uses the same Web SDK config plus the approved production DOE API URL.
+`https://alex1122341.github.io/Teaching-assignment/`
 
-Before a production release can build, define this GitHub repository **Actions variable**:
+The workflow requires repository Actions variable `LAB_FIREBASE_WEB_CONFIG_JSON`. It must contain the public Firebase Web SDK configuration for **`vista-teaching-lab`**. The workflow writes it only to a runner temporary file, regenerates `firebase-config.js`, and fails closed unless the resulting project is exactly `vista-teaching-lab`, emulator mode is off, and `UCVM_DOE_API_BASE_URL` is blank.
 
-- `PRODUCTION_DOE_API_BASE_URL` — the approved HTTPS Azure App Service base URL for the DOE API.
+The Firebase Web SDK configuration is public client metadata. It is not a service credential and must never contain a private key.
 
-After tests/emulators pass, the `Azure Static Web Apps` main-push workflow runs:
+Authoritative DOE writes use a separate trust boundary:
 
-```bash
-node tools/build-firebase-config.js --from-json tools/production-firebase-web-config.json --doe-api-base-url "$PRODUCTION_DOE_API_BASE_URL"
-node tools/verify-production-client-config.js
-node tools/verify-production-doe-api.js
-node tools/build-static.js
-```
+- workflow: `.github/workflows/firebase-doe-admin.yml`
+- GitHub Environment: `firebase-lab-admin`
+- Environment secret: `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`
+- Firebase project lock: `vista-teaching-lab`
+- execution: manual `workflow_dispatch` only
+- destructive operations: exact typed confirmation is required for policy publish and recalculation
 
-The main build fails closed if the DOE API URL is missing/invalid or if the live DOE API health/CORS verification fails.
+The admin job reuses the existing DOE server services directly. It does **not** expose a long-lived HTTP API and it does not grant browser write access to DOE collections.
 
-The verifier requires project `tester-teaching`, a non-placeholder Firebase web config, emulator mode off, and a non-local HTTPS DOE API endpoint before the production artifact can be uploaded.
+One-time setup for the lab:
 
-For Firebase Rules/index deployment, always use an explicit `--project tester-teaching`. Never rely on the `.firebaserc` default. Keep the production project out of `.firebaserc` `default`, so a mistaken deploy lands on the lab project rather than in production.
+1. In Firebase Authentication for `vista-teaching-lab`, enable Email/Password.
+2. Add `alex1122341.github.io` to **Authentication > Settings > Authorized domains**.
+3. Create test-only Authentication accounts and matching `users/{uid}` profiles.
+4. In GitHub **Settings > Secrets and variables > Actions > Variables**, create `LAB_FIREBASE_WEB_CONFIG_JSON` with the lab Web SDK JSON.
+5. Create GitHub Environment `firebase-lab-admin` and add test-only secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`.
+6. Seed synthetic Firestore data with `npm run db:seed`, then verify with `npm run db:verify`.
+7. Deploy lab Firestore rules/indexes with `npm run db:deploy`.
 
-**Never commit a service-account key, deployment token, ARM token, or other server credential to this repository.** Firebase Web SDK configuration is public client metadata; the production copy is allowed only in the tools-only config file and must never be hard-coded into runtime source files or added to the preview/deployment source allowlist. `tests/firebase-config.test.js` enforces that boundary.
+Azure production workflows are retained in the repository as paused/fallback infrastructure. They are not prerequisites for Pages testing, Firebase lab data, or the DOE admin job.
 
 ---
 
