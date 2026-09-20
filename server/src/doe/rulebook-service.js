@@ -3,8 +3,8 @@ const crypto=require('node:crypto');
 const {ApiError}=require('../http/errors.js');
 
 const text=value=>String(value??'').trim();
-const reviewRoles=new Set(['owner','administrator','admin','adfa_general','adfa_regular']);
-const rollForwardRoles=new Set(['owner','administrator','admin','adfa_general']);
+const reviewRoles=new Set(['developer','owner','administrator','admin','adfa_general','adfa_regular']);
+const rollForwardRoles=new Set(['developer','owner','administrator','admin','adfa_general']);
 const reviewedStatuses=new Set(['confirmed_unchanged','updated','new','retired']);
 
 function allowed(role,set){return set.has(text(role).toLowerCase())}
