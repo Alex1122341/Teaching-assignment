@@ -35,3 +35,17 @@ test('Developer also passes ADC and LAB scoped Firestore helpers',()=>{
  assert.match(rules,/function adc\(\)\{return ready\(\) && profile\(\)\.role in \['developer','adc'\]/);
  assert.match(rules,/function lab\(\)\{return ready\(\) && profile\(\)\.role in \['developer','lab'\]/);
 });
+
+
+test('Developer multi-office routed approvals are explicit in UI and Firestore rules',()=>{
+ const workflow=read('approval-workflow.js'),rules=read('firestore.rules');
+ assert.match(workflow,/approvalOffices=\(\)=>isDeveloper\(\)\?\['adc','lab','adfa'\]/);
+ assert.match(workflow,/data-office-context/);
+ assert.match(workflow,/decideRoutedRequest\(id,decision,officeOverride=''/);
+ assert.match(workflow,/Developer · all approval queues/);
+ assert.match(rules,/function developerDecisionOn\(id,office\)/);
+ assert.match(rules,/function developerDecisionOffice\(id\)/);
+ assert.match(rules,/let actorOffice=developer\(\) \? developerDecisionOffice\(d\.requestId\) : officeName\(\)/);
+ assert.match(rules,/developer\(\) \|\| actorOffice in workflow\.requiredOffices/);
+ assert.match(rules,/!workflow\.hasFacultyChange \|\| developer\(\) \|\| actorOffice == 'adfa'/);
+});
