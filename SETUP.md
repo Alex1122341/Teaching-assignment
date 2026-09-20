@@ -169,15 +169,16 @@ The DOE API workflow cannot create the Azure subscription resource or invent ser
 ### Routine pull-request and test flow
 
 1. Create a feature branch and open a same-repository pull request targeting `main`.
-2. The independent **Test** workflow runs static/unit tests and the Firestore/Auth emulator suite.
-3. The **GitHub Pages Test Site** workflow independently runs `npm ci`, `npm run test:all`, `npm run test:emulator`, generates the `vista-teaching-lab` client config from the pinned `tools/lab-firebase-web-config.json`, builds `.deploy-static`, applies Pages-only staging, and publishes the verified artifact to the fixed GitHub Pages test URL.
-4. Open `https://alex1122341.github.io/Teaching-assignment/` and validate sign-in, Timetable, Faculty Dashboard, and the changed workflow. Confirm the **TEST SITE / Isolated Firebase Lab / vista-teaching-lab** banner is present.
-5. The Pages runtime never receives a DOE API URL. Authorized timetable/session saves write the source Firestore facts and, when faculty assignments are present, create a non-authoritative pending DOE recalculation request while stripping old DOE provenance from the edited assignment. Use **Actions > Firebase DOE Admin Job > recalculate-queue** with `PROCESS-QUEUE` to calculate authoritative DOE afterward. Policy validation, impact preview persistence, publication, and full recalculation also remain in the Admin Job. Destructive failure-injection still belongs in the Emulator Suite.
-6. Additional commits to the same or another same-repository PR update the single fixed Pages test site after verification passes. The latest successful PR version is the version visible at the fixed URL.
-7. Only after the browser test is accepted should the pull request be merged to `main`.
-8. Azure production remains paused. If it is reactivated later, use the gated **Azure Production Deploy** process documented in the paused section above, including its source run ID and exact commit SHA checks. A `main` push does not automatically deploy Azure production.
+2. The independent **Test** workflow runs static/unit tests, the Firestore/Auth emulator suite, the lightweight deployment build, and browser smoke checks.
+3. The **GitHub Pages Test Site** workflow independently repeats the verified tests, builds `.deploy-static`, and then stages **Frontend Demo Mode** into that generated artifact.
+4. Pages staging injects the deterministic synthetic dataset plus the browser-local Firebase compatibility runtime. It does not require a Firebase Web config, Firebase Authentication account, service-account secret, Cloud Firestore connection, or DOE API.
+5. Open `https://alex1122341.github.io/Teaching-assignment/` and confirm the banner shows **Frontend Demo** and **DOE backend off**. Use the role selector to test administrative, Faculty, HICC, VISC, ADC, and LAB views.
+6. Demo edits stay in the current browser's local storage. Use **Reset demo data** to restore the canonical synthetic dataset.
+7. Additional commits to the same or another same-repository PR update the single fixed Pages test site after verification passes. The latest successful PR version is the version visible at the fixed URL.
+8. Only after the frontend behavior is accepted should the pull request be merged to `main`.
+9. Firebase lab, DOE Admin, and Azure production workflows remain separate manual backend paths and are not prerequisites for frontend testing.
 
-The GitHub Pages URL is publicly reachable and is not a security boundary. Firebase Authentication and Firestore Security Rules protect application data. Firebase Hosting is not used for this active test flow.
+The GitHub Pages URL is publicly reachable and is not a security boundary. The staged demo contains synthetic data only and performs no cloud writes.
 
 ### Firestore rule changes
 
