@@ -1,7 +1,7 @@
 'use strict';
 const ROLES=['developer','adfa_general','adfa_regular','other_office','hicc','visc','faculty'];
 const normalizeRole=r=>({owner:'adfa_general',administrator:'adfa_regular',admin:'adfa_regular',editor:'faculty',viewer:'faculty'}[r]||r);
-const isAdmin=p=>['developer','adfa_general','adfa_regular','other_office'].includes(normalizeRole(p?.role));
+const isAdmin=p=>['developer','adfa_general','adfa_regular'].includes(normalizeRole(p?.role));
 const isGeneral=p=>['developer','adfa_general'].includes(normalizeRole(p?.role));
 const isFaculty=p=>['hicc','visc','faculty'].includes(normalizeRole(p?.role));
 const historyAll=p=>['developer','adfa_general','adfa_regular'].includes(normalizeRole(p?.role));

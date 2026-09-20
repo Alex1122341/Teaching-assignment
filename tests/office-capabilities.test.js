@@ -32,7 +32,7 @@ test('unknown roles fail closed and cannot mutate the shared policy',()=>{
 });
 test('ADC/LAB are labelled correctly and are not broad admins or history readers',()=>{
  const a=access();for(const role of ['adc','lab']){assert.equal(a.label(role),role.toUpperCase());assert.equal(a.admin({role}),false);assert.equal(a.general({role}),false);assert.equal(a.historyAll({role}),false);}
- assert.equal(a.admin({role:'other_office'}),true);
+ assert.equal(a.admin({role:'other_office'}),false);assert.equal(a.general({role:'other_office'}),false);assert.equal(a.historyAll({role:'other_office'}),false);
 });
 test('office accounts never attempt Faculty Directory auto-linking',async()=>{
  const a=access(),sourceFunction=require('../test-support/source-function');let reads=0;
@@ -52,4 +52,12 @@ test('Developer has every office capability and highest access helpers',()=>{
  const api=load(),c=api.forRole('developer');for(const [key,value] of Object.entries(c))assert.equal(value,true,key);
  assert.equal(api.officeForRole('developer'),'adfa');assert.equal(api.isOfficeAccount('developer'),true);
  const a=access();assert.equal(a.admin({role:'developer'}),true);assert.equal(a.general({role:'developer'}),true);assert.equal(a.historyAll({role:'developer'}),true);assert.equal(a.label('developer'),'Developer');
+});
+
+
+test('Other Office has calendar visibility without timetable or approval authority',()=>{
+ const api=load(),c=api.forRole('other_office');
+ assert.equal(c.canViewCalendar,true);
+ for(const [key,value] of Object.entries(c))if(key!=='canViewCalendar')assert.equal(value,false,key);
+ assert.equal(api.officeForRole('other_office'),'');assert.equal(api.isOfficeAccount('other_office'),true);
 });

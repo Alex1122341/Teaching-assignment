@@ -56,7 +56,7 @@ test('change history uses the full-width Faculty Dashboard panel theme',()=>{
 test('timetable accepts current Developer Owner and Administrator roles',()=>{
  const source=read('timetable.js');
  const whitelist=source.match(/if \(!\[(.*?)\]\.includes\(role\)\)/s)?.[1]||'';
- for(const role of ['developer','owner','administrator'])assert.match(whitelist,new RegExp(`['"]${role}['"]`),role);
+ for(const role of ['developer','owner','administrator','other_office'])assert.match(whitelist,new RegExp(`['"]${role}['"]`),role);
 });
 
 
@@ -67,4 +67,12 @@ test('empty timetable ranges remain connected and allow creating the first sessi
  assert.match(source,/Live Firestore schedule · No sessions in this view/);
  assert.match(source,/publish\.textContent = connected \? 'Synced Schedule Ready'/);
  assert.match(source,/async function openBulkSessionForm\(\)[\s\S]*?if\(!liveScheduleAvailable\(\)\)\{toast\('The live Firestore timetable is unavailable\.'/);
+});
+
+
+test('Other Office uses the sanitized calendar collection and history-only timetable controls',()=>{
+ const source=read('timetable.js');
+ assert.match(source,/\['adc','lab','other_office'\]\.includes\(UCVM\.role\(currentUser\?\.role\)\)\?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION/);
+ assert.match(source,/const historyOnly=UCVM\.role\(currentUser\?\.role\)==='other_office'/);
+ assert.match(source,/my-change-history-btn/);
 });
