@@ -361,12 +361,30 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
   if(!reconciliationNavigation.result?.value?.tab||!reconciliationNavigation.result?.value?.visible)throw Error('DOE Reconciliation tab did not become visible.');
   await waitForCondition(cdp,`(()=>{const queue=document.getElementById('doe-reconciliation-queue-body')?.textContent||'',all=document.getElementById('doe-reconciliation-body')?.textContent||'',summary=document.getElementById('doe-reconciliation-summary')?.textContent||'';return queue.includes('Browser Smoke Mapping')&&queue.includes('Missing Mapping')&&queue.includes('COURSE MAPPING REQUIRED')&&all.includes('Browser Smoke Faculty')&&summary.includes('Action queue')})()`,'DOE Reconciliation work queue render');
 
-  const explainOpen=await cdp.send('Runtime.evaluate',{
-   expression:`(()=>{window.dispatchEvent(new CustomEvent('ucvm:doe-open-faculty',{detail:{facultyId:'fac-001'}}));return true})()`,
+  const lookupOpen=await cdp.send('Runtime.evaluate',{
+   expression:`(()=>{const tab=[...document.querySelectorAll('.tab')].find(node=>node.dataset.tab==='lookup');tab?.click();for(const id of ['lookup-search','filter-campus','filter-rank']){const node=document.getElementById(id);if(!node)continue;node.value='';node.dispatchEvent(new Event(id==='lookup-search'?'input':'change',{bubbles:true}))}return{tab:!!tab}})()`,
    returnByValue:true
   });
-  if(explainOpen.exceptionDetails)throw Error(`DOE explanation profile open failed: ${exceptionText(explainOpen.exceptionDetails)}`);
-  await waitForCondition(cdp,`(()=>!!document.querySelector('#profile-pane [data-doe-explain-line="session-smoke--assignment-smoke"]'))()`,'DOE explanation trigger render');
+  if(lookupOpen.exceptionDetails)throw Error(`DOE explanation Lookup navigation failed: ${exceptionText(lookupOpen.exceptionDetails)}`);
+  if(!lookupOpen.result?.value?.tab)throw Error('DOE explanation smoke could not find the Faculty Lookup tab.');
+  try{
+   await waitForCondition(cdp,`(()=>!!document.querySelector('.person-row[data-id="fac-001"]'))()`,'DOE explanation Faculty row');
+  }catch(error){
+   const diagnostic=await cdp.send('Runtime.evaluate',{expression:`(()=>({tab:[...document.querySelectorAll('.tab')].find(node=>node.classList.contains('active'))?.dataset.tab||'',ids:[...document.querySelectorAll('.person-row')].slice(0,30).map(node=>node.dataset.id),profile:(document.getElementById('profile-pane')?.textContent||'').slice(0,500)}))()`,returnByValue:true});
+   throw Error(`${error.message}; lookup diagnostic: ${JSON.stringify(diagnostic.result?.value||{})}`);
+  }
+  const facultyClick=await cdp.send('Runtime.evaluate',{
+   expression:`(()=>{const row=document.querySelector('.person-row[data-id="fac-001"]');row?.click();return{row:!!row,active:row?.classList.contains('active')||false}})()`,
+   returnByValue:true
+  });
+  if(facultyClick.exceptionDetails)throw Error(`DOE explanation Faculty selection failed: ${exceptionText(facultyClick.exceptionDetails)}`);
+  if(!facultyClick.result?.value?.row)throw Error('DOE explanation smoke could not select fac-001 from Faculty Lookup.');
+  try{
+   await waitForCondition(cdp,`(()=>!!document.querySelector('#profile-pane [data-doe-explain-line="session-smoke--assignment-smoke"]'))()`,'DOE explanation trigger render');
+  }catch(error){
+   const diagnostic=await cdp.send('Runtime.evaluate',{expression:`(()=>({activeId:document.querySelector('.person-row.active')?.dataset.id||'',profile:(document.getElementById('profile-pane')?.textContent||'').slice(0,1200),buttons:[...document.querySelectorAll('#profile-pane [data-doe-explain-line]')].map(node=>node.dataset.doeExplainLine)}))()`,returnByValue:true});
+   throw Error(`${error.message}; explanation diagnostic: ${JSON.stringify(diagnostic.result?.value||{})}`);
+  }
   const explainClick=await cdp.send('Runtime.evaluate',{
    expression:`(()=>{const button=document.querySelector('#profile-pane [data-doe-explain-line="session-smoke--assignment-smoke"]');button?.click();const modal=document.getElementById('doe-explain-modal'),body=document.getElementById('doe-explain-body');return{button:!!button,visible:!!modal&&!modal.classList.contains('hidden'),text:body?.textContent||''}})()`,
    returnByValue:true
