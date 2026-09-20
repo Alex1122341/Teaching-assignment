@@ -1724,7 +1724,7 @@
       <div class="modal-header"><div class="modal-title">Local Auth + Firestore Role Setup</div><div class="modal-subtitle">Login is Firebase Auth. Authorization comes from Firestore users/{uid}.</div></div>
       <form id="auth-setup-form"><div class="modal-body">
         <div class="login-cheatsheet">
-          <strong>Firebase test project:</strong> the configured Firebase project (<code>tester-teaching</code>)<br><br>
+          <strong>Firebase test project:</strong> the configured Firebase project<br><br>
           <strong>V9.7 UCalgary UI + synchronized workload DOE + Firestore-only authorization + admin SWAP + AFC + timetable availability:</strong><br>
           1. User signs in with Email/Password or Phone.<br>
           2. V9.7 reads <code>users/{Firebase UID}</code> from Firestore; after authorization, the timetable loads exclusively from <code>sessions</code>. Admin users also load the faculty directory, Away from Campus records, live timetable conflicts, SWAP tools and instructor selection.<br>
