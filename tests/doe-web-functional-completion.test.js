@@ -61,3 +61,19 @@ test('DOE List navigation owns the whole Faculty Dashboard panel state',()=>{
  assert.match(fn,/doe-rules/);
  assert.match(fn,/sessional/);
 });
+
+
+test('Faculty Dashboard actually loads deferred DOE admin enhancements for administrators only',()=>{
+ const source=read('faculty-admin.js');
+ const loaderStart=source.indexOf('function ensureFacultyAdminEnhancements');
+ const loaderEnd=source.indexOf('\nfunction',loaderStart+20);
+ const loader=source.slice(loaderStart,loaderEnd);
+ assert.ok(loaderStart>=0);
+ assert.match(loader,/faculty-admin-enhancements\\.js/);
+ const adminStart=source.indexOf('function enterAdminMode');
+ const adminEnd=source.indexOf('\nfunction',adminStart+20);
+ assert.match(source.slice(adminStart,adminEnd),/ensureFacultyAdminEnhancements/);
+ const selfStart=source.indexOf('async function enterSelfMode');
+ const selfEnd=source.indexOf('\nfunction',selfStart+20);
+ assert.doesNotMatch(source.slice(selfStart,selfEnd),/ensureFacultyAdminEnhancements/);
+});
