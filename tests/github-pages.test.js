@@ -37,6 +37,10 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/npm ci/);
   assert.match(workflow,/npm run test:all/);
   assert.match(workflow,/npm run test:emulator/);
+  assert.match(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/node tools\/build-firebase-config\.js --from-json/);
+  assert.match(workflow,/node tools\/verify-preview-client-config\.js/);
+  assert.ok(workflow.indexOf('Prepare isolated lab client configuration')<workflow.indexOf('Build static site'));
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
   assert.match(workflow,/--pr\s+["']?\$\{\{ github\.event\.pull_request\.number \}\}["']?/);
@@ -183,3 +187,15 @@ test('tracked web entry points use relative internal URLs for the Pages project 
   }
 });
 })();
+
+
+test('Pages preview fails closed unless a non-placeholder isolated lab Firebase config is injected',()=>{
+  const workflow=read('.github/workflows/github-pages-test.yml');
+  const verifier=read('tools/verify-preview-client-config.js');
+  assert.match(workflow,/vars\.LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/test -n "\$LAB_FIREBASE_WEB_CONFIG_JSON"/);
+  assert.match(verifier,/vista-teaching-lab/);
+  assert.match(verifier,/GENERATE_WITH_/);
+  assert.match(verifier,/^\\\/\\^AIza|AIza/);
+  assert.match(verifier,/must not be configured to reach a DOE API endpoint/);
+});
