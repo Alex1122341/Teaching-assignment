@@ -6,7 +6,7 @@
 })(typeof window!=='undefined'?window:null,function(){
  'use strict';
  const normalize=role=>String(role||'').trim().toLowerCase();
- const adfaRoles=['owner','administrator','admin','adfa_general','adfa_regular'];
+ const adfaRoles=['developer','owner','administrator','admin','adfa_general','adfa_regular'];
  const facultyRoles=['faculty','hicc','visc','editor','viewer'];
  function officeForRole(role){role=normalize(role);return adfaRoles.includes(role)?'adfa':['adc','lab'].includes(role)?role:'';}
  function isOfficeAccount(role){return Boolean(officeForRole(role))||normalize(role)==='other_office';}
@@ -16,7 +16,8 @@
    canEditCourseFields:false,canEditInstructor:false,canEditLabTopic:false,
    canReviewAdcScope:false,canReviewLabScope:false,canReviewAdfaScope:false,canViewFullApprovalOverview:false};
   c.canViewCalendar=isOfficeAccount(role)||facultyRoles.includes(role);
-  if(adfaRoles.includes(role))Object.assign(c,{canAddSessions:true,canAddOneSession:true,canSelectSessions:true,canEditCourseFields:true,canEditInstructor:true,canEditLabTopic:true,canReviewAdfaScope:true,canViewFullApprovalOverview:true});
+  if(role==='developer')Object.keys(c).forEach(key=>{c[key]=true});
+  else if(adfaRoles.includes(role))Object.assign(c,{canAddSessions:true,canAddOneSession:true,canSelectSessions:true,canEditCourseFields:true,canEditInstructor:true,canEditLabTopic:true,canReviewAdfaScope:true,canViewFullApprovalOverview:true});
   else if(role==='adc')Object.assign(c,{canAddSessions:true,canAddOneSession:true,canSelectSessions:true,canEditCourseFields:true,canReviewAdcScope:true});
   else if(role==='lab')Object.assign(c,{canSelectSessions:true,canEditLabTopic:true,canReviewLabScope:true});
   return Object.freeze(c);
