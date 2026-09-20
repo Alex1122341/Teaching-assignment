@@ -27,6 +27,14 @@ function copyDir(from,to){
 fs.rmSync(output,{recursive:true,force:true});fs.mkdirSync(output,{recursive:true});
 copyDir(path.join(root,'server'),path.join(output,'server'));
 for(const rel of shared)copyFile(rel);
-const manifest={schemaVersion:'ucvm-doe-api-package-v1',entrypoint:'server/src/server.js',sharedFiles:shared};
+const appPackage={
+ name:'ucvm-doe-api-appservice',
+ private:true,
+ version:'1.0.0',
+ scripts:{start:'npm --prefix server start'},
+ engines:{node:'22.x'}
+};
+fs.writeFileSync(path.join(output,'package.json'),JSON.stringify(appPackage,null,2)+'\n');
+const manifest={schemaVersion:'ucvm-doe-api-package-v1',entrypoint:'server/src/server.js',startCommand:'npm start',sharedFiles:shared};
 fs.writeFileSync(path.join(output,'doe-api-package.json'),JSON.stringify(manifest,null,2)+'\n');
 process.stdout.write(`DOE API package staged at ${output}\n`);
