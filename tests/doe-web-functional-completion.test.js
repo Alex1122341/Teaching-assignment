@@ -215,3 +215,16 @@ test('legacy workload import status is labelled as evidence rather than current 
  assert.match(html,/Legacy workload evidence: checking/);
  assert.match(source,/legacy workload evidence/);
 });
+
+
+test('Faculty Profile role section includes current server assignments even when the legacy source summary has no roles',()=>{
+ const source=read('faculty-admin.js');
+ const start=source.indexOf('function serverRoleRows');
+ const end=source.indexOf('function activityAssignmentId',start);
+ const fn=source.slice(start,end);
+ assert.ok(start>=0&&end>start);
+ assert.match(fn,/roleAssignments/);
+ assert.match(fn,/Current server/);
+ assert.match(fn,/Source evidence/);
+ assert.doesNotMatch(fn,/if\(!s\|\|!s\.roles\?\.length\)return/);
+});
