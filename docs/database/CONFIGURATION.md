@@ -126,6 +126,17 @@ One-time setup for the lab:
 5. Create GitHub Environment `firebase-lab-admin` and add test-only secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`.
 6. Before merge, seed/verify and deploy the lab Firestore manually if required. After merge, **Firebase Lab Data Setup > provision** performs the canonical seed/verify and reviewed Firestore deployment using CI Application Default Credentials.
 
+### Least-privilege lab Admin credential
+
+The `firebase-lab-admin` service account should be test-only and scoped to `vista-teaching-lab`. Prefer these predefined roles rather than Owner/Editor:
+
+- `roles/identitytoolkit.admin` for Authentication users and project Auth configuration.
+- `roles/datastore.user` for synthetic Firestore document reads/writes.
+- `roles/firebaserules.admin` for Security Rules releases/rulesets.
+- `roles/datastore.indexAdmin` for Firestore index definitions.
+
+The JSON key belongs only in the GitHub Environment secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`.
+
 Azure production workflows are retained in the repository as paused/fallback infrastructure. They are not prerequisites for Pages testing, Firebase lab data, or the DOE admin job.
 
 ---

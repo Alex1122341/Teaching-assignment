@@ -83,6 +83,17 @@ The Pages workflow fails closed unless `tools/lab-firebase-web-config.json` cont
 
 The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site. Firebase Hosting is not used for the active browser test path; GitHub Pages remains the fixed test host.
 
+### firebase-lab-admin service account permissions
+
+Use a dedicated **test-only** service account for `vista-teaching-lab`; do not grant Owner or Editor simply to make CI convenient. The current lab automation needs these predefined roles:
+
+- `roles/identitytoolkit.admin` — create/update test Auth users and read/update Authentication project configuration.
+- `roles/datastore.user` — read/write synthetic Firestore documents through Admin SDK.
+- `roles/firebaserules.admin` — deploy reviewed Firebase Security Rules.
+- `roles/datastore.indexAdmin` — create/update/delete Firestore index definitions during `firebase deploy --only firestore`.
+
+Store its JSON key only as the `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` secret in the `firebase-lab-admin` GitHub Environment. Never commit the key or place it in a repository variable. Rotate/revoke the key if it is ever exposed.
+
 ### Firebase Lab Data Setup
 
 After `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` is configured, the manual **Firebase Lab Data Setup** workflow removes the remaining personal-CLI dependency for test data and Firestore configuration:
