@@ -140,3 +140,44 @@ test('Roles and Appointments never presents legacy workload calculations as curr
  assert.doesNotMatch(fn,/workloadOf\(/);
  assert.doesNotMatch(fn,/roleWorkloadMatches\(/);
 });
+
+
+test('bulk DOE summary carries current role assignments without full worksheet detail',async()=>{
+ const repository={
+  async getFacultyWorksheetSource(){return null},
+  async listFacultyWorksheetSources(){return[{
+   facultyId:'f1',academicYear:'2027-28',displayName:'Dr Example',policyStatus:'single',
+   target:{effectiveTargetDoe:40},
+   lines:[
+    {lineId:'role-1',category:'role',sourceEntityType:'doe_assignment',sourceEntityId:'role-1',assignmentFactId:'role-1',roleType:'HICC',courseCode:'VTMD 204',resultDoe:12,status:'calculated',ruleKey:'role.hicc',policyVersionId:'v1'},
+    {lineId:'s1--a1',category:'teaching',sourceEntityType:'session_assignment',sourceEntityId:'s1',resultDoe:.6,status:'calculated',policyVersionId:'v1'}
+   ]
+  }]}
+ };
+ const rows=await createWorksheetService({repository}).listFacultyDoe({academicYear:'2027-28'});
+ assert.equal(rows[0].roleAssignmentCount,1);
+ assert.deepEqual(rows[0].roleAssignments,[{
+  assignmentFactId:'role-1',roleType:'HICC',courseCode:'VTMD 204',subjectKey:'',resultDoe:12,status:'calculated',ruleKey:'role.hicc',ruleId:'',reference:null
+ }]);
+ assert.equal(Object.hasOwn(rows[0].roleAssignments[0],'calculationRecord'),false);
+});
+
+test('Faculty Dashboard exposes one shared bulk DOE cache to deferred enhancements',()=>{
+ const core=read('faculty-admin.js'),enhancement=read('faculty-admin-enhancements.js');
+ assert.match(core,/UCVM_ADMIN_DATA=.*doeList/);
+ assert.match(core,/loadDoeSummaryList/);
+ assert.match(enhancement,/UCVM_ADMIN_DATA\?\.doeList/);
+ const start=enhancement.indexOf('async function loadDoeList');
+ const end=enhancement.indexOf('function legacyDoeRows',start);
+ assert.doesNotMatch(enhancement.slice(start,end),/UCVM_DOE_API\.listFacultyDoe/);
+});
+
+test('Roles and Appointments lists current server role assignments before legacy migration evidence',()=>{
+ const source=read('faculty-admin-enhancements.js');
+ const start=source.indexOf('function appendManagedRoleRows');
+ const end=source.indexOf('function queueManagedRoles',start);
+ const fn=source.slice(start,end);
+ assert.match(fn,/roleAssignments/);
+ assert.match(fn,/Current server/);
+ assert.match(fn,/Legacy/);
+});
