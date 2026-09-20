@@ -358,6 +358,9 @@ async function evaluateState(cdp){
   demoDoeAuthoritative:window.UCVM_PAGES_DEMO?.doeAuthoritative,
   demoUid:window.firebase?.auth?.().currentUser?.uid||'',
   demoToolbar:!!document.getElementById('ucvm-pages-demo-toolbar'),
+  demoToolbarTitle:(document.querySelector('#ucvm-pages-demo-toolbar .demo-title')?.textContent||'').trim(),
+  demoSelectedRole:(document.querySelector('#ucvm-pages-demo-toolbar select option:checked')?.textContent||'').trim(),
+  reconciliationTab:!!document.getElementById('doe-reconciliation-tab'),
   hasFirebase:typeof window.firebase==='object',
   hasUcvm:typeof window.UCVM==='object',
   runtimeError:(document.getElementById('runtime-error')?.textContent||'').trim()
@@ -410,8 +413,10 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
    if(!state.demo)problems.push('Pages Frontend Demo mode is not enabled');
    if(state.demoBackend!=='browser-memory')problems.push(`unexpected demo backend "${state.demoBackend}"`);
    if(state.demoDoeAuthoritative!==false)problems.push('Pages demo must keep authoritative DOE disabled');
-   if(!state.demoUid)problems.push('Pages demo did not auto-sign a synthetic user');
+   if(state.demoUid!=='uid-developer')problems.push(`Pages demo must default to Developer, got "${state.demoUid}"`);
    if(!state.demoToolbar)problems.push('Pages demo toolbar is missing');
+   if(state.demoToolbarTitle!=='DEMO ROLE TESTER')problems.push(`unexpected demo role tester title "${state.demoToolbarTitle}"`);
+   if(!/Developer/i.test(state.demoSelectedRole))problems.push(`Developer is not selected in demo role tester: "${state.demoSelectedRole}"`);
   }else if(!state.emulator)problems.push('Firebase emulator mode is not enabled');
   if(!state.hasFirebase)problems.push('Firebase SDK global is missing');
   if(!state.hasUcvm)problems.push('UCVM shared runtime global is missing');
@@ -421,6 +426,15 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(assetFailures.length)problems.push(`local asset failure(s): ${assetFailures.join(' | ')}`);
   if(cloudRequests.length)problems.push(`unexpected Firebase cloud request(s) in ${demoMode?'Pages demo':'emulator smoke'}: ${cloudRequests.join(' | ')}`);
   if(problems.length)throw Error(`${expectation.page}: ${problems.join('; ')}`);
+  if(demoMode&&expectation.page==='faculty-admin.html'){
+   if(!state.reconciliationTab)throw Error('faculty-admin.html: DOE Reconciliation tab is missing in Frontend Demo');
+   const open=await cdp.send('Runtime.evaluate',{expression:`(()=>{document.getElementById('doe-reconciliation-tab')?.click();return true})()`,returnByValue:true});
+   if(open.exceptionDetails)throw Error(`faculty-admin.html: could not open DOE Reconciliation: ${exceptionText(open.exceptionDetails)}`);
+   await waitForCondition(cdp,`(()=>{const body=document.getElementById('doe-reconciliation-body'),note=document.querySelector('#doe-reconciliation-view .doe-note');return body&&body.querySelectorAll('tr').length>0&&/Frontend Demo reconciliation/i.test(note?.textContent||'')&&!/DOE data is not configured/i.test(body.textContent||'')})()`,'Frontend Demo DOE reconciliation',12000);
+   const recon=await cdp.send('Runtime.evaluate',{expression:`(()=>({rows:document.querySelectorAll('#doe-reconciliation-body tr').length,queue:document.querySelectorAll('#doe-reconciliation-queue-body tr').length,text:(document.getElementById('doe-reconciliation-body')?.textContent||'').trim()}))()`,returnByValue:true});
+   if(recon.exceptionDetails)throw Error(`faculty-admin.html: DOE Reconciliation inspection failed: ${exceptionText(recon.exceptionDetails)}`);
+   if(Number(recon.result?.value?.rows||0)<1)throw Error('faculty-admin.html: DOE Reconciliation rendered no demo rows');
+  }
   return{page:expectation.page,finalUrl:state.href,title:state.title,requiredAsset,requests:requested.filter(url=>url.startsWith(origin)).length};
  }finally{
   off();cdp.close();await closeTarget(debugPort,target.id);
