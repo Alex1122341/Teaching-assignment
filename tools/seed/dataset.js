@@ -243,7 +243,9 @@ function buildSessionsAndCalendar() {
       const start = `${String(startHour).padStart(2, '0')}:${random() < 0.5 ? '00' : '30'}`;
       const end = `${String(startHour + 2).padStart(2, '0')}:${start.endsWith('30') ? '30' : '00'}`;
       const timeUnknown = random() < 0.05;
-      const type = isLab ? 'LAB' : (random() < 0.2 ? 'SRL' : 'Lecture');
+      // Session type uses the canonical application vocabulary (LEC / SRL / LAB).
+      // 'Lecture' is a teaching ROLE, not a session type, so it must not be used here.
+      const type = isLab ? 'LAB' : (random() < 0.2 ? 'SRL' : 'LEC');
       const topic = isLab ? pick(LAB_TOPICS, random) : pick(LECTURE_TOPICS, random);
       const room = isLab ? 'Clinical Skills Lab' : pick(ROOMS.slice(0, 4), random);
       const lead = FACULTY_SEED[Math.floor(random() * FACULTY_SEED.length)];

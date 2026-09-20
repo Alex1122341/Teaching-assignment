@@ -53,6 +53,11 @@ check('Developer can approve ADC LAB and ADFA routed scopes with one identity',a
   for(const office of ['adc','lab','adfa']){
    const id='dev-'+office,fields=office==='adc'?['date']:office==='lab'?['topic']:['assignments'];
    await db.doc('change_requests/'+id).set({requestSchema:'office-routing-v1',requesterUid:'faculty',requesterRole:'faculty',sessionId:'s1',requestType:office==='adfa'?'faculty_swap':'session_edit',status:'pending',revision:1,editableFields:[],requesterMessage:''});
+   // A routed approval always has its workflow document. The serial stage order
+   // is derived from it, so the fixture must provide one.
+   const scopes={adc:[],lab:[],adfa:[]},scopeSignatures={adc:'',lab:'',adfa:''};
+   scopes[office]=fields;scopeSignatures[office]=office+'-sig';
+   await db.doc('change_request_workflow/'+id).set({requestId:id,revision:1,requiredOffices:[office],hasFacultyChange:office==='adfa',finalType:'LEC',scopes,scopeSignatures,updatedAt:new Date('2026-09-20T12:00:00Z')});
    await db.doc('change_request_approvals/'+id+'_'+office).set({id:id+'_'+office,requestId:id,office,revision:1,fields,scopeSignature:office+'-sig',status:'pending',decidedBy:'',decidedByName:'',decidedAt:null,pushBackReason:'',updatedAt:new Date('2026-09-20T12:00:00Z')});
   }
  });

@@ -21,7 +21,7 @@ before(async()=>{
  await env.clearFirestore();
  await env.withSecurityRulesDisabled(async ctx=>{
   const db=ctx.firestore();
-  for(const [uid,role] of [['faculty','faculty'],['adc','adc'],['lab','lab'],['adfa','adfa_regular']])await db.doc(`users/${uid}`).set({role,active:true,mustChangePassword:false,email:`${uid}@example.test`});
+  for(const [uid,role] of [['faculty','faculty'],['adc','adc'],['lab','lab'],['adfa','adfa_regular'],['developer','developer']])await db.doc(`users/${uid}`).set({role,active:true,mustChangePassword:false,email:`${uid}@example.test`});
   await db.doc('faculty/f1').set({email:'faculty@example.test'});
   await db.doc('change_requests/r3').set(publicRequest());
   await db.doc('change_request_workflow/r3').set(workflow());
@@ -78,9 +78,29 @@ check('reject and push back are not blocked by stage order',async()=>{
   await db.doc('change_request_workflow/r4').set({...workflow(),requestId:'r4'});
   await db.doc('change_request_approvals/r4_adc').set({...approval('adc',['date'],'adc-v1'),id:'r4_adc',requestId:'r4'});
   await db.doc('change_request_approvals/r4_lab').set({...approval('lab',['topic'],'lab-v1'),id:'r4_lab',requestId:'r4'});
+  await db.doc('change_request_approvals/r4_adfa').set({...approval('adfa',['instructor'],'adfa-v1'),id:'r4_adfa',requestId:'r4'});
  });
  const db=env.authenticatedContext('adfa').firestore(),stamp=serverTimestamp(),batch=db.batch();
  batch.update(db.doc('change_request_approvals/r4_adfa'),{status:'rejected',decidedBy:'adfa',decidedByName:'ADFA',decidedAt:stamp,pushBackReason:'',updatedAt:stamp});
  batch.update(db.doc('change_requests/r4'),{status:'rejected',editableFields:[],requesterMessage:'',updatedAt:stamp});
  await assertSucceeds(batch.commit());
+});
+
+check('Developer cross-office testing still respects the stage order',async()=>{
+ const {assertFails,assertSucceeds}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
+ await env.withSecurityRulesDisabled(async ctx=>{
+  const db=ctx.firestore();
+  await db.doc('change_requests/r5').set({...publicRequest(),sessionId:'s5'});
+  await db.doc('change_request_workflow/r5').set({...workflow(),requestId:'r5'});
+  for(const [office,fields,signature] of [['adc',['date'],'adc-v1'],['lab',['topic'],'lab-v1'],['adfa',['instructor'],'adfa-v1']])await db.doc(`change_request_approvals/r5_${office}`).set({...approval(office,fields,signature),id:`r5_${office}`,requestId:'r5'});
+ });
+ const db=env.authenticatedContext('developer').firestore();
+ const decide=async(office,stamp)=>{const batch=db.batch();batch.update(db.doc(`change_request_approvals/r5_${office}`),{status:'approved',decidedBy:'developer',decidedByName:'VISTA Developer',decidedAt:stamp,pushBackReason:'',updatedAt:stamp});batch.update(db.doc('change_requests/r5'),{updatedAt:stamp});return batch.commit()};
+ // Developer cannot jump straight to ADFA or LAB while ADC is pending.
+ await assertFails(decide('adfa',serverTimestamp()));
+ await assertFails(decide('lab',serverTimestamp()));
+ await assertSucceeds(decide('adc',serverTimestamp()));
+ await assertFails(decide('adfa',serverTimestamp()));
+ await assertSucceeds(decide('lab',serverTimestamp()));
+ await assertSucceeds(decide('adfa',serverTimestamp()));
 });
