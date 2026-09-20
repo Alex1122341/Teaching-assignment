@@ -493,6 +493,14 @@ test('only ADFA view requests rich private context',()=>{
 })();
 
 
+(() => {
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
+
 test('Developer approval UI exposes ADC LAB and ADFA scopes without changing ordinary role routing',()=>{
  const source=read('approval-workflow.js');
  assert.match(source,/const isDeveloper=\(\)=>role==='developer'/);
@@ -502,3 +510,4 @@ test('Developer approval UI exposes ADC LAB and ADFA scopes without changing ord
  assert.match(source,/Developer · all approval queues/);
  assert.match(source,/officeCaps\.officeForRole\(role\)/);
 });
+})();
