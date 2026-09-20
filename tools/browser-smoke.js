@@ -429,6 +429,7 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(demoMode&&expectation.page==='index.html')await verifyTimetableRoleMatrix({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoSessionAuditWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoFacultySwapAuditWorkflow({debugPort,origin,setupCdp:cdp});
+  if(demoMode&&expectation.page==='index.html')await verifyDemoSessionCreateDeleteWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='user-management.html')await verifyUserManagementRoleMatrix({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='faculty-admin.html'){
    if(!state.reconciliationTab)throw Error('faculty-admin.html: DOE Reconciliation tab is missing in Frontend Demo');
@@ -588,6 +589,42 @@ async function verifyDemoFacultySwapAuditWorkflow({debugPort,origin,setupCdp}){
    if(opened.exceptionDetails||!opened.result?.value?.tab)throw Error('Change History tab is unavailable for SWAP verification');
    const historyExpression="(()=>{const text=document.getElementById('audit-body')?.textContent||'';return text.includes('Faculty changed')&&text.includes("+JSON.stringify(fromName)+")&&text.includes("+JSON.stringify(toName)+")&&text.includes('VISTA Developer')})()";
    await waitForCondition(cdp,historyExpression,'Faculty SWAP visible in Change History',12000);
+  });
+ }finally{
+  try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
+ }
+}
+async function verifyDemoSessionCreateDeleteWorkflow({debugPort,origin,setupCdp}){
+ const markerTopic='DEMO-AUDIT-ADD-DELETE',markerRoom='DEMO-LIFECYCLE-ROOM';
+ let sessionId='';
+ try{
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-developer',label:'Developer session create/delete workflow'},async cdp=>{
+   await waitForCondition(cdp,"(()=>document.getElementById('add-session-btn')&&!document.getElementById('add-session-btn').classList.contains('hidden')&&!document.body.classList.contains('auth-locked'))()",'Developer Add Session ready',12000);
+   const open=await cdp.send('Runtime.evaluate',{expression:`(()=>{window.confirm=()=>true;const records=window.UCVM_PAGES_DEMO?.export?.()||{},today=new Date().toISOString().slice(0,10),dates=Object.entries(records).filter(([path,row])=>path.startsWith('sessions/')&&!path.slice('sessions/'.length).includes('/')&&String(row?.date||'')>=today).map(([,row])=>String(row.date)).filter(Boolean).sort();const date=dates.at(-1)||'2027-04-12';document.getElementById('add-session-btn').click();return{date}})()`,returnByValue:true});
+   if(open.exceptionDetails)throw Error('Add Session modal failed: '+exceptionText(open.exceptionDetails));
+   const targetDate=open.result?.value?.date||'2027-04-12';
+   await waitForCondition(cdp,"(()=>!!document.getElementById('session-form')&&!!document.getElementById('topic'))()",'Add Session form',12000);
+   const submit=await cdp.send('Runtime.evaluate',{expression:`(()=>{window.confirm=()=>true;const set=(id,value)=>{const el=document.getElementById(id);if(!el)return false;el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return true};const ok=[set('date',${JSON.stringify(targetDate)}),set('year','1'),set('course','200'),set('type','LEC'),set('start','16:30'),set('end','17:00'),set('topic',${JSON.stringify(markerTopic)}),set('room',${JSON.stringify(markerRoom)})].every(Boolean);const form=document.getElementById('session-form');if(!ok||!form)return{ok:false};form.requestSubmit();return{ok:true}})()`,returnByValue:true});
+   if(submit.exceptionDetails||!submit.result?.value?.ok)throw Error('Add Session form could not be submitted');
+   sessionId=await waitForCondition(cdp,"(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},hit=Object.entries(records).find(([path,row])=>path.startsWith('sessions/')&&row?.topic==='"+markerTopic+"'&&row?.room==='"+markerRoom+"'),logs=Object.entries(records).filter(([path,row])=>path.startsWith('session_change_log/')&&row?.action==='create'&&row?.topic==='"+markerTopic+"'&&row?.changedBy==='uid-developer');if(!hit||!records['calendar_sessions/'+hit[0].slice('sessions/'.length)]||!logs.length)return false;return hit[0].slice('sessions/'.length)})()",'Demo session create + calendar + audit',12000);
+   if(!sessionId)throw Error('Created Demo session ID was not resolved');
+   const list=await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('cal-list-btn')?.click();return true})()",returnByValue:true});
+   if(list.exceptionDetails)throw Error('Could not switch to List view for delete: '+exceptionText(list.exceptionDetails));
+   await waitForCondition(cdp,"(()=>!!document.querySelector('[data-session-id=\\\""+sessionId+"\\\"]'))()",'Created Demo session visible in List view',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.querySelector('[data-session-id=\\\""+sessionId+"\\\"]')?.click();return true})()",returnByValue:true});
+   await waitForCondition(cdp,"(()=>!!document.getElementById('detail-edit'))()",'Created Demo session detail',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{window.confirm=()=>true;document.getElementById('detail-edit')?.click();return true})()",returnByValue:true});
+   await waitForCondition(cdp,"(()=>!!document.getElementById('delete-session'))()",'Delete Session button',12000);
+   const remove=await cdp.send('Runtime.evaluate',{expression:"(()=>{window.confirm=()=>true;document.getElementById('delete-session')?.click();return true})()",returnByValue:true});
+   if(remove.exceptionDetails)throw Error('Delete Session click failed: '+exceptionText(remove.exceptionDetails));
+   await waitForCondition(cdp,"(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},created=Object.values(records).some(row=>row?.action==='create'&&row?.sessionId==='"+sessionId+"'&&row?.changedBy==='uid-developer'),deleted=Object.values(records).some(row=>row?.action==='delete'&&row?.sessionId==='"+sessionId+"'&&row?.changedBy==='uid-developer');return !records['sessions/"+sessionId+"']&&!records['calendar_sessions/"+sessionId+"']&&created&&deleted})()",'Demo session delete + audit',12000);
+  });
+
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'faculty-admin.html',uid:'uid-developer',label:'Developer Added Deleted Change History'},async cdp=>{
+   await waitForCondition(cdp,"(()=>document.getElementById('auth-gate')?.classList.contains('hidden')===true&&document.getElementById('admin-chip')?.textContent.includes('VISTA Developer'))()",'Developer Faculty Dashboard access for create/delete history',12000);
+   const opened=await cdp.send('Runtime.evaluate',{expression:"(()=>{const tab=document.querySelector('.tab[data-tab=\\\"history\\\"]');tab?.click();return{tab:!!tab}})()",returnByValue:true});
+   if(opened.exceptionDetails||!opened.result?.value?.tab)throw Error('Change History tab is unavailable for create/delete verification');
+   await waitForCondition(cdp,"(()=>{const rows=[...document.querySelectorAll('#audit-body tr')].filter(row=>(row.textContent||'').includes('"+markerTopic+"'));const text=rows.map(row=>row.textContent||'').join(' ');return rows.length>=2&&text.includes('Added')&&text.includes('Deleted')&&text.includes('VISTA Developer')&&rows.every(row=>{const when=(row.cells?.[0]?.textContent||'').trim();return !!when&&!/Pending/i.test(when)})})()",'Added Deleted actor and Calgary timestamps in Change History',12000);
   });
  }finally{
   try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
