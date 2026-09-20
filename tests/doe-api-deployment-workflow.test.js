@@ -31,6 +31,8 @@ test('DOE API production deployment is manual, exact-main and production-environ
  assert.match(workflow,/npm --prefix output\/doe-api\/server ci --omit=dev/);
  assert.match(workflow,/Azure\/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383/);
  assert.match(workflow,/node tools\/verify-production-doe-api\.js/);
+ assert.match(workflow,/https:\/\/red-cliff-04871ca0f\.5\.azurestaticapps\.net/);
+ assert.match(workflow,/https:\/\/alex1122341\.github\.io/);
 });
 
 test('DOE API deployment never embeds Azure or Firebase server credentials in workflow source',()=>{
