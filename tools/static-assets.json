@@ -33,6 +33,7 @@
   "account-profile.js",
   "doe-api-client.js",
   "doe-worksheet-view.js",
+  "doe-reconciliation.js",
   "doe-rulebook-admin.js",
   "doe-policy-admin.js",
   "doe-policy-admin.css",
