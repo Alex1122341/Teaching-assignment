@@ -7,7 +7,7 @@
  'use strict';
  const text=value=>String(value??'').trim();
  const facultyFacingRole=role=>['faculty','hicc','visc'].includes(role);
- const rolesAllowed=['faculty','hicc','visc','adc','lab','other_office','administrator','owner'];
+ const rolesAllowed=['faculty','hicc','visc','adc','lab','other_office','administrator','owner','developer'];
  function build({role,faculty=null,roles=[],current=null,office={},active=false,mustChangePassword=true}={}){
   if(!rolesAllowed.includes(role))throw Error('Choose a valid account role.');
   const profile={};
