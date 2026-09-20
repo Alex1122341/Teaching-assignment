@@ -64,17 +64,16 @@ test('Pages workflow leaves the independent Test workflow in place',()=>{
   assert.match(workflow,/push:\s*\n\s+branches:\s*\n\s+- main/);
 });
 
-test('setup docs define the fixed Pages isolated Firebase lab boundary',()=>{
+test('setup docs define the fixed Pages frontend demo boundary',()=>{
   const setup=read('SETUP.md');
   assert.match(setup,/https:\/\/alex1122341\.github\.io\/Teaching-assignment\//);
   assert.match(setup,/GitHub Pages/i);
-  assert.match(setup,/vista-teaching-lab/);
-  assert.match(setup,/Isolated Firebase Lab/i);
-  assert.match(setup,/tools\/lab-firebase-web-config\.json/);
-  assert.match(setup,/config:pin:lab/);
-  assert.match(setup,/DOE API.*blank|never injects a DOE API URL|no DOE API/i);
+  assert.match(setup,/Frontend Demo/i);
+  assert.match(setup,/browser-local|browser local/i);
+  assert.match(setup,/synthetic/i);
+  assert.match(setup,/no cloud writes|does not require Firebase/i);
+  assert.match(setup,/DOE.*disabled|authoritative DOE.*off/i);
   assert.match(setup,/alex1122341\.github\.io/);
-  assert.match(setup,/Authorized domains/i);
   assert.match(setup,/latest successful.*pull request|latest successful.*PR/i);
   assert.match(setup,/TEST SITE|fixed test/i);
 });
@@ -168,8 +167,9 @@ test('faculty dashboard Pages shim redirects within the project subpath',()=>{
 
 test('Pages staging changes only the supplied build directory',()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ucvm-pages-'));
-  fs.writeFileSync(path.join(dir,'index.html'),'<!doctype html><html><body>Index</body></html>');
-  fs.writeFileSync(path.join(dir,'faculty-admin.html'),'<!doctype html><html><body>Faculty</body></html>');
+  const firebase='<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>';
+  fs.writeFileSync(path.join(dir,'index.html'),'<!doctype html><html><body>Index'+firebase+'<script src="bundles/shared-auth.bundle.js"></script></body></html>');
+  fs.writeFileSync(path.join(dir,'faculty-admin.html'),'<!doctype html><html><body>Faculty'+firebase+'<script src="bundles/shared-auth.bundle.js"></script></body></html>');
 
   const result=stagePagesDirectory(dir,identity);
   assert.equal(result.htmlFiles,2);

@@ -34,12 +34,6 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Require pinned Firebase lab Web config
-        run: >-
-          node -e "const fs=require('node:fs'); const pin=require('./tools/pin-lab-firebase-web-config.js');
-          pin.validateLabConfig(JSON.parse(fs.readFileSync('tools/lab-firebase-web-config.json','utf8')));
-          console.log('Pinned Firebase lab Web config is ready.');"
-
       - name: Set up Java for Firebase emulators
         uses: actions/setup-java@v4
         with:
@@ -55,19 +49,10 @@ jobs:
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator
 
-      - name: Prepare isolated Firebase lab configuration
-        shell: bash
-        env:
-          EXPECTED_FIREBASE_PROJECT_ID: vista-teaching-lab
-        run: |
-          set -euo pipefail
-          node tools/build-firebase-config.js --from-json tools/lab-firebase-web-config.json
-          node tools/verify-preview-client-config.js
-
       - name: Build static site
         run: node tools/build-static.js
 
-      - name: Stage GitHub Pages test site
+      - name: Stage GitHub Pages frontend demo
         run: >-
           node tools/stage-github-pages.js
           --directory .deploy-static

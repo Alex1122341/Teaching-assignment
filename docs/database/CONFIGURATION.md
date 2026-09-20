@@ -95,50 +95,35 @@ firebase deploy --only firestore:rules,firestore:indexes --project <project-id>
 
 ---
 
-## 6. GitHub Pages lab runtime and trusted DOE administration
+## 6. GitHub Pages frontend demo and optional Firebase lab backend
 
 The active browser test runtime is the fixed GitHub Pages site:
 
 `https://alex1122341.github.io/Teaching-assignment/`
 
-The workflow reads `tools/lab-firebase-web-config.json`, regenerates `firebase-config.js`, and fails closed unless the pinned configuration is a real Web SDK config for **`vista-teaching-lab`**, emulator mode is off, and `UCVM_DOE_API_BASE_URL` is blank. Refresh the pinned file with `npm run config:pin:lab` after `firebase login`.
+For the current frontend-first phase, GitHub Pages does **not** connect to Cloud Firestore or Firebase Authentication. After the normal build and CI verification, `tools/stage-github-pages.js` injects:
 
-The Firebase Web SDK configuration is public client metadata. It is not a service credential and must never contain a private key.
+- `pages-demo-data.js` — the deterministic synthetic dataset from `tools/seed/dataset.js`
+- `pages-demo-runtime.js` — an in-browser Firebase Auth/Firestore compatibility layer
 
-Authoritative DOE writes use a separate trust boundary:
+The staged demo auto-signs a synthetic account, supports role switching, reads/writes browser-local demo state, and provides a reset control. No demo write leaves the browser.
 
-- workflow: `.github/workflows/firebase-doe-admin.yml`
-- GitHub Environment: `firebase-lab-admin`
-- Environment secret: `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`
-- Firebase project lock: `vista-teaching-lab`
-- execution: manual `workflow_dispatch` only
-- destructive operations: exact typed confirmation is required for policy publish, full recalculation, and queued recalculation processing
+Authoritative DOE is disabled in this mode. The Pages artifact never receives a DOE API URL and does not present browser-computed DOE as authoritative.
 
-The admin job reuses the existing DOE server services directly. It does **not** expose a long-lived HTTP API and it does not grant browser write access to authoritative DOE collections.
+The Firebase lab project `vista-teaching-lab` remains available for a later backend-integration phase. Its Web config pinning, Auth setup, user bootstrap, synthetic data setup, rules/index deployment, and DOE Admin jobs are all optional/manual and do not block the Pages demo.
 
-For normal Firebase-only timetable mutations, authorized admins may create strict `pending` `doe_recalculation_requests`. The browser strips old DOE provenance from the affected session assignments and does not generate replacement DOE values. Run the `recalculate-queue` operation with confirmation `PROCESS-QUEUE` to consume those requests with the trusted server-side engine.
+### Optional future lab Admin credential
 
-One-time setup for the lab:
+When cloud-backend testing resumes, use a dedicated test-only `firebase-lab-admin` service account with least-privilege roles:
 
-1. Create GitHub Environment `firebase-lab-admin` and add the test-only secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`.
-2. On the current feature branch, **Firebase Lab Data Setup** automatically runs the branch-locked `provision` path when that workflow changes. It creates/reuses the Firebase Web App, pins the public Web SDK config, seeds/verifies synthetic Firestore data, deploys reviewed rules/indexes, and pushes only the public config back to the branch.
-3. If that automatic run fails because the Environment secret is missing, add the secret and rerun the failed workflow. No personal `firebase login` is required for the CI path.
-4. Email/Password Authentication and `alex1122341.github.io` can still be enabled manually before merge. After the Auth Setup workflow is available on `main`, **Firebase Lab Auth Setup > configure** can enforce both settings using the same lab Admin credential.
-5. Test-only Authentication accounts can be created manually before merge or synchronized later through **Firebase Lab Bootstrap**. Passwords are established through Firebase's reset flow, not GitHub Actions inputs.
-6. `npm run config:pin:lab`, `npm run db:seed`, and `npm run db:deploy` remain local fallback commands only.
+- `roles/identitytoolkit.admin`
+- `roles/datastore.user`
+- `roles/firebaserules.admin`
+- `roles/datastore.indexAdmin`
 
-### Least-privilege lab Admin credential
+Store its JSON only in the GitHub Environment secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`. Never commit it.
 
-The `firebase-lab-admin` service account should be test-only and scoped to `vista-teaching-lab`. Prefer these predefined roles rather than Owner/Editor:
-
-- `roles/identitytoolkit.admin` for Authentication users and project Auth configuration.
-- `roles/datastore.user` for synthetic Firestore document reads/writes.
-- `roles/firebaserules.admin` for Security Rules releases/rulesets.
-- `roles/datastore.indexAdmin` for Firestore index definitions.
-
-The JSON key belongs only in the GitHub Environment secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`.
-
-Azure production workflows are retained in the repository as paused/fallback infrastructure. They are not prerequisites for Pages testing, Firebase lab data, or the DOE admin job.
+Azure production workflows remain paused/fallback infrastructure and are not prerequisites for the Pages frontend demo.
 
 ---
 

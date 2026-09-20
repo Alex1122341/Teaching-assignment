@@ -61,80 +61,72 @@ Do not store the UID or temporary password in this repository, documentation, sc
 
 ## Web deployment
 
-The active development/test path is Firebase + GitHub Pages:
+The active development/test path is now a **frontend-first GitHub Pages demo**:
 
 - **Fixed test frontend:** `https://alex1122341.github.io/Teaching-assignment/`
-- **Test Authentication + Firestore:** `vista-teaching-lab`
-- **DOE authoritative writes:** manually dispatched **Firebase DOE Admin Job**
-- **Azure:** paused for the current development phase; retained only as production/fallback history
+- **Runtime data:** deterministic synthetic data loaded into a browser-local in-memory Firestore/Auth compatibility layer
+- **Cloud writes:** none
+- **Authoritative DOE backend:** disabled on the Pages demo
+- **Firebase lab / DOE admin:** retained as optional manual backend tooling for a later phase
+- **Azure:** paused
 
-The GitHub Pages workflow never points at `tester-teaching` and never injects a DOE API URL. Normal timetable/faculty workflows use the isolated lab Firestore under its deployed Security Rules. DOE policy/configuration browser writes remain denied; impact preview persistence, policy publication and recalculation run through trusted GitHub Actions/admin code.
+The Pages build still runs the full static/unit and Firebase Emulator test suites before deployment. After verification, `tools/stage-github-pages.js` injects the Pages-only demo runtime and synthetic dataset into the generated static artifact. The tracked application source keeps its normal Firebase architecture; only the staged Pages artifact is switched to the in-browser demo backend.
 
-### One-time GitHub Pages and Firebase lab setup
+The demo auto-signs in with a synthetic ADFA General account and adds a small role selector so the same fixed site can be exercised as Faculty, HICC, VISC, ADC, LAB, and administrative roles. Demo writes persist only in that browser's local storage and can be reset from the demo toolbar.
 
-1. In GitHub repository **Settings > Pages**, set the Pages source to **GitHub Actions**.
+The authoritative DOE API is intentionally unavailable. Timetable/Faculty UI can show DOE-related states and queue-like frontend behavior, but the Pages demo does not claim that any DOE value is authoritative.
+
+### GitHub Pages test-site setup
+
+1. In GitHub repository **Settings > Pages**, set the source to **GitHub Actions**.
 2. Keep the standard `github-pages` Environment available to same-repository pull-request deployments.
-3. Before merge, enable Email/Password Authentication and add `alex1122341.github.io` under **Authentication > Settings > Authorized domains** manually if needed. After the setup workflow exists on `main`, **Firebase Lab Auth Setup > configure** can perform both changes using the lab Admin credential.
-5. Before merge, create test-only Authentication users in `vista-teaching-lab` and matching Firestore `users/{uid}` profiles manually if needed. After the bootstrap workflow is available on `main`, **Firebase Lab Bootstrap** can create or synchronize both sides without accepting a password; use the Firebase password-reset flow to establish the initial password.
-6. Run `firebase login` and `npm run config:pin:lab`, then commit the generated public `tools/lab-firebase-web-config.json` for `vista-teaching-lab`.
-7. Before merge, seed/verify and deploy rules manually if needed. After merge, **Firebase Lab Data Setup > provision** can perform the canonical seed/verify plus reviewed Firestore rules/index deployment through the lab Admin credential.
+3. No Firebase Web config, Firebase service-account secret, Authorized Domain, or Firebase Authentication user is required to run the Pages demo.
+4. Open the fixed Pages URL after a successful PR deployment and confirm the banner says **Frontend Demo** and **DOE backend off**.
+5. Use the role selector in the upper-left corner to exercise role-specific UI. Use **Reset demo data** to restore the deterministic synthetic dataset.
 
-The Pages workflow fails closed unless `tools/lab-firebase-web-config.json` contains a real Web SDK config for exactly `vista-teaching-lab`, emulator mode is disabled and the DOE API base URL is blank. The visible banner is **TEST SITE - GitHub Pages / Isolated Firebase Lab / vista-teaching-lab**.
+The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site.
 
-The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site. Firebase Hosting is not used for the active browser test path; GitHub Pages remains the fixed test host.
+### Future Firebase lab backend
 
-### firebase-lab-admin service account permissions
+The Firebase lab automation remains in the repository for later integration testing, but it is **manual only** and does not block GitHub Pages.
 
-Use a dedicated **test-only** service account for `vista-teaching-lab`; do not grant Owner or Editor simply to make CI convenient. The current lab automation needs these predefined roles:
+When backend testing becomes a priority:
+- create the `firebase-lab-admin` GitHub Environment,
+- add `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`,
+- configure Auth with **Firebase Lab Auth Setup**,
+- create/synchronize test users with **Firebase Lab Bootstrap**,
+- seed/deploy `vista-teaching-lab` with **Firebase Lab Data Setup**,
+- run trusted DOE operations with **Firebase DOE Admin Job**.
 
-- `roles/identitytoolkit.admin` — create/update test Auth users and read/update Authentication project configuration.
-- `roles/datastore.user` — read/write synthetic Firestore documents through Admin SDK.
-- `roles/firebaserules.admin` — deploy reviewed Firebase Security Rules.
-- `roles/datastore.indexAdmin` — create/update/delete Firestore index definitions during `firebase deploy --only firestore`.
+Use a dedicated test-only service account for `vista-teaching-lab`. Prefer these predefined roles rather than Owner/Editor:
+- `roles/identitytoolkit.admin`
+- `roles/datastore.user`
+- `roles/firebaserules.admin`
+- `roles/datastore.indexAdmin`
 
-Store its JSON key only as the `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` secret in the `firebase-lab-admin` GitHub Environment. Never commit the key or place it in a repository variable. Rotate/revoke the key if it is ever exposed.
+The JSON key belongs only in the GitHub Environment secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`; never commit it.
 
 ### Firebase Lab Data Setup
 
-After `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` is configured, **Firebase Lab Data Setup** removes the remaining personal-CLI dependency for the test environment.
+`.github/workflows/firebase-lab-data-setup.yml` is manual-only. It supports:
+- `verify-data`
+- `seed-data` with confirmation `SEED:vista-teaching-lab`
+- `deploy-firestore` with confirmation `DEPLOY-FIRESTORE:vista-teaching-lab`
+- `provision` with confirmation `PROVISION:vista-teaching-lab`
 
-On `feature/doe-operational-readiness`, the workflow has a branch-locked automatic `provision` path that runs when the workflow itself changes. It creates or reuses the lab Firebase Web App, pins the public Web SDK config, seeds/verifies the canonical synthetic dataset, deploys reviewed Firestore rules/indexes, and commits only `tools/lab-firebase-web-config.json` back to the feature branch.
-
-The manual modes remain available after merge:
-- `verify-data` checks that every canonical synthetic seed document exists.
-- `seed-data` requires `SEED:vista-teaching-lab`.
-- `deploy-firestore` requires `DEPLOY-FIRESTORE:vista-teaching-lab`.
-- `provision` requires `PROVISION:vista-teaching-lab` and performs the full data + Firestore setup.
-
-The workflow never accepts another Firebase project id. GitHub Pages fails fast while the pinned Web config is still a placeholder.
+None of these operations run on push or pull request.
 
 ### Firebase Lab Auth Setup
 
-After the `firebase-lab-admin` Environment credential exists, the manual **Firebase Lab Auth Setup** workflow can verify or configure the Authentication boundary without using the Firebase Console:
-
-- `check` reads the Identity Toolkit project configuration and fails with a readiness summary when Email/Password or the Pages domain is missing.
-- `configure` requires exact confirmation `CONFIGURE-AUTH:vista-teaching-lab`, enables email/password sign-in, preserves existing authorized domains, and adds `alex1122341.github.io`.
-
-The service account needs permission to read Auth project config for `check` and update it for `configure`. The workflow is lab-locked and never accepts a production project id.
+The manual **Firebase Lab Auth Setup** workflow can later check or configure Email/Password and the GitHub Pages authorized domain using the lab Admin credential.
 
 ### Firebase Lab Bootstrap
 
-`.github/workflows/firebase-lab-bootstrap.yml` is a manual, lab-only account bootstrap path for future test accounts. It uses the same `firebase-lab-admin` Environment credential, accepts no password input, requires an `@ucalgary.ca` email and exact `BOOTSTRAP:<email>:<role>` confirmation, creates or reuses the Firebase Authentication user, and synchronizes the matching `users/{uid}` Firestore profile.
+The manual **Firebase Lab Bootstrap** workflow can later create or synchronize test Authentication users and matching `users/{uid}` profiles without accepting passwords as workflow inputs.
 
-Because GitHub only exposes a new manual workflow after that workflow exists on the default branch, this Action is primarily for post-merge lab maintenance. Before merge, the same contract is available locally through `npm run lab:bootstrap-user -- --email ...` when a valid `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` is supplied. Do not pass passwords through GitHub Actions inputs.
+### DOE admin job
 
-### One-time DOE admin job setup
-
-1. Create a GitHub Environment named `firebase-lab-admin`.
-2. Add Environment secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` containing a **test-only** service account JSON for `vista-teaching-lab`. Never commit this JSON.
-3. Open **Actions > Firebase DOE Admin Job > Run workflow**.
-4. Use `validate-policy` or `impact-preview` for non-destructive checks.
-5. `publish-policy` requires exact confirmation `PUBLISH:<policyVersionId>`.
-6. `recalculate` requires exact confirmation `RECALCULATE:<policyVersionId>:<academicYear>`.
-7. To process DOE generated by Firebase-only timetable/session saves, choose `recalculate-queue` and enter exact confirmation `PROCESS-QUEUE`. The job re-reads the current session before calculating and leaves failed requests pending for retry.
-8. The CLI independently refuses any Firebase project other than `vista-teaching-lab`.
-
-This design keeps a strong DOE server-authoritative boundary without running Cloud Functions or an Azure App Service. The existing DOE server modules remain reusable service code, but the test environment invokes them as a short-lived administrative job rather than exposing them as a browser API.
+The manual **Firebase DOE Admin Job** remains the future trusted execution path for authoritative policy validation, impact preview persistence, publication, recalculation, and queued recalculation processing. It is not needed for Frontend Demo Mode.
 
 ### Paused Azure production setup
 
