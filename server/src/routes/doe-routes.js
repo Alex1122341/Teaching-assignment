@@ -96,6 +96,12 @@ function createDoeRoutes({calculationService,rulebookService,worksheetService,wo
           if(!adminRoles.has(text(actor?.role)))throw new ApiError('FORBIDDEN','This account cannot read DOE policies.',403);
           return{statusCode:200,body:await policyAdminService.loadPolicyBundle({actor,policyVersionId:decodeURIComponent(policyBundleMatch[1])})};
         }
+        const policyAuditMatch=path.match(/^\/api\/doe\/policy-versions\/([^/]+)\/audit$/);
+        if(method==='GET'&&policyAuditMatch){
+          if(!policyAdminService?.listAudit)throw new ApiError('POLICY_ADMIN_UNAVAILABLE','DOE policy audit history is unavailable.',503);
+          if(!adminRoles.has(text(actor?.role)))throw new ApiError('FORBIDDEN','This account cannot read DOE policy audit history.',403);
+          return{statusCode:200,body:await policyAdminService.listAudit({actor,policyVersionId:decodeURIComponent(policyAuditMatch[1])})};
+        }
         const impactReadMatch=path.match(/^\/api\/doe\/impact-runs\/([^/]+)$/);
         if(method==='GET'&&impactReadMatch){
           if(!policyAdminService?.getImpactPreview)throw new ApiError('POLICY_ADMIN_UNAVAILABLE','DOE policy administration service is unavailable.',503);
