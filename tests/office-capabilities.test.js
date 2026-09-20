@@ -46,3 +46,10 @@ test('office capability module is deployed before timetable consumers',()=>{
  assert.ok(assets.includes('office-capabilities.js'));assert.ok(html.includes('<script src="office-capabilities.js"></script>'));
  assert.ok(html.indexOf('office-capabilities.js')<html.indexOf('timetable.js'));
 });
+
+
+test('Developer has every office capability and highest access helpers',()=>{
+ const api=load(),c=api.forRole('developer');for(const [key,value] of Object.entries(c))assert.equal(value,true,key);
+ assert.equal(api.officeForRole('developer'),'adfa');assert.equal(api.isOfficeAccount('developer'),true);
+ const a=access();assert.equal(a.admin({role:'developer'}),true);assert.equal(a.general({role:'developer'}),true);assert.equal(a.historyAll({role:'developer'}),true);assert.equal(a.label('developer'),'Developer');
+});
