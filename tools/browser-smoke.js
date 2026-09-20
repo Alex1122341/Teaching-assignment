@@ -557,7 +557,7 @@ async function verifyUserManagementRoleMatrix({debugPort,origin,setupCdp}){
   });
 
   await withDemoRolePage({debugPort,origin,setupCdp,page:'user-management.html',uid:'uid-admin',label:'Administrator User Management'},async cdp=>{
-   await waitForCondition(cdp,"(()=>/User Management is available to Developer \/ Owner/i.test(document.getElementById('status')?.textContent||''))()",'Administrator User Management denial',12000);
+   await waitForCondition(cdp,"(()=>(document.getElementById('status')?.textContent||'').includes('User Management is available to Developer / Owner'))()",'Administrator User Management denial',12000);
    const state=await userManagementState(cdp);
    if(state.contentVisible)throw Error('Administrator unexpectedly received User Management content');
   });
