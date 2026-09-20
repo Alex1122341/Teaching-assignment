@@ -391,7 +391,7 @@ function createRepository(db){
     else if(text(evidence.policyVersionId)!==policyVersionId||text(evidence.ruleId)!==text(row?.doeRuleId||row?.ruleId)||text(evidence.ruleKey)!==text(row?.doeRuleKey||row?.ruleKey)){status='error';errorCode='DOE_PROVENANCE_MISMATCH'}
     return{
       lineId:text(lineId),category:text(evidence?.category||row?.category||category),label:text(row?.label||label),
-      sourceEntityType:text(sourceEntityType),sourceEntityId:text(sourceEntityId),
+      sourceEntityType:text(sourceEntityType),sourceEntityId:text(sourceEntityId),assignmentFactId:text(row?.assignmentFactId),roleType:text(row?.roleType),courseCode:text(row?.courseCode||row?.course),subjectKey:text(row?.subjectKey||row?.subject),teachingRole:text(row?.teachingRole),
       resultDoe,policyVersionId,ruleId:text(row?.doeRuleId||row?.ruleId||evidence?.ruleId),ruleKey:text(row?.doeRuleKey||row?.ruleKey||evidence?.ruleKey),
       exceptionId:text(row?.exceptionId||evidence?.exceptionId),calculationId,
       quantity:quantity.quantity,quantityUnit:quantity.quantityUnit,calculationText:text(evidence?.calculationText),
