@@ -394,6 +394,12 @@ test('routed final apply writes source, sanitized calendar, audit and applied re
  assert.match(s,/UCVM_APPROVAL_FINALIZER/);
 });
 
+test('faculty routed finalization reuses the pre-save plan after authoritative session save',()=>{
+ const s=source(),finalize=s.slice(s.indexOf('async function finalizeRoutedRequest'),s.indexOf('\n async function swapImpactHtml'));
+ assert.match(finalize,/applyPlan=preflight\?\.plan/);
+ assert.doesNotMatch(finalize,/planFacultySwap\(\{request:bundle\.request,source:bundle\.source/);
+});
+
 test('Faculty replacement resubmission uses the privacy-safe swap index and writes only an opaque private target',()=>{
  const s=source();
  assert.match(s,/faculty_swap_index/);
