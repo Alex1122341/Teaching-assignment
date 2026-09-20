@@ -121,9 +121,10 @@ test('Faculty Lookup list uses one bulk DOE summary and reserves full worksheet 
 
 test('DOE list summaries carry authoritative target metadata for badges and management context',async()=>{
  const repository={
+  async getFacultyWorksheetSource(){return null},
   async listFacultyWorksheetSources(){return[{facultyId:'f1',academicYear:'2027-28',displayName:'Dr Example',policyStatus:'single',target:{effectiveTargetDoe:25,overrideDoe:25,overrideReason:'RSL',source:'approved_override'},lines:[]}]}
  };
- const rows=await createWorksheetService({repository,getFacultyWorksheetSource:repository.listFacultyWorksheetSources}).listFacultyDoe({academicYear:'2027-28'});
+ const rows=await createWorksheetService({repository}).listFacultyDoe({academicYear:'2027-28'});
  assert.equal(rows[0].target.overrideDoe,25);
  assert.equal(rows[0].target.overrideReason,'RSL');
 });
