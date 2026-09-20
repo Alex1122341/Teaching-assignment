@@ -1782,7 +1782,9 @@
   function updateAuthUI() {
     const b = $('account-toggle');
     const showAdminTools=canEdit()||UCVM.general(currentUser)||currentUser?.role==='hicc';
-    const historyOnly=currentUser?.role==='other_office';
+    const accessRole=currentUser?.role||'';
+    const officeSelfServiceBlocked=['adc','lab','other_office'].includes(accessRole);
+    const historyBlocked=['adc','lab'].includes(accessRole);
     b.textContent = currentUser ? `${currentUser.name} - ${currentUser.role}` : 'Sign in';
     b.classList.toggle('is-admin', canEdit());
     $('bulk-add-session-btn').classList.toggle('hidden', !canAddSessions());
@@ -1792,12 +1794,12 @@
     $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || currentUser?.role === 'hicc'));
     $('faculty-dashboard-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
     $('cal-admin-menu').classList.toggle('hidden',!showAdminTools);
-    $('my-teaching-btn').classList.toggle('hidden',!currentUser||historyOnly);
-    $('afc-request-btn').classList.toggle('hidden',!currentUser||historyOnly);
-    $('my-change-history-btn').classList.toggle('hidden',!currentUser);
+    $('my-teaching-btn').classList.toggle('hidden',!currentUser||officeSelfServiceBlocked);
+    $('afc-request-btn').classList.toggle('hidden',!currentUser||officeSelfServiceBlocked);
+    $('my-change-history-btn').classList.toggle('hidden',!currentUser||historyBlocked);
     $('publish-firestore-schedule').classList.toggle('hidden', !UCVM.admin(currentUser));
     updateScheduleSourceUI();
-    $('my-timetable-btn').classList.toggle('hidden', !currentUser || roleIsFaculty(currentUser) || historyOnly);
+    $('my-timetable-btn').classList.toggle('hidden', !currentUser || roleIsFaculty(currentUser) || officeSelfServiceBlocked);
     $('my-timetable-btn').textContent = currentUser && myTimetableOnly ? 'Show All Timetable' : 'My Timetable';
   }
 
