@@ -4,22 +4,41 @@ const root=path.resolve(__dirname,'..'),read=name=>fs.readFileSync(path.join(roo
 const load=()=>{const ctx={window:{}};vm.runInNewContext(read('office-capabilities.js'),ctx);return ctx.window.UCVM_OFFICE_CAPABILITIES;};
 const access=()=>{const source=read('faculty-access.js'),end=source.indexOf(' const esc=');const ctx={window:{}};vm.runInNewContext(source.slice(0,end)+' return {role,admin,general,historyAll,label};})();',ctx);return ctx.window.UCVM;};
 
-test('ADC has scheduling tools but cannot edit instructors or LAB topic',()=>{
+test('ADC is the scheduling owner but cannot assign faculty or edit LAB work',()=>{
  const api=load(),c=api.forRole('adc');
- for(const key of ['canViewCalendar','canAddSessions','canAddOneSession','canSelectSessions','canEditCourseFields','canReviewAdcScope'])assert.equal(c[key],true,key);
- for(const key of ['canEditInstructor','canEditLabTopic','canReviewLabScope','canReviewAdfaScope','canViewFullApprovalOverview'])assert.equal(c[key],false,key);
+ for(const key of ['canViewCalendar','canAddSessions','canAddOneSession','canSelectSessions','canEditCourseFields','canSuggestFaculty','canReviewAdcScope'])assert.equal(c[key],true,key);
+ for(const key of ['canEditInstructor','canEditLabTopic','canEditLabGroups','canEditLabRoster','canReviewLabScope','canReviewAdfaScope','canViewFullApprovalOverview','canOverride'])assert.equal(c[key],false,key);
  assert.equal(api.officeForRole('adc'),'adc');assert.equal(api.isOfficeAccount('adc'),true);assert.ok(Object.isFrozen(c));
 });
-test('LAB has selection and LAB topic only',()=>{
+test('LAB owns LAB work only and does not get unrestricted session selection',()=>{
  const api=load(),c=api.forRole('lab');
- for(const key of ['canViewCalendar','canSelectSessions','canEditLabTopic','canReviewLabScope'])assert.equal(c[key],true,key);
- for(const key of ['canAddSessions','canAddOneSession','canEditCourseFields','canEditInstructor','canReviewAdcScope','canReviewAdfaScope','canViewFullApprovalOverview'])assert.equal(c[key],false,key);
+ for(const key of ['canViewCalendar','canEditLabTopic','canEditLabGroups','canEditLabRoster','canSuggestFaculty','canReviewLabScope'])assert.equal(c[key],true,key);
+ for(const key of ['canAddSessions','canAddOneSession','canSelectSessions','canEditCourseFields','canEditInstructor','canReviewAdcScope','canReviewAdfaScope','canViewFullApprovalOverview','canOverride'])assert.equal(c[key],false,key);
  assert.equal(api.officeForRole('lab'),'lab');
 });
-test('ADFA raw and legacy roles retain their existing authority',()=>{
- const api=load();for(const role of ['owner','administrator','admin','adfa_general','adfa_regular']){
-  const c=api.forRole(role);for(const key of ['canViewCalendar','canAddSessions','canAddOneSession','canSelectSessions','canEditCourseFields','canEditInstructor','canEditLabTopic','canReviewAdfaScope','canViewFullApprovalOverview'])assert.equal(c[key],true,key);assert.equal(c.canReviewAdcScope,false);assert.equal(c.canReviewLabScope,false);assert.equal(api.officeForRole(role),'adfa');
+test('ADFA operational roles are faculty-assignment-only and never general timetable editors',()=>{
+ const api=load();
+ for(const role of ['owner','administrator','admin','adfa_general','adfa_regular']){
+  const c=api.forRole(role);
+  assert.equal(c.canEditInstructor,true,role);
+  for(const key of ['canViewCalendar','canReviewAdfaScope','canViewFullApprovalOverview'])assert.equal(c[key],true,role+'/'+key);
+  // Add One, Add Sessions, general selection, course fields and LAB editing are
+  // all denied even for an ADFA account holding DOE Administration authority.
+  for(const key of ['canAddSessions','canAddOneSession','canSelectSessions','canEditCourseFields','canEditLabTopic','canEditLabGroups','canEditLabRoster','canSuggestFaculty','canReviewAdcScope','canReviewLabScope'])assert.equal(c[key],false,role+'/'+key);
+  assert.equal(api.officeForRole(role),'adfa');
  }
+});
+test('Owner keeps an explicit administrative override while ADFA Administrator does not',()=>{
+ const api=load();
+ assert.equal(api.forRole('owner').canOverride,true);
+ assert.equal(api.forRole('adfa_general').canOverride,true);
+ for(const role of ['administrator','admin','adfa_regular','adc','lab','faculty'])assert.equal(api.forRole(role).canOverride,false,role);
+ assert.equal(api.forRole('developer').canOverride,true);
+});
+test('Developer keeps full authority over every operational capability',()=>{
+ const api=load(),c=api.forRole('developer');
+ assert.equal(Object.values(c).every(value=>value===true),true);
+ assert.equal(api.officeForRole('developer'),'adfa');
 });
 test('Faculty roles have calendar access without office authority',()=>{
  const api=load();for(const role of ['faculty','hicc','visc','editor','viewer']){
