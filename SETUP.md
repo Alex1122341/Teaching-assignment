@@ -76,7 +76,7 @@ The GitHub Pages workflow never points at `tester-teaching` and never injects a 
 2. Keep the standard `github-pages` Environment available to same-repository pull-request deployments.
 3. In Firebase Console for `vista-teaching-lab`, enable Email/Password Authentication.
 4. Add `alex1122341.github.io` under **Authentication > Settings > Authorized domains**.
-5. Create test-only Authentication users in `vista-teaching-lab` and matching Firestore `users/{uid}` profiles. Do not reuse production credentials.
+5. Before merge, create test-only Authentication users in `vista-teaching-lab` and matching Firestore `users/{uid}` profiles manually if needed. After the bootstrap workflow is available on `main`, **Firebase Lab Bootstrap** can create or synchronize both sides without accepting a password; use the Firebase password-reset flow to establish the initial password.
 6. Run `firebase login` and `npm run config:pin:lab`, then commit the generated public `tools/lab-firebase-web-config.json` for `vista-teaching-lab`.
 7. Seed synthetic data with `npm run db:seed`, then run `npm run db:verify`.
 8. Deploy lab rules/indexes with `npm run db:deploy`.
@@ -84,6 +84,12 @@ The GitHub Pages workflow never points at `tester-teaching` and never injects a 
 The Pages workflow fails closed unless `tools/lab-firebase-web-config.json` contains a real Web SDK config for exactly `vista-teaching-lab`, emulator mode is disabled and the DOE API base URL is blank. The visible banner is **TEST SITE - GitHub Pages / Isolated Firebase Lab / vista-teaching-lab**.
 
 The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site. Firebase Hosting is not used for the active browser test path; GitHub Pages remains the fixed test host.
+
+### Firebase Lab Bootstrap
+
+`.github/workflows/firebase-lab-bootstrap.yml` is a manual, lab-only account bootstrap path for future test accounts. It uses the same `firebase-lab-admin` Environment credential, accepts no password input, requires an `@ucalgary.ca` email and exact `BOOTSTRAP:<email>:<role>` confirmation, creates or reuses the Firebase Authentication user, and synchronizes the matching `users/{uid}` Firestore profile.
+
+Because GitHub only exposes a new manual workflow after that workflow exists on the default branch, this Action is primarily for post-merge lab maintenance. Before merge, the same contract is available locally through `npm run lab:bootstrap-user -- --email ...` when a valid `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` is supplied. Do not pass passwords through GitHub Actions inputs.
 
 ### One-time DOE admin job setup
 

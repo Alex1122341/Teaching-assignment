@@ -70,6 +70,7 @@ node tools/build-static.js    # writes .deploy-static/
 | `npm run db:deploy` | deploy rules and indexes to the lab project |
 | `npm run config:generate` | regenerate `firebase-config.js` |
 | `npm run config:pin:lab` | fetch and pin the public `vista-teaching-lab` Web SDK config |
+| `npm run lab:bootstrap-user` | create/reuse a lab Auth user and synchronize its `users/{uid}` profile using Admin credentials |
 
 ---
 
@@ -117,7 +118,7 @@ One-time setup for the lab:
 
 1. In Firebase Authentication for `vista-teaching-lab`, enable Email/Password.
 2. Add `alex1122341.github.io` to **Authentication > Settings > Authorized domains**.
-3. Create test-only Authentication accounts and matching `users/{uid}` profiles.
+3. Create test-only Authentication accounts and matching `users/{uid}` profiles. After merge, the manual **Firebase Lab Bootstrap** workflow can keep these synchronized without password inputs.
 4. Run `npm run config:pin:lab` after `firebase login`, then commit the generated public `tools/lab-firebase-web-config.json`.
 5. Create GitHub Environment `firebase-lab-admin` and add test-only secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`.
 6. Seed synthetic Firestore data with `npm run db:seed`, then verify with `npm run db:verify`.

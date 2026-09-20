@@ -1,0 +1,93 @@
+name: Firebase Lab Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: Test account email (@ucalgary.ca)
+        required: true
+        type: string
+      display_name:
+        description: Display name
+        required: true
+        type: string
+      role:
+        description: Dashboard role for the lab account
+        required: true
+        type: choice
+        options:
+          - administrator
+          - adfa_general
+          - adfa_regular
+          - other_office
+          - adc
+          - lab
+          - faculty
+          - hicc
+          - visc
+      faculty_id:
+        description: Required for faculty, HICC and VISC roles
+        required: false
+        type: string
+      office_name:
+        description: Office display name for Other Office, ADC or LAB
+        required: false
+        type: string
+      confirmation:
+        description: Enter BOOTSTRAP:<email>:<role>
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-lab-bootstrap-${{ inputs.email }}
+  cancel-in-progress: false
+
+jobs:
+  bootstrap_user:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: firebase-lab-admin
+    env:
+      FIREBASE_PROJECT_ID: vista-teaching-lab
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_LAB_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - name: Check out selected repository revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install Firebase Admin dependency
+        run: npm --prefix server ci
+
+      - name: Verify lab bootstrap contract
+        run: node --test tests/firebase-lab-bootstrap.test.js
+
+      - name: Require lab Admin credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "FIREBASE_LAB_SERVICE_ACCOUNT_JSON is not configured in the firebase-lab-admin Environment." >&2
+            exit 1
+          fi
+
+      - name: Create or synchronize test account
+        run: >-
+          node tools/bootstrap-lab-user.js
+          --email "${{ inputs.email }}"
+          --display-name "${{ inputs.display_name }}"
+          --role "${{ inputs.role }}"
+          --faculty-id "${{ inputs.faculty_id }}"
+          --office-name "${{ inputs.office_name }}"
+          --confirmation "${{ inputs.confirmation }}"
