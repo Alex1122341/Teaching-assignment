@@ -45,6 +45,6 @@ test('browser security rules keep authoritative DOE writes out of the client',()
   for(const collection of ['doe_policies','doe_policy_versions','doe_rules','doe_assignments','doe_calculation_records','doe_audit_log']){
     assert.ok(rules.includes(`match /${collection}/`),`${collection} rule is missing`);
   }
-  assert.match(rules,/match \/doe_assignments\/\{assignmentId\}[\s\S]*?allow read, create, update, delete: if false;/);
-  assert.match(rules,/match \/doe_calculation_records\/\{recordId\}[\s\S]*?allow (?:create, update, delete|write): if false;/);
+  assert.match(rules,/match \/doe_assignments\/\{id\}[\s\S]*?allow read,create,update,delete: if false;/);
+  assert.match(rules,/match \/doe_calculation_records\/\{id\}[\s\S]*?allow create,update,delete: if false;/);
 });
