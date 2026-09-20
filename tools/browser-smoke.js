@@ -427,6 +427,7 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(cloudRequests.length)problems.push(`unexpected Firebase cloud request(s) in ${demoMode?'Pages demo':'emulator smoke'}: ${cloudRequests.join(' | ')}`);
   if(problems.length)throw Error(`${expectation.page}: ${problems.join('; ')}`);
   if(demoMode&&expectation.page==='index.html')await verifyTimetableRoleMatrix({debugPort,origin,setupCdp:cdp});
+  if(demoMode&&expectation.page==='index.html')await verifyDemoSessionAuditWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='user-management.html')await verifyUserManagementRoleMatrix({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='faculty-admin.html'){
    if(!state.reconciliationTab)throw Error('faculty-admin.html: DOE Reconciliation tab is missing in Frontend Demo');
@@ -520,6 +521,43 @@ async function verifyTimetableRoleMatrix({debugPort,origin,setupCdp}){
   }
  }finally{
   await setStoredDemoRole(setupCdp,'uid-developer');
+ }
+}
+async function verifyDemoSessionAuditWorkflow({debugPort,origin,setupCdp}){
+ const markerRoom='DEMO-AUDIT-ROOM';
+ let sessionId='';
+ try{
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-developer',label:'Developer session audit workflow'},async cdp=>{
+   await waitForCondition(cdp,"(()=>document.getElementById('cal-list-btn')&&!document.body.classList.contains('auth-locked'))()",'Developer timetable ready',12000);
+   const candidate=await cdp.send('Runtime.evaluate',{expression:`(()=>{window.confirm=()=>true;const records=window.UCVM_PAGES_DEMO?.export?.()||{},today=new Date().toISOString().slice(0,10),rows=Object.entries(records).filter(([path,row])=>path.startsWith('sessions/')&&!path.slice('sessions/'.length).includes('/')&&String(row?.date||'')>=today&&Array.isArray(row?.assignments)&&row.assignments.some(a=>String(a?.ucid||a?.facultyId||'').trim())&&!row?.isCcc&&!row?.isUniversityClosure).sort((a,b)=>String(b[1]?.date||'').localeCompare(String(a[1]?.date||'')));const hit=rows[0];if(!hit)return{ok:false,today};document.getElementById('cal-list-btn').click();return{ok:true,id:hit[0].slice('sessions/'.length),beforeRoom:String(hit[1]?.room||''),date:String(hit[1]?.date||'')}})()`,returnByValue:true});
+   if(candidate.exceptionDetails)throw Error('session candidate selection failed: '+exceptionText(candidate.exceptionDetails));
+   const selected=candidate.result?.value||{};if(!selected.ok)throw Error('no future assignment-bearing Demo session found for '+(selected.today||'today'));sessionId=selected.id;
+   await waitForCondition(cdp,"(()=>!!document.querySelector('[data-session-id=\\\""+sessionId+"\\\"]'))()",'Demo session visible in List view',12000);
+   const opened=await cdp.send('Runtime.evaluate',{expression:"(()=>{const row=document.querySelector('[data-session-id=\\\""+sessionId+"\\\"]');row?.click();return{row:!!row}})()",returnByValue:true});
+   if(opened.exceptionDetails||!opened.result?.value?.row)throw Error('could not open selected Demo session');
+   await waitForCondition(cdp,"(()=>!!document.getElementById('detail-edit'))()",'Demo session detail editor button',12000);
+   const edit=await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('detail-edit')?.click();return true})()",returnByValue:true});
+   if(edit.exceptionDetails)throw Error('could not open Demo session editor: '+exceptionText(edit.exceptionDetails));
+   await waitForCondition(cdp,"(()=>!!document.getElementById('session-form')&&!!document.getElementById('room'))()",'Demo session edit form',12000);
+   const submit=await cdp.send('Runtime.evaluate',{expression:`(()=>{window.confirm=()=>true;const room=document.getElementById('room'),form=document.getElementById('session-form');if(!room||!form)return{ok:false};room.value=${JSON.stringify(markerRoom)};room.dispatchEvent(new Event('input',{bubbles:true}));room.dispatchEvent(new Event('change',{bubbles:true}));form.requestSubmit();return{ok:true}})()`,returnByValue:true});
+   if(submit.exceptionDetails||!submit.result?.value?.ok)throw Error('Demo session edit form could not be submitted');
+   await waitForCondition(cdp,"(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},session=records['sessions/"+sessionId+"'],calendar=records['calendar_sessions/"+sessionId+"'],logs=Object.entries(records).filter(([path,row])=>path.startsWith('session_change_log/')&&row?.sessionId==='"+sessionId+"'&&row?.action==='update'),queues=Object.entries(records).filter(([path,row])=>path.startsWith('doe_recalculation_requests/')&&row?.sessionId==='"+sessionId+"'&&row?.status==='pending');return session?.room==='"+markerRoom+"'&&calendar?.room==='"+markerRoom+"'&&logs.some(([,row])=>row.changedBy==='uid-developer'&&Array.isArray(row.changes)&&row.changes.some(change=>change.field==='room'&&change.after==='"+markerRoom+"'))&&queues.some(([,row])=>row.requestedBy==='uid-developer')})()",'Demo session/calendar/audit/DOE queue update',12000);
+   const evidence=await cdp.send('Runtime.evaluate',{expression:"(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},log=Object.values(records).find(row=>row?.sessionId==='"+sessionId+"'&&row?.action==='update'&&row?.changedBy==='uid-developer'),queue=Object.values(records).find(row=>row?.sessionId==='"+sessionId+"'&&row?.status==='pending'&&row?.requestedBy==='uid-developer');return{sessionRoom:records['sessions/"+sessionId+"']?.room||'',calendarRoom:records['calendar_sessions/"+sessionId+"']?.room||'',changedBy:log?.changedBy||'',changedByName:log?.changedByName||'',changes:log?.changes||[],queueStatus:queue?.status||'',queueRequestedBy:queue?.requestedBy||''}})()",returnByValue:true});
+   if(evidence.exceptionDetails)throw Error('Demo session workflow evidence inspection failed: '+exceptionText(evidence.exceptionDetails));
+   const value=evidence.result?.value||{};if(value.sessionRoom!==markerRoom||value.calendarRoom!==markerRoom||value.changedBy!=='uid-developer'||value.queueStatus!=='pending'||value.queueRequestedBy!=='uid-developer')throw Error('Demo session workflow evidence mismatch: '+JSON.stringify(value));
+  });
+
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'faculty-admin.html',uid:'uid-developer',label:'Developer Change History workflow'},async cdp=>{
+   await waitForCondition(cdp,"(()=>document.getElementById('auth-gate')?.classList.contains('hidden')===true&&document.getElementById('admin-chip')?.textContent.includes('VISTA Developer'))()",'Developer Faculty Dashboard access',12000);
+   const opened=await cdp.send('Runtime.evaluate',{expression:"(()=>{const tab=document.querySelector('.tab[data-tab=\\\"history\\\"]');tab?.click();return{tab:!!tab}})()",returnByValue:true});
+   if(opened.exceptionDetails||!opened.result?.value?.tab)throw Error('Change History tab is unavailable to Developer');
+   await waitForCondition(cdp,"(()=>{const body=document.getElementById('audit-body'),text=body?.textContent||'';return !!body&&text.includes('"+markerRoom+"')&&text.includes('VISTA Developer')})()",'Developer session change visible in Change History',12000);
+   const history=await cdp.send('Runtime.evaluate',{expression:"(()=>({text:(document.getElementById('audit-body')?.textContent||'').trim(),status:(document.getElementById('audit-status')?.textContent||'').trim()}))()",returnByValue:true});
+   if(history.exceptionDetails)throw Error('Change History inspection failed: '+exceptionText(history.exceptionDetails));
+   const value=history.result?.value||{};if(!value.text.includes(markerRoom)||!value.text.includes('VISTA Developer')||!value.text.includes('Changed'))throw Error('Change History did not render the Developer session update: '+JSON.stringify(value));
+  });
+ }finally{
+  try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
  }
 }
 async function userManagementState(cdp){
