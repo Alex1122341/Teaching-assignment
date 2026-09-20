@@ -24,6 +24,18 @@ test('lab bootstrap requires exact role confirmation and Faculty ID where applic
   assert.equal(tool.validateOptions({...faculty,facultyId:'FAC-TEST'},{projectId:'vista-teaching-lab'}).facultyId,'FAC-TEST');
 });
 
+test('developer is a supported highest-permission lab bootstrap role',()=>{
+  const developer={email:'developer.test@ucalgary.ca',displayName:'VISTA Developer',role:'developer',facultyId:'',officeName:'',confirmation:'BOOTSTRAP:developer.test@ucalgary.ca:developer'};
+  const value=tool.validateOptions(developer,{projectId:'vista-teaching-lab'});
+  assert.equal(value.role,'developer');
+  assert.equal(value.facultyId,'');
+  assert.equal(value.officeName,'');
+  const profile=tool.buildProfile(value,{actor:{uid:'actor',name:'Actor'},now:new Date('2026-09-20T00:00:00Z')});
+  assert.equal(profile.role,'developer');
+  assert.equal(Object.hasOwn(profile,'facultyId'),false);
+  assert.equal(Object.hasOwn(profile,'officeName'),false);
+});
+
 test('service account validation requires the isolated lab project',()=>{
   const good=JSON.stringify({project_id:'vista-teaching-lab',client_email:'lab-admin@example.test',private_key:'private-key'});
   assert.equal(tool.parseServiceAccount(good).project_id,'vista-teaching-lab');
@@ -55,4 +67,11 @@ test('bootstrap workflow is manual, passwordless and uses only the lab admin env
   assert.match(source,/node tools\/bootstrap-lab-user\.js/);
   assert.doesNotMatch(source,/password:/i);
   assert.doesNotMatch(source,/tester-teaching/);
+});
+
+test('bootstrap workflow exposes Developer first and keeps Owner available',()=>{
+  const source=read('.github/workflows/firebase-lab-bootstrap.yml');
+  const options=source.match(/role:[\s\S]*?options:\s*\n([\s\S]*?)\n\s*faculty_id:/)?.[1]||'';
+  assert.match(options,/^\s*- developer\s*\n\s*- owner\s*\n/m);
+  assert.match(source,/Developer is highest permission/);
 });
