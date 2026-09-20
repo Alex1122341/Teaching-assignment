@@ -253,3 +253,13 @@ test('Roles tab keeps source-summary rows as evidence and reserves current DOE f
  assert.doesNotMatch(fn,/roleDoeHtml\(/);
  assert.doesNotMatch(fn,/rolePolicyHtml\(/);
 });
+
+
+test('Teaching Summary Current Roles never falls back to legacy source-summary role counts',()=>{
+ const source=read('faculty-admin.js');
+ const start=source.indexOf('function renderSummary');
+ const end=source.indexOf('function allRoleRows',start);
+ const fn=source.slice(start,end);
+ assert.match(fn,/roleAssignmentCount/);
+ assert.doesNotMatch(fn,/\(s\.roles\|\|\[\]\)\.length/);
+});
