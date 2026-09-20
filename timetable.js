@@ -127,8 +127,8 @@
       throw err;
     }
     const role = String(data.role || '').trim().toLowerCase();
-    if (!['viewer', 'editor', 'admin', 'adfa_general', 'adfa_regular', 'hicc', 'visc', 'faculty', 'adc', 'lab'].includes(role)) {
-      const err = new Error(`Invalid Firestore role: ${role || '(blank)'}. Use faculty, hicc, visc, adc, lab, adfa_regular, or adfa_general.`);
+    if (!['developer', 'viewer', 'editor', 'admin', 'adfa_general', 'adfa_regular', 'hicc', 'visc', 'faculty', 'adc', 'lab'].includes(role)) {
+      const err = new Error(`Invalid Firestore role: ${role || '(blank)'}. Use developer, faculty, hicc, visc, adc, lab, adfa_regular, or adfa_general.`);
       err.code = 'ucvm/invalid-role';
       throw err;
     }
