@@ -15,7 +15,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   role=text(role).toLowerCase();
   const fields=Object.fromEntries(EDIT_FIELDS.map(field=>[field,false]));
   if(isReadOnlySynthetic(row))return{canSelect:false,fields};
-  const adfa=['owner','administrator','admin','adfa_general','adfa_regular'].includes(role);
+  const adfa=['developer','owner','administrator','admin','adfa_general','adfa_regular'].includes(role);
   if(adfa){for(const field of EDIT_FIELDS)fields[field]=true;return{canSelect:true,fields}}
   if(role==='adc'){for(const field of ['date','year','course','type','start','end','room'])fields[field]=true;fields.topic=text(row?.type).toUpperCase()!=='LAB';return{canSelect:true,fields}}
   if(role==='lab'){fields.topic=text(row?.type).toUpperCase()==='LAB';return{canSelect:fields.topic,fields}}
