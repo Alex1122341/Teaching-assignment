@@ -374,8 +374,13 @@ DOE is split into policy/configuration, source facts, derived evidence and audit
 | `doe_impact_runs` | policy impact-preview run summaries | denied |
 | `doe_impact_rows` | impact-preview per-faculty rows | denied |
 | `doe_publications` | publication evidence | denied |
+| `doe_recalculation_requests` | **non-authoritative** request to recalculate the current DOE-bearing session facts | DOE administrators may create strict `pending` requests only; browser update/delete denied |
 | `doe_recalculation_batches` | controlled recalculation progress/evidence | denied |
 | `doe_audit_log` | append-only authoritative DOE audit | denied |
+
+`doe_recalculation_requests` is intentionally outside the authoritative-result set. When a Firebase-only browser save changes a session with faculty assignments, the client strips DOE result/provenance fields from the submitted assignments and creates a strict `pending` request in the same Firestore batch as the source session/calendar write. The request contains no new DOE value, rule result, policy result, or calculation evidence.
+
+The trusted admin job re-reads the **current** session before recalculating, derives the current assignment scope, resolves the current Active policy for that Academic Year, and writes authoritative DOE results/evidence through the existing server services. A stale queued request therefore cannot force an old assignment index back onto a newer session state. Failed requests remain `pending` with retry metadata.
 
 The active test writer is `.github/workflows/firebase-doe-admin.yml`, which authenticates to the isolated `vista-teaching-lab` project using a GitHub Environment secret and invokes the existing server-side DOE services. Because Firebase Admin SDK access is outside client Security Rules, the workflow itself is guarded by manual dispatch, a hard project-id lock and typed confirmation for destructive operations.
 

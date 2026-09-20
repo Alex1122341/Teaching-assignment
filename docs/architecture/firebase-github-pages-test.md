@@ -13,10 +13,14 @@ https://alex1122341.github.io/Teaching-assignment/
   |
   +--> Firestore ordinary application data (vista-teaching-lab)
   |
+  +--> pending DOE recalculation requests (non-authoritative)
+  |
   X--> no DOE API URL
-  X--> no browser authoritative DOE writes
+  X--> no browser authoritative DOE results/evidence
 
 GitHub Actions: Firebase DOE Admin Job
+  |
+  +--> recalculate-queue re-reads current session facts
   |
   +--> test-only Firebase Admin credential
   |
@@ -42,7 +46,8 @@ Firestore authoritative DOE collections (vista-teaching-lab)
 - Workflow/audit: change-request, approval and append-only log collections documented in `docs/database/SCHEMA.md`
 - DOE policy: `doe_policies`, `doe_policy_versions`, `doe_rules`, selectors, inputs, parameters, tiers, references, mappings and exceptions
 - DOE facts/evidence: `doe_assignments`, `doe_calculation_records`, `doe_faculty_targets`
-- DOE operations: `doe_impact_runs`, `doe_impact_rows`, `doe_publications`, `doe_recalculation_batches`, `doe_audit_log`
+- DOE request queue: `doe_recalculation_requests` (non-authoritative; browser can only create a strict pending request)
+- DOE operations/evidence: `doe_impact_runs`, `doe_impact_rows`, `doe_publications`, `doe_recalculation_batches`, `doe_audit_log`
 
 ## GitHub configuration
 
@@ -61,3 +66,16 @@ Do not place the service-account JSON in repository variables, source files, iss
 `.github/workflows/github-pages-test.yml` runs only for same-repository pull requests targeting `main`. It checks out the exact PR head, runs root/server tests plus the Firebase emulator suite, generates the lab runtime configuration, verifies the project boundary, builds `.deploy-static`, injects the test banner and deploys the single fixed Pages environment.
 
 A newer successful PR replaces the previous test build at the same URL.
+
+
+## Firebase-only timetable mutation flow
+
+1. An authorized timetable/admin workflow edits the source session.
+2. If the session contains faculty assignments, the browser removes any prior DOE result/provenance fields from those edited assignments. It never calculates replacement DOE.
+3. The source `sessions/{id}`, matching `calendar_sessions/{id}`, and a strict `pending` `doe_recalculation_requests/{requestId}` document are committed together.
+4. Until recalculation runs, derived views treat those assignments as missing/needs-review rather than as authoritative DOE.
+5. An operator runs **Firebase DOE Admin Job > recalculate-queue** with confirmation `PROCESS-QUEUE`.
+6. The job re-reads each current session, resolves the current Active policy for the Academic Year, and runs the existing server-side DOE recalculation scoped to the current session assignments.
+7. The trusted writer stores DOE provenance/calculation evidence and marks the request completed. Failed requests remain pending for retry.
+
+This queue is a command/request channel, not a result channel. Firestore Security Rules still deny browser mutation of authoritative DOE policy, calculation, publication, batch and audit collections.

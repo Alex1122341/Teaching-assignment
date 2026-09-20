@@ -106,9 +106,11 @@ Authoritative DOE writes use a separate trust boundary:
 - Environment secret: `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`
 - Firebase project lock: `vista-teaching-lab`
 - execution: manual `workflow_dispatch` only
-- destructive operations: exact typed confirmation is required for policy publish and recalculation
+- destructive operations: exact typed confirmation is required for policy publish, full recalculation, and queued recalculation processing
 
-The admin job reuses the existing DOE server services directly. It does **not** expose a long-lived HTTP API and it does not grant browser write access to DOE collections.
+The admin job reuses the existing DOE server services directly. It does **not** expose a long-lived HTTP API and it does not grant browser write access to authoritative DOE collections.
+
+For normal Firebase-only timetable mutations, authorized admins may create strict `pending` `doe_recalculation_requests`. The browser strips old DOE provenance from the affected session assignments and does not generate replacement DOE values. Run the `recalculate-queue` operation with confirmation `PROCESS-QUEUE` to consume those requests with the trusted server-side engine.
 
 One-time setup for the lab:
 
