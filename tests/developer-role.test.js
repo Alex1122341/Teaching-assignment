@@ -28,3 +28,10 @@ test('Developer is recognized by Firestore and authoritative DOE boundaries',()=
   assert.match(read(file),/new Set\(\['developer','owner'/,file);
  }
 });
+
+
+test('Developer also passes ADC and LAB scoped Firestore helpers',()=>{
+ const rules=read('firestore.rules');
+ assert.match(rules,/function adc\(\)\{return ready\(\) && profile\(\)\.role in \['developer','adc'\]/);
+ assert.match(rules,/function lab\(\)\{return ready\(\) && profile\(\)\.role in \['developer','lab'\]/);
+});
