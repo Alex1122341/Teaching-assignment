@@ -84,7 +84,7 @@ The authoritative DOE API is intentionally unavailable. Timetable/Faculty UI can
 4. Open the fixed Pages URL after a successful PR deployment and confirm the banner says **Frontend Demo** and **DOE backend off**.
 5. Use the role selector in the upper-left corner to exercise role-specific UI. Use **Reset demo data** to restore the deterministic synthetic dataset.
 
-The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site.
+The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site. Firebase Hosting is not used for the active Frontend Demo; GitHub Pages is the fixed browser test host.
 
 ### Future Firebase lab backend
 
