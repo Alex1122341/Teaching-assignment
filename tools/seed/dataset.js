@@ -47,6 +47,7 @@ const FACULTY_SEED = [
 // Accounts. Password-completion and inactive states are represented on purpose
 // so tests can prove those gates behave.
 const USER_SEED = [
+  {uid: 'uid-developer', name: 'VISTA Developer', role: 'developer'},
   {uid: 'uid-owner', name: 'VISTA Owner', role: 'owner'},
   {uid: 'uid-admin', name: 'VISTA Administrator', role: 'administrator'},
   {uid: 'uid-otheroffice', name: 'Other Office', role: 'other_office'},
