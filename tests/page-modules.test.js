@@ -66,4 +66,5 @@ test('empty timetable ranges remain connected and allow creating the first sessi
  assert.match(source,/if \(!liveScheduleAvailable\(\)\) \{ toast\('The live Firestore timetable is unavailable\./);
  assert.match(source,/Live Firestore schedule · No sessions in this view/);
  assert.match(source,/publish\.textContent = connected \? 'Synced Schedule Ready'/);
+ assert.match(source,/async function openBulkSessionForm\(\)[\s\S]*?if\(!liveScheduleAvailable\(\)\)\{toast\('The live Firestore timetable is unavailable\.'/);
 });

@@ -1312,7 +1312,7 @@
   }
   async function openBulkSessionForm(){
     if(!canAddSessions()){toast('This account cannot add timetable sessions.',true);return}
-    if(scheduleSource!=='firestore'){toast('The live Firestore timetable is unavailable.',true);return}
+    if(!liveScheduleAvailable()){toast('The live Firestore timetable is unavailable.',true);return}
     const canEditFaculty=capabilities().canEditInstructor;if(canEditFaculty)await ensureFacultyDirectory();bulkRows=[blankBulkRow()];
     const facultyOptions=canEditFaculty?facultyDirectory.map(f=>`<option value="${escapeHtml(swapFacultyName(f))}">${escapeHtml([f.email,f.ucid||f.__id].filter(Boolean).join(' · '))}</option>`).join(''):'';
     showModal(`<div class="modal-header"><div class="modal-title">Add Multiple Live Sessions</div><div class="modal-subtitle">Prepare up to 200 rows. Saving runs in small verified batches; each row keeps the source session, sanitized calendar copy and audit record together. If a later batch fails, completed batches remain saved and you can resume.</div></div><form id="bulk-session-form"><div class="modal-body">
