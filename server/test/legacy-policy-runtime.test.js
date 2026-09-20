@@ -14,6 +14,8 @@ test('impact dataset uses persisted DOE evidence and never recreates DOE from cl
   const a2=dataset.calculations.find(row=>row.assignmentId==='a2');
   assert.equal(a1.currentDoe,.6);
   assert.equal(a2.currentDoe,null);
+  assert.equal(a1.sourceEntityId,'a1');
+  assert.equal(a2.sourceEntityId,'a2');
 });
 
 test('impact dataset includes stable annual DOE assignment facts',()=>{

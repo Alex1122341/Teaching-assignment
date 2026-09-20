@@ -13,7 +13,7 @@ function buildImpactDataset(data={},academicYear=''){
       const currentDoe=finite(assignment?.doeCredit);
       if(currentDoe!==null)scheduledByFaculty.set(facultyId,(scheduledByFaculty.get(facultyId)||0)+currentDoe);
       calculations.push({
-        sourceEntityType:'session_assignment',sourceEntityId:sessionId||assignmentId,sessionId,assignmentId,facultyId,currentDoe,
+        sourceEntityType:'session_assignment',sourceEntityId:assignmentId,sessionId,assignmentId,facultyId,currentDoe,
         currentPolicyVersionId:text(assignment?.doePolicyVersionId),
         context:{
           category:'teaching',activityType:text(assignment?.activityType||session?.type||session?.activityType),
