@@ -69,4 +69,7 @@ test('Pages demo secondary Auth creates a synthetic login without replacing Deve
  assert.match(credential.user.uid,/^demo-auth-[0-9a-f]{8}$/);assert.equal(credential.user.email,'new.office@example.test');assert.equal(demo.auth.currentUser.uid,'uid-developer');
  await assert.rejects(()=>secondary.createUserWithEmailAndPassword('new.office@example.test','DemoPass123!'),error=>error.code==='auth/email-already-in-use');
  await secondary.signOut();assert.equal(demo.auth.currentUser.uid,'uid-developer');
+ demo.reset();
+ const recreated=await secondary.createUserWithEmailAndPassword('new.office@example.test','DemoPass123!');
+ assert.equal(recreated.user.uid,credential.user.uid);assert.equal(demo.auth.currentUser.uid,'uid-developer');
 });

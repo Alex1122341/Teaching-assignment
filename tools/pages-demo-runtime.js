@@ -444,7 +444,7 @@
         const option=root.document.createElement('option');option.value=user.uid;option.textContent=`${user.role==='developer'?'★ ':''}${user.name||user.uid} · ${user.role||'unknown'}`;if(auth.currentUser?.uid===user.uid)option.selected=true;select.appendChild(option);
       }
       select.addEventListener('change',()=>{auth._select(select.value);root.location.reload()});
-      const reset=root.document.createElement('button');reset.type='button';reset.textContent='Reset demo data';reset.addEventListener('click',()=>{store.reset();root.location.reload()});
+      const reset=root.document.createElement('button');reset.type='button';reset.textContent='Reset demo data';reset.addEventListener('click',()=>{root.UCVM_PAGES_DEMO?.reset?.();root.location.reload()});
       controls.append(label,select,reset);bar.append(title,controls);
       const note=root.document.createElement('small');note.textContent='Developer is highest permission · role switching reloads the current page · synthetic browser-local data only';bar.appendChild(note);
       root.document.body.appendChild(bar);
@@ -455,8 +455,10 @@
   function createDemoFirebase(root,seed){
     const store=createStore(seed,root.localStorage);
     const db=new DemoFirestore(store),authRegistry=new Map();
-    for(const row of store.list('users')){const email=text(row.data?.email).toLowerCase(),uid=String(row.path).split('/').pop();if(email)authRegistry.set(email,uid)}
+    const rebuildAuthRegistry=()=>{authRegistry.clear();for(const row of store.list('users')){const email=text(row.data?.email).toLowerCase(),uid=String(row.path).split('/').pop();if(email)authRegistry.set(email,uid)}};
+    rebuildAuthRegistry();
     const auth=createAuth(store,root.localStorage,root.sessionStorage,{registry:authRegistry});
+    const reset=()=>{store.reset();rebuildAuthRegistry()};
     const authFn=()=>auth;
     authFn.Auth={Persistence:{LOCAL:'local',SESSION:'session',NONE:'none'}};
     authFn.RecaptchaVerifier=class{render(){return Promise.resolve(1)}clear(){}};
@@ -475,7 +477,7 @@
       firestore:firestoreFn,
       SDK_VERSION:'pages-demo'
     };
-    return{firebase,store,db,auth};
+    return{firebase,store,db,auth,reset};
   }
 
   function install(root){
@@ -484,7 +486,7 @@
     root.firebase=runtime.firebase;
     root.UCVM_FRONTEND_DEMO_MODE=true;
     root.UCVM_PAGES_DEMO=Object.freeze({
-      reset:()=>runtime.store.reset(),
+      reset:()=>runtime.reset(),
       export:()=>runtime.store.export(),
       selectUser:uid=>runtime.auth._select(uid),
       doeRows:academicYear=>demoDoeRows(runtime.store,academicYear),
