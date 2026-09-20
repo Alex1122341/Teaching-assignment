@@ -3,7 +3,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const {
- PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,bundlePathMap,emulatorOrigin,safeStaticPath,contentType,chromeCandidates,localAssetFailure,doeSmokeResponse
+ PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,bundlePathMap,emulatorOrigin,safeStaticPath,contentType,chromeCandidates,localAssetFailure,doeSmokeResponse,createRulebookSmokeState,doeRulebookSmokeResponse
 }=require('../tools/browser-smoke.js');
 
 test('browser smoke covers every generated application page',()=>{
@@ -136,4 +136,67 @@ test('authenticated browser smoke opens a DOE explanation modal from the generat
  assert.match(source,/Primary Instructor/);
  assert.match(source,/calc-smoke-lecture/);
  assert.match(source,/DOE explanation modal render/);
+});
+
+
+test('Rule Book browser mock preserves Draft gate state through edit, validation, impact, publish, and recalculation',()=>{
+ const state=createRulebookSmokeState();
+ const call=(url,method='GET',body)=>doeRulebookSmokeResponse(state,url,method,body);
+ const policies=call('/__doe-smoke/api/doe/policies');
+ assert.equal(policies.statusCode,200);
+ assert.equal(policies.body[0].currentActiveVersionId,'smoke-policy-2026-27-v1');
+
+ const cloned=call('/__doe-smoke/api/doe/policy-versions/smoke-policy-2026-27-v1/clone','POST',{});
+ assert.equal(cloned.body.version.status,'draft');
+ assert.equal(cloned.body.version.versionNumber,2);
+ const draftId=cloned.body.version.policyVersionId;
+
+ const saved=call(`/__doe-smoke/api/doe/drafts/${draftId}/rules/smoke-rule-lecture`,'PUT',{rule:{
+  ruleId:'smoke-rule-lecture',policyVersionId:draftId,ruleKey:'teaching.lecture',name:'Lecture smoke revised',category:'teaching',
+  calculationMode:'rate',resultKind:'credit',priority:10,enabled:true,reviewStatus:'reviewed',parameters:[{parameterId:'rate',name:'rate',valueNumber:15,unit:'% DOE/h'}],selectors:[],inputs:[],tiers:[]
+ }});
+ assert.equal(saved.body.version.revision,1);
+ assert.equal(saved.body.version.lastValidationPassed,false);
+ assert.equal(saved.body.version.lastImpactRunId,'');
+
+ const mapping=call(`/__doe-smoke/api/doe/drafts/${draftId}/course-mappings/course-smoke`,'PUT',{mapping:{mappingId:'course-smoke',courseCode:'VTMD 999',unitCount:2,referenceId:'ref-smoke',reviewStatus:'reviewed',enabled:true}});
+ assert.equal(mapping.statusCode,200);
+ const bundleAfterMapping=call(`/__doe-smoke/api/doe/policy-versions/${draftId}/bundle`);
+ assert.equal(bundleAfterMapping.body.version.revision,2);
+ assert.equal(bundleAfterMapping.body.courseMappings.some(row=>row.courseCode==='VTMD 999'),true);
+
+ const validation=call(`/__doe-smoke/api/doe/drafts/${draftId}/validate`,'POST',{});
+ assert.equal(validation.body.valid,true);
+ const validated=call(`/__doe-smoke/api/doe/policy-versions/${draftId}/bundle`).body.version;
+ assert.equal(validated.lastValidatedRevision,2);
+ assert.equal(validated.lastValidationPassed,true);
+ assert.ok(validated.rulesChecksum);
+
+ const preview=call(`/__doe-smoke/api/doe/drafts/${draftId}/impact-preview`,'POST',{});
+ assert.equal(preview.body.status,'passed');
+ const previewed=call(`/__doe-smoke/api/doe/policy-versions/${draftId}/bundle`).body.version;
+ assert.equal(previewed.lastImpactRevision,2);
+ assert.equal(previewed.lastImpactChecksum,previewed.rulesChecksum);
+ assert.ok(previewed.lastImpactDatasetChecksum);
+
+ const published=call(`/__doe-smoke/api/doe/drafts/${draftId}/publish`,'POST',{});
+ assert.equal(published.body.status,'active');
+ assert.equal(call('/__doe-smoke/api/doe/policies').body[0].currentActiveVersionId,draftId);
+
+ const dryRun=call('/__doe-smoke/api/doe/recalculate/preview','POST',{academicYear:'2026-27',policyVersionId:draftId,scope:'all'});
+ assert.equal(dryRun.body.errors.length,0);
+ assert.equal(dryRun.body.changedDoeCount,1);
+ const executed=call('/__doe-smoke/api/doe/recalculate','POST',{academicYear:'2026-27',policyVersionId:draftId,scope:'all'});
+ assert.equal(executed.body.completedRows,3);
+ assert.equal(executed.body.totalRows,3);
+});
+
+test('authenticated Chrome smoke exercises Rule Book Draft gates without Azure or live DOE writes',()=>{
+ const source=require('node:fs').readFileSync(path.join(__dirname,'..','tools/browser-smoke.js'),'utf8');
+ assert.match(source,/Rule Book Draft loaded/);
+ assert.match(source,/Rule Book stale gates after edit/);
+ assert.match(source,/Rule Book validation gate/);
+ assert.match(source,/Rule Book Impact Preview gate/);
+ assert.match(source,/Rule Book publish transition/);
+ assert.match(source,/Rule Book recalculation dry-run and execution/);
 });
