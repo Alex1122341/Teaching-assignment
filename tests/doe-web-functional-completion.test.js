@@ -181,3 +181,11 @@ test('Roles and Appointments lists current server role assignments before legacy
  assert.match(fn,/Current server/);
  assert.match(fn,/Legacy/);
 });
+
+
+test('Faculty Dashboard labels authoritative DOE summaries separately from legacy migration sources',()=>{
+ const html=read('faculty-admin.html');
+ assert.match(html,/Assigned DOE and current role counts come from the authoritative server DOE summary/);
+ assert.match(html,/Current server role assignments are authoritative/);
+ assert.match(html,/legacy migration evidence/i);
+});
