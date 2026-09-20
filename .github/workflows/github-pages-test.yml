@@ -49,32 +49,20 @@ jobs:
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator
 
-      - name: Prepare live Firebase compatibility configuration
+      - name: Prepare isolated Firebase lab configuration
         shell: bash
         env:
-          EXPECTED_FIREBASE_PROJECT_ID: tester-teaching
-          PAGES_DOE_API_BASE_URL: ${{ vars.PRODUCTION_DOE_API_BASE_URL }}
+          EXPECTED_FIREBASE_PROJECT_ID: vista-teaching-lab
+          LAB_FIREBASE_WEB_CONFIG_JSON: ${{ vars.LAB_FIREBASE_WEB_CONFIG_JSON }}
         run: |
           set -euo pipefail
-          if [ -n "$PAGES_DOE_API_BASE_URL" ]; then
-            node tools/build-firebase-config.js --from-json tools/production-firebase-web-config.json --doe-api-base-url "$PAGES_DOE_API_BASE_URL"
-          else
-            node tools/build-firebase-config.js --from-json tools/production-firebase-web-config.json
+          if [ -z "$LAB_FIREBASE_WEB_CONFIG_JSON" ]; then
+            echo "LAB_FIREBASE_WEB_CONFIG_JSON is required for the GitHub Pages test site." >&2
+            exit 1
           fi
+          printf '%s' "$LAB_FIREBASE_WEB_CONFIG_JSON" > "$RUNNER_TEMP/lab-firebase-web-config.json"
+          node tools/build-firebase-config.js --from-json "$RUNNER_TEMP/lab-firebase-web-config.json"
           node tools/verify-preview-client-config.js
-
-      - name: Verify DOE API health and GitHub Pages CORS when configured
-        shell: bash
-        env:
-          PRODUCTION_DOE_API_BASE_URL: ${{ vars.PRODUCTION_DOE_API_BASE_URL }}
-          PRODUCTION_FRONTEND_ORIGIN: https://alex1122341.github.io
-        run: |
-          set -euo pipefail
-          if [ -z "$PRODUCTION_DOE_API_BASE_URL" ]; then
-            echo "DOE API is not configured for GitHub Pages yet; continuing in Firebase-only compatibility mode."
-            exit 0
-          fi
-          node tools/verify-production-doe-api.js
 
       - name: Build static site
         run: node tools/build-static.js

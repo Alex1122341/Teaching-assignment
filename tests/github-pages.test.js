@@ -37,16 +37,13 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/npm ci/);
   assert.match(workflow,/npm run test:all/);
   assert.match(workflow,/npm run test:emulator/);
-  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
-  assert.match(workflow,/node tools\/build-firebase-config\.js --from-json tools\/production-firebase-web-config\.json/);
+  assert.match(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON:\s*\$\{\{ vars\.LAB_FIREBASE_WEB_CONFIG_JSON \}\}/);
+  assert.match(workflow,/EXPECTED_FIREBASE_PROJECT_ID:\s*vista-teaching-lab/);
+  assert.match(workflow,/RUNNER_TEMP\/lab-firebase-web-config\.json/);
+  assert.match(workflow,/node tools\/build-firebase-config\.js --from-json "\$RUNNER_TEMP\/lab-firebase-web-config\.json"/);
   assert.match(workflow,/node tools\/verify-preview-client-config\.js/);
-  assert.match(workflow,/PRODUCTION_DOE_API_BASE_URL/);
-  assert.match(workflow,/PAGES_DOE_API_BASE_URL/);
-  assert.match(workflow,/--doe-api-base-url/);
-  assert.match(workflow,/Verify DOE API health and GitHub Pages CORS when configured/);
-  assert.match(workflow,/PRODUCTION_FRONTEND_ORIGIN:\s*https:\/\/alex1122341\.github\.io/);
-  assert.match(workflow,/node tools\/verify-production-doe-api\.js/);
-  assert.ok(workflow.indexOf('Prepare live Firebase compatibility configuration')<workflow.indexOf('Build static site'));
+  assert.doesNotMatch(workflow,/PRODUCTION_DOE_API_BASE_URL|PAGES_DOE_API_BASE_URL|verify-production-doe-api|--doe-api-base-url/);
+  assert.ok(workflow.indexOf('Prepare isolated Firebase lab configuration')<workflow.indexOf('Build static site'));
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
   assert.match(workflow,/--pr\s+["']?\$\{\{ github\.event\.pull_request\.number \}\}["']?/);
@@ -139,12 +136,12 @@ const identity={
   buildSha:'2222222222222222222222222222222222222222'
 };
 
-test('Pages banner identifies test host, live Firebase compatibility mode, PR and short head SHA',()=>{
+test('Pages banner identifies test host, isolated Firebase lab, PR and short head SHA',()=>{
   const html=injectTestBanner('<!doctype html><html><body class="app"><main>UCVM</main></body></html>',identity);
   assert.match(html,/id="github-pages-test-site-banner"/);
   assert.match(html,/TEST SITE - GitHub Pages/);
-  assert.match(html,/Live Firebase Compatibility Mode/);
-  assert.match(html,/tester-teaching/);
+  assert.match(html,/Isolated Firebase Lab/);
+  assert.match(html,/vista-teaching-lab/);
   assert.match(html,/PR #23/);
   assert.match(html,/1111111/);
   assert.equal((html.match(/github-pages-test-site-banner/g)||[]).length,1);
@@ -166,7 +163,7 @@ test('Pages staging changes only the supplied build directory',()=>{
   const result=stagePagesDirectory(dir,identity);
   assert.equal(result.htmlFiles,2);
   assert.match(fs.readFileSync(path.join(dir,'index.html'),'utf8'),/TEST SITE - GitHub Pages/);
-  assert.match(fs.readFileSync(path.join(dir,'faculty-admin.html'),'utf8'),/Live Firebase Compatibility Mode/);
+  assert.match(fs.readFileSync(path.join(dir,'faculty-admin.html'),'utf8'),/Isolated Firebase Lab/);
   assert.ok(fs.existsSync(path.join(dir,'.nojekyll')));
   assert.ok(fs.existsSync(path.join(dir,'faculty-dashboard.html')));
 
@@ -203,16 +200,16 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 
-test('Pages compatibility preview uses the pinned tester-teaching Web SDK config and accepts only a verified HTTPS DOE API',()=>{
+test('Pages preview uses isolated lab Web SDK config and rejects DOE API wiring',()=>{
   const workflow=read('.github/workflows/github-pages-test.yml');
   const verifier=read('tools/verify-preview-client-config.js');
-  assert.match(workflow,/tools\/production-firebase-web-config\.json/);
-  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
-  assert.match(workflow,/EXPECTED_FIREBASE_PROJECT_ID:\s*tester-teaching/);
-  assert.match(verifier,/tester-teaching/);
+  assert.match(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.doesNotMatch(workflow,/tools\/production-firebase-web-config\.json/);
+  assert.match(workflow,/EXPECTED_FIREBASE_PROJECT_ID:\s*vista-teaching-lab/);
+  assert.match(verifier,/vista-teaching-lab/);
   assert.match(verifier,/GENERATE_WITH_/);
   assert.match(verifier,/AIza/);
-  assert.match(verifier,/cleanBaseUrl/);
-  assert.doesNotMatch(verifier,/must not be configured to reach a DOE API endpoint/);
+  assert.match(verifier,/must not be configured to reach a DOE API endpoint/);
+  assert.doesNotMatch(verifier,/cleanBaseUrl/);
 });
 })();

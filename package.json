@@ -11,7 +11,8 @@
     "db:verify": "node tools/seed-database.js --project vista-teaching-lab --verify",
     "db:seed:emulator": "firebase emulators:exec --only firestore --project demo-vista-seed \"node tools/seed-database.js --emulator && node tools/seed-database.js --emulator --verify\"",
     "db:deploy": "firebase deploy --only firestore:rules,firestore:indexes --project vista-teaching-lab",
-    "config:generate": "node tools/build-firebase-config.js"
+    "config:generate": "node tools/build-firebase-config.js",
+    "doe:admin": "node tools/run-doe-admin-job.js"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
