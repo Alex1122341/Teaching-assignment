@@ -117,6 +117,10 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
     batch.update(store.sessionRef(update.id),update.data);operations++;
     if(store.calendarRef&&store.calendarFromSource){batch.set(store.calendarRef(update.id),store.calendarFromSource(update.after||update.data,update.id));operations++}
     batch.set(store.logRef(),log);operations++;
+    if(typeof store.queueRef==='function'&&typeof store.queueData==='function'){
+     const queueRef=store.queueRef(update,log),queueData=queueRef?store.queueData(update,log,queueRef):null;
+     if(queueRef&&queueData){batch.set(queueRef,queueData);operations++}
+    }
     const calculationRecords=Array.isArray(update.calculationRecords)?update.calculationRecords:[];
     if(calculationRecords.length)throw Error('DOE calculation evidence must be persisted by the server-side DOE API.');
    }

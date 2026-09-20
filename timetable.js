@@ -108,6 +108,12 @@
     timetableDoeRuntime={db,api,adapter,mode};
     return timetableDoeRuntime;
   }
+  function queuedDoeRequestData(session,requestId,trigger,timestamp){
+    const academicYear=window.UCVM_DOE_API?.academicYearForSession?.(session);
+    if(!academicYear)throw new Error('Academic Year could not be resolved for DOE recalculation queue.');
+    return{requestId:String(requestId),academicYear,sessionId:String(session?.id||session?.sessionId||''),sourceEntityType:'session_assignment',sourceEntityIds:[],facultyIds:[],trigger:String(trigger||'office_session_updated'),status:'pending',requestedBy:currentUser.uid,requestedByName:currentUser.name,requestedAt:timestamp};
+  }
+
   function doeAuditChanges(changes){
     return (Array.isArray(changes)?changes:[]).map(change=>({
       field:'doeCredit',label:'DOE',assignmentId:change.assignmentId,facultyId:change.facultyId,
@@ -1078,12 +1084,12 @@
 
   function selectionFacultyOptions(session){
     const selected=new Set([...(session.facultyIds||[]),...(session.assignments||[]).map(a=>a.ucid||a.facultyId)].filter(Boolean).map(String));
-    return facultyDirectory.map(f=>`<label class="selection-faculty-option"><input type="checkbox" data-selection-faculty-option value="${escapeHtml(f.__id)}" ${selected.has(String(f.__id))?'checked':''}><span><strong>${escapeHtml(swapFacultyName(f))}</strong><small>DOE server preview on save</small></span></label>`).join('');
+    return facultyDirectory.map(f=>`<label class="selection-faculty-option"><input type="checkbox" data-selection-faculty-option value="${escapeHtml(f.__id)}" ${selected.has(String(f.__id))?'checked':''}><span><strong>${escapeHtml(swapFacultyName(f))}</strong><small>${window.UCVM_DOE_API?.isConfigured?.()?'DOE server preview on save':'DOE recalculation queued after save'}</small></span></label>`).join('');
   }
   function updateSelectionFacultyPicker(picker){
     const checked=[...picker.querySelectorAll('[data-selection-faculty-option]:checked')],summary=picker.querySelector('summary'),chips=picker.querySelector('.selection-faculty-chips');
     summary.textContent=checked.length?`${checked.length} faculty selected`:'Choose faculty';
-    chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value));return `<span>${escapeHtml(swapFacultyName(f))}<small>DOE server preview on save</small></span>`}).join('');
+    chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value));return `<span>${escapeHtml(swapFacultyName(f))}<small>${window.UCVM_DOE_API?.isConfigured?.()?'DOE server preview on save':'DOE recalculation queued after save'}</small></span>`}).join('');
   }
   function selectionRole(){return UCVM.role(currentUser?.role);}
   function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session);}
@@ -1105,7 +1111,7 @@
       <td><input data-selection-field="room" value="${escapeHtml(s.room)}" ${field('room')}></td>
       <td>${policy.fields.faculty?`<details class="selection-faculty-picker" data-selection-field="faculty"><summary>Choose faculty</summary><div class="selection-faculty-menu"><div class="selection-faculty-options">${selectionFacultyOptions(s)}</div></div></details><div class="selection-faculty-chips"></div>`:`<div class="role-locked-field selection-faculty-readonly">${escapeHtml(s.instructor||'TBD')}</div>`}</td>
     </tr>`}).join('');
-    const note=canEditFaculty?'Open Faculty to choose one or more people; authoritative DOE is previewed by the server on save.':'Grey fields are context only; your office can edit only its assigned fields.';
+    const note=canEditFaculty?'Open Faculty to choose one or more people; authoritative DOE is recalculated by the trusted backend after save when the HTTP DOE API is unavailable.':'Grey fields are context only; your office can edit only its assigned fields.';
     $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div><div class="selection-save-bar"><span>${note}</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
     document.querySelectorAll('.selection-faculty-picker').forEach(picker=>{picker.querySelectorAll('[data-selection-faculty-option]').forEach(input=>input.onchange=()=>updateSelectionFacultyPicker(picker));updateSelectionFacultyPicker(picker)});
     $('selection-back-btn').onclick=()=>{reviewingSelection=false;viewMode=selectionViewFlow.finish();setViewButtons();render();refreshSessionScope()};
@@ -1158,7 +1164,7 @@
         }
         result={committed:true,completedRows,errors:[]};
       }else{
-        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
+        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),queueRef:()=>db.collection('doe_recalculation_requests').doc(),queueData:(update,log,ref)=>queuedDoeRequestData(update.after||log.after,ref.id,'office_multi_session_edit',update.data.updatedAt||log.changedAt),onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
       }
       const count=result.completedRows;delete button.dataset.resumeFrom;delete button.dataset.planKey;cancelSessionSelection();toast(`${count} session${count===1?'':'s'} updated with audit history.`);
     }catch(error){console.error('[multi-session save]',error);const completed=Number(error.completedRows||0);button.dataset.resumeFrom=String(completed);errorBox.textContent=completed?`${completed} of ${plan.updates.length} sessions were saved. The remaining rows were not saved. Check the connection or permissions, then click Resume save.`:error.committed?'The first batch was saved, but follow-up maintenance failed. Keep this review open and ask an administrator to verify indexes.':'Nothing was saved. Check your connection and permissions, then try again.';errorBox.classList.remove('hidden');button.disabled=false;button.textContent=completed?'Resume save':'Save selected changes'}
@@ -1431,6 +1437,7 @@
           else batch.set(ref,{...firestoreSafeSession({...next,assignments:[],instructor:''}),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
           batch.set(calendarRef,window.UCVM_CALENDAR_SESSION.fromSource(next,next.id));
           batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{action:existing?'update':'create',override:null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:[],changes:UCVM_AUDIT_DETAILS.diff(existing,next,'session'),doeChanges:[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:'',changedAt:timestamp});
+          if(existing){const queueRef=db.collection('doe_recalculation_requests').doc();batch.set(queueRef,queuedDoeRequestData(next,queueRef.id,'office_session_updated',timestamp));}
           await batch.commit();
         }
         invalidateAllSessions();
@@ -1606,7 +1613,7 @@
     showModal(`
       <div class="modal-header"><div class="modal-title">Sign in to UCVM Timetable</div><div class="modal-subtitle">Sign in with your authorized account to view the live timetable.</div></div>
       <div class="modal-body">
-        <div class="login-cheatsheet"><strong>Firebase project:</strong> Tester Teaching (<code>tester-teaching</code>)<br>Enable the matching provider in Firebase Authentication. Your UID must also exist under Firestore <code>users/{uid}</code>.</div>
+        <div class="login-cheatsheet"><strong>Firebase project:</strong> <code>${escapeHtml(window.UCVM_FIREBASE_PROJECT_ID||'vista-teaching-lab')}</code><br>Enable the matching provider in Firebase Authentication. Your UID must also exist under Firestore <code>users/{uid}</code>.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
           <button type="button" class="btn btn-primary" id="choose-email" style="padding:16px">Email + Password</button>
           <button type="button" class="btn btn-primary" id="choose-phone" style="padding:16px">Phone + SMS Code</button>

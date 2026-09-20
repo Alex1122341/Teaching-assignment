@@ -122,7 +122,7 @@
   const prepared=prepareQueuedSessionChange({...payload,sessionId:id,beforeSession:before}),queueNeeded=prepared.queue.sourceEntityIds.length>0;
   const stamp=root.firebase.firestore.FieldValue.serverTimestamp(),actorName=text(user.displayName||user.email);
   const normalized=root?.UCVM_INDEX_MAINTENANCE?.sessionForWrite?root.UCVM_INDEX_MAINTENANCE.sessionForWrite(prepared.session):{...prepared.session};
-  const stored={...normalized,id,sessionId:id,updatedBy:user.uid,updatedByName:actorName,updatedByEmail:text(user.email),updatedAt:stamp};delete stored.__id;
+  const stored={...normalized,updatedBy:user.uid,updatedByName:actorName,updatedAt:stamp};delete stored.__id;delete stored.id;delete stored.sessionId;
   const batch=db.batch();batch.set(sessionRef,stored,{merge:true});batch.set(db.collection('calendar_sessions').doc(id),root.UCVM_CALENDAR_SESSION.fromSource(prepared.session,id));
   let requestId='';
   if(queueNeeded){
