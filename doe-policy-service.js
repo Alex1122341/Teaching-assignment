@@ -22,8 +22,8 @@
   const raw=text(value&&typeof value==='object'?value.role:value).toLowerCase();
   return({owner:'adfa_general',administrator:'adfa_regular',admin:'adfa_regular',adfa_general:'adfa_general',adfa_regular:'adfa_regular'}[raw]||raw);
  };
- const canEditDraft=actor=>['adfa_general','adfa_regular'].includes(role(actor));
- const canPublish=actor=>role(actor)==='adfa_general';
+ const canEditDraft=actor=>['developer','adfa_general','adfa_regular'].includes(role(actor));
+ const canPublish=actor=>['developer','adfa_general'].includes(role(actor));
  const canRecalculate=canPublish;
 
  function deny(action){
@@ -174,7 +174,7 @@
   const approvedAt=text(approval?.approvedAt);
   return Boolean(
    text(approval?.approvedBy)&&
-   role(approval?.approvedByRole)==='adfa_general'&&
+   ['developer','adfa_general'].includes(role(approval?.approvedByRole))&&
    approvedAt&&!Number.isNaN(Date.parse(approvedAt))&&
    text(approval?.approvalReference)
   );
