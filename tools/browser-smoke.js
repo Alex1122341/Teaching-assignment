@@ -73,8 +73,38 @@ function contentType(filename){
  const ext=path.extname(filename).toLowerCase();
  return({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.pdf':'application/pdf'}[ext]||'application/octet-stream');
 }
+function doeSmokeResponse(requestUrl,method='GET'){
+ const parsed=new URL(String(requestUrl||'/'),'http://127.0.0.1');
+ if(!parsed.pathname.startsWith('/__doe-smoke/api/doe/'))return null;
+ if(String(method||'GET').toUpperCase()!=='GET')return{statusCode:405,body:{code:'SMOKE_READ_ONLY',message:'DOE browser smoke endpoint is read-only.'}};
+ const year=String(parsed.searchParams.get('academicYear')||'2026-27');
+ const reference={title:'UCVM Workload Guidelines',section:'6.4',table:'Table 3',page:5};
+ const roleAssignment={assignmentFactId:'role-smoke-hicc',roleType:'HICC',courseCode:'VTMD 204',subjectKey:'',resultDoe:12,status:'calculated',ruleKey:'role.hicc',ruleId:'rule-hicc-smoke',reference};
+ const summary={
+  facultyId:'browser-smoke-faculty',displayName:'Browser Smoke Faculty',academicYear:year,policyVersionId:'ucvm-workload-smoke-v1',status:'calculated',
+  lastCalculatedAt:'2026-09-20T01:00:00Z',target:{effectiveTargetDoe:40,overrideDoe:null,overrideReason:'',source:'contract'},
+  roleAssignmentCount:1,roleAssignments:[roleAssignment],scheduledTeachingDoe:28,roleDoe:12,rawSupervisionDoe:0,appliedSupervisionDoe:0,adjustmentDoe:0,assignedTeachingDoe:40,effectiveTargetDoe:40,remainingDoe:0
+ };
+ const worksheet={
+  facultyId:summary.facultyId,displayName:summary.displayName,academicYear:year,policyVersionId:summary.policyVersionId,status:'calculated',lastCalculatedAt:summary.lastCalculatedAt,
+  target:{effectiveTargetDoe:40,overrideDoe:null,overrideReason:'',source:'contract'},reserve:{initialTraineeReserve:0,rawSupervisionDoe:0,appliedSupervision:0,unappliedSupervision:0},
+  totals:{scheduledTeachingDoe:28,roleDoe:12,rawSupervisionDoe:0,appliedSupervisionDoe:0,adjustmentDoe:0,assignedTeachingDoe:40,effectiveTargetDoe:40,remainingDoe:0},
+  sections:{scheduledTeaching:{subtotal:28},roles:{subtotal:12},supervision:{rawSubtotal:0,appliedSubtotal:0},adjustments:{subtotal:0}},errors:[],
+  lines:[
+   {lineId:'session-smoke--assignment-smoke',category:'teaching',sourceEntityType:'session_assignment',sourceEntityId:'session-smoke',label:'Browser Smoke Lecture',calculationText:'2 h × 14.00% DOE/h',resultDoe:28,status:'calculated',policyVersionId:summary.policyVersionId,ruleId:'rule-lecture-smoke',ruleKey:'teaching.lecture',reference,calculationId:'calc-smoke-lecture'},
+   {lineId:'role-smoke-hicc',category:'role',sourceEntityType:'doe_assignment',sourceEntityId:'role-smoke-hicc',assignmentFactId:'role-smoke-hicc',roleType:'HICC',courseCode:'VTMD 204',label:'HICC · VTMD 204',calculationText:'Rule Book role assignment',resultDoe:12,status:'calculated',policyVersionId:summary.policyVersionId,ruleId:'rule-hicc-smoke',ruleKey:'role.hicc',reference,calculationId:'calc-smoke-hicc'}
+  ]
+ };
+ if(parsed.pathname==='/__doe-smoke/api/doe/list')return{statusCode:200,body:[summary]};
+ if(parsed.pathname==='/__doe-smoke/api/doe/policies')return{statusCode:200,body:[]};
+ if(parsed.pathname==='/__doe-smoke/api/doe/faculty/browser-smoke-faculty/role-assignments')return{statusCode:200,body:[{...roleAssignment,academicYear:year,facultyId:summary.facultyId,active:true,doeCredit:12,doeRuleKey:roleAssignment.ruleKey,doeRuleId:roleAssignment.ruleId}]};
+ if(parsed.pathname==='/__doe-smoke/api/doe/faculty/browser-smoke-faculty/worksheet')return{statusCode:200,body:worksheet};
+ return{statusCode:404,body:{code:'SMOKE_ROUTE_NOT_FOUND',message:'Unsupported DOE browser smoke route.'}};
+}
 function createStaticServer(siteRoot=site){
  return http.createServer((req,res)=>{
+  const smoke=doeSmokeResponse(req.url||'/',req.method||'GET');
+  if(smoke){res.writeHead(smoke.statusCode,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(smoke.body));return}
   const filename=safeStaticPath(siteRoot,req.url||'/');
   if(!filename||!fs.existsSync(filename)||!fs.statSync(filename).isFile()){res.writeHead(404,{'content-type':'text/plain'});res.end('Not found');return}
   res.writeHead(200,{'content-type':contentType(filename),'cache-control':'no-store'});
@@ -363,4 +393,4 @@ async function run(){
  }
 }
 if(require.main===module)run().catch(error=>{console.error(error.stack||error);process.exit(1)});
-module.exports={PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,readDeploymentMetadata,bundlePathMap,emulatorOrigin,createAuthenticatedFixture,safeStaticPath,contentType,chromeCandidates,findChrome,localAssetFailure,createStaticServer};
+module.exports={PAGE_EXPECTATIONS,CLOUD_FIREBASE_HOSTS,AUTH_FIXTURE,readDeploymentMetadata,bundlePathMap,emulatorOrigin,createAuthenticatedFixture,safeStaticPath,contentType,chromeCandidates,findChrome,localAssetFailure,doeSmokeResponse,createStaticServer};
