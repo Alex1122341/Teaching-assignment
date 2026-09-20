@@ -426,6 +426,7 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(assetFailures.length)problems.push(`local asset failure(s): ${assetFailures.join(' | ')}`);
   if(cloudRequests.length)problems.push(`unexpected Firebase cloud request(s) in ${demoMode?'Pages demo':'emulator smoke'}: ${cloudRequests.join(' | ')}`);
   if(problems.length)throw Error(`${expectation.page}: ${problems.join('; ')}`);
+  if(demoMode&&expectation.page==='index.html')await verifyTimetableRoleMatrix(cdp);
   if(demoMode&&expectation.page==='faculty-admin.html'){
    if(!state.reconciliationTab)throw Error('faculty-admin.html: DOE Reconciliation tab is missing in Frontend Demo');
    const open=await cdp.send('Runtime.evaluate',{expression:`(()=>{document.getElementById('doe-reconciliation-tab')?.click();return true})()`,returnByValue:true});
@@ -457,11 +458,38 @@ async function switchDemoRole(cdp,uid,label){
  const load=waitForEvent(cdp,'Page.loadEventFired');
  const expression="(()=>{const select=document.querySelector('#ucvm-pages-demo-toolbar select');if(!select)return{ok:false,reason:'toolbar select missing'};const option=[...select.options].find(item=>item.value==="+JSON.stringify(uid)+");if(!option)return{ok:false,reason:'role option missing'};select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));return{ok:true,uid:option.value,text:option.textContent}})()";
  const change=await cdp.send('Runtime.evaluate',{expression,returnByValue:true});
- if(change.exceptionDetails)throw Error('faculty-admin.html: '+label+' role selection failed: '+exceptionText(change.exceptionDetails));
- if(!change.result?.value?.ok)throw Error('faculty-admin.html: '+label+' role selection failed: '+(change.result?.value?.reason||'unknown error'));
+ if(change.exceptionDetails)throw Error(label+' role selection failed: '+exceptionText(change.exceptionDetails));
+ if(!change.result?.value?.ok)throw Error(label+' role selection failed: '+(change.result?.value?.reason||'unknown error'));
  await load;
  await wait(350);
  return change.result.value;
+}
+async function timetableToolState(cdp){
+ const result=await cdp.send('Runtime.evaluate',{expression:"(()=>{const visible=id=>{const el=document.getElementById(id);return !!el&&!el.classList.contains('hidden')};return{uid:window.firebase?.auth?.().currentUser?.uid||'',bulkAdd:visible('bulk-add-session-btn'),addOne:visible('add-session-btn'),select:visible('selection-controls'),manageUsers:visible('manage-users-btn'),facultyDashboard:visible('faculty-dashboard-btn'),outlook:visible('outlook-invite-btn'),publish:visible('publish-firestore-schedule')}})()",returnByValue:true});
+ if(result.exceptionDetails)throw Error('Timetable role tool inspection failed: '+exceptionText(result.exceptionDetails));
+ return result.result?.value||{};
+}
+async function verifyTimetableRoleMatrix(cdp){
+ const cases=[
+  {uid:'uid-developer',label:'Developer',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true}},
+  {uid:'uid-owner',label:'Owner',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true}},
+  {uid:'uid-admin',label:'Administrator',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:false,facultyDashboard:true,outlook:true,publish:true}},
+  {uid:'uid-adc-1',label:'ADC',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:false,facultyDashboard:false,outlook:false,publish:false}},
+  {uid:'uid-lab-1',label:'LAB',expect:{bulkAdd:false,addOne:false,select:true,manageUsers:false,facultyDashboard:false,outlook:false,publish:false}},
+  {uid:'uid-hicc-1',label:'HICC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:true,facultyDashboard:true,outlook:false,publish:false}},
+  {uid:'uid-visc-1',label:'VISC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false}},
+  {uid:'uid-fac-001',label:'Faculty',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false}}
+ ];
+ for(const entry of cases){
+  const current=(await timetableToolState(cdp)).uid;
+  if(current!==entry.uid)await switchDemoRole(cdp,entry.uid,'index.html '+entry.label);
+  await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==="+JSON.stringify(entry.uid)+")()",'Timetable '+entry.label+' role identity',12000);
+  if(['uid-hicc-1','uid-visc-1','uid-fac-001'].includes(entry.uid))await waitForCondition(cdp,"(()=>!document.getElementById('faculty-dashboard-btn')?.classList.contains('hidden'))()",'Timetable '+entry.label+' Faculty Dashboard link',12000);
+  const state=await timetableToolState(cdp);
+  for(const [key,expected] of Object.entries(entry.expect))if(state[key]!==expected)throw Error('index.html: '+entry.label+' expected '+key+'='+expected+' but got '+state[key]);
+ }
+ await switchDemoRole(cdp,'uid-developer','index.html Developer reset');
+ await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==='uid-developer')()",'Timetable Developer reset',12000);
 }
 async function verifyDemoRoleSwitching(cdp){
  await switchDemoRole(cdp,'uid-fac-001','Faculty');
