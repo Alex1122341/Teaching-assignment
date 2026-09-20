@@ -197,3 +197,21 @@ test('Roles search and type filters re-append current server and legacy evidence
  assert.match(source,/role-type-filter/);
  assert.match(source,/scheduleRoleAppend/);
 });
+
+
+test('Faculty Dashboard KPI strip uses authoritative bulk DOE and current server role assignments',()=>{
+ const source=read('faculty-admin.js');
+ const start=source.indexOf('function updateKpis');
+ const end=source.indexOf('function unique',start);
+ const fn=source.slice(start,end);
+ assert.match(fn,/doeListByFaculty/);
+ assert.match(fn,/roleAssignments/);
+ assert.doesNotMatch(fn,/liveAssignedDOE\(/);
+});
+
+test('legacy workload import status is labelled as evidence rather than current DOE authority',()=>{
+ const html=read('faculty-admin.html');
+ const source=read('faculty-admin.js');
+ assert.match(html,/Legacy workload evidence: checking/);
+ assert.match(source,/legacy workload evidence/);
+});
