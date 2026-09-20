@@ -1,7 +1,7 @@
 'use strict';
 const {ApiError}=require('../http/errors.js');
 
-const adminRoles=new Set(['owner','administrator','admin','adfa_general','adfa_regular']);
+const adminRoles=new Set(['developer','owner','administrator','admin','adfa_general','adfa_regular']);
 const text=value=>String(value??'').trim().toLowerCase();
 
 function requireAdmin(actor){
