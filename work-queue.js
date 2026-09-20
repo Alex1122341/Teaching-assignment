@@ -162,5 +162,96 @@
   };
  }
 
- return Object.freeze({PANEL_ID,BUTTON_ID,STAGE_LABEL,buildViewModel,officeSummaries,panelHtml,itemHtml,createController,academicYearForDate,academicYearRange});
+ /* Mount the Work Queue against the timetable page data contract.
+  * `page` is window.UCVM_PAGE_DATA, which exposes profile(), sessions(),
+  * ensureSessionsForRange() and subscribe(). Every render re-reads live session
+  * data, and the academic-year range is loaded (with retries) because outstanding
+  * work is not limited to the week on screen. */
+ function mountForPage({document,page,host,onOpen=null}={}){
+  if(!document||!page||typeof page.sessions!=='function')return null;
+  const target=host||document.body;
+  if(!target)return null;
+  let controller=null,refreshing=false,yearLoaded=false,yearLoading=false;
+  const waitFor=async(find,attempts=40)=>{
+   for(let index=0;index<attempts;index+=1){
+    const found=find();
+    if(found)return found;
+    await new Promise(resolve=>setTimeout(resolve,50));
+   }
+   return null;
+  };
+  // Opening Work goes to the real Select Sessions context for the target session
+  // instead of opening another read-only information modal.
+  const defaultOpen=async({sessionId})=>{
+   try{
+    const session=(page.sessions()||[]).find(row=>String(row.id)===String(sessionId));
+    const date=String(session?.date||'').slice(0,10);
+    if(date&&typeof page.ensureSessionsForRange==='function')await page.ensureSessionsForRange(date,date);
+    document.getElementById('cal-list-btn')?.click();
+    const row=await waitFor(()=>document.querySelector(`[data-session-id="${String(sessionId).replace(/["\\]/g,'')}"]`));
+    if(!row)return;
+    row.click();
+    const edit=await waitFor(()=>document.getElementById('detail-edit'));
+    edit?.click();
+   }catch(error){console.error('[work queue open]',error)}
+  };
+  const refresh=()=>{
+   if(refreshing)return;
+   refreshing=true;
+   try{
+    const role=String(page.profile?.()?.role||'').toLowerCase();
+    const view=buildViewModel({sessions:page.sessions()||[],role,workflow:window.UCVM_SESSION_WORKFLOW,context:window.UCVM_WORK_QUEUE_CONTEXT||{}});
+    view.role=role;
+    if(!controller)controller=createController({document,host:target,onOpen:onOpen||defaultOpen});
+    controller.render(view);
+   }catch(error){console.error('[work queue]',error)}
+   finally{refreshing=false}
+  };
+  const ensureYear=async()=>{
+   if(yearLoaded||yearLoading)return;
+   const range=academicYearRange(academicYearForDate());
+   if(!range||typeof page.ensureSessionsForRange!=='function'){yearLoaded=true;return}
+   yearLoading=true;
+   try{
+    const rows=await page.ensureSessionsForRange(range.start,range.end);
+    if(Array.isArray(rows)&&rows.length)yearLoaded=true;
+   }catch(error){console.error('[work queue range]',error)}
+   finally{yearLoading=false}
+   if(yearLoaded)refresh();
+  };
+  const refreshAll=()=>{refresh();ensureYear()};
+  refreshAll();
+  if(typeof page.subscribe==='function')page.subscribe(refreshAll);
+  for(const event of ['ucvm:assignment-recheck-required','ucvm:sessions-changed','ucvm:sessions-updated','ucvm:approval-applied'])window.addEventListener(event,refreshAll);
+  setInterval(refreshAll,5000);
+  return controller;
+ }
+
+ /* Wait for the timetable page data contract, then mount. Other pages never
+  * publish it, so the Work Queue stays absent there. */
+ function autoMount({document:doc,attempts=60,intervalMs=250}={}){
+  const win=typeof window!=='undefined'?window:null;
+  const target=doc||win?.document;
+  if(!target)return Promise.resolve(null);
+  return new Promise(resolve=>{
+   let tries=0;
+   const attempt=()=>{
+    if(win?.UCVM_PAGE_DATA){resolve(mountForPage({document:target,page:win.UCVM_PAGE_DATA}));return}
+    tries+=1;
+    if(tries>=attempts){resolve(null);return}
+    setTimeout(attempt,intervalMs);
+   };
+   attempt();
+  });
+ }
+
+ /* Boot in the browser. The timetable page publishes UCVM_PAGE_DATA after its
+  * own scripts run, so autoMount waits for it. */
+ if(typeof window!=='undefined'&&window.document&&window.document.body){
+  const boot=()=>{autoMount().catch(error=>console.error('[work queue mount]',error))};
+  if(window.document.readyState==='loading')window.document.addEventListener('DOMContentLoaded',boot,{once:true});
+  else setTimeout(boot,0);
+ }
+
+ return Object.freeze({PANEL_ID,BUTTON_ID,STAGE_LABEL,buildViewModel,officeSummaries,panelHtml,itemHtml,createController,mountForPage,autoMount,academicYearForDate,academicYearRange});
 });
