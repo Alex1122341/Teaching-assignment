@@ -301,6 +301,35 @@ function createRepository(db){
     return{...assignment};
   }
 
+  async function getDoeAssignment(assignmentFactId){
+    return getById('assignments',assignmentFactId,'assignmentFactId');
+  }
+
+  async function listFacultyRoleAssignments(facultyId,academicYear){
+    const id=text(facultyId),year=text(academicYear);
+    if(!id||!year)return[];
+    const rows=await listWhere('assignments','academicYear',year,'assignmentFactId');
+    return rows.filter(row=>text(row.facultyId)===id&&text(row.category).toLowerCase()==='role'&&row.active!==false)
+      .sort((a,b)=>text(a.roleType||a.teachingRole).localeCompare(text(b.roleType||b.teachingRole))||text(a.assignmentFactId).localeCompare(text(b.assignmentFactId)));
+  }
+
+  async function deactivateDoeAssignment({assignmentFactId,auditRecord={}}={}){
+    const id=text(assignmentFactId),auditId=text(auditRecord.auditId);
+    if(!id)throw new RepositoryError('ASSIGNMENT_ID_REQUIRED','DOE assignmentFactId is required.');
+    if(!auditId)throw new RepositoryError('AUDIT_ID_REQUIRED','DOE assignment deactivation audit requires auditId.');
+    if(typeof db.runTransaction!=='function')throw new RepositoryError('ATOMIC_WRITE_REQUIRED','DOE assignment deactivation requires a Firestore transaction.');
+    const assignmentRef=collection('assignments').doc(id),auditRef=collection('audit').doc(auditId);
+    return db.runTransaction(async transaction=>{
+      const snapshot=await transaction.get(assignmentRef);
+      if(!snapshot.exists)throw new RepositoryError('ASSIGNMENT_NOT_FOUND','DOE assignment was not found.',{assignmentFactId:id});
+      const before=rowFromDoc(snapshot,'assignmentFactId');
+      const after={...before,active:false,updatedBy:text(auditRecord.changedBy),updatedByName:text(auditRecord.changedByName),updatedByEmail:text(auditRecord.changedByEmail),updatedAt:text(auditRecord.changedAt)};
+      transaction.set(assignmentRef,after,{merge:true});
+      transaction.set(auditRef,{...auditRecord,before,after});
+      return after;
+    });
+  }
+
   async function saveSessionCalculationBundle({session={},calculationRecords=[],auditRecord={}}={}){
     const sessionId=text(session.sessionId||session.id),auditId=text(auditRecord.auditId);
     if(!sessionId)throw new RepositoryError('SESSION_ID_REQUIRED','Session ID is required.');
@@ -476,7 +505,7 @@ function createRepository(db){
   return Object.freeze({
     getPolicyForYear,getVersion,getFacultyRecord,listRules,listExceptions,getActivePolicyBundle,getPolicyBundleByVersion,getReference,getSession,
     listCourseMappings,listSubjectMappings,getCourseMapping,getSubjectMapping,
-    saveDraftReference,saveDraftCourseMapping,saveDraftSubjectMapping,saveDraftReservePolicy,saveFacultyTarget,createCalculationRecord,saveDoeAssignmentCalculation,saveSessionCalculationBundle,getAnnualReviewState,
+    saveDraftReference,saveDraftCourseMapping,saveDraftSubjectMapping,saveDraftReservePolicy,saveFacultyTarget,createCalculationRecord,saveDoeAssignmentCalculation,getDoeAssignment,listFacultyRoleAssignments,deactivateDoeAssignment,saveSessionCalculationBundle,getAnnualReviewState,
     createPolicyYearDraft,loadAnnualValidationDataset,saveAnnualValidationResult,getFacultyWorksheetSource,listFacultyWorksheetSources,listFacultyIdsForDoe
   });
 }
