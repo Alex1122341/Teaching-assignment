@@ -101,7 +101,7 @@ test('production Firebase Web config is pinned tools-only and excluded from prev
 });
 
 
-test('preview config verifier accepts tester-teaching compatibility config only when DOE API is disabled',()=>{
+test('preview config verifier accepts tester-teaching compatibility config with an optional verified HTTPS DOE API',()=>{
   const {validatePreview}=require('../tools/verify-preview-client-config.js');
   const good={
     firebaseConfig:{
@@ -119,5 +119,7 @@ test('preview config verifier accepts tester-teaching compatibility config only 
   assert.equal(validatePreview(good),true);
   assert.throws(()=>validatePreview({...good,firebaseConfig:{...good.firebaseConfig,apiKey:'GENERATE_WITH_tools_build-firebase-config.js'}}),/placeholder|invalid/i);
   assert.throws(()=>validatePreview({...good,projectId:'vista-teaching-lab',firebaseConfig:{...good.firebaseConfig,projectId:'vista-teaching-lab',authDomain:'vista-teaching-lab.firebaseapp.com'}}),/tester-teaching/);
-  assert.throws(()=>validatePreview({...good,doeApiBaseUrl:'https://example.azurewebsites.net'}),/must not be configured to reach a DOE API endpoint/);
+  assert.equal(validatePreview({...good,doeApiBaseUrl:'https://example.azurewebsites.net'}),true);
+  assert.throws(()=>validatePreview({...good,doeApiBaseUrl:'http://example.azurewebsites.net'}),/HTTPS/);
+  assert.throws(()=>validatePreview({...good,doeApiBaseUrl:'https://localhost:3000'}),/localhost/);
 });
