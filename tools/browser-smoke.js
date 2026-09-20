@@ -573,7 +573,7 @@ async function authenticatedOwnerSmoke({debugPort,origin,fixture,bundlePaths}){
   await waitForCondition(cdp,`(()=>{const status=document.getElementById('doe-policy-status')?.textContent||'',modal=document.getElementById('doe-rule-editor'),row=document.querySelector('[data-doe-rule-id="smoke-rule-lecture"]')?.textContent||'';return modal?.classList.contains('hidden')&&status.includes('revision 1')&&row.includes('Lecture operational smoke rate')})()`,'Rule Book Draft rule save');
 
   const mappingPanel=await cdp.send('Runtime.evaluate',{
-   expression:`(()=>{const tab=[...document.querySelectorAll('[data-doe-rulebook-tab]')].find(node=>node.dataset.doeRulebookTab==='mappings');tab?.click();document.getElementById('doe-add-course-mapping')?.click();return{tab:!!tab,visible:!document.getElementById('doe-mapping-editor')?.classList.contains('hidden')}})()`,
+   expression:`(()=>{const tab=[...document.querySelectorAll('[data-doe-rulebook-tab]')].find(node=>node.dataset.doeRulebookTab==='course-mapping');tab?.click();const panel=document.querySelector('[data-doe-rulebook-panel="course-mapping"]'),add=document.getElementById('doe-add-course-mapping');const panelVisible=!!panel&&!panel.classList.contains('hidden'),addEnabled=!!add&&!add.disabled;if(panelVisible&&addEnabled)add.click();return{tab:!!tab,panelVisible,addEnabled,visible:!document.getElementById('doe-mapping-editor')?.classList.contains('hidden')}})()`,
    returnByValue:true
   });
   if(mappingPanel.exceptionDetails)throw Error(`Rule Book mapping editor failed: ${exceptionText(mappingPanel.exceptionDetails)}`);
