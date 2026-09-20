@@ -241,3 +241,15 @@ test('DOE assignment and target saves invalidate the selected Faculty Worksheet 
  const save=enhancement.slice(start,end);
  assert.match(save,/UCVM_ADMIN_DATA\?\.refreshDoeFaculty/);
 });
+
+
+test('Roles tab keeps source-summary rows as evidence and reserves current DOE for Current server rows',()=>{
+ const source=read('faculty-admin.js');
+ const start=source.indexOf('function renderRoles');
+ const end=source.indexOf('function renderSessional',start);
+ const fn=source.slice(start,end);
+ assert.match(fn,/Source summary/);
+ assert.match(fn,/Source evidence only/);
+ assert.doesNotMatch(fn,/roleDoeHtml\(/);
+ assert.doesNotMatch(fn,/rolePolicyHtml\(/);
+});
