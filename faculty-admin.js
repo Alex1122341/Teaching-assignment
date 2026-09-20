@@ -165,7 +165,7 @@ function rolePolicyHtml(r,role){
  return`<div class="role-policy-line"><span class="policy-tag">Server</span> ${esc(match.ruleKey||match.ruleId||'Rule unavailable')}<div class="policy-ref">${esc(window.UCVM_DOE_WORKSHEET_VIEW.referenceText(match.reference||{})||'Reference unavailable')}</div></div>`;
 }
 function serverRoleRows(r){
- const worksheet=cachedDoeWorksheet(r),lines=Array.isArray(worksheet?.lines)?worksheet.lines.filter(line=>norm(line.category)==='role'&&norm(line.sourceEntityType)==='doe assignment'):[];
+ const worksheet=cachedDoeWorksheet(r),lines=Array.isArray(worksheet?.lines)?worksheet.lines.filter(line=>norm(line.category)==='role'&&norm(line.sourceEntityType)==='doe_assignment'):[];
  if(lines.length)return lines;
  const summary=doeListByFaculty.get(String(r?.__id||''));
  return(Array.isArray(summary?.roleAssignments)?summary.roleAssignments:[]).map(row=>({...row,sourceEntityType:'doe_assignment',sourceEntityId:row.assignmentFactId||'',category:'role'}));
@@ -174,7 +174,7 @@ function rolesHtml(r,s){
  const current=serverRoleRows(r),source=Array.isArray(s?.roles)?s.roles:[];
  if(!current.length&&!source.length)return'<div class="no-source">No current server role assignments or source-summary roles are recorded for this faculty member.</div>';
  const currentRows=current.map(line=>{
-  const assignment=line.courseCode||line.subjectKey||line.label||'—',status=norm(line.status),result=numeric(line.resultDoe),credit=result===null||['needs review','error'].includes(status)?'<span class="doe-status-pill needs_review">Needs Review</span>':`<strong>${esc(window.UCVM_DOE_WORKSHEET_VIEW.percent(result))}</strong>`;
+  const assignment=line.courseCode||line.subjectKey||line.label||'—',status=norm(line.status),result=numeric(line.resultDoe),credit=result===null||['needs_review','error'].includes(status)?'<span class="doe-status-pill needs_review">Needs Review</span>':`<strong>${esc(window.UCVM_DOE_WORKSHEET_VIEW.percent(result))}</strong>`;
   const ref=window.UCVM_DOE_WORKSHEET_VIEW.referenceText(line.reference||{}),policy=[line.ruleKey||line.ruleId,line.policyVersionId,ref].filter(Boolean).map(esc).join('<br>');
   return`<tr><td><span class="role-chip">${esc(line.roleType||'Role')}</span><div class="muted">Current server</div></td><td>${esc(assignment)}</td><td>Authoritative assignment</td><td>${credit}</td><td>${policy||'<span class="muted">Needs Review</span>'}</td><td>${esc(line.calculationId||line.assignmentFactId||line.sourceEntityId||'—')}</td></tr>`;
  }).join('');
