@@ -14,7 +14,7 @@
   {key:'reserve-logic',label:'Reserve Logic',hint:'Teaching & Trainee'},
   {key:'other-approved',label:'Other / Approved Activities',hint:'Capped and approved allocations'}
  ]);
- const state={bundle:null,editable:false,reload:null,wired:false};
+ const state={bundle:null,editable:false,reload:null,wired:false,historyVersionId:'',historyLoading:null};
  const text=value=>String(value??'').trim();
  const esc=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
  const doc=()=>root?.document||null;
@@ -41,6 +41,36 @@
   const d=doc();if(!d)return;
   d.querySelectorAll('[data-doe-rulebook-tab]').forEach(node=>node.classList.toggle('active',node.dataset.doeRulebookTab===name));
   d.querySelectorAll('[data-doe-rulebook-panel]').forEach(node=>node.classList.toggle('hidden',node.dataset.doeRulebookPanel!==name));
+  if(name==='history')loadHistory().catch(error=>setStatus(error.message||String(error),'error'));
+ }
+ function actionText(value){
+  return text(value).replace(/_/g,' ').replace(/\b\w/g,ch=>ch.toUpperCase())||'DOE change';
+ }
+ function historyRows(rows=[]){
+  const year=text(state.bundle?.version?.academicYear);
+  if(!rows.length)return'<tr><td colspan="5" class="empty">No audit history is recorded for this Policy Version.</td></tr>';
+  return rows.map(row=>{
+   const when=text(row.changedAt||row.publishedAt||row.calculatedAt),category=text(row.entityType||row.category||'policy'),entity=text(row.entityId),actor=text(row.changedByName||row.changedByEmail||row.changedBy||'System');
+   const detail=[actionText(row.action),entity&&entity!==text(row.policyVersionId)?entity:''].filter(Boolean).join(' · ');
+   return`<tr><td>${esc(when?new Date(when).toLocaleString():'—')}</td><td>${esc(text(row.academicYear)||year||'—')}</td><td>${esc(actionText(category))}</td><td><strong>${esc(detail||'DOE change')}</strong></td><td>${esc(actor)}</td></tr>`;
+  }).join('');
+ }
+ async function loadHistory({force=false}={}){
+  const body=$('doe-rulebook-history-body'),versionId=text(state.bundle?.version?.policyVersionId);
+  if(!body)return[];
+  if(!versionId){body.innerHTML='<tr><td colspan="5" class="empty">Select a Policy Version to view its audit history.</td></tr>';return[]}
+  if(!DOE_API?.listAudit){body.innerHTML='<tr><td colspan="5" class="empty">Rule Book audit history is unavailable.</td></tr>';return[]}
+  if(!force&&state.historyLoading&&state.historyVersionId===versionId)return state.historyLoading;
+  state.historyVersionId=versionId;
+  body.innerHTML='<tr><td colspan="5" class="empty">Loading Rule Book audit history…</td></tr>';
+  state.historyLoading=DOE_API.listAudit(versionId).then(rows=>{
+   if(state.historyVersionId===versionId)body.innerHTML=historyRows(Array.isArray(rows)?rows:[]);
+   return rows;
+  }).catch(error=>{
+   if(state.historyVersionId===versionId)body.innerHTML=`<tr><td colspan="5" class="empty">Could not load Rule Book audit history: ${esc(error?.message||String(error))}</td></tr>`;
+   throw error;
+  }).finally(()=>{state.historyLoading=null});
+  return state.historyLoading;
  }
  function renderMappingRows(rows,type,editable=true){
   const values=Array.isArray(rows)?rows:[];
@@ -58,7 +88,7 @@
   return{course:decorate(bundle?.courseMappings),subject:decorate(bundle?.subjectMappings)};
  }
  function renderBundle(bundle,{editable=false,reload=null}={}){
-  state.bundle=bundle||null;state.editable=Boolean(editable);state.reload=typeof reload==='function'?reload:null;
+  state.bundle=bundle||null;state.editable=Boolean(editable);state.reload=typeof reload==='function'?reload:null;state.historyVersionId='';
   const decorated=referenceRows(bundle||{}),courseBody=$('doe-course-mapping-body'),subjectBody=$('doe-visc-mapping-body');
   if(courseBody)courseBody.innerHTML=renderMappingRows(decorated.course,'course',state.editable);
   if(subjectBody)subjectBody.innerHTML=renderMappingRows(decorated.subject,'subject',state.editable);
@@ -201,5 +231,5 @@
   return true;
  }
  if(root?.document){if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',wire);else wire()}
- return{REVIEW_STATUSES,RULE_GROUPS,referenceView,nextAcademicYear,statusText,renderMappingRows,renderBundle,normalizeMappingDraft,switchPanel,wire,openMappingEditor,saveMapping,openReferenceEditor,saveReference,openReserveEditor,saveReservePolicy,copyPreviousYear,validateCurrentDraft};
+ return{REVIEW_STATUSES,RULE_GROUPS,referenceView,nextAcademicYear,statusText,renderMappingRows,renderBundle,historyRows,loadHistory,normalizeMappingDraft,switchPanel,wire,openMappingEditor,saveMapping,openReferenceEditor,saveReference,openReserveEditor,saveReservePolicy,copyPreviousYear,validateCurrentDraft};
 });
