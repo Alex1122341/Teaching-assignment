@@ -81,7 +81,7 @@
   function canAddOneSession(){return capabilities().canAddOneSession;}
   function canSelectSessions(){return capabilities().canSelectSessions;}
   function canEdit(){const c=capabilities();return c.canEditCourseFields||c.canEditInstructor;}
-  function sessionCollection(){return ['adc','lab'].includes(UCVM.role(currentUser?.role))?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;}
+  function sessionCollection(){return ['adc','lab','other_office'].includes(UCVM.role(currentUser?.role))?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;}
   function getTimetableDoeRuntime(){
     if(timetableDoeRuntime&&timetableDoeRuntime.db===db)return timetableDoeRuntime;
     const api=window.UCVM_DOE_API,selectionApi=window.UCVM_TIMETABLE_SELECTION;
@@ -127,8 +127,8 @@
       throw err;
     }
     const role = String(data.role || '').trim().toLowerCase();
-    if (!['developer', 'owner', 'administrator', 'viewer', 'editor', 'admin', 'adfa_general', 'adfa_regular', 'hicc', 'visc', 'faculty', 'adc', 'lab'].includes(role)) {
-      const err = new Error(`Invalid Firestore role: ${role || '(blank)'}. Use developer, owner, administrator, faculty, hicc, visc, adc, lab, adfa_regular, or adfa_general.`);
+    if (!['developer', 'owner', 'administrator', 'other_office', 'viewer', 'editor', 'admin', 'adfa_general', 'adfa_regular', 'hicc', 'visc', 'faculty', 'adc', 'lab'].includes(role)) {
+      const err = new Error(`Invalid Firestore role: ${role || '(blank)'}. Use developer, owner, administrator, other_office, faculty, hicc, visc, adc, lab, adfa_regular, or adfa_general.`);
       err.code = 'ucvm/invalid-role';
       throw err;
     }
@@ -1782,6 +1782,7 @@
   function updateAuthUI() {
     const b = $('account-toggle');
     const showAdminTools=canEdit()||UCVM.general(currentUser)||currentUser?.role==='hicc';
+    const historyOnly=UCVM.role(currentUser?.role)==='other_office';
     b.textContent = currentUser ? `${currentUser.name} - ${currentUser.role}` : 'Sign in';
     b.classList.toggle('is-admin', canEdit());
     $('bulk-add-session-btn').classList.toggle('hidden', !canAddSessions());
@@ -1791,10 +1792,12 @@
     $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || currentUser?.role === 'hicc'));
     $('faculty-dashboard-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
     $('cal-admin-menu').classList.toggle('hidden',!showAdminTools);
-    for(const id of ['my-teaching-btn','afc-request-btn','my-change-history-btn'])$(id).classList.toggle('hidden',!currentUser);
+    $('my-teaching-btn').classList.toggle('hidden',!currentUser||historyOnly);
+    $('afc-request-btn').classList.toggle('hidden',!currentUser||historyOnly);
+    $('my-change-history-btn').classList.toggle('hidden',!currentUser);
     $('publish-firestore-schedule').classList.toggle('hidden', !UCVM.admin(currentUser));
     updateScheduleSourceUI();
-    $('my-timetable-btn').classList.toggle('hidden', !currentUser || roleIsFaculty(currentUser));
+    $('my-timetable-btn').classList.toggle('hidden', !currentUser || roleIsFaculty(currentUser) || historyOnly);
     $('my-timetable-btn').textContent = currentUser && myTimetableOnly ? 'Show All Timetable' : 'My Timetable';
   }
 

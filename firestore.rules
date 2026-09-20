@@ -5,15 +5,16 @@ service cloud.firestore {
   function profile(){return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;}
   function readySignedIn(){let p=profile();return p.active == true && p.role in ['developer','owner','administrator','other_office','admin','editor','viewer','adfa_general','adfa_regular','hicc','visc','faculty','adc','lab'] && p.get('mustChangePassword',false) == false;}
   function ready(){return signedIn() && readySignedIn();}
-  function admin(){return ready() && profile().role in ['developer','owner','administrator','other_office','admin','adfa_general','adfa_regular'];}
-  function approver(){return ready() && profile().role in ['developer','owner','administrator','other_office','adfa_general','adfa_regular'];}
+  function admin(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
+  function approver(){return ready() && profile().role in ['developer','owner','administrator','adfa_general','adfa_regular'];}
   function general(){return ready() && profile().role in ['developer','owner','adfa_general'];}
   function historyAll(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
+  function historyReader(d){return historyAll() || (ready() && !(profile().role in ['adc','lab']) && d.changedBy == request.auth.uid);}
   function hicc(){return ready() && profile().role == 'hicc';}
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
   function explicitRole(r){return r in ['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
   function developer(){return ready() && profile().role == 'developer';}
-  function restrictedOffice(){return signedIn() && profile().role in ['adc','lab'];}
+  function restrictedOffice(){return signedIn() && profile().role in ['adc','lab','other_office'];}
   function adc(){return ready() && profile().role in ['developer','adc'];}
   function lab(){return ready() && profile().role in ['developer','lab'];}
   function adfaApprover(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
@@ -265,7 +266,7 @@ service cloud.firestore {
    && request.resource.data.keys().hasOnly(['action','override','requestId','sessionId','course','date','topic','instructors','changes','changedBy','changedByName','changedByEmail','changedAt'])
    && request.resource.data.instructors is list && request.resource.data.instructors.size() == 0 && request.resource.data.changes is list;}
   function privateReader(){return ready() && !restrictedOffice();}
-  function validOfficeIdentity(d){return !(d.role in ['adc','lab']) || !d.keys().hasAny(['facultyId','facultyRoles']);}
+  function validOfficeIdentity(d){return !(d.role in ['adc','lab','other_office']) || !d.keys().hasAny(['facultyId','facultyRoles']);}
   function facultyRole(r){return r in ['hicc','visc','faculty','editor','viewer'];}
   function validFacultyLink(d){return !facultyRole(d.role) || (d.facultyId is string && d.facultyId.size() > 0 && exists(/databases/$(database)/documents/faculty/$(d.facultyId)));}
   function validFacultyRoles(d){return !d.keys().hasAny(['facultyRoles']) || (d.facultyRoles is list && d.facultyRoles.size() > 0 && d.facultyRoles.size() <= 3 && d.facultyRoles.hasOnly(['hicc','visc','faculty']));}
@@ -611,23 +612,23 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /session_change_log/{id} {
-   allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid);
+   allow read: if historyReader(resource.data);
    allow create: if teachingWritesOpen() && ((admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time) || officeSessionAuditCreate());
    allow update: if false;
    allow delete: if false;
   }
   match /faculty_change_log/{id} {
-   allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid);
+   allow read: if historyReader(resource.data);
    allow create: if teachingWritesOpen() && admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
    allow update: if false;
    allow delete: if false;
   }
   match /account_audit/{id} {
-   allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid);
+   allow read: if historyReader(resource.data);
    allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time && (general() || (hicc() && request.resource.data.action == 'group_members_updated' && get(/databases/$(database)/documents/faculty_groups/$(request.resource.data.groupId)).data.ownerUid == request.auth.uid));
    allow update,delete: if false;
   }
-  match /audit_events/{id} {allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid); allow write: if false;}
+  match /audit_events/{id} {allow read: if historyReader(resource.data); allow write: if false;}
   match /afc_requests/{id} {
    allow read: if ready() && afcRead(resource.data);
    allow create: if afcCreate();
