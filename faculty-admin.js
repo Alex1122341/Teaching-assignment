@@ -14,7 +14,7 @@ async function ensureAdminDataset(){await Promise.all([ensureFullFaculty(),ensur
 async function reloadAdminDataset(){facultyLoaded=false;sessionsLoaded=false;await ensureAdminDataset();await writeDerivedIndexes()}
 async function refreshAdminDataset(){const [facultySnapshot,sessionSnapshot]=await Promise.all([db.collection(COLLECTION).get({source:'server'}),db.collection(SESSION_COLLECTION).get({source:'server'})]);return{faculty:facultySnapshot.docs.map(d=>({__id:d.id,...d.data()})),sessions:sessionSnapshot.docs.map(d=>({id:d.id,...d.data()}))}}
 const liveRowsByFaculty=new Map();
-window.UCVM_ADMIN_DATA={faculty:()=>faculty.slice(),sessions:()=>sessions.slice(),refresh:refreshAdminDataset,profile:()=>currentProfile};
+window.UCVM_ADMIN_DATA={faculty:()=>faculty.slice(),sessions:()=>sessions.slice(),refresh:refreshAdminDataset,profile:()=>currentProfile,doeList:()=>({academicYear:doeListYear,loaded:doeListLoaded,error:doeListError,rows:[...doeListByFaculty.values()]}),loadDoeSummaryList};
 const $=id=>document.getElementById(id);const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[c]));const norm=v=>String(v??'').trim().toLowerCase();const present=v=>!(v===undefined||v===null||v==='');
 const numeric=UCVM.number;
 function selectedDoeYear(){return String($('doe-policy-year')?.value||'2026-27').trim()||'2026-27'}
@@ -33,7 +33,7 @@ async function loadDoeSummaryList({force=false}={}){
   doeListLoaded=true;return rows;
  }).catch(error=>{
   console.error('[DOE teaching summary]',error);doeListByFaculty=new Map();doeListLoaded=true;doeListError=error?.message||'Could not load authoritative DOE summary.';return[];
- }).finally(()=>{doeListLoading=null;if(currentTab==='summary')renderSummary();if(currentTab==='lookup')renderLookup()});
+ }).finally(()=>{doeListLoading=null;window.dispatchEvent(new Event('ucvm:admin-doe-list-updated'));if(currentTab==='summary')renderSummary();if(currentTab==='lookup')renderLookup()});
  return doeListLoading;
 }
 async function loadDoeWorksheet(id,{force=false}={}){if(!doeApiConfigured()||!id)return null;const year=selectedDoeYear(),key=doeWorksheetKey(id,year);if(!force&&doeWorksheetByFaculty.has(key))return doeWorksheetByFaculty.get(key);if(!force&&doeWorksheetLoading.has(key))return doeWorksheetLoading.get(key);const pending=window.UCVM_DOE_API.getFacultyWorksheet(String(id),year).then(worksheet=>{doeWorksheetByFaculty.set(key,worksheet);return worksheet}).catch(error=>{console.error('[DOE worksheet]',error);const worksheet={facultyId:String(id),academicYear:year,status:'error',totals:{assignedTeachingDoe:null,effectiveTargetDoe:null,remainingDoe:null},errors:[{code:error?.code||'DOE_API_ERROR',message:error?.message||'Could not load the authoritative DOE worksheet.'}]};doeWorksheetByFaculty.set(key,worksheet);return worksheet}).finally(()=>{doeWorksheetLoading.delete(key);if(selectedId===String(id)&&currentTab==='lookup')renderLookup()});doeWorksheetLoading.set(key,pending);return pending}
