@@ -55,9 +55,11 @@
  const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
  const stamp=()=>firebase.firestore.FieldValue.serverTimestamp();
  const roleIsFaculty=r=>['faculty','hicc','visc'].includes(UCVM.role(r));
+ const isDeveloper=()=>role==='developer';
  const office=()=>officeCaps.officeForRole(role);
- const isOfficeApprover=()=>['adc','lab','adfa'].includes(office());
- const isAdfaApprover=()=>office()==='adfa';
+ const approvalOffices=()=>isDeveloper()?['adc','lab','adfa']:[office()].filter(name=>['adc','lab','adfa'].includes(name));
+ const isOfficeApprover=()=>approvalOffices().length>0;
+ const isAdfaApprover=()=>isDeveloper()||office()==='adfa';
  const isApprover=isAdfaApprover;
  const ownFacultyId=()=>String(me?.facultyId||me?.facultyDirectoryMatch?.id||'').trim();
  const ownAliases=()=>new Set([me?.name,me?.instructor,me?.facultyDirectoryMatch?.name,user?.displayName].map(norm).filter(Boolean));
@@ -244,8 +246,8 @@
   }else $('my-requests-btn')?.remove();
 
   if(isOfficeApprover()){
-    const currentOffice=office(),pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?r._approvals?.[currentOffice]?.status==='pending':(isAdfaApprover()&&r.status==='pending')).length+(isAdfaApprover()?afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length:0),b=mkButton('approval-queue-btn','Approvals');
-    const label=officeView.queueLabel(currentOffice,pending),plain=label.replace(/ \(\d+\)$/,'');
+    const currentOffice=office(),pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?(isDeveloper()?(r._workflow?.requiredOffices||[]).some(name=>r._approvals?.[name]?.status==='pending'):r._approvals?.[currentOffice]?.status==='pending'):(isAdfaApprover()&&r.status==='pending')).length+(isAdfaApprover()?afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length:0),b=mkButton('approval-queue-btn','Approvals');
+    const label=isDeveloper()?`All Approvals (${pending})`:officeView.queueLabel(currentOffice,pending),plain=label.replace(/ \(\d+\)$/,'');
     b.innerHTML=`${esc(plain)}${pending?` <span class="workflow-count">${pending}</span>`:''}`;
     if(!b.isConnected)bar.insertBefore(b,bar.firstChild);b.onclick=()=>openApprovalQueue();
     maybeOpenApprovalFromHash();
@@ -356,16 +358,21 @@
    if(r.requestType==='faculty_swap')return `<div class="workflow-approval-change"><strong>Faculty swap</strong>${esc(r.fromFaculty?.name||'')} → ${esc(r.toFaculty?.name||'')}</div>`;
    return (r.changes||[]).map(c=>`<div class="workflow-approval-change"><strong>${esc(c.field)}</strong>${esc(c.before)} → ${esc(c.after)}</div>`).join('');
   }
-  const view=officeView.requestView({office:officeContext?office():'',request:r,workflow:r._workflow||{},approvalMatrix:approvalMatrix(r)});
-  const rows=view.fields.map(change=>{const owner=fieldOffice(r,change.field),state=owner&&officeContext?` <span class="workflow-pill">${esc(owner.toUpperCase())}: ${esc(officeStatusText(r,owner))}</span>`:'';return `<div class="workflow-approval-change${change.owned?'':' role-locked-field'}"><strong>${esc(change.field)}</strong>${esc(change.before)} → ${esc(change.after)}${state}</div>`}).join('');
-  const faculty=view.faculty.proposedName?`<div class="workflow-approval-change${officeContext&&office()!=='adfa'?' role-locked-field':''}"><strong>Faculty Assignment</strong>${view.faculty.currentName?`${esc(view.faculty.currentName)} → `:''}${esc(view.faculty.proposedName)}${officeContext?` <span class="workflow-pill">ADFA: ${esc(officeStatusText(r,'adfa'))}</span>`:''}</div>`:'';
+  const view=officeView.requestView({office:officeContext&&!isDeveloper()?office():'',request:r,workflow:r._workflow||{},approvalMatrix:approvalMatrix(r)});
+  const rows=view.fields.map(change=>{const owner=fieldOffice(r,change.field),state=owner&&officeContext?` <span class="workflow-pill">${esc(owner.toUpperCase())}: ${esc(officeStatusText(r,owner))}</span>`:'';return `<div class="workflow-approval-change${change.owned||isDeveloper()?'':' role-locked-field'}"><strong>${esc(change.field)}</strong>${esc(change.before)} → ${esc(change.after)}${state}</div>`}).join('');
+  const faculty=view.faculty.proposedName?`<div class="workflow-approval-change${officeContext&&!isDeveloper()&&office()!=='adfa'?' role-locked-field':''}"><strong>Faculty Assignment</strong>${view.faculty.currentName?`${esc(view.faculty.currentName)} → `:''}${esc(view.faculty.proposedName)}${officeContext?` <span class="workflow-pill">ADFA: ${esc(officeStatusText(r,'adfa'))}</span>`:''}</div>`:'';
   return rows+faculty;
  }
- function routedActionHtml(r){
-  const currentOffice=office(),own=r?._approvals?.[currentOffice];if(!own||own.status!=='pending'||r.status!=='pending')return'';
+ function routedOfficeActionHtml(r,currentOffice){
+  const own=r?._approvals?.[currentOffice];if(!own||own.status!=='pending'||r.status!=='pending')return'';
   const otherApproved=(r._workflow?.requiredOffices||[]).filter(name=>name!==currentOffice).every(name=>r._approvals?.[name]?.status==='approved');
-  if(r._workflow?.hasFacultyChange&&currentOffice==='adfa'&&!otherApproved)return '<div class="workflow-note">Waiting for the other required office approvals before ADFA final approval and apply.</div>';
-  return `<div class="workflow-actions"><button class="btn btn-primary" data-office-decision="approve" data-request-id="${esc(r.id)}">Approve${r._workflow?.hasFacultyChange&&currentOffice==='adfa'?' & apply':''}</button><button class="btn btn-secondary" data-office-decision="push_back" data-request-id="${esc(r.id)}">Push Back</button><button class="btn btn-secondary" data-office-decision="reject" data-request-id="${esc(r.id)}">Reject</button></div>`;
+  if(r._workflow?.hasFacultyChange&&currentOffice==='adfa'&&!otherApproved)return `<div class="workflow-note"><strong>ADFA</strong> · Waiting for the other required office approvals before final approval and apply.</div>`;
+  const label=isDeveloper()?`<strong>${esc(currentOffice.toUpperCase())}</strong> · `:'';
+  return `<div class="workflow-actions">${label}<button class="btn btn-primary" data-office-decision="approve" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Approve${r._workflow?.hasFacultyChange&&currentOffice==='adfa'?' & apply':''}</button><button class="btn btn-secondary" data-office-decision="push_back" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Push Back</button><button class="btn btn-secondary" data-office-decision="reject" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Reject</button></div>`;
+ }
+ function routedActionHtml(r){
+  const offices=isDeveloper()?(r?._workflow?.requiredOffices||[]).filter(name=>['adc','lab','adfa'].includes(name)):approvalOffices();
+  return offices.map(name=>routedOfficeActionHtml(r,name)).filter(Boolean).join('');
  }
  function requesterActionHtml(r){if(r.requestSchema!=='office-routing-v1'||!['pending','update_required'].includes(r.status))return'';return `<div class="workflow-actions">${r.status==='update_required'?`<button class="btn btn-primary" data-request-resubmit="${esc(r.id)}">Edit & Resubmit</button>`:''}<button class="btn btn-secondary" data-request-withdraw="${esc(r.id)}">Withdraw Request</button></div>`}
  function requestCard(r,admin=false){
@@ -394,12 +401,12 @@
   return{requestRef,workflowRef,request,workflow,approvals,approvalRefs,privateRecord,privateRef,calendar,calendarRef,source,sourceRef};
  }
  function otherRequiredApproved(bundle,currentOffice){return(bundle.workflow.requiredOffices||[]).filter(name=>name!==currentOffice).every(name=>bundle.approvals?.[name]?.status==='approved')}
- async function decideRoutedRequest(id,decision){
+ async function decideRoutedRequest(id,decision,officeOverride=''){
   if(!isOfficeApprover())return;
   let message='';
   if(decision==='push_back'){message=String(prompt('What needs to be updated?','')||'').trim();if(!message)return toast('Push Back requires a message.',true)}
   if(decision==='reject'){const value=prompt('Reason for rejection:','');if(value===null)return;message=String(value||'').trim()}
-  const currentOffice=office(),auditRef=db.collection(REQUEST_AUDIT).doc();let shouldFinalize=false;
+  const currentOffice=isDeveloper()&&['adc','lab','adfa'].includes(String(officeOverride||''))?String(officeOverride):office(),auditRef=db.collection(REQUEST_AUDIT).doc();let shouldFinalize=false;
   try{
    await db.runTransaction(async tx=>{
     const bundle=await readRoutedBundleTx(tx,id),own=bundle.approvals[currentOffice];
@@ -415,7 +422,7 @@
     }
     shouldFinalize=decision==='approve'&&plan.allRequiredApproved;
    });
-   if(shouldFinalize)await finalizeRoutedRequest(id);else{toast(decision==='approve'?'Office scope approved.':decision==='push_back'?'Request returned for update.':'Request rejected.');closeModal()}
+   if(shouldFinalize)await finalizeRoutedRequest(id,currentOffice);else{toast(decision==='approve'?'Office scope approved.':decision==='push_back'?'Request returned for update.':'Request rejected.');closeModal()}
   }catch(e){console.error('[routed office decision]',e);toast(e.message,true)}
  }
  async function withdrawRoutedRequest(id){
@@ -470,8 +477,8 @@
  // UCVM_DB_MIGRATION_REVISIT: spark-client-finalizer
  // Current Spark/client architecture requires ADFA to finalize requests containing private Faculty changes.
  // Move final apply to a trusted UCalgary backend transaction/service during the database/API migration.
- async function finalizeRoutedRequest(id){
-  const requestSnap=await db.doc(`${REQUESTS}/${id}`).get({source:'server'}),workflowSnap=await db.doc(`${WORKFLOWS}/${id}`).get({source:'server'});if(!requestSnap.exists||!workflowSnap.exists)throw Error('This request no longer exists.');const request={id:requestSnap.id,...requestSnap.data()},workflow={id:workflowSnap.id,...workflowSnap.data()},currentOffice=office();
+ async function finalizeRoutedRequest(id,officeOverride=''){
+  const requestSnap=await db.doc(`${REQUESTS}/${id}`).get({source:'server'}),workflowSnap=await db.doc(`${WORKFLOWS}/${id}`).get({source:'server'});if(!requestSnap.exists||!workflowSnap.exists)throw Error('This request no longer exists.');const request={id:requestSnap.id,...requestSnap.data()},workflow={id:workflowSnap.id,...workflowSnap.data()},currentOffice=isDeveloper()&&['adc','lab','adfa'].includes(String(officeOverride||''))?String(officeOverride):office();
   const approvalDocs=await Promise.all((workflow.requiredOffices||[]).map(name=>db.doc(`${APPROVALS}/${id}_${name}`).get({source:'server'}))),approvalRows={};approvalDocs.forEach((snap,index)=>{if(snap.exists)approvalRows[workflow.requiredOffices[index]]={id:snap.id,...snap.data()}});if(!lifecycle.requiredApproved(workflow,approvalRows))throw Error('All required office approvals must be complete before applying this request.');
   if(workflow.hasFacultyChange&&currentOffice!=='adfa')throw Error('ADFA must complete a request that changes Faculty assignment.');
   let resolved=null,preflight=null,conflictOverride=null,facultySource=null,serverSavedFaculty=null;
@@ -515,12 +522,12 @@ async function hydrateApprovalImpacts(){if(!isAdfaApprover())return;
   for(const el of document.querySelectorAll('[data-approval-impact]')){const r=requests.find(x=>x.id===el.dataset.approvalImpact),current=r?sessions.get(r.sessionId):null;if(!r||!current){el.innerHTML='<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check warn">The live session could not be found. Do not approve until reviewed manually.</div>';continue}try{if(r.requestSchema==='office-routing-v1'&&r._workflow?.hasFacultyChange){const privateSnap=await db.doc(`${PRIVATE_REQUESTS}/${r.id}`).get({source:'server'});if(!privateSnap.exists)throw Error('The private Faculty assignment record is missing.');const privateRecord=privateSnap.data(),resolved=await resolveRoutedReplacement(privateRecord,r);el.innerHTML=await routedSwapImpactHtml(r,current,privateRecord,resolved)}else el.innerHTML=r.requestType==='faculty_swap'?await swapImpactHtml(r,current):await editImpactHtml(r,current)}catch(e){console.error('[approval impact]',e);el.innerHTML=`<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check unknown">Unable to calculate checks: ${esc(e.message)}</div>`}}
  }
  async function openApprovalQueue(){
-  const currentOffice=office(),pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?r._approvals?.[currentOffice]?.status==='pending':(isAdfaApprover()&&r.status==='pending')),done=requests.filter(r=>r.requestSchema==='office-routing-v1'?r._approvals?.[currentOffice]?.status!=='pending':r.status!=='pending').slice(0,20),afcPending=isAdfaApprover()?afcRequests:[];
-  const heading=currentOffice==='adc'?'ADC approval queue':currentOffice==='lab'?'LAB approval queue':'ADFA approval queue';
-  const subtitle=isAdfaApprover()?'Timetable Faculty decisions retain live DOE/AFC/conflict checks.':'Only your office-owned fields are actionable; other fields are read-only context.';
+  const currentOffice=office(),pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?(isDeveloper()?(r._workflow?.requiredOffices||[]).some(name=>r._approvals?.[name]?.status==='pending'):r._approvals?.[currentOffice]?.status==='pending'):(isAdfaApprover()&&r.status==='pending')),done=requests.filter(r=>r.requestSchema==='office-routing-v1'?(isDeveloper()?(r._workflow?.requiredOffices||[]).every(name=>r._approvals?.[name]?.status!=='pending'):r._approvals?.[currentOffice]?.status!=='pending'):r.status!=='pending').slice(0,20),afcPending=isAdfaApprover()?afcRequests:[];
+  const heading=isDeveloper()?'Developer · all approval queues':currentOffice==='adc'?'ADC approval queue':currentOffice==='lab'?'LAB approval queue':'ADFA approval queue';
+  const subtitle=isDeveloper()?'Developer can act on ADC, LAB and ADFA scopes. Timetable Faculty decisions retain live DOE/AFC/conflict checks.':isAdfaApprover()?'Timetable Faculty decisions retain live DOE/AFC/conflict checks.':'Only your office-owned fields are actionable; other fields are read-only context.';
   const afcHtml=isAdfaApprover()?`<h3>AFC requests (${afcPending.length})</h3>${afcPending.map(r=>afcCard(r,true)).join('')||'<p>No pending AFC requests.</p>'}`:'';
   showModal(`<div class="modal-header"><div class="modal-title">${esc(heading)}</div><div class="modal-subtitle">${esc(subtitle)}</div></div><div class="modal-body">${afcHtml}<h3${isAdfaApprover()?' style="margin-top:18px"':''}>Timetable requests (${pending.length})</h3>${pending.map(r=>requestCard(r,true)).join('')||'<p>No pending timetable requests for this office.</p>'}${done.length?`<h3 style="margin-top:18px">Recent decisions</h3>${done.map(r=>requestCard(r,true)).join('')}`:''}</div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`);
-  document.querySelectorAll('[data-office-decision]').forEach(b=>b.onclick=()=>decideRoutedRequest(b.dataset.requestId,b.dataset.officeDecision));
+  document.querySelectorAll('[data-office-decision]').forEach(b=>b.onclick=()=>decideRoutedRequest(b.dataset.requestId,b.dataset.officeDecision,b.dataset.officeContext));
   document.querySelectorAll('[data-approve-request]').forEach(b=>b.onclick=()=>approveRequest(b.dataset.approveRequest));
   document.querySelectorAll('[data-reject-request]').forEach(b=>b.onclick=()=>rejectRequest(b.dataset.rejectRequest));
   document.querySelectorAll('[data-afc-action]').forEach(b=>b.onclick=()=>decideAfc(b.dataset.afcId,b.dataset.afcAction));
