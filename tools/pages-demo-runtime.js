@@ -354,7 +354,7 @@
       setPersistence:async()=>undefined,
       onAuthStateChanged(callback){listeners.add(callback);queueMicrotask(()=>callback(currentUser));return()=>listeners.delete(callback)},
       signInWithEmailAndPassword:async email=>({user:select(uidForEmail(email,registry),email)}),
-      createUserWithEmailAndPassword:async(email,password)=>{const normalized=String(email||'').trim().toLowerCase();if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(normalized)){const error=Error('The email address is invalid.');error.code='auth/invalid-email';throw error}if(String(password||'').length<6){const error=Error('The password must be at least 6 characters.');error.code='auth/weak-password';throw error}if(registry.has(normalized)){const error=Error('The email address is already in use.');error.code='auth/email-already-in-use';throw error}const uid=createdUidForEmail(normalized);registry.set(normalized,uid);return{user:select(uid,normalized)}} ,
+      createUserWithEmailAndPassword:async(email,password)=>{const normalized=String(email||'').trim().toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)){const error=Error('The email address is invalid.');error.code='auth/invalid-email';throw error}if(String(password||'').length<6){const error=Error('The password must be at least 6 characters.');error.code='auth/weak-password';throw error}if(registry.has(normalized)){const error=Error('The email address is already in use.');error.code='auth/email-already-in-use';throw error}const uid=createdUidForEmail(normalized);registry.set(normalized,uid);return{user:select(uid,normalized)}} ,
       signInWithPhoneNumber:async()=>({confirm:async()=>({user:select(DEFAULT_UID)})}),
       signOut:async()=>{select(null)},
       sendPasswordResetEmail:async()=>undefined,
