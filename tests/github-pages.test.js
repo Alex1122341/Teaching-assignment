@@ -189,6 +189,14 @@ test('tracked web entry points use relative internal URLs for the Pages project 
 })();
 
 
+(() => {
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
+
 test('Pages preview fails closed unless a non-placeholder isolated lab Firebase config is injected',()=>{
   const workflow=read('.github/workflows/github-pages-test.yml');
   const verifier=read('tools/verify-preview-client-config.js');
@@ -199,3 +207,4 @@ test('Pages preview fails closed unless a non-placeholder isolated lab Firebase 
   assert.match(verifier,/AIza/);
   assert.match(verifier,/must not be configured to reach a DOE API endpoint/);
 });
+})();
