@@ -68,3 +68,12 @@ test('browser smoke resolves logical bundle names to hashed deployment paths',()
  assert.equal(map.get('bundles/timetable-app.bundle.js'),'bundles/timetable-app.bundle.0123456789ab.js');
  assert.equal(map.get('bundles/afc-pdf.lazy.bundle.js'),'bundles/afc-pdf.lazy.bundle.abcdef012345.js');
 });
+
+
+test('authenticated browser smoke exercises deferred DOE List navigation',()=>{
+ const source=read('tools/browser-smoke.js');
+ assert.match(source,/DOE List deferred enhancement/);
+ assert.match(source,/doe-list-tab/);
+ assert.match(source,/doe-list-view/);
+ assert.match(source,/doe-rules-view/);
+});
