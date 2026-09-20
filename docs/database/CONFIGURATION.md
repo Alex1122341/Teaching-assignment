@@ -120,11 +120,12 @@ For normal Firebase-only timetable mutations, authorized admins may create stric
 
 One-time setup for the lab:
 
-1. Before merge, enable Email/Password and add `alex1122341.github.io` to the lab Authentication authorized domains manually if required. After merge, **Firebase Lab Auth Setup > configure** can enforce both settings through the lab Admin credential.
-3. Create test-only Authentication accounts and matching `users/{uid}` profiles. After merge, the manual **Firebase Lab Bootstrap** workflow can keep these synchronized without password inputs.
-4. Run `npm run config:pin:lab` after `firebase login`, then commit the generated public `tools/lab-firebase-web-config.json`.
-5. Create GitHub Environment `firebase-lab-admin` and add test-only secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`.
-6. Before merge, seed/verify and deploy the lab Firestore manually if required. After merge, **Firebase Lab Data Setup > provision** performs the canonical seed/verify and reviewed Firestore deployment using CI Application Default Credentials.
+1. Create GitHub Environment `firebase-lab-admin` and add the test-only secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`.
+2. On the current feature branch, **Firebase Lab Data Setup** automatically runs the branch-locked `provision` path when that workflow changes. It creates/reuses the Firebase Web App, pins the public Web SDK config, seeds/verifies synthetic Firestore data, deploys reviewed rules/indexes, and pushes only the public config back to the branch.
+3. If that automatic run fails because the Environment secret is missing, add the secret and rerun the failed workflow. No personal `firebase login` is required for the CI path.
+4. Email/Password Authentication and `alex1122341.github.io` can still be enabled manually before merge. After the Auth Setup workflow is available on `main`, **Firebase Lab Auth Setup > configure** can enforce both settings using the same lab Admin credential.
+5. Test-only Authentication accounts can be created manually before merge or synchronized later through **Firebase Lab Bootstrap**. Passwords are established through Firebase's reset flow, not GitHub Actions inputs.
+6. `npm run config:pin:lab`, `npm run db:seed`, and `npm run db:deploy` remain local fallback commands only.
 
 ### Least-privilege lab Admin credential
 
