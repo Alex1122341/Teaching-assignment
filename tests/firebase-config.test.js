@@ -105,7 +105,7 @@ test('preview config verifier accepts only a real isolated lab Web SDK config wi
   const {validatePreview}=require('../tools/verify-preview-client-config.js');
   const good={
     firebaseConfig:{
-      apiKey:'AIzaExamplePublicWebKey0000000000000000000',
+      apiKey:'AIza'+'A'.repeat(35),
       authDomain:'vista-teaching-lab.firebaseapp.com',
       projectId:'vista-teaching-lab',
       storageBucket:'vista-teaching-lab.firebasestorage.app',
