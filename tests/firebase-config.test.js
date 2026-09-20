@@ -18,7 +18,7 @@ const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 
 // A real Firebase web API key. The committed placeholder must not match this.
 const REAL_API_KEY = /AIza[0-9A-Za-z_-]{35}/;
-const RUNTIME_SOURCES = ['faculty-access.js', 'faculty-admin.js', 'index.html', 'faculty-admin.html', 'password.html', 'user-management.html'];
+const RUNTIME_SOURCES = ['faculty-access.js', 'faculty-admin.js', 'timetable.js', 'index.html', 'faculty-admin.html', 'password.html', 'user-management.html'];
 
 test('no runtime source hard-codes a Firebase project configuration', () => {
   for (const name of RUNTIME_SOURCES) {
@@ -109,8 +109,9 @@ test('lab Firebase Web config is pinned tools-only and supports one-command refr
   const manifest=JSON.parse(read('tools/static-assets.json'));
   assert.equal(manifest.includes('tools/lab-firebase-web-config.json'),false);
   const workflow=read('.github/workflows/github-pages-test.yml');
-  assert.match(workflow,/--from-json tools\/lab-firebase-web-config\.json/);
+  assert.doesNotMatch(workflow,/--from-json tools\/lab-firebase-web-config\.json/);
   assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/node tools\/stage-github-pages\.js/);
   const pkg=JSON.parse(read('package.json'));
   assert.equal(pkg.scripts['config:pin:lab'],'node tools/pin-lab-firebase-web-config.js');
   const pin=read('tools/pin-lab-firebase-web-config.js');

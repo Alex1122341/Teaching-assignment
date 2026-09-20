@@ -16,19 +16,7 @@
   const DAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 
-  // Firebase Web configuration is public by design. This local harness uses the
-  // separate Tester Teaching project for REAL Authentication and REAL role lookup.
-  // Authentication/roles and the timetable are live. All schedule reads/writes use Firestore; no bundled timetable data is shipped with this page.
-  const FIREBASE_CONFIG = {
-    apiKey: "AIzaSyDS9VE2zTXv0656_Mh0uDXB67-mZ5Y_LkY",
-    authDomain: "tester-teaching.firebaseapp.com",
-    projectId: "tester-teaching",
-    storageBucket: "tester-teaching.firebasestorage.app",
-    messagingSenderId: "566638053186",
-    appId: "1:566638053186:web:90e04b52251c4b859baadb",
-    measurementId: "G-F7HW5XX4JE"
-  };
-  const AUTH_SETTINGS_KEY = 'ucvm_email_phone_role_settings_v6';
+  // Firebase runtime configuration is loaded only from firebase-config.js.\r\n  // GitHub Pages injects an in-memory synthetic demo backend at staging time.\r\n  const AUTH_SETTINGS_KEY = 'ucvm_email_phone_role_settings_v6';
   const DEFAULT_AUTH_SETTINGS = {
     allowedDomain: 'ucalgary.ca',
     allowedPhones: '',
@@ -1645,7 +1633,7 @@
         console.error('[Email sign-in]', err);
         const code = err && err.code ? err.code : '';
         let msg = err && err.message ? err.message : 'Email sign-in failed.';
-        if (code === 'auth/operation-not-allowed') msg = 'Enable Email/Password in Tester Teaching > Authentication > Sign-in method.';
+        if (code === 'auth/operation-not-allowed') msg = 'Enable Email/Password in the configured Firebase project > Authentication > Sign-in method.';
         else if (code === 'auth/invalid-email') msg = 'The email address is not valid.';
         else if (code === 'auth/user-disabled') msg = 'This Firebase user is disabled.';
         else if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') msg = 'Email or password is incorrect, or the Firebase user has not been created yet.';
@@ -1693,9 +1681,9 @@
         console.error('[Phone sign-in]', err);
         const code = err && err.code ? err.code : '';
         let msg = err && err.message ? err.message : 'Could not send SMS code.';
-        if (code === 'auth/operation-not-allowed') msg = 'Enable Phone in Tester Teaching > Authentication > Sign-in method.';
+        if (code === 'auth/operation-not-allowed') msg = 'Enable Phone in the configured Firebase project > Authentication > Sign-in method.';
         else if (code === 'auth/invalid-phone-number') msg = 'The phone number is invalid. Use +1 followed by the Canadian number.';
-        else if (code === 'auth/unauthorized-domain') msg = 'Add localhost in Tester Teaching > Authentication > Settings > Authorized domains.';
+        else if (code === 'auth/unauthorized-domain') msg = 'Add localhost in the configured Firebase project > Authentication > Settings > Authorized domains.';
         else if (code === 'auth/quota-exceeded') msg = 'Firebase SMS quota has been exceeded. Use a Firebase test phone number or try later.';
         else if (code === 'auth/captcha-check-failed') msg = 'reCAPTCHA verification failed. Reload and try again.';
         else if (code === 'auth/too-many-requests') msg = 'Too many SMS requests. Use a Firebase test phone number or wait before trying again.';
@@ -1736,7 +1724,7 @@
       <div class="modal-header"><div class="modal-title">Local Auth + Firestore Role Setup</div><div class="modal-subtitle">Login is Firebase Auth. Authorization comes from Firestore users/{uid}.</div></div>
       <form id="auth-setup-form"><div class="modal-body">
         <div class="login-cheatsheet">
-          <strong>Firebase test project:</strong> Tester Teaching (<code>tester-teaching</code>)<br><br>
+          <strong>Firebase test project:</strong> the configured Firebase project (<code>tester-teaching</code>)<br><br>
           <strong>V9.7 UCalgary UI + synchronized workload DOE + Firestore-only authorization + admin SWAP + AFC + timetable availability:</strong><br>
           1. User signs in with Email/Password or Phone.<br>
           2. V9.7 reads <code>users/{Firebase UID}</code> from Firestore; after authorization, the timetable loads exclusively from <code>sessions</code>. Admin users also load the faculty directory, Away from Campus records, live timetable conflicts, SWAP tools and instructor selection.<br>

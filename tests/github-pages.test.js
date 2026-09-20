@@ -38,11 +38,10 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/npm run test:all/);
   assert.match(workflow,/npm run test:emulator/);
   assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
-  assert.match(workflow,/EXPECTED_FIREBASE_PROJECT_ID:\s*vista-teaching-lab/);
-  assert.match(workflow,/node tools\/build-firebase-config\.js --from-json tools\/lab-firebase-web-config\.json/);
-  assert.match(workflow,/node tools\/verify-preview-client-config\.js/);
+  assert.doesNotMatch(workflow,/EXPECTED_FIREBASE_PROJECT_ID|build-firebase-config\.js --from-json tools\/lab-firebase-web-config\.json|verify-preview-client-config\.js/);
   assert.doesNotMatch(workflow,/PRODUCTION_DOE_API_BASE_URL|PAGES_DOE_API_BASE_URL|verify-production-doe-api|--doe-api-base-url/);
-  assert.ok(workflow.indexOf('Prepare isolated Firebase lab configuration')<workflow.indexOf('Build static site'));
+  assert.match(workflow,/node tools\/build-static\.js/);
+  assert.match(workflow,/node tools\/stage-github-pages\.js/);
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
   assert.match(workflow,/--pr\s+["']?\$\{\{ github\.event\.pull_request\.number \}\}["']?/);
@@ -127,6 +126,7 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const {
   injectTestBanner,
+  injectDemoRuntime,
   buildFacultyDashboardRedirect,
   stagePagesDirectory
 }=require('../tools/stage-github-pages');
@@ -137,15 +137,25 @@ const identity={
   buildSha:'2222222222222222222222222222222222222222'
 };
 
-test('Pages banner identifies test host, isolated Firebase lab, PR and short head SHA',()=>{
+test('Pages banner identifies frontend demo mode, PR and short head SHA',()=>{
   const html=injectTestBanner('<!doctype html><html><body class="app"><main>UCVM</main></body></html>',identity);
   assert.match(html,/id="github-pages-test-site-banner"/);
   assert.match(html,/TEST SITE - GitHub Pages/);
-  assert.match(html,/Isolated Firebase Lab/);
-  assert.match(html,/vista-teaching-lab/);
+  assert.match(html,/Frontend Demo/);
+  assert.match(html,/synthetic browser-local data/);
+  assert.match(html,/DOE backend off/);
   assert.match(html,/PR #23/);
   assert.match(html,/1111111/);
   assert.equal((html.match(/github-pages-test-site-banner/g)||[]).length,1);
+});
+
+test('Pages demo runtime is injected after Firebase compat and before application runtime',()=>{
+  const input='<!doctype html><html><body><script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script><script src="bundles/shared-auth.bundle.js"></script></body></html>';
+  const html=injectDemoRuntime(input);
+  const firebaseIndex=html.indexOf('firebase-firestore-compat.js');
+  const demoIndex=html.indexOf('pages-demo-runtime.js');
+  const authIndex=html.indexOf('bundles/shared-auth.bundle.js');
+  assert.ok(firebaseIndex>=0&&demoIndex>firebaseIndex&&authIndex>demoIndex);
 });
 
 test('faculty dashboard Pages shim redirects within the project subpath',()=>{
@@ -164,17 +174,21 @@ test('Pages staging changes only the supplied build directory',()=>{
   const result=stagePagesDirectory(dir,identity);
   assert.equal(result.htmlFiles,2);
   assert.match(fs.readFileSync(path.join(dir,'index.html'),'utf8'),/TEST SITE - GitHub Pages/);
-  assert.match(fs.readFileSync(path.join(dir,'faculty-admin.html'),'utf8'),/Isolated Firebase Lab/);
+  assert.match(fs.readFileSync(path.join(dir,'faculty-admin.html'),'utf8'),/Frontend Demo/);
+  assert.match(fs.readFileSync(path.join(dir,'index.html'),'utf8'),/pages-demo-runtime\.js/);
+  assert.ok(fs.existsSync(path.join(dir,'pages-demo-runtime.js')));
+  assert.ok(fs.existsSync(path.join(dir,'pages-demo-data.js')));
   assert.ok(fs.existsSync(path.join(dir,'.nojekyll')));
   assert.ok(fs.existsSync(path.join(dir,'faculty-dashboard.html')));
 
   const meta=JSON.parse(fs.readFileSync(path.join(dir,'github-pages-build.json'),'utf8'));
-  assert.deepEqual(meta,{
-    environment:'github-pages-test',
-    prNumber:23,
-    headSha:identity.headSha,
-    buildSha:identity.buildSha
-  });
+  assert.equal(meta.environment,'github-pages-test');
+  assert.equal(meta.mode,'frontend-demo');
+  assert.equal(meta.doeBackend,'disabled');
+  assert.ok(meta.demoDocuments>0);
+  assert.equal(meta.prNumber,23);
+  assert.equal(meta.headSha,identity.headSha);
+  assert.equal(meta.buildSha,identity.buildSha);
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
@@ -201,17 +215,16 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 
-test('Pages preview uses isolated lab Web SDK config and rejects DOE API wiring',()=>{
+test('Pages preview runs the frontend demo without cloud Firebase or DOE API wiring',()=>{
   const workflow=read('.github/workflows/github-pages-test.yml');
-  const verifier=read('tools/verify-preview-client-config.js');
-  assert.match(workflow,/tools\/lab-firebase-web-config\.json/);
-  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
-  assert.doesNotMatch(workflow,/tools\/production-firebase-web-config\.json/);
-  assert.match(workflow,/EXPECTED_FIREBASE_PROJECT_ID:\s*vista-teaching-lab/);
-  assert.match(verifier,/vista-teaching-lab/);
-  assert.match(verifier,/GENERATE_WITH_/);
-  assert.match(verifier,/AIza/);
-  assert.match(verifier,/must not be configured to reach a DOE API endpoint/);
-  assert.doesNotMatch(verifier,/cleanBaseUrl/);
+  const stage=read('tools/stage-github-pages.js');
+  const runtime=read('tools/pages-demo-runtime.js');
+  assert.doesNotMatch(workflow,/lab-firebase-web-config\.json|EXPECTED_FIREBASE_PROJECT_ID|verify-preview-client-config|PRODUCTION_DOE_API_BASE_URL|PAGES_DOE_API_BASE_URL/);
+  assert.match(workflow,/node tools\/stage-github-pages\.js/);
+  assert.match(stage,/pages-demo-data\.js/);
+  assert.match(stage,/pages-demo-runtime\.js/);
+  assert.match(stage,/frontend-demo/);
+  assert.match(runtime,/UCVM_FRONTEND_DEMO_MODE/);
+  assert.match(runtime,/no cloud writes|doeAuthoritative:false/);
 });
 })();
