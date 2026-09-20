@@ -4,7 +4,7 @@ const load=()=>require('../account-profile.js');
 const faculty={id:'f1',name:'Faculty Name',email:'FACULTY@example.test'};
 
 test('office profiles require their own identity and carry no Faculty link or roles',()=>{
- const api=load();for(const role of ['adc','lab','other_office','administrator','owner']){
+ const api=load();for(const role of ['adc','lab','other_office','administrator','owner','developer']){
   const profile=api.build({role,faculty,roles:['hicc'],office:{name:'Scheduling Office',email:'OFFICE@example.test'},active:true,current:{facultyId:'f1',facultyRoles:['hicc']},mustChangePassword:true});
   assert.deepEqual(profile,{name:'Scheduling Office',email:'office@example.test',role,active:true,mustChangePassword:true});
   assert.equal(api.facultyFacingRole(role),false);
