@@ -64,6 +64,25 @@ function currentSessionScope(session={},sessionId=''){
   }
   return{sourceEntityIds,facultyIds:[...new Set(facultyIds)]};
 }
+function durationHours(start,end,timeUnknown=false){
+  if(timeUnknown===true)return null;
+  const parse=value=>{const match=/^(\d{1,2}):(\d{2})$/.exec(text(value));if(!match)return null;const h=Number(match[1]),m=Number(match[2]);return h>=0&&h<=23&&m>=0&&m<=59?h*60+m:null};
+  const from=parse(start),to=parse(end);return from===null||to===null||to<=from?null:(to-from)/60;
+}
+
+function adjustSessionCreditedHours(session={},request={}){
+  const before=durationHours(request.previousStart,request.previousEnd,request.previousTimeUnknown===true);
+  const after=durationHours(session.start,session.end,session.timeUnknown===true);
+  if(before===null||Object.is(before,after)||Math.abs(Number(before)-Number(after))<1e-9)return{changed:false,count:0,session};
+  let count=0;
+  const assignments=(Array.isArray(session.assignments)?session.assignments:[]).map(row=>{
+    const current=row?.creditedHours===null||row?.creditedHours===undefined||row?.creditedHours===''?null:Number(row.creditedHours);
+    if(current===null||!Number.isFinite(current)||Math.abs(current-before)>1e-9)return{...row};
+    count++;return{...row,creditedHours:after};
+  });
+  return{changed:count>0,count,session:{...session,assignments}};
+}
+
 
 async function processRecalculationQueue({firestore,policyAdminService,actor,limit=50,clock=()=>new Date().toISOString()}={}){
   if(!firestore?.collection)throw Error('Firestore is required to process the DOE recalculation queue.');
@@ -77,18 +96,21 @@ async function processRecalculationQueue({firestore,policyAdminService,actor,lim
     summary.processed++;
     try{
       const sessionId=text(row.sessionId);if(!sessionId)throw Object.assign(Error('Queued DOE request is missing sessionId.'),{code:'SESSION_ID_REQUIRED'});
-      const sessionSnap=await firestore.collection('sessions').doc(sessionId).get();
+      const sessionRef=firestore.collection('sessions').doc(sessionId),sessionSnap=await sessionRef.get();
       if(!sessionSnap?.exists)throw Object.assign(Error(`Queued DOE session "${sessionId}" was not found.`),{code:'SESSION_NOT_FOUND'});
-      const session={id:sessionSnap.id,...sessionSnap.data()},academicYear=academicYearForSession(session),scope=currentSessionScope(session,sessionId);
+      let session={id:sessionSnap.id,...sessionSnap.data()};
+      const adjustment=adjustSessionCreditedHours(session,row);
+      if(adjustment.changed){await sessionRef.set({assignments:adjustment.session.assignments},{merge:true});session=adjustment.session}
+      const academicYear=academicYearForSession(session),scope=currentSessionScope(session,sessionId);
       if(!scope.sourceEntityIds.length){
-        await ref.set({status:'completed',attemptCount,lastAttemptAt:attemptedAt,completedAt:attemptedAt,completedBy:text(actor?.uid),completedByName:text(actor?.name),academicYear,actualSourceEntityIds:[],actualFacultyIds:[],completedRows:0,completionNote:'No current faculty assignments require DOE recalculation.'},{merge:true});
+        await ref.set({status:'completed',attemptCount,lastAttemptAt:attemptedAt,completedAt:attemptedAt,completedBy:text(actor?.uid),completedByName:text(actor?.name),academicYear,actualSourceEntityIds:[],actualFacultyIds:[],completedRows:0,completionNote:'No current faculty assignments require DOE recalculation.',creditedHoursAdjusted:adjustment.count},{merge:true});
         summary.completed++;summary.noOp++;summary.requests.push({requestId:row.requestId,status:'completed',sessionId,academicYear,completedRows:0});continue;
       }
       const policyYear=await policyAdminService.getPolicyYear({actor,academicYear}),policyVersionId=text(policyYear?.policy?.currentActiveVersionId);
       if(!policyVersionId)throw Object.assign(Error(`No Active DOE policy exists for Academic Year ${academicYear}.`),{code:'ACTIVE_POLICY_REQUIRED'});
       const result=await policyAdminService.runRecalculate({actor,academicYear,policyVersionId,scope:{sourceEntityTypes:['session_assignment'],sourceEntityIds:scope.sourceEntityIds}});
-      await ref.set({status:'completed',attemptCount,lastAttemptAt:attemptedAt,completedAt:clock(),completedBy:text(actor?.uid),completedByName:text(actor?.name),academicYear,policyVersionId,batchId:text(result?.batchId),actualSourceEntityIds:scope.sourceEntityIds,actualFacultyIds:scope.facultyIds,completedRows:Number(result?.completedRows||0),lastErrorCode:'',lastErrorMessage:''},{merge:true});
-      summary.completed++;summary.requests.push({requestId:row.requestId,status:'completed',sessionId,academicYear,policyVersionId,batchId:text(result?.batchId),completedRows:Number(result?.completedRows||0)});
+      await ref.set({status:'completed',attemptCount,lastAttemptAt:attemptedAt,completedAt:clock(),completedBy:text(actor?.uid),completedByName:text(actor?.name),academicYear,policyVersionId,batchId:text(result?.batchId),actualSourceEntityIds:scope.sourceEntityIds,actualFacultyIds:scope.facultyIds,completedRows:Number(result?.completedRows||0),creditedHoursAdjusted:adjustment.count,lastErrorCode:'',lastErrorMessage:''},{merge:true});
+      summary.completed++;summary.requests.push({requestId:row.requestId,status:'completed',sessionId,academicYear,policyVersionId,batchId:text(result?.batchId),completedRows:Number(result?.completedRows||0),creditedHoursAdjusted:adjustment.count});
     }catch(error){
       await ref.set({status:'pending',attemptCount,lastAttemptAt:attemptedAt,lastErrorCode:text(error?.code)||'DOE_QUEUE_PROCESSING_FAILED',lastErrorMessage:text(error?.message).slice(0,500)},{merge:true});
       summary.failed++;summary.requests.push({requestId:row.requestId,status:'pending',errorCode:text(error?.code)||'DOE_QUEUE_PROCESSING_FAILED'});
@@ -135,4 +157,4 @@ if(require.main===module){
   main().catch(error=>{console.error(`DOE admin job failed: ${error.message}`);if(error?.code)console.error(`Code: ${error.code}`);if(error?.details)console.error(JSON.stringify(error.details,null,2));process.exit(1)});
 }
 
-module.exports={LAB_PROJECT_ID,OPERATIONS,DESTRUCTIVE,parseArgs,expectedConfirmation,validateOptions,actorFromEnv,academicYearForSession,currentSessionScope,processRecalculationQueue,summarize,execute,main};
+module.exports={LAB_PROJECT_ID,OPERATIONS,DESTRUCTIVE,parseArgs,expectedConfirmation,validateOptions,actorFromEnv,academicYearForSession,currentSessionScope,durationHours,adjustSessionCreditedHours,processRecalculationQueue,summarize,execute,main};

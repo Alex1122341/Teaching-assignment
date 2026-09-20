@@ -110,7 +110,7 @@
   delete candidate.__id;
   const sourceEntityIds=nextAssignments.map((row,index)=>text(row?.facultyId||row?.ucid)?(text(row?.assignmentId)||`${id}--assignment--${index+1}`):'').filter(Boolean);
   const facultyIds=[...new Set([...candidate.facultyIds,...beforeAssignments.map(row=>text(row?.facultyId||row?.ucid)).filter(Boolean)])];
-  return{academicYear:year,session:candidate,calculationRecords:[],doeChanges:[],facultyImpacts:[],queued:true,queue:{sessionId:id,sourceEntityType:'session_assignment',sourceEntityIds,facultyIds,trigger:text(trigger)||'session_updated'}};
+  return{academicYear:year,session:candidate,calculationRecords:[],doeChanges:[],facultyImpacts:[],queued:true,queue:{sessionId:id,sourceEntityType:'session_assignment',sourceEntityIds,facultyIds,trigger:text(trigger)||'session_updated',previousStart:text(before?.start),previousEnd:text(before?.end),previousTimeUnknown:before?.timeUnknown===true}};
  }
  function canQueueSessionChanges(){return Boolean(root?.firebase?.firestore&&root?.firebase?.auth&&root?.UCVM_CALENDAR_SESSION?.fromSource)}
  async function saveQueuedSessionChange(payload={}){
@@ -127,7 +127,7 @@
   let requestId='';
   if(queueNeeded){
    const queueRef=db.collection('doe_recalculation_requests').doc();requestId=queueRef.id;
-   batch.set(queueRef,{requestId,academicYear:prepared.academicYear,sessionId:id,sourceEntityType:'session_assignment',sourceEntityIds:prepared.queue.sourceEntityIds,facultyIds:prepared.queue.facultyIds,trigger:prepared.queue.trigger,status:'pending',requestedBy:user.uid,requestedByName:actorName,requestedAt:stamp});
+   batch.set(queueRef,{requestId,academicYear:prepared.academicYear,sessionId:id,sourceEntityType:'session_assignment',sourceEntityIds:prepared.queue.sourceEntityIds,facultyIds:prepared.queue.facultyIds,trigger:prepared.queue.trigger,status:'pending',requestedBy:user.uid,requestedByName:actorName,requestedAt:stamp,previousStart:prepared.queue.previousStart,previousEnd:prepared.queue.previousEnd,previousTimeUnknown:prepared.queue.previousTimeUnknown});
   }
   await batch.commit();
   return{...prepared,session:prepared.session,queued:queueNeeded,recalculationRequestId:requestId};
