@@ -240,13 +240,40 @@ check('authoritative DOE assignments cannot be written directly by browser clien
 });
 
 
-check('ADFA admins can submit pending DOE recalculation requests but cannot forge completion',async()=>{
+check('DOE recalculation requests must be paired with the same authorized session mutation',async()=>{
  const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
- const stamp=require('firebase/firestore').serverTimestamp;
- const regular=env.authenticatedContext('regular').firestore(),faculty=env.authenticatedContext('faculty').firestore();
- const valid={requestId:'queue-regular',academicYear:'2027-28',sessionId:'s1',sourceEntityType:'session_assignment',sourceEntityIds:['s1--assignment--1'],facultyIds:['f1'],trigger:'session_updated',status:'pending',requestedBy:'regular',requestedByName:'Regular Admin',requestedAt:stamp()};
- await assertSucceeds(regular.doc('doe_recalculation_requests/queue-regular').set(valid));
- await assertFails(regular.doc('doe_recalculation_requests/queue-regular').update({status:'completed'}));
- await assertFails(regular.doc('doe_recalculation_requests/queue-forged').set({...valid,requestId:'queue-forged',status:'completed'}));
- await assertFails(faculty.doc('doe_recalculation_requests/queue-faculty').set({...valid,requestId:'queue-faculty',requestedBy:'faculty',requestedByName:'Faculty'}));
+ const {serverTimestamp}=require('firebase/firestore');
+ await env.withSecurityRulesDisabled(async context=>{
+  const db=context.firestore();
+  await db.doc('sessions/queue-s1').set({
+   course:'505',courseName:'Clinical Skills',year:3,semester:'winter',week:8,date:'2027-03-22',start:'09:00',end:'11:00',timeUnknown:false,
+   type:'LAB',topic:'Old Topic',room:'R1',instructor:'Dr Jane',assignments:[{facultyId:'f1',name:'Dr Jane',role:'Lab Support',creditedHours:2}],facultyIds:['f1'],
+   updatedBy:'seed',updatedByName:'Seed',updatedAt:new Date('2026-09-01T00:00:00Z')
+  });
+  await db.doc('calendar_sessions/queue-s1').set({
+   sessionId:'queue-s1',course:'505',courseName:'Clinical Skills',year:3,semester:'winter',week:8,date:'2027-03-22',start:'09:00',end:'11:00',timeUnknown:false,
+   type:'LAB',topic:'Old Topic',room:'R1',instructor:'Dr Jane',instructorNames:['Dr Jane']
+  });
+ });
+ const queue=(uid,id,stamp)=>({requestId:id,academicYear:'2026-27',sessionId:'queue-s1',sourceEntityType:'session_assignment',sourceEntityIds:[],facultyIds:[],trigger:'office_session_updated',status:'pending',requestedBy:uid,requestedByName:uid.toUpperCase(),requestedAt:stamp,previousStart:'09:00',previousEnd:'11:00',previousTimeUnknown:false});
+
+ const regular=env.authenticatedContext('regular').firestore(),orphanStamp=serverTimestamp();
+ await assertFails(regular.doc('doe_recalculation_requests/queue-orphan').set(queue('regular','queue-orphan',orphanStamp)));
+
+ const adc=env.authenticatedContext('adc').firestore(),adcStamp=serverTimestamp(),adcBatch=adc.batch();
+ adcBatch.update(adc.doc('sessions/queue-s1'),{room:'R2',updatedBy:'adc',updatedByName:'ADC',updatedAt:adcStamp});
+ adcBatch.set(adc.doc('calendar_sessions/queue-s1'),{sessionId:'queue-s1',course:'505',courseName:'Clinical Skills',year:3,semester:'winter',week:8,date:'2027-03-22',start:'09:00',end:'11:00',timeUnknown:false,type:'LAB',topic:'Old Topic',room:'R2',instructor:'Dr Jane',instructorNames:['Dr Jane']});
+ adcBatch.set(adc.doc('doe_recalculation_requests/queue-adc'),queue('adc','queue-adc',adcStamp));
+ await assertSucceeds(adcBatch.commit());
+ await assertFails(adc.doc('doe_recalculation_requests/queue-adc').update({status:'completed'}));
+
+ const lab=env.authenticatedContext('lab').firestore(),labStamp=serverTimestamp(),labBatch=lab.batch();
+ labBatch.update(lab.doc('sessions/queue-s1'),{topic:'New Topic',updatedBy:'lab',updatedByName:'LAB',updatedAt:labStamp});
+ labBatch.set(lab.doc('calendar_sessions/queue-s1'),{sessionId:'queue-s1',course:'505',courseName:'Clinical Skills',year:3,semester:'winter',week:8,date:'2027-03-22',start:'09:00',end:'11:00',timeUnknown:false,type:'LAB',topic:'New Topic',room:'R2',instructor:'Dr Jane',instructorNames:['Dr Jane']});
+ labBatch.set(lab.doc('doe_recalculation_requests/queue-lab'),queue('lab','queue-lab',labStamp));
+ await assertSucceeds(labBatch.commit());
+
+ const faculty=env.authenticatedContext('faculty').firestore(),facultyStamp=serverTimestamp();
+ await assertFails(faculty.doc('doe_recalculation_requests/queue-faculty').set(queue('faculty','queue-faculty',facultyStamp)));
+ await assertFails(regular.doc('doe_recalculation_requests/queue-forged').set({...queue('regular','queue-forged',serverTimestamp()),status:'completed'}));
 });

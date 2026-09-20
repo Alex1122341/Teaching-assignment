@@ -90,3 +90,41 @@ test('DOE queue scope preserves explicit assignment ids and falls back to ordina
     {sourceEntityIds:['custom-1','s9--assignment--2'],facultyIds:['f1','f2']}
   );
 });
+
+
+test('queued timing adjustment updates only duration-derived credited hours',()=>{
+ const session={start:'09:00',end:'12:00',timeUnknown:false,assignments:[
+  {facultyId:'f1',creditedHours:2},
+  {facultyId:'f2',creditedHours:1.5},
+  {facultyId:'f3',creditedHours:null}
+ ]};
+ const adjusted=cli.adjustSessionCreditedHours(session,{previousStart:'09:00',previousEnd:'11:00',previousTimeUnknown:false});
+ assert.equal(adjusted.changed,true);assert.equal(adjusted.count,1);
+ assert.equal(adjusted.session.assignments[0].creditedHours,3);
+ assert.equal(adjusted.session.assignments[1].creditedHours,1.5);
+ assert.equal(adjusted.session.assignments[2].creditedHours,null);
+ const unknown=cli.adjustSessionCreditedHours(session,{previousStart:'',previousEnd:'',previousTimeUnknown:true});
+ assert.equal(unknown.changed,false);assert.equal(unknown.count,0);
+});
+
+test('queue processor persists trusted credited-hours refresh before recalculation',async()=>{
+ const writes=[],updates=[],calls=[];
+ const requestDoc={id:'rq-hours',data:()=>({status:'pending',sessionId:'s-hours',previousStart:'09:00',previousEnd:'11:00',previousTimeUnknown:false}),ref:{set:async data=>updates.push(data)}};
+ const sessionRef={
+  get:async()=>({exists:true,id:'s-hours',data:()=>({date:'2026-09-10',semester:'fall',start:'09:00',end:'12:00',timeUnknown:false,assignments:[{facultyId:'f1',creditedHours:2}]})}),
+  set:async(data,options)=>writes.push({data,options})
+ };
+ const firestore={collection:name=>{
+  if(name==='doe_recalculation_requests')return{where:()=>({limit:()=>({get:async()=>({docs:[requestDoc]})})})};
+  if(name==='sessions')return{doc:()=>sessionRef};
+  throw Error('Unexpected collection '+name);
+ }};
+ const service={
+  getPolicyYear:async()=>({policy:{currentActiveVersionId:'active-v1'}}),
+  runRecalculate:async payload=>{calls.push(payload);return{batchId:'b-hours',completedRows:1}}
+ };
+ const result=await cli.processRecalculationQueue({firestore,policyAdminService:service,actor:{uid:'job',name:'Job'},clock:()=> '2026-09-20T12:00:00Z'});
+ assert.equal(result.completed,1);assert.equal(result.failed,0);
+ assert.equal(writes.length,1);assert.equal(writes[0].data.assignments[0].creditedHours,3);assert.deepEqual(writes[0].options,{merge:true});
+ assert.equal(calls.length,1);assert.equal(updates.at(-1).creditedHoursAdjusted,1);
+});

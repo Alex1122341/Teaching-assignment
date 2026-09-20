@@ -155,6 +155,25 @@ test('progressive commit keeps each source calendar and audit row together and r
  assert.deepEqual(progress.map(p=>p.completedRows),[20,40,45]);
 });
 
+test('commitPlan can keep a non-authoritative DOE queue request in the same source/calendar/audit batch',async()=>{
+ const api=load(),commits=[];
+ const store={
+  batch:()=>{const ops=[];return{update:(ref,data)=>ops.push(['update',ref,data]),set:(ref,data)=>ops.push(['set',ref,data]),commit:async()=>commits.push(ops)}},
+  sessionRef:id=>`sessions/${id}`,
+  calendarRef:id=>`calendar/${id}`,
+  logRef:()=>`logs/l1`,
+  calendarFromSource:(row,id)=>({sessionId:id,topic:row.topic}),
+  queueRef:()=>({id:'q1',path:'doe_recalculation_requests/q1'}),
+  queueData:(update,log,ref)=>({requestId:ref.id,sessionId:update.id,status:'pending',requestedAt:log.changedAt})
+ };
+ const plan={errors:[],updates:[{id:'s1',data:{topic:'New'},after:{id:'s1',topic:'New'}}],logs:[{sessionId:'s1',changedAt:'STAMP'}]};
+ const result=await api.commitPlan(plan,store);
+ assert.equal(result.committed,true);assert.equal(result.operations,4);
+ assert.equal(commits.length,1);assert.equal(commits[0].length,4);
+ assert.equal(commits[0][0][1],'sessions/s1');assert.equal(commits[0][1][1],'calendar/s1');assert.equal(commits[0][2][1],'logs/l1');
+ assert.equal(commits[0][3][1].path,'doe_recalculation_requests/q1');assert.equal(commits[0][3][2].status,'pending');
+});
+
 test('progressive commit stops after a failed batch and exposes a resumable row offset',async()=>{
  const api=load();let attempt=0;
  const store={
