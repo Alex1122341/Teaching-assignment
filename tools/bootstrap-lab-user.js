@@ -4,7 +4,7 @@ const path=require('node:path');
 const {createRequire}=require('node:module');
 
 const LAB_PROJECT_ID='vista-teaching-lab';
-const ROLES=new Set(['owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab']);
+const ROLES=new Set(['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab']);
 const FACULTY_ROLES=new Set(['hicc','visc','faculty']);
 const OFFICE_ROLES=new Set(['other_office','adc','lab']);
 const text=value=>String(value??'').trim();
