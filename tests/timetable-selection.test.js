@@ -224,3 +224,10 @@ test('client batch writer rejects DOE calculation evidence so authoritative reco
  await assert.rejects(()=>api.commitPlan(plan,store),/server-side DOE API/i);
  assert.equal(commits.length,0);
 });
+
+
+test('Developer selection policy exposes every editable timetable field',()=>{
+ const api=load(),policy=plain(api.editPolicy('developer',{type:'LAB'}));
+ assert.equal(policy.canSelect,true);
+ for(const field of Object.keys(policy.fields))assert.equal(policy.fields[field],true,field);
+});
