@@ -53,5 +53,7 @@ test('Pages demo defaults role testing to Developer and exposes synthetic DOE su
   {path:'faculty/f1',data:{firstName:'Demo',lastName:'Faculty',doe:40,facultySummary2026_27:{assignedTeachingDOE:40},managedRoles2026_27:[]}},
   {path:'sessions/s1',data:{assignments:[{facultyId:'f1',doeCredit:10}]}}
  ]};
- const store=runtime.createStore(seed,storage),rows=runtime.demoDoeRows(store,'2026-27');assert.equal(rows.length,1);assert.equal(rows[0].facultyId,'f1');assert.equal(rows[0].assignedTeachingDoe,40);assert.equal(rows[0].teachingLineCount,1);
+ const store=runtime.createStore(seed,storage),rows=runtime.demoDoeRows(store,'2026-27'),facultyRow=rows.find(row=>row.facultyId==='f1'),serverOnly=rows.find(row=>row.facultyId==='demo-server-only');
+ assert.equal(rows.length,2);assert.equal(facultyRow.assignedTeachingDoe,40);assert.equal(facultyRow.teachingLineCount,1);
+ assert.ok(serverOnly);assert.equal(serverOnly.serverOnlyDemo,true);assert.equal(serverOnly.assignedTeachingDoe,22);
 });
