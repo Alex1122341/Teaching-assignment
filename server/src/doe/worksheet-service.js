@@ -11,7 +11,11 @@ function lineSection(category){
  if(['role','rotation','course_coordination'].includes(value))return'roles';
  return'scheduledTeaching';
 }
-function sumLines(lines){\n const rows=Array.isArray(lines)?lines:[];\n if(rows.some(row=>finite(row?.resultDoe)===null||['needs_review','error'].includes(text(row?.status).toLowerCase())))return null;\n return round(rows.reduce((sum,row)=>sum+finite(row.resultDoe),0));\n}
+function sumLines(lines){
+ const rows=Array.isArray(lines)?lines:[];
+ if(rows.some(row=>finite(row?.resultDoe)===null||['needs_review','error'].includes(text(row?.status).toLowerCase())))return null;
+ return round(rows.reduce((sum,row)=>sum+finite(row.resultDoe),0));
+}
 function policyVersion(lines){
  const ids=[...new Set(lines.map(row=>text(row.policyVersionId)).filter(Boolean))];
  return ids.length===1?ids[0]:ids.length>1?'mixed':'';
