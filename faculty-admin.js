@@ -118,8 +118,40 @@ function roleTextKey(v){return String(v||'').normalize('NFD').replace(/[\u0300-\
 function roleAssignmentMatches(role,credit){const rt=String(role?.type||''),ct=String(credit?.sourceRoleType||'');if(rt==='Course Coordinator / HICC'&&!['Course Coordinator / HICC'].includes(ct))return false;if(rt!=='Course Coordinator / HICC'&&rt!==ct)return false;if(rt==='CCC')return true;if(rt==='Trainee / Supervision')return false;const a=roleCode(role?.assignment),b=roleCode(credit?.assignment);if(a&&b)return a===b;const x=roleTextKey(role?.assignment),y=roleTextKey(credit?.assignment);if(!x||!y)return true;return x===y||x.includes(y)||y.includes(x)}
 function roleWorkloadMatches(r,role){const w=workloadOf(r);if(!w)return[];if(role?.type==='Trainee / Supervision')return[];return (w.credits||[]).filter(c=>roleAssignmentMatches(role,c))}
 function policyTag(c){return `<span class="policy-tag ${c?.policyCovered===false?'operational':''}">${c?.policyCovered===false?'Operational':'Guideline'}</span>`}
-function roleDoeHtml(r,role){const w=workloadOf(r);if(role?.type==='Trainee / Supervision'){if(!w)return'<span class="muted">Not loaded</span>';const t=w.trainee||{},raw=numeric(t.rawPolicyOperationalDOE),applied=numeric(t.appliedToSourceNonTimetableDOE);return `<div class="role-doe-stack"><div class="role-doe-line"><span class="role-doe-label">Raw supervision</span> <span class="role-doe-value">${doePct(raw)}</span></div><div class="role-doe-line"><span class="role-doe-label">Applied to source</span> <span class="role-doe-value">${doePct(applied)}</span></div></div>`}const rows=roleWorkloadMatches(r,role);if(!rows.length)return w?'<span class="muted">No structured credit matched</span>':'<span class="muted">Workload breakdown not loaded</span>';return `<div class="role-doe-stack">${rows.map(c=>{const assigned=numeric(c.assignedDOE),base=numeric(c.policyBaseDOE);return `<div class="role-doe-line"><div class="role-doe-label">${esc(c.category)}</div><div class="role-doe-value">${assigned===null?'No separate source credit':doePct(assigned)}</div>${base!==null&&(assigned===null||Math.abs(base-assigned)>.01)?`<div class="policy-base">Policy base ${doePct(base)}${assigned!==null?' · source is prorated/operational':''}</div>`:''}</div>`}).join('')}</div>`}
-function rolePolicyHtml(r,role){const w=workloadOf(r);if(role?.type==='Trainee / Supervision'){if(!w)return'<span class="muted">—</span>';const t=w.trainee||{};return `<div class="role-policy-line"><span class="policy-tag">Guideline</span> Flexible trainee reserve (§6.3)</div>${(t.breakdown||[]).slice(0,4).map(x=>`<div class="role-policy-line">${policyTag(x)} ${esc(x.rule||x.category||'')}</div>`).join('')}${(t.breakdown||[]).length>4?`<div class="role-policy-line muted">+ ${(t.breakdown||[]).length-4} more components in workload breakdown</div>`:''}`};const rows=roleWorkloadMatches(r,role);if(!rows.length)return'<span class="muted">—</span>';return rows.map(c=>`<div class="role-policy-line">${policyTag(c)} ${esc(c.rule||'—')}<div class="policy-ref">${esc(c.policyReference||'')}</div></div>`).join('')}
+function worksheetRoleLine(r,role){
+ const worksheet=cachedDoeWorksheet(r),lines=Array.isArray(worksheet?.lines)?worksheet.lines:[],type=norm(role?.type),scope=norm(role?.assignment);
+ if(!worksheet)return null;
+ if(type.includes('trainee')||type.includes('supervision'))return{__supervision:true};
+ const roleLines=lines.filter(line=>norm(line.category)==='role');
+ return roleLines.find(line=>{
+  const lineType=norm(line.roleType||line.label),lineScope=norm(line.courseCode||line.subjectKey||line.label);
+  return(!type||lineType.includes(type)||type.includes(lineType))&&(!scope||lineScope.includes(scope)||scope.includes(lineScope));
+ })||null;
+}
+function roleDoeHtml(r,role){
+ if(!doeApiConfigured())return'<span class="muted">Authoritative DOE unavailable</span>';
+ const worksheet=cachedDoeWorksheet(r);
+ if(!worksheet)return'<span class="muted">Open Faculty Lookup to load the server Worksheet</span>';
+ const match=worksheetRoleLine(r,role);
+ if(match?.__supervision){
+  const raw=numeric(worksheet?.totals?.rawSupervisionDoe),applied=numeric(worksheet?.totals?.appliedSupervisionDoe);
+  if(raw===null||applied===null)return'<span class="doe-status-pill needs_review">Needs Review</span>';
+  return`<div class="role-doe-stack"><div class="role-doe-line"><span class="role-doe-label">Raw supervision</span> <span class="role-doe-value">${window.UCVM_DOE_WORKSHEET_VIEW.percent(raw)}</span></div><div class="role-doe-line"><span class="role-doe-label">Applied supervision</span> <span class="role-doe-value">${window.UCVM_DOE_WORKSHEET_VIEW.percent(applied)}</span></div></div>`;
+ }
+ if(!match||numeric(match.resultDoe)===null||['needs_review','error'].includes(norm(match.status)))return'<span class="doe-status-pill needs_review">Needs Review</span><div class="muted">No matching authoritative server Worksheet line</div>';
+ return`<strong>${esc(window.UCVM_DOE_WORKSHEET_VIEW.percent(match.resultDoe))}</strong><div class="muted">${esc(match.calculationId||'No calculation evidence')}</div>`;
+}
+function rolePolicyHtml(r,role){
+ if(!doeApiConfigured())return'<span class="muted">Server Worksheet unavailable</span>';
+ const worksheet=cachedDoeWorksheet(r);if(!worksheet)return'<span class="muted">Current DOE policy is shown in the Faculty server Worksheet</span>';
+ const match=worksheetRoleLine(r,role);
+ if(match?.__supervision){
+  const lines=(worksheet.lines||[]).filter(line=>norm(line.category)==='supervision');
+  return lines.length?lines.slice(0,4).map(line=>`<div class="role-policy-line"><span class="policy-tag">Server</span> ${esc(line.ruleKey||line.ruleId||'Rule unavailable')}<div class="policy-ref">${esc(window.UCVM_DOE_WORKSHEET_VIEW.referenceText(line.reference||{})||'Reference unavailable')}</div></div>`).join(''):'<span class="muted">No authoritative supervision rule evidence</span>';
+ }
+ if(!match)return'<span class="muted">Legacy/source role is not linked to an authoritative server Worksheet assignment</span>';
+ return`<div class="role-policy-line"><span class="policy-tag">Server</span> ${esc(match.ruleKey||match.ruleId||'Rule unavailable')}<div class="policy-ref">${esc(window.UCVM_DOE_WORKSHEET_VIEW.referenceText(match.reference||{})||'Reference unavailable')}</div></div>`;
+}
 function rolesHtml(r,s){if(!s||!s.roles?.length)return'<div class="no-source">No roles/appointments are listed in the source summary for this faculty member.</div>';return`<section class="section wide"><div class="section-title">Roles & appointments · source workbook + DOE basis</div><div class="assignment-wrap"><table class="role-table"><thead><tr><th>Role type</th><th>Assignment</th><th>Workload amount</th><th>DOE credit</th><th>Policy / basis</th><th>Details</th></tr></thead><tbody>${s.roles.map(x=>`<tr><td><span class="role-chip">${esc(x.type)}</span></td><td>${esc(x.assignment||'—')}</td><td>${esc(roleAmount(x))}</td><td>${roleDoeHtml(r,x)}</td><td>${rolePolicyHtml(r,x)}</td><td>${esc(roleDetails(x))}</td></tr>`).join('')}</tbody></table></div></section>`}
 function activityAssignmentId(x){
  const sessionId=String(x?.session?.id||x?.session?.sessionId||'').trim(),explicit=String(x?.assignment?.assignmentId||'').trim();
