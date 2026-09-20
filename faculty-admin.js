@@ -14,7 +14,7 @@ async function ensureAdminDataset(){await Promise.all([ensureFullFaculty(),ensur
 async function reloadAdminDataset(){facultyLoaded=false;sessionsLoaded=false;await ensureAdminDataset();await writeDerivedIndexes()}
 async function refreshAdminDataset(){const [facultySnapshot,sessionSnapshot]=await Promise.all([db.collection(COLLECTION).get({source:'server'}),db.collection(SESSION_COLLECTION).get({source:'server'})]);return{faculty:facultySnapshot.docs.map(d=>({__id:d.id,...d.data()})),sessions:sessionSnapshot.docs.map(d=>({id:d.id,...d.data()}))}}
 const liveRowsByFaculty=new Map();
-window.UCVM_ADMIN_DATA={faculty:()=>faculty.slice(),sessions:()=>sessions.slice(),refresh:refreshAdminDataset,profile:()=>currentProfile,doeList:()=>({academicYear:doeListYear,loaded:doeListLoaded,error:doeListError,rows:[...doeListByFaculty.values()]}),loadDoeSummaryList,refreshDoeFaculty};
+window.UCVM_ADMIN_DATA={faculty:()=>faculty.slice(),sessions:()=>sessions.slice(),refresh:refreshAdminDataset,ensureAdminDataset,profile:()=>currentProfile,doeList:()=>({academicYear:doeListYear,loaded:doeListLoaded,error:doeListError,rows:[...doeListByFaculty.values()]}),loadDoeSummaryList,refreshDoeFaculty};
 const $=id=>document.getElementById(id);const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[c]));const norm=v=>String(v??'').trim().toLowerCase();const present=v=>!(v===undefined||v===null||v==='');
 const numeric=UCVM.number;
 function selectedDoeYear(){return String($('doe-policy-year')?.value||'2026-27').trim()||'2026-27'}
