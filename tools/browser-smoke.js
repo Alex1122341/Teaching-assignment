@@ -464,6 +464,16 @@ async function switchDemoRole(cdp,uid,label){
  await wait(350);
  return change.result.value;
 }
+async function navigateDemoRole(cdp,uid,label){
+ const prepared=await cdp.send('Runtime.evaluate',{expression:"(()=>{if(!window.UCVM_PAGES_DEMO?.selectUser)return{ok:false,reason:'demo role API missing'};window.UCVM_PAGES_DEMO.selectUser("+JSON.stringify(uid)+");return{ok:true,url:location.href}})()",returnByValue:true});
+ if(prepared.exceptionDetails)throw Error(label+' demo role preparation failed: '+exceptionText(prepared.exceptionDetails));
+ if(!prepared.result?.value?.ok)throw Error(label+' demo role preparation failed: '+(prepared.result?.value?.reason||'unknown error'));
+ const load=waitForEvent(cdp,'Page.loadEventFired');
+ const navigation=await cdp.send('Page.navigate',{url:prepared.result.value.url});
+ if(navigation.errorText)throw Error(label+' demo role navigation failed: '+navigation.errorText);
+ await load;
+ await wait(350);
+}
 async function timetableToolState(cdp){
  const result=await cdp.send('Runtime.evaluate',{expression:"(()=>{const visible=id=>{const el=document.getElementById(id);return !!el&&!el.classList.contains('hidden')};return{uid:window.firebase?.auth?.().currentUser?.uid||'',bulkAdd:visible('bulk-add-session-btn'),addOne:visible('add-session-btn'),select:visible('selection-controls'),manageUsers:visible('manage-users-btn'),facultyDashboard:visible('faculty-dashboard-btn'),outlook:visible('outlook-invite-btn'),publish:visible('publish-firestore-schedule')}})()",returnByValue:true});
  if(result.exceptionDetails)throw Error('Timetable role tool inspection failed: '+exceptionText(result.exceptionDetails));
@@ -482,13 +492,13 @@ async function verifyTimetableRoleMatrix(cdp){
  ];
  for(const entry of cases){
   const current=(await timetableToolState(cdp)).uid;
-  if(current!==entry.uid)await switchDemoRole(cdp,entry.uid,'index.html '+entry.label);
+  if(current!==entry.uid)await navigateDemoRole(cdp,entry.uid,'index.html '+entry.label);
   await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==="+JSON.stringify(entry.uid)+")()",'Timetable '+entry.label+' role identity',12000);
   if(['uid-hicc-1','uid-visc-1','uid-fac-001'].includes(entry.uid))await waitForCondition(cdp,"(()=>!document.getElementById('faculty-dashboard-btn')?.classList.contains('hidden'))()",'Timetable '+entry.label+' Faculty Dashboard link',12000);
   const state=await timetableToolState(cdp);
   for(const [key,expected] of Object.entries(entry.expect))if(state[key]!==expected)throw Error('index.html: '+entry.label+' expected '+key+'='+expected+' but got '+state[key]);
  }
- await switchDemoRole(cdp,'uid-developer','index.html Developer reset');
+ await navigateDemoRole(cdp,'uid-developer','index.html Developer reset');
  await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==='uid-developer')()",'Timetable Developer reset',12000);
 }
 async function verifyDemoRoleSwitching(cdp){
