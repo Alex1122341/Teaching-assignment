@@ -58,3 +58,12 @@ test('timetable accepts current Developer Owner and Administrator roles',()=>{
  const whitelist=source.match(/if \(!\[(.*?)\]\.includes\(role\)\)/s)?.[1]||'';
  for(const role of ['developer','owner','administrator'])assert.match(whitelist,new RegExp(`['"]${role}['"]`),role);
 });
+
+
+test('empty timetable ranges remain connected and allow creating the first session',()=>{
+ const source=read('timetable.js');
+ assert.match(source,/function liveScheduleAvailable\(\)\{return scheduleSource === 'firestore' \|\| scheduleSource === 'firestore-empty';\}/);
+ assert.match(source,/if \(!liveScheduleAvailable\(\)\) \{ toast\('The live Firestore timetable is unavailable\./);
+ assert.match(source,/Live Firestore schedule · No sessions in this view/);
+ assert.match(source,/publish\.textContent = connected \? 'Synced Schedule Ready'/);
+});

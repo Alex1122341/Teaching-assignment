@@ -398,19 +398,21 @@
     return clean;
   }
 
+  function liveScheduleAvailable(){return scheduleSource === 'firestore' || scheduleSource === 'firestore-empty';}
+
   function updateScheduleSourceUI() {
-    const live = scheduleSource === 'firestore';
+    const connected = liveScheduleAvailable();
     const text = $('conn-text');
     if (text && currentUser) {
-      if (live) text.textContent = `Authorized: ${currentUser.role} · Live Firestore schedule`;
-      else if (scheduleSource === 'firestore-empty') text.textContent = `Authorized: ${currentUser.role} · No timetable sessions`;
+      if (scheduleSource === 'firestore') text.textContent = `Authorized: ${currentUser.role} · Live Firestore schedule`;
+      else if (scheduleSource === 'firestore-empty') text.textContent = `Authorized: ${currentUser.role} · Live Firestore schedule · No sessions in this view`;
       else if (scheduleSource === 'firestore-error') text.textContent = `Authorized: ${currentUser.role} · Timetable unavailable`;
       else text.textContent = `Authorized: ${currentUser.role} · Connecting to live timetable`;
     }
     const publish = $('publish-firestore-schedule');
     if (publish) {
       publish.classList.toggle('hidden', !UCVM.admin(currentUser));
-      publish.textContent = live ? 'Synced Schedule Ready' : 'Sync from Faculty Dashboard';
+      publish.textContent = connected ? 'Synced Schedule Ready' : 'Sync from Faculty Dashboard';
       publish.disabled = false;
     }
   }
@@ -1329,7 +1331,7 @@
   async function openSessionForm(existing = null) {
     const access=capabilities(),canEditInstructor=access.canEditInstructor,canEditCourseFields=access.canEditCourseFields,actorRole=UCVM.role(currentUser?.role);
     if (existing ? !(canEditCourseFields||canEditInstructor) : !canAddOneSession()) { toast('This account cannot use the single-session editor.', true); return; }
-    if (scheduleSource !== 'firestore') { toast('The live Firestore timetable is unavailable. Sync it from Faculty Dashboard first.', true); return; }
+    if (!liveScheduleAvailable()) { toast('The live Firestore timetable is unavailable. Sync it from Faculty Dashboard first.', true); return; }
     if(canEditInstructor)await ensureFacultyDirectory();
     const s = existing || {
       id: '', date: ymd(weekStart(selectedWeek, selectedSemester)), week: selectedWeek, semester:selectedSemester, year:1,
@@ -1449,7 +1451,7 @@
   async function deleteSession(id) {
     if (!UCVM.admin(currentUser)) { toast('ADFA permission is required.', true); return; }
     const s = sessions.find(x => x.id === id); if (!s) return;
-    if (scheduleSource !== 'firestore') { toast('Live Schedule is not initialized.', true); return; }
+    if (!liveScheduleAvailable()) { toast('Live Schedule is not initialized.', true); return; }
     if (!confirm(`Delete ${s.course} - ${s.topic} from the live schedule?`)) return;
     try {
       const batch=db.batch();
@@ -1765,7 +1767,7 @@
           <strong>Authentication:</strong> Firebase ${escapeHtml(currentUser.provider)} sign-in.<br>
           <strong>Authorization:</strong> Firestore <code>users/${escapeHtml(currentUser.uid)}</code>.<br>
           <strong>Role:</strong> ${escapeHtml(currentUser.role)} &nbsp; <strong>Active:</strong> ${currentUser.active ? 'true' : 'false'}<br>
-          <strong>Timetable sessions:</strong> ${scheduleSource === 'firestore' ? 'Live Firestore schedule — shared across authorized users.' : 'No synchronized source loaded — import from Faculty Dashboard.'}
+          <strong>Timetable sessions:</strong> ${liveScheduleAvailable() ? 'Live Firestore schedule — shared across authorized users.' : 'No synchronized source loaded — import from Faculty Dashboard.'}
         </div>
         <div class="form-hint">My Timetable mapping: <strong>${escapeHtml(currentUser.instructorName)}</strong>.</div>
       </div>
