@@ -532,7 +532,7 @@ async function verifyUserManagementRoleMatrix(cdp){
  await cdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true});
 
  await navigateDemoRole(cdp,'uid-admin','user-management.html Administrator');
- await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==='uid-admin'&&/User Management is available to Owner/i.test(document.getElementById('status')?.textContent||''))()",'Administrator User Management denial',12000);
+ await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser?.uid==='uid-admin'&&/User Management is available to Developer \/ Owner/i.test(document.getElementById('status')?.textContent||''))()",'Administrator User Management denial',12000);
  state=await userManagementState(cdp);
  if(state.contentVisible)throw Error('user-management.html: Administrator unexpectedly received User Management content');
 
