@@ -67,6 +67,16 @@ test('office roles use explicit capability gates and ADC LAB read the sanitized 
  assert.match(js,/selection-controls[\s\S]*canSelectSessions/);
 });
 
+test('general selection never creates scoped Work Queue state and scoped editor does',()=>{
+ const js=read('timetable.js');
+ const general=js.slice(js.indexOf('async function startSessionSelection'),js.indexOf('function cancelSessionSelection'));
+ const scoped=js.slice(js.indexOf('async function openScopedEditor'),js.indexOf('function selectionFacultyOptions'));
+ assert.match(general,/scopedWork=null/);
+ assert.doesNotMatch(general,/sessionId:id|capabilities\(stage\)/);
+ assert.match(scoped,/scopedWork=\{sessionId:id,stage\}/);
+ assert.match(scoped,/capabilities\(stage\)\.canEditInstructor/);
+});
+
 test('scoped Work Queue editor derives field ownership from the persisted scoped stage',()=>{
  const js=read('timetable.js');
  assert.match(js,/function selectionRole\(\)\{if\(scopedWork\?\.stage\)return scopedWork\.stage;/);
