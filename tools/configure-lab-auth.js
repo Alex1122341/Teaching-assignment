@@ -109,8 +109,7 @@ async function initializeIdentityPlatform({accessToken,fetchImpl=globalThis.fetc
     method:'POST',
     headers:{
       Authorization:`Bearer ${token}`,
-      'Content-Type':'application/json',
-      'X-Goog-User-Project':LAB_PROJECT_ID
+      'Content-Type':'application/json'
     },
     body:'{}'
   });
