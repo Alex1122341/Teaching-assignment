@@ -818,7 +818,7 @@ async function verifyDemoOperationalModules({debugPort,origin,setupCdp}){
 }
 
 async function verifyDemoScopedEditor({debugPort,origin,setupCdp}){
- const editorState="(()=>{const row=document.querySelector('[data-selection-row]');if(!row)return{open:false};const field=name=>{const el=row.querySelector(`[data-selection-field=\"${name}\"]`);return el?{present:true,locked:el.disabled===true||el.classList.contains('role-locked-field')}:{present:false}};return{open:true,sessionId:row.dataset.sessionEditId||'',date:field('date'),course:field('course'),topic:field('topic'),room:field('room'),facultyPicker:!!row.querySelector('.selection-faculty-picker'),facultyReadonly:!!row.querySelector('.selection-faculty-readonly')}})()";
+ const editorState="(()=>{const row=document.querySelector('[data-selection-row]');if(!row)return{open:false};const field=name=>{const el=row.querySelector(`[data-selection-field=\"${name}\"]`);return el?{present:true,locked:el.disabled===true||el.classList.contains('role-locked-field')}:{present:false}};return{open:true,sessionId:row.dataset.sessionEditId||'',date:field('date'),course:field('course'),topic:field('topic'),room:field('room'),labGroupPicker:!!row.querySelector('.selection-lab-group-picker'),facultyPicker:!!row.querySelector('.selection-faculty-picker:not(.selection-lab-group-picker)'),facultyReadonly:!!row.querySelector('.selection-faculty-readonly')}})()";
  const readEditor=async cdp=>{
   const result=await cdp.send('Runtime.evaluate',{expression:editorState,returnByValue:true});
   if(result.exceptionDetails)throw Error('Scoped editor inspection failed: '+exceptionText(result.exceptionDetails));
@@ -838,13 +838,14 @@ async function verifyDemoScopedEditor({debugPort,origin,setupCdp}){
    if(!state.open)throw Error('LAB scoped editor did not open');
    if(!state.topic.present||state.topic.locked)throw Error('LAB must be able to edit Topic: '+JSON.stringify(state.topic));
    for(const name of ['date','course','room'])if(!state[name].locked)throw Error(`LAB must not edit ${name}: `+JSON.stringify(state[name]));
+   if(!state.labGroupPicker)throw Error('LAB must receive the LAB group picker');
    if(state.facultyPicker)throw Error('LAB must not receive the official Faculty picker');
    if(!state.facultyReadonly)throw Error('LAB must see Faculty as read-only context');
    const savedTopic='Scoped LAB save smoke';
-   const save=await cdp.send('Runtime.evaluate',{expression:`(()=>{const row=document.querySelector('[data-selection-row]'),topic=row?.querySelector('[data-selection-field="topic"]'),button=document.getElementById('selection-save-btn');if(!row||!topic||!button)return null;topic.value=${JSON.stringify(savedTopic)};topic.dispatchEvent(new Event('input',{bubbles:true}));const id=row.dataset.sessionEditId;button.click();return{id}})()`,returnByValue:true});
-   if(save.exceptionDetails||!save.result?.value?.id)throw Error('LAB scoped save could not be submitted');
-   const id=save.result.value.id;
-   await waitForCondition(cdp,`(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},source=records['sessions/${id}'],calendar=records['calendar_sessions/${id}'];return source?.topic===${JSON.stringify(savedTopic)}&&calendar?.topic===${JSON.stringify(savedTopic)}&&!document.querySelector('[data-selection-row]')})()`,'LAB scoped Work Queue save persisted',12000);
+   const save=await cdp.send('Runtime.evaluate',{expression:`(()=>{const row=document.querySelector('[data-selection-row]'),topic=row?.querySelector('[data-selection-field="topic"]'),groups=[...row?.querySelectorAll('[data-selection-lab-group-option]')||[]],button=document.getElementById('selection-save-btn');if(!row||!topic||!groups.length||!button)return null;topic.value=${JSON.stringify(savedTopic)};topic.dispatchEvent(new Event('input',{bubbles:true}));if(!groups.some(input=>input.checked)){groups[0].checked=true;groups[0].dispatchEvent(new Event('change',{bubbles:true}))}const id=row.dataset.sessionEditId,groupIds=groups.filter(input=>input.checked).map(input=>input.value);button.click();return{id,groupIds}})()`,returnByValue:true});
+   if(save.exceptionDetails||!save.result?.value?.id||!save.result.value.groupIds?.length)throw Error('LAB scoped save could not be submitted with a LAB group');
+   const id=save.result.value.id,groupId=save.result.value.groupIds[0];
+   await waitForCondition(cdp,`(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},source=records['sessions/${id}'],calendar=records['calendar_sessions/${id}'];return source?.topic===${JSON.stringify(savedTopic)}&&calendar?.topic===${JSON.stringify(savedTopic)}&&source?.labGroupIds?.includes(${JSON.stringify(groupId)})&&calendar?.labGroupIds?.includes(${JSON.stringify(groupId)})&&!document.querySelector('[data-selection-row]')})()`,'LAB scoped Work Queue save persisted',12000);
   });
 
   // ADFA is faculty-assignment only. The demo dataset has no outstanding ADFA
