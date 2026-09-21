@@ -40,7 +40,7 @@
  }
 
  /* Pure view model. Never mutates the sessions it is given. */
- function buildViewModel({sessions=[],role='',offices:null,context={},workflow=null}={}){
+ function buildViewModel({sessions=[],role='',offices=null,context={},workflow=null}={}){
   const api=workflow||(typeof window!=='undefined'?window.UCVM_SESSION_WORKFLOW:null);
   const empty={visible:false,total:0,offices:{},items:[],label:'',stage:'',ready:0,waiting:0};
   if(!api||!api.workflowItemsForRole)return empty;
