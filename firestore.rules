@@ -6,7 +6,6 @@ service cloud.firestore {
   function readySignedIn(){let p=profile();return p.active == true && p.role in ['developer','owner','administrator','other_office','admin','editor','viewer','adfa_general','adfa_regular','hicc','visc','faculty','adc','lab'] && p.get('mustChangePassword',false) == false;}
   function ready(){return signedIn() && readySignedIn();}
   function admin(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
-  function approver(){return ready() && profile().role in ['developer','owner','administrator','adfa_general','adfa_regular'];}
   function general(){return ready() && profile().role in ['developer','owner','adfa_general'];}
   function historyAll(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
   function historyReader(d){return historyAll() || (ready() && !(profile().role in ['adc','lab']) && d.changedBy == request.auth.uid);}
@@ -14,12 +13,16 @@ service cloud.firestore {
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
   function explicitRole(r){return r in ['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
   function developer(){return ready() && profile().role == 'developer';}
-  function restrictedOffice(){return signedIn() && profile().role in ['adc','lab','other_office'];}
-  function adc(){return ready() && profile().role in ['developer','adc'];}
-  function lab(){return ready() && profile().role in ['developer','lab'];}
-  function adfaApprover(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
+  function defaultOfficeAccess(r){return r == 'developer' ? ['adc','lab','adfa'] : (r == 'adc' ? ['adc'] : (r == 'lab' ? ['lab'] : (r in ['owner','administrator','admin','adfa_general','adfa_regular'] ? ['adfa'] : [])));}
+  function officeAccess(){let p=profile();return p.keys().hasAny(['officeAccess']) ? p.officeAccess : defaultOfficeAccess(p.role);}
+  function hasOfficeAccess(name){return ready() && (developer() || name in officeAccess());}
+  function restrictedOffice(){return signedIn() && (profile().role == 'other_office' || (profile().role in ['adc','lab'] && !hasOfficeAccess('adfa')));}
+  function adc(){return hasOfficeAccess('adc');}
+  function lab(){return hasOfficeAccess('lab');}
+  function adfaApprover(){return hasOfficeAccess('adfa');}
+  function approver(){return adfaApprover();}
   function officeForRole(r){return r == 'adc' ? 'adc' : (r == 'lab' ? 'lab' : (r in ['developer','owner','administrator','admin','adfa_general','adfa_regular'] ? 'adfa' : ''));}
-  function officeUser(){return ready() && officeForRole(profile().role) != '';}
+  function officeUser(){return hasOfficeAccess('adc') || hasOfficeAccess('lab') || hasOfficeAccess('adfa');}
   function officeName(){return ready() ? officeForRole(profile().role) : '';}
   function requestPublicPath(id){return /databases/$(database)/documents/change_requests/$(id);}
   function requestWorkflowPath(id){return /databases/$(database)/documents/change_request_workflow/$(id);}
@@ -274,12 +277,13 @@ service cloud.firestore {
   function facultyRole(r){return r in ['hicc','visc','faculty','editor','viewer'];}
   function validFacultyLink(d){return !facultyRole(d.role) || (d.facultyId is string && d.facultyId.size() > 0 && exists(/databases/$(database)/documents/faculty/$(d.facultyId)));}
   function validFacultyRoles(d){return !d.keys().hasAny(['facultyRoles']) || (d.facultyRoles is list && d.facultyRoles.size() > 0 && d.facultyRoles.size() <= 3 && d.facultyRoles.hasOnly(['hicc','visc','faculty']));}
+  function validOfficeAccess(d){return !d.keys().hasAny(['officeAccess']) || (d.officeAccess is list && d.officeAccess.size() <= 3 && d.officeAccess.hasOnly(['adc','lab','adfa']) && d.role in ['developer','owner','administrator','admin','adfa_general','adfa_regular','adc','lab'] && (d.role != 'developer' || d.officeAccess.toSet() == ['adc','lab','adfa'].toSet()));}
   function ownFacultyRecord(){return ready() && resource.data.email is string && ((request.auth.token.email is string && resource.data.email == request.auth.token.email) || (profile().email is string && resource.data.email == profile().email));}
   function ownFacultyId(id){return facultyMember() && profile().facultyId is string && profile().facultyId == id;}
   function selfFacultyId(fid){return signedIn() && fid is string && fid.size() > 0 && exists(/databases/$(database)/documents/faculty/$(fid)) && get(/databases/$(database)/documents/faculty/$(fid)).data.email is string && ((request.auth.token.email is string && get(/databases/$(database)/documents/faculty/$(fid)).data.email == request.auth.token.email) || (profile().email is string && get(/databases/$(database)/documents/faculty/$(fid)).data.email == profile().email));}
   function selfPasswordCompletion(uid){return signedIn() && request.auth.uid == uid && resource.data.active == true && request.resource.data.active == true && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword','passwordChangedAt','updatedAt']) && request.resource.data.mustChangePassword == false && request.resource.data.passwordChangedAt == request.time && request.resource.data.updatedAt == request.time;}
-  function generalUserCreate(){return general() && (request.resource.data.role != 'developer' || profile().role == 'developer') && explicitRole(request.resource.data.role) && validFacultyLink(request.resource.data) && validFacultyRoles(request.resource.data) && validOfficeIdentity(request.resource.data) && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.createdAt == request.time && request.resource.data.keys().hasOnly(['name','email','role','facultyRoles','facultyId','active','mustChangePassword','updatedBy','updatedByName','updatedAt','createdAt']);}
-  function generalUserUpdate(uid){return general() && (resource.data.role != 'developer' || profile().role == 'developer') && (request.resource.data.role != 'developer' || profile().role == 'developer') && explicitRole(request.resource.data.role) && validFacultyLink(request.resource.data) && validFacultyRoles(request.resource.data) && validOfficeIdentity(request.resource.data) && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','email','role','facultyRoles','facultyId','active','mustChangePassword','updatedBy','updatedByName','updatedAt']) && (uid != request.auth.uid || (resource.data.role == 'developer' ? (request.resource.data.role == 'developer' && request.resource.data.active == true) : (request.resource.data.role in ['developer','owner','adfa_general'] && request.resource.data.active == true)));}
+  function generalUserCreate(){return general() && (request.resource.data.role != 'developer' || profile().role == 'developer') && explicitRole(request.resource.data.role) && validFacultyLink(request.resource.data) && validFacultyRoles(request.resource.data) && validOfficeAccess(request.resource.data) && validOfficeIdentity(request.resource.data) && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.createdAt == request.time && request.resource.data.keys().hasOnly(['name','email','role','facultyRoles','facultyId','officeAccess','active','mustChangePassword','updatedBy','updatedByName','updatedAt','createdAt']);}
+  function generalUserUpdate(uid){return general() && (resource.data.role != 'developer' || profile().role == 'developer') && (request.resource.data.role != 'developer' || profile().role == 'developer') && explicitRole(request.resource.data.role) && validFacultyLink(request.resource.data) && validFacultyRoles(request.resource.data) && validOfficeAccess(request.resource.data) && validOfficeIdentity(request.resource.data) && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','email','role','facultyRoles','facultyId','officeAccess','active','mustChangePassword','updatedBy','updatedByName','updatedAt']) && (uid != request.auth.uid || (resource.data.role == 'developer' ? (request.resource.data.role == 'developer' && request.resource.data.active == true) : (request.resource.data.role in ['developer','owner','adfa_general'] && request.resource.data.active == true)));}
   function validGroup(d){return d.name is string && d.ownerUid is string && d.courseIds is list && d.memberUids is list && d.ownerUid in d.memberUids && get(/databases/$(database)/documents/users/$(d.ownerUid)).data.role == 'hicc' && get(/databases/$(database)/documents/users/$(d.ownerUid)).data.active == true;}
   function generalGroupWrite(){return general() && validGroup(request.resource.data) && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time;}
   function hiccMemberUpdate(){return hicc() && resource.data.ownerUid == request.auth.uid && request.resource.data.ownerUid == resource.data.ownerUid && request.resource.data.ownerUid in request.resource.data.memberUids && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids','updatedBy','updatedByName','updatedAt']);}
@@ -310,10 +314,10 @@ service cloud.firestore {
   function teachingWritesOpen(){return !teachingLocked();}
   // LAB groups: codes and colour keys are shared with the sanitized calendar, so
   // any office account may read them.
-  function labGroupWrite(id){return ready() && (developer() || general() || officeName() == 'lab') && request.resource.data.groupId == id && request.resource.data.groupCode is string && request.resource.data.colorKey is string && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time;}
+  function labGroupWrite(id){return ready() && (developer() || general() || lab()) && request.resource.data.groupId == id && request.resource.data.groupCode is string && request.resource.data.colorKey is string && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time;}
   // Student rosters are private to LAB, Developer and Owner. ADFA, ADC, Faculty,
   // VISC, HICC and Other Office never receive student IDs.
-  function rosterReader(){return ready() && (developer() || general() || officeName() == 'lab');}
+  function rosterReader(){return ready() && (developer() || general() || lab());}
   function rosterShapeValid(d){return d.keys().hasOnly(['groupId','studentIds','updatedAt','updatedBy','updatedByName']) && d.groupId is string && d.studentIds is list && d.studentIds.size() <= 500 && d.updatedBy == request.auth.uid && d.updatedAt == request.time;}
   // Roster-shaped fields must never reach the sanitized calendar read model.
   // Per-entry map validation is not expressible in Firestore rules, so the code
