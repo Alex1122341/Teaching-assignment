@@ -8,12 +8,16 @@ before(async()=>{
  env=await initializeTestEnvironment({projectId:'demo-ucvm-calendar-security',firestore:{rules:fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8')}});
  await env.clearFirestore();await env.withSecurityRulesDisabled(async ctx=>{
   const db=ctx.firestore();
-  for(const [uid,role] of [['adc','adc'],['lab','lab'],['owner','owner'],['adfa','adfa_regular'],['faculty','faculty'],['inactive','adc'],['password','lab']])await db.doc(`users/${uid}`).set({role,active:uid!=='inactive',mustChangePassword:uid==='password',email:uid+'@example.test',...(role==='faculty'?{facultyId:'f1'}:{})});
+  for(const [uid,role,fid] of [['adc','adc',''],['lab','lab',''],['owner','owner',''],['adfa','adfa_regular',''],['faculty','faculty','f1'],['otherfaculty','faculty','f2'],['inactive','adc',''],['password','lab','']])await db.doc(`users/${uid}`).set({role,active:uid!=='inactive',mustChangePassword:uid==='password',email:uid+'@example.test',...(fid?{facultyId:fid}:{})});
   await db.doc('faculty/f1').set({email:'faculty@example.test',doe:3.5});
+  await db.doc('faculty/f2').set({email:'otherfaculty@example.test',doe:3.5});
   await db.doc('sessions/s1').set({course:'505',date:'2027-03-22',start:'14:45',end:'16:15',type:'LAB',topic:'Suturing',instructor:'Jane Smith',facultyIds:['f1'],assignments:[{ucid:'f1',name:'Jane Smith',doeCredit:0.5}]});
   await db.doc('calendar_sessions/s1').set({sessionId:'s1',course:'505',courseName:'',year:3,semester:'winter',week:8,date:'2027-03-22',start:'14:45',end:'16:15',timeUnknown:false,type:'LAB',topic:'Suturing',room:'',instructor:'Jane Smith',instructorNames:['Jane Smith']});
   await db.doc('settings/faculty_swap_index').set({entries:[{key:'k',unavailableRanges:[{start:'2027-01-01',end:'2027-01-10'}]}]});
   await db.doc('public_schedule/ccc_events').set({events:[{facultyId:'f1',startDate:'2027-01-01'}]});
+  await db.doc('session_change_log/faculty-related').set({action:'batch_update',sessionId:'s1',course:'505',date:'2027-03-22',topic:'Suturing',instructors:['Jane Smith'],changes:[{field:'date',before:'2027-03-21',after:'2027-03-22'}],changedBy:'owner',changedByName:'OWNER',changedByEmail:'owner@example.test',changedAt:new Date('2026-09-18T12:10:00Z')});
+  await db.doc('afc_audit/faculty-related').set({action:'afc_submitted',requesterUid:'faculty',reportToUid:'owner',changedBy:'owner',changedAt:new Date('2026-09-18T12:11:00Z')});
+  await db.doc('account_audit/faculty-related').set({action:'account_updated',targetUid:'faculty',changedBy:'owner',changedAt:new Date('2026-09-18T12:12:00Z')});
   for(const uid of ['adc','lab']){
    await db.doc(`afc_requests/${uid}-legacy`).set({requesterUid:uid,reportToUid:uid,purpose:'private purpose',status:'pending_admin'});
    await db.doc(`change_requests/${uid}-legacy`).set({requesterUid:uid,fromFaculty:{ucid:'f1'},status:'pending'});
@@ -42,6 +46,12 @@ check('ADC and LAB can read only their sanitized personal session and workflow h
   await assertSucceeds(db.doc(`change_request_audit/${uid}-safe`).get());
   await assertFails(db.doc(`session_change_log/${uid}-legacy`).get());
  }
+});
+check('Faculty can read session, AFC and account audit records related to themselves but not another Faculty',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
+ const faculty=env.authenticatedContext('faculty').firestore(),other=env.authenticatedContext('otherfaculty').firestore();
+ for(const path of ['session_change_log/faculty-related','afc_audit/faculty-related','account_audit/faculty-related'])await assertSucceeds(faculty.doc(path).get());
+ for(const path of ['session_change_log/faculty-related','afc_audit/faculty-related','account_audit/faculty-related'])await assertFails(other.doc(path).get());
 });
 check('ADFA and Faculty keep their existing reads',async()=>{
  const {assertSucceeds}=require('@firebase/rules-unit-testing');for(const uid of ['adfa','owner','faculty']){const db=env.authenticatedContext(uid).firestore();await assertSucceeds(db.doc('sessions/s1').get());await assertSucceeds(db.doc('faculty/f1').get());}
