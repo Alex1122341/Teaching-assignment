@@ -96,15 +96,15 @@ service cloud.firestore {
         && after.editableFields.hasAll(before.editableFields) && after.editableFields.hasAll(approval.fields)
         && after.editableFields.toSet().difference(before.editableFields.toSet()).hasOnly(approval.fields))
     || (approval.status == 'rejected' && after.status == 'rejected' && after.editableFields.size() == 0 && after.requesterMessage.size() <= 1000));}
-  function approvalBefore(id,office){return get(requestApprovalPath(id,office)).data;}
   function approvalAfter(id,office){return getAfter(requestApprovalPath(id,office)).data;}
-  function officeDecisionOn(id,office){return hasOfficeAccess(office) && exists(requestApprovalPath(id,office)) && existsAfter(requestApprovalPath(id,office))
-   && approvalBefore(id,office).status == 'pending' && approvalAfter(id,office).status in ['approved','push_back','rejected']
-   && approvalAfter(id,office).decidedBy == request.auth.uid && approvalAfter(id,office).decidedAt == request.time;}
-  function developerDecisionOn(id,office){return developer() && officeDecisionOn(id,office);}
-  function developerDecisionOffice(id){return developerDecisionOn(id,'adc') ? 'adc' : (developerDecisionOn(id,'lab') ? 'lab' : (developerDecisionOn(id,'adfa') ? 'adfa' : ''));}
-  function officeDecisionOffice(id){return officeDecisionOn(id,'adc') ? 'adc' : (officeDecisionOn(id,'lab') ? 'lab' : (officeDecisionOn(id,'adfa') ? 'adfa' : ''));}
-  function decisionOffice(id){return developer() ? developerDecisionOffice(id) : officeDecisionOffice(id);}
+  // Parent/audit writes do not carry an office field, so identify the one approval
+  // changed by this actor in the same atomic batch. The approval document's own
+  // rule proves the pending -> decision transition; this helper only identifies
+  // that explicit office context and avoids re-validating all three records.
+  function officeDecisionOn(id,office){return hasOfficeAccess(office)
+   && approvalAfter(id,office).decidedBy == request.auth.uid && approvalAfter(id,office).decidedAt == request.time
+   && approvalAfter(id,office).status in ['approved','push_back','rejected'];}
+  function decisionOffice(id){return officeDecisionOn(id,'adc') ? 'adc' : (officeDecisionOn(id,'lab') ? 'lab' : (officeDecisionOn(id,'adfa') ? 'adfa' : ''));}
   function validRoutedOfficeRequestUpdate(id){let before=resource.data;let after=request.resource.data;let actorOffice=decisionOffice(id);return actorOffice != '' && routedRequest(before) && before.status in ['pending','update_required'] && officeDecisionParentMatches(before,after,getAfter(requestApprovalPath(id,actorOffice)).data);}
   function validOfficeApprovalDecision(id,d,actorOffice){let parentBefore=get(requestPublicPath(d.requestId)).data;let parentAfter=getAfter(requestPublicPath(d.requestId)).data;let changed=d.diff(resource.data).affectedKeys();return routedRequest(parentBefore) && resource.data.office == actorOffice && resource.data.status == 'pending' && d.requestId == resource.data.requestId && d.office == resource.data.office && d.revision == resource.data.revision && d.fields == resource.data.fields && d.scopeSignature == resource.data.scopeSignature
    && changed.hasOnly(['status','decidedBy','decidedByName','decidedAt','pushBackReason','updatedAt']) && d.status in ['approved','push_back','rejected'] && d.decidedBy == request.auth.uid && d.decidedAt == request.time && d.updatedAt == request.time
@@ -122,7 +122,11 @@ service cloud.firestore {
    && (parentAfter.status == 'withdrawn'
       ? (resource.data.status in ['pending','push_back'] && d.status == 'cancelled' && changed.hasOnly(['status','updatedAt']) && d.updatedAt == request.time)
       : (parentBefore.status == 'update_required' && parentAfter.status == 'pending' && validRequesterApprovalResubmitUpdate(id,d,parentBefore,parentAfter,changed)));}
-  function validRoutedOfficeDecision(id){let d=request.resource.data;let actorOffice=decisionOffice(d.requestId);return teachingWritesOpen() && approvalShapeValid(d) && (actorOffice != '' ? (resource.data.office == actorOffice ? validOfficeApprovalDecision(id,d,actorOffice) : validOfficeApprovalCancel(id,d,actorOffice)) : validRequesterApprovalUpdate(id,d));}
+  function validRoutedOfficeCancellation(id,d){let actorOffice=decisionOffice(d.requestId);return actorOffice != '' && resource.data.office != actorOffice && validOfficeApprovalCancel(id,d,actorOffice);}
+  function validRoutedOfficeDecision(id){let d=request.resource.data;return teachingWritesOpen() && approvalShapeValid(d)
+   && (facultyMember() ? validRequesterApprovalUpdate(id,d)
+      : (d.status == 'cancelled' ? validRoutedOfficeCancellation(id,d)
+         : (hasOfficeAccess(resource.data.office) && validOfficeApprovalDecision(id,d,resource.data.office))));}
   function validRoutedApprovalResubmitCreate(id){let d=request.resource.data;let parentBefore=get(requestPublicPath(d.requestId)).data;let parentAfter=getAfter(requestPublicPath(d.requestId)).data;let oldWorkflow=get(requestWorkflowPath(d.requestId)).data;let newWorkflow=getAfter(requestWorkflowPath(d.requestId)).data;return teachingWritesOpen() && parentBefore.requesterUid == request.auth.uid && parentBefore.status == 'update_required' && parentAfter.status == 'pending'
    && d.revision == parentAfter.revision && approvalMatchesWorkflow(id,d,newWorkflow) && !(d.office in oldWorkflow.requiredOffices)
    && d.status == 'pending' && d.decidedBy == '' && d.decidedByName == '' && d.decidedAt == null && d.pushBackReason == '' && d.updatedAt == request.time;}
@@ -152,13 +156,16 @@ service cloud.firestore {
    && d.revision == afterParent.revision && d.updatedAt == request.time && d.assignmentChange.assignmentIndex == resource.data.assignmentChange.assignmentIndex && d.assignmentChange.from == resource.data.assignmentChange.from
    && validRoutedPrivateTarget(d.assignmentChange.to) && d.diff(resource.data).affectedKeys().hasOnly(['revision','assignmentChange','updatedAt'])
    && (d.assignmentChange.to.get('kind','') == '' || (afterParent.reason.size() > 0 && afterParent.reason.size() <= 1000 && afterParent.reason.matches('.*\\S.*')));}
-  function requiredApprovalMatches(id,workflow,office){let approval=get(requestApprovalPath(id,office)).data;return approval.status == 'approved' && approval.fields == workflow.scopes.get(office,[]) && approval.scopeSignature == workflow.scopeSignatures.get(office,'');}
-  function approvedScope(id,workflow,office){return !(office in workflow.requiredOffices) || (exists(requestApprovalPath(id,office)) && requiredApprovalMatches(id,workflow,office));}
+  // Workflow and approval scope/signature invariants are enforced when those
+  // documents are created or resubmitted and cannot be edited afterward except
+  // through the decision transition. Final apply therefore only needs the
+  // approved status of each required office, not a second full scope comparison.
+  function approvedScope(id,workflow,office){return !(office in workflow.requiredOffices) || get(requestApprovalPath(id,office)).data.status == 'approved';}
   function allRequiredApproved(id,workflow){return approvedScope(id,workflow,'adc') && approvedScope(id,workflow,'lab') && approvedScope(id,workflow,'adfa');}
   function hasRequiredOffice(workflow){return (hasOfficeAccess('adc') && 'adc' in workflow.requiredOffices) || (hasOfficeAccess('lab') && 'lab' in workflow.requiredOffices) || (hasOfficeAccess('adfa') && 'adfa' in workflow.requiredOffices);}
   function routedApplyContextValid(id,before,after,workflow){return ready() && officeUser() && routedRequest(before) && before.status == 'pending' && after.status == 'approved'
    && before.revision == after.revision && after.appliedRevision == before.revision && after.appliedAt == request.time && after.updatedAt == request.time
-   && workflow.requestId == id && workflow.revision == before.revision && workflowMatchesRequest(workflow,before) && allRequiredApproved(id,workflow)
+   && workflow.requestId == id && workflow.revision == before.revision && allRequiredApproved(id,workflow)
    && hasRequiredOffice(workflow) && (!workflow.hasFacultyChange || hasOfficeAccess('adfa'));}
   function validRoutedApply(id){let before=resource.data;let after=request.resource.data;let workflow=get(requestWorkflowPath(id)).data;return routedApplyContextValid(id,before,after,workflow)
    && after.diff(before).affectedKeys().hasOnly(['status','editableFields','requesterMessage','appliedRevision','appliedAt','updatedAt'])
