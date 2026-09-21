@@ -8,18 +8,18 @@ service cloud.firestore {
   function admin(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
   function general(){return ready() && profile().role in ['developer','owner','adfa_general'];}
   function historyAll(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
-  function historyActor(d){return ready() && d.get('changedBy','') == request.auth.uid;}
-  function linkedFacultyHistory(d){let fid=profile().get('facultyId','');return ready() && fid is string && fid.size() > 0 && (d.get('facultyId','') == fid || fid in d.get('relatedFacultyIds',[]));}
-  function safeOfficeSessionHistory(d){return d.keys().hasOnly(['action','override','requestId','sessionId','course','date','topic','instructors','before','after','rowNumber','changes','changedBy','changedByName','changedByEmail','changedAt'])
-   && d.get('instructors',[]) is list && d.get('instructors',[]).size() == 0
+  function historyActor(d){return ready() && d.keys().hasAny(['changedBy']) && d.changedBy == request.auth.uid;}
+  function linkedFacultyHistory(d){let p=profile();let fid=p.keys().hasAny(['facultyId']) ? p.facultyId : '';let direct=d.keys().hasAny(['facultyId']) ? d.facultyId : '';let related=d.keys().hasAny(['relatedFacultyIds']) ? d.relatedFacultyIds : [];return ready() && fid is string && fid.size() > 0 && (direct == fid || fid in related);}
+  function safeOfficeSessionHistory(d){let instructors=d.keys().hasAny(['instructors']) ? d.instructors : [];return d.keys().hasOnly(['action','override','requestId','sessionId','course','date','topic','instructors','before','after','rowNumber','changes','changedBy','changedByName','changedByEmail','changedAt'])
+   && instructors is list && instructors.size() == 0
    && (!d.keys().hasAny(['before']) || (d.before is map && !d.before.keys().hasAny(['studentIds','studentNames','roster','rosters','assignments','facultyIds'])))
    && (!d.keys().hasAny(['after']) || (d.after is map && !d.after.keys().hasAny(['studentIds','studentNames','roster','rosters','assignments','facultyIds'])));}
-  function safeWorkflowHistory(d){return d.keys().hasOnly(['requestId','event','revision','status','office','message','changedFields','changedBy','changedByName','changedAt'])
-   && d.get('requestId','') is string && d.get('event','') is string && d.get('changedFields',[]) is list;}
-  function sessionHistoryReader(d){let sid=d.get('sessionId','');let fid=profile().get('facultyId','');let actorAllowed=historyActor(d) && (!restrictedOffice() || safeOfficeSessionHistory(d));return historyAll() || actorAllowed || linkedFacultyHistory(d) || (ready() && fid is string && fid.size() > 0 && sid is string && sid.size() > 0 && exists(sessionPath(sid)) && fid in get(sessionPath(sid)).data.get('facultyIds',[]));}
+  function safeWorkflowHistory(d){let rid=d.keys().hasAny(['requestId']) ? d.requestId : '';let event=d.keys().hasAny(['event']) ? d.event : '';let fields=d.keys().hasAny(['changedFields']) ? d.changedFields : [];return d.keys().hasOnly(['requestId','event','revision','status','office','message','changedFields','changedBy','changedByName','changedAt'])
+   && rid is string && event is string && fields is list;}
+  function sessionHistoryReader(d){let p=profile();let sid=d.keys().hasAny(['sessionId']) ? d.sessionId : '';let fid=p.keys().hasAny(['facultyId']) ? p.facultyId : '';let actorAllowed=historyActor(d) && (!restrictedOffice() || safeOfficeSessionHistory(d));let currentFacultyIds=(sid is string && sid.size() > 0 && exists(sessionPath(sid))) ? get(sessionPath(sid)).data.facultyIds : [];return historyAll() || actorAllowed || linkedFacultyHistory(d) || (ready() && fid is string && fid.size() > 0 && currentFacultyIds is list && fid in currentFacultyIds);}
   function facultyHistoryReader(d){return historyAll() || (!restrictedOffice() && (historyActor(d) || linkedFacultyHistory(d)));}
-  function accountHistoryReader(d){return historyAll() || (!restrictedOffice() && (historyActor(d) || (ready() && d.get('targetUid','') == request.auth.uid)));}
-  function afcHistoryReader(d){return historyAll() || (!restrictedOffice() && ready() && (d.get('changedBy','') == request.auth.uid || d.get('requesterUid','') == request.auth.uid || d.get('reportToUid','') == request.auth.uid));}
+  function accountHistoryReader(d){let target=d.keys().hasAny(['targetUid']) ? d.targetUid : '';return historyAll() || (!restrictedOffice() && (historyActor(d) || (ready() && target == request.auth.uid)));}
+  function afcHistoryReader(d){let actor=d.keys().hasAny(['changedBy']) ? d.changedBy : '';let requester=d.keys().hasAny(['requesterUid']) ? d.requesterUid : '';let reportTo=d.keys().hasAny(['reportToUid']) ? d.reportToUid : '';return historyAll() || (!restrictedOffice() && ready() && (actor == request.auth.uid || requester == request.auth.uid || reportTo == request.auth.uid));}
   function historyReader(d){return historyAll() || (!restrictedOffice() && historyActor(d));}
   function hicc(){return ready() && profile().role == 'hicc';}
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
