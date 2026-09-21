@@ -29,6 +29,23 @@ jobs:
       - name: Install Firebase Admin dependency
         run: npm --prefix server install --no-audit --no-fund
 
+      - name: Inspect Firebase Admin SDK shape
+        run: |
+          node - <<'NODE'
+          const path=require('node:path');
+          const {createRequire}=require('node:module');
+          const req=createRequire(path.resolve('server/package.json'));
+          const pkg=req('firebase-admin/package.json');
+          const admin=req('firebase-admin');
+          console.log(JSON.stringify({
+            version:pkg.version,
+            exportKeys:Object.keys(admin||{}).sort(),
+            hasCredential:Boolean(admin&&admin.credential),
+            hasDefault:Boolean(admin&&admin.default),
+            defaultExportKeys:admin&&admin.default?Object.keys(admin.default).sort():[]
+          },null,2));
+          NODE
+
       - name: Verify lab Admin credential exists
         shell: bash
         run: |
