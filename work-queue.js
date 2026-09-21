@@ -208,8 +208,9 @@
    if(refreshing)return;
    refreshing=true;
    try{
-    const role=String(page.profile?.()?.role||'').toLowerCase();
-    const view=buildViewModel({sessions:page.sessions()||[],role,workflow:window.UCVM_SESSION_WORKFLOW,context:window.UCVM_WORK_QUEUE_CONTEXT||{}});
+    const profile=page.profile?.()||{},role=String(profile.role||'').toLowerCase(),caps=window.UCVM_OFFICE_CAPABILITIES;
+    const offices=caps?.officesForProfile?.(profile)||null;
+    const view=buildViewModel({sessions:page.sessions()||[],role,offices,workflow:window.UCVM_SESSION_WORKFLOW,context:window.UCVM_WORK_QUEUE_CONTEXT||{}});
     view.role=role;
     if(!controller)controller=createController({document,host:target,onOpen:onOpen||defaultOpen});
     controller.render(view);
