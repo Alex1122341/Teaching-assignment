@@ -61,6 +61,8 @@ test('Firebase Lab Auth Setup workflow is manual, lab-only and uses the protecte
   assert.match(source,/FIREBASE_PROJECT_ID:\s*vista-teaching-lab/);
   assert.match(source,/secrets\.FIREBASE_LAB_SERVICE_ACCOUNT_JSON/);
   assert.match(source,/CONFIGURE-AUTH:vista-teaching-lab/);
+  assert.match(source,/npm --prefix server install --no-audit --no-fund/);
+  assert.doesNotMatch(source,/server\/package-lock\.json|npm --prefix server ci/);
   assert.match(source,/node tools\/configure-lab-auth\.js/);
   assert.doesNotMatch(source,/tester-teaching/);
 });

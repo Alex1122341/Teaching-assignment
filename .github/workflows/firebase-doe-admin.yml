@@ -64,7 +64,7 @@ jobs:
         run: npm ci
 
       - name: Install DOE server dependencies
-        run: npm --prefix server ci
+        run: npm --prefix server install --no-audit --no-fund
 
       - name: Verify DOE code before administrative access
         run: npm run test:all
