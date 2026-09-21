@@ -188,3 +188,18 @@ test('mounted Work Queue derives office stages from the current profile access g
  assert.match(source,/officesForProfile\?\.\(profile\)/);
  assert.match(source,/buildViewModel\(\{sessions:page\.sessions\(\)\|\|\[\],role,offices,/);
 });
+
+test('LAB Work Queue completion follows live roster context instead of a stored status flag',()=>{
+ const {workflow,queue}=loadModule(),session=lab({topic:'Neuro',labGroupIds:['g-a'],assignments:[{facultyId:'f1'}]});
+ const missing=queue.buildViewModel({sessions:[session],role:'lab',workflow,context:{rosters:{}}});
+ assert.equal(missing.total,1);assert.equal(missing.items[0].status,'ready');assert.ok(missing.items[0].missing.includes('labRoster'));
+ const complete=queue.buildViewModel({sessions:[session],role:'lab',workflow,context:{rosters:{'g-a':{studentIds:['30012345']}}}});
+ assert.equal(complete.total,0);assert.equal(complete.visible,false);
+});
+
+test('mounted Work Queue consumes the page workflow context and asks the page to load it',()=>{
+ const source=read('work-queue.js');
+ assert.match(source,/page\.workflowContext\?\.\(\)/);
+ assert.match(source,/page\.ensureWorkflowContext==='function'/);
+ assert.match(source,/await page\.ensureWorkflowContext\(\)/);
+});
