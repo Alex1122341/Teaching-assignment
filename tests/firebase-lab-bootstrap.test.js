@@ -64,6 +64,8 @@ test('bootstrap workflow is manual, passwordless and uses only the lab admin env
   assert.match(source,/name:\s*firebase-lab-admin/);
   assert.match(source,/FIREBASE_PROJECT_ID:\s*vista-teaching-lab/);
   assert.match(source,/secrets\.FIREBASE_LAB_SERVICE_ACCOUNT_JSON/);
+  assert.match(source,/npm --prefix server install --no-audit --no-fund/);
+  assert.doesNotMatch(source,/server\/package-lock\.json|npm --prefix server ci/);
   assert.match(source,/node tools\/bootstrap-lab-user\.js/);
   assert.doesNotMatch(source,/password:/i);
   assert.doesNotMatch(source,/tester-teaching/);
