@@ -86,15 +86,15 @@ const config=window.UCVM_FIREBASE_CONFIG;
  function watch(user,p){let initial=true;return firebase.firestore().doc(`users/${user.uid}`).onSnapshot(s=>{const n=s.data();if(initial){initial=false;return}if(!n||['role','active','mustChangePassword'].some(k=>n[k]!==p[k]))location.reload()})}
  const value=v=>v===null||v===undefined?'—':Array.isArray(v)?v.map(x=>typeof x==='object'?`${x.name||x.ucid||''}${x.role?' ('+x.role+')':''}`:String(x)).filter(Boolean).join('; '):typeof v==='object'?JSON.stringify(v):String(v);
  const time=e=>e.changedAt?.toDate?e.changedAt.toDate().toLocaleString('en-CA',{timeZone:'America/Edmonton'}):'Pending';
- function normalizeEntry(raw,source){const e={...raw,source};e.changes=window.UCVM_AUDIT_DETAILS?.changes(e)||e.changes||[];if(e.changes.length)return e;if(source==='session'&&e.action==='swap_faculty')e.changes=[{field:'assignments',label:'Faculty',before:e.fromFaculty?.name||e.fromFaculty?.ucid||'',after:e.toFaculty?.name||e.toFaculty?.ucid||''}];else if(source==='session'&&e.action==='create')e.changes=[{field:'session',label:'Session',before:null,after:[e.course,e.date,e.topic].filter(Boolean).join(' · ')}];else if(source==='session'&&e.action==='delete')e.changes=[{field:'session',label:'Session',before:[e.course,e.date,e.topic].filter(Boolean).join(' · '),after:null}];else if(source==='faculty'&&e.action==='create')e.changes=[{field:'faculty',label:'Faculty record',before:null,after:e.facultyName||e.facultyId}];else if(source==='faculty'&&e.action==='delete')e.changes=[{field:'faculty',label:'Faculty record',before:e.facultyName||e.facultyId,after:null}];else if(source==='account')e.changes=[{field:'access',label:'Account access',before:e.beforeRole?`${e.targetName||e.targetUid} · ${label(e.beforeRole)}`:null,after:[e.targetName||e.targetUid,e.role?label(e.role):'',typeof e.active==='boolean'?(e.active?'Active':'Disabled'):''].filter(Boolean).join(' · ')}];return e}
+ function normalizeEntry(raw,source){const e={...raw,source};if(source==='workflow'&&!e.action)e.action=e.event||'workflow_changed';e.changes=window.UCVM_AUDIT_DETAILS?.changes(e)||e.changes||[];if(e.changes.length)return e;if(source==='session'&&e.action==='swap_faculty')e.changes=[{field:'assignments',label:'Faculty',before:e.fromFaculty?.name||e.fromFaculty?.ucid||'',after:e.toFaculty?.name||e.toFaculty?.ucid||''}];else if(source==='session'&&e.action==='create')e.changes=[{field:'session',label:'Session',before:null,after:[e.course,e.date,e.topic].filter(Boolean).join(' · ')}];else if(source==='session'&&e.action==='delete')e.changes=[{field:'session',label:'Session',before:[e.course,e.date,e.topic].filter(Boolean).join(' · '),after:null}];else if(source==='faculty'&&e.action==='create')e.changes=[{field:'faculty',label:'Faculty record',before:null,after:e.facultyName||e.facultyId}];else if(source==='faculty'&&e.action==='delete')e.changes=[{field:'faculty',label:'Faculty record',before:e.facultyName||e.facultyId,after:null}];else if(source==='account')e.changes=[{field:'access',label:'Account access',before:e.beforeRole?`${e.targetName||e.targetUid} · ${label(e.beforeRole)}`:null,after:[e.targetName||e.targetUid,e.role?label(e.role):'',typeof e.active==='boolean'?(e.active?'Active':'Disabled'):''].filter(Boolean).join(' · ')}];return e}
  async function logs(container,{includeFaculty=false,profile=null,personalOnly=false}={}){
   includeFaculty=includeFaculty||container?.id==='faculty-audit';
   const {auth,db}=init(),user=auth.currentUser;
   if(!user){container.innerHTML='<p>Sign in to view change history.</p>';return}
   const canReadAll=!personalOnly&&historyAll(profile),PAGE_SIZE=20;
   let entries=[],loading=false;
-  const cursors={session:null,faculty:null,account:null,afc:null};
-  const exhausted={session:false,faculty:!includeFaculty,account:false,afc:false};
+  const cursors={session:null,faculty:null,account:null,afc:null,workflow:null};
+  const exhausted={session:false,faculty:!includeFaculty,account:false,afc:false,workflow:false};
   container.innerHTML='<div class="audit-toolbar"><label><span>Search loaded history</span><input id="audit-search" placeholder="Course, name, person or change"></label><label><span>Change type</span><select id="audit-kind" aria-label="Change type"><option value="">All changes</option><option value="create">Added</option><option value="delete">Deleted</option><option value="time">Time/date</option><option value="name">Name</option><option value="faculty">Faculty</option></select></label><p id="audit-status" role="status"></p></div><div class="table-scroll"><table class="audit-table"><thead><tr><th>When (Calgary)</th><th>By whom</th><th>Session / record</th><th>Action</th><th>Before → after</th></tr></thead><tbody id="audit-body"></tbody></table></div><div class="audit-footer"><button id="audit-more">Load older changes</button></div>';
   const $=id=>container.querySelector('#'+id);
   const actionLabel=a=>({create:'Added',delete:'Deleted',update:'Changed',batch_update:'Batch update',account_created:'Account created',account_linked:'Account linked',account_updated:'Account access changed',account_provisioned:'Account provisioned',password_reset:'Password reset required',password_changed:'Password changed',group_saved:'Group changed',group_created:'Group created',group_updated:'Group changed',group_deleted:'Group deleted',group_members_updated:'Group membership changed',update_doe_roles:'DOE roles / override changed',swap_faculty:'Faculty changed',replace_from_all_faculty_summaries:'Timetable synchronized',replace_and_sync_all_faculty_summaries:'Faculty/timetable synchronized',replace_away_from_campus_afc:'AFC imported',replace_workload_doe_breakdown_2026_27:'Workload DOE imported',faculty_routing_migration:'Assigned AD removed / Reports To routing built',afc_submitted:'AFC submitted',afc_recommend:'AFC recommended',afc_reject:'AFC rejected',afc_approve:'AFC approved',afc_withdraw:'AFC withdrawn'})[a]||a||'Changed';
@@ -135,14 +135,18 @@ const config=window.UCVM_FIREBASE_CONFIG;
     addRows(snap,key);
   }
   async function loadPersonal(){
+    const normalizedRole=role(profile?.role),officeOnly=['adc','lab','other_office'].includes(normalizedRole);
     const tasks=[
       queryRelated('session_change_log','session','changedBy','==',user.uid),
-      queryRelated('account_audit','account','changedBy','==',user.uid),
-      queryRelated('account_audit','account','targetUid','==',user.uid),
-      queryRelated('afc_audit','afc','changedBy','==',user.uid),
-      queryRelated('afc_audit','afc','requesterUid','==',user.uid),
-      queryRelated('afc_audit','afc','reportToUid','==',user.uid)
+      queryRelated('change_request_audit','workflow','changedBy','==',user.uid)
     ];
+    if(!officeOnly){
+      tasks.push(queryRelated('account_audit','account','changedBy','==',user.uid));
+      tasks.push(queryRelated('account_audit','account','targetUid','==',user.uid));
+      tasks.push(queryRelated('afc_audit','afc','changedBy','==',user.uid));
+      tasks.push(queryRelated('afc_audit','afc','requesterUid','==',user.uid));
+      tasks.push(queryRelated('afc_audit','afc','reportToUid','==',user.uid));
+    }
     const facultyId=String(profile?.facultyId||'').trim();
     if(includeFaculty&&facultyId){
       tasks.push(queryRelated('faculty_change_log','faculty','changedBy','==',user.uid));
@@ -161,10 +165,11 @@ const config=window.UCVM_FIREBASE_CONFIG;
         if(includeFaculty)await page('faculty_change_log','faculty');
         await page('account_audit','account');
         await page('afc_audit','afc');
+        await page('change_request_audit','workflow');
       }else await loadPersonal();
       entries.sort((a,b)=>{const at=a.changedAt?.toMillis?a.changedAt.toMillis():0,bt=b.changedAt?.toMillis?b.changedAt.toMillis():0;return bt-at});
       render();
-      $('audit-more').hidden=!canReadAll||(exhausted.session&&exhausted.faculty&&exhausted.account&&exhausted.afc);
+      $('audit-more').hidden=!canReadAll||(exhausted.session&&exhausted.faculty&&exhausted.account&&exhausted.afc&&exhausted.workflow);
       $('audit-status').textContent=`${entries.length} changes loaded · ${canReadAll?'all authorized users':'sessions, AFC and changes related to you'}.`;
     }catch(e){$('audit-status').textContent='Could not load history: '+e.message}
     finally{loading=false;$('audit-more').disabled=false}
