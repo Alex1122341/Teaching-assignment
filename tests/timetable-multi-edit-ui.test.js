@@ -67,6 +67,12 @@ test('office roles use explicit capability gates and ADC LAB read the sanitized 
  assert.match(js,/selection-controls[\s\S]*canSelectSessions/);
 });
 
+test('scoped Work Queue editor derives field ownership from the persisted scoped stage',()=>{
+ const js=read('timetable.js');
+ assert.match(js,/function selectionRole\(\)\{if\(scopedWork\?\.stage\)return scopedWork\.stage;/);
+ assert.doesNotMatch(js,/function selectionRole\(\)[^\n]*activeScoped/);
+});
+
 test('selection save pairs source calendar and audit writes and uses resumable progress batches',()=>{
  const js=read('timetable.js');
  assert.match(js,/calendarRef:id=>db\.collection\('calendar_sessions'\)\.doc\(id\)/);
