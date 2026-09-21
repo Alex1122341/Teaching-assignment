@@ -1056,6 +1056,7 @@
 
   async function startSessionSelection(){
     if(!canSelectSessions())return;
+    scopedWork=null;
     if(capabilities(stage).canEditInstructor)await ensureFacultyDirectory();
     scopedWork={sessionId:id,stage};
     selectionViewFlow.begin(viewMode);
@@ -1073,7 +1074,7 @@
   }
   async function reviewSelectedSessions(){
     if(!selectionMode||!sessionSelection.size)return;
-    if(capabilities().canEditInstructor)await ensureFacultyDirectory();
+    if(selectionCapabilities().canEditInstructor)await ensureFacultyDirectory();
     reviewingSelection=true;viewMode=selectionViewFlow.review();setViewButtons();render();
   }
 
