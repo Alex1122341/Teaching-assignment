@@ -182,7 +182,7 @@ test('Impact Preview renderer presents operational risk categories and attention
 test('Frontend Demo Rule Book uses a separate read-only service without declaring the authoritative DOE API configured',()=>{
  const source=read('doe-policy-admin.js');
  assert.match(source,/UCVM_FRONTEND_DEMO_MODE===true\?root\?\.UCVM_PAGES_DEMO\?\.doeRulebook/);
- assert.match(source,/state\.demoReadOnly=Boolean\(demoService\?\.readOnly\)/);
+ assert.match(source,/state\.demoReadOnly=Boolean\(demoService\?\.readOnly\|\|labService\?\.readOnly\)/);
  assert.match(source,/Frontend Demo · NON-AUTHORITATIVE · READ-ONLY/);
  assert.match(source,/editable:!state\.demoReadOnly/);
 });

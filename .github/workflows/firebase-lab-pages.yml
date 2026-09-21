@@ -1,0 +1,103 @@
+name: Firebase Lab Pages
+
+# Manual only. Firebase Lab mode must never become the implicit default for a
+# normal pull request: the shared Pages test site stays in Frontend Demo mode
+# (synthetic, browser-local, cloud-free) unless an operator explicitly asks for
+# a lab artifact here.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type FIREBASE-LAB:vista-teaching-lab to confirm the lab build
+        required: true
+        type: string
+      publish_to_pages:
+        description: Optional. Type PUBLISH-LAB-TO-PAGES to also publish the lab artifact to the shared Pages URL.
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: firebase-lab-pages
+  cancel-in-progress: false
+
+jobs:
+  build_lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: firebase-lab
+    steps:
+      - name: Verify lab confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRMATION" = "FIREBASE-LAB:vista-teaching-lab"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build static site
+        run: node tools/build-static.js
+      - name: Stage Firebase Lab artifact
+        env:
+          # Public Firebase Web SDK configuration for vista-teaching-lab only.
+          # Never a service-account or Admin credential.
+          UCVM_LAB_FIREBASE_WEB_CONFIG: ${{ secrets.LAB_FIREBASE_WEB_CONFIG }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          node tools/stage-github-pages.js \
+            --directory .deploy-static \
+            --mode lab \
+            --pr 0 \
+            --head-sha "$HEAD_SHA" \
+            --build-sha "$HEAD_SHA"
+          node --test tests/firebase-lab-mode.test.js
+      - name: Verify no synthetic runtime or credential in the lab artifact
+        run: |
+          set -euo pipefail
+          test ! -f .deploy-static/pages-demo-runtime.js
+          test ! -f .deploy-static/pages-demo-data.js
+          test -f .deploy-static/firebase-lab-runtime.js
+          test -f .deploy-static/doe-policy-firebase-lab.js
+          if grep -rIl -e 'BEGIN PRIVATE KEY' -e 'service_account' -e '"type": *"service_account"' .deploy-static; then
+            echo "Admin or service-account material found in the browser artifact." >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: firebase-lab-${{ github.sha }}
+          path: .deploy-static
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: true
+
+  publish_lab_pages:
+    needs: build_lab
+    if: ${{ inputs.publish_to_pages == 'PUBLISH-LAB-TO-PAGES' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: firebase-lab-${{ github.sha }}
+          path: .deploy-static
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: .deploy-static
+      - id: deployment
+        uses: actions/deploy-pages@v5
