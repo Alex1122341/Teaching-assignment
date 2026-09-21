@@ -76,7 +76,7 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
     for(const [key,patch] of Object.entries(approvalPatches))merged[key]={...(approvals[key]||{}),...patch};
     return{
       publicPatch,approvalPatches,allRequiredApproved:requiredApproved(workflow,merged),
-      audit:{requestId:text(request.id||workflow.requestId),event:`office_${decision}`,office,revision:Number(request.revision||workflow.revision)||1,message:reason,changedBy:text(actor.uid),changedByName:text(actor.name),changedAt:now}
+      audit:{requestId:text(request.id||workflow.requestId),requesterUid:text(request.requesterUid),sessionId:text(request.sessionId),event:`office_${decision}`,office,revision:Number(request.revision||workflow.revision)||1,message:reason,changedBy:text(actor.uid),changedByName:text(actor.name),changedAt:now}
     };
   }
 
@@ -87,7 +87,7 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
     return{
       publicPatch:{status:'withdrawn',editableFields:[],requesterMessage:'',withdrawnBy:text(actor.uid),withdrawnAt:now,updatedAt:now},
       approvalPatches,
-      audit:{requestId:text(request.id),event:'request_withdrawn',revision:Number(request.revision)||1,changedBy:text(actor.uid),changedByName:text(actor.name),changedAt:now}
+      audit:{requestId:text(request.id),requesterUid:text(request.requesterUid),sessionId:text(request.sessionId),event:'request_withdrawn',revision:Number(request.revision)||1,changedBy:text(actor.uid),changedByName:text(actor.name),changedAt:now}
     };
   }
 
@@ -138,7 +138,7 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
       publicPatch:{patchPublic,...(hasFacultyEdit?{proposedFacultyName:facultyDisplayName}:{}),status:'pending',revision:revisionPlan.revision,editableFields:[],requesterMessage:'',updatedAt:now},
       workflow:{...workflow,revision:revisionPlan.revision,requiredOffices:[...route.requiredOffices],hasFacultyChange:route.hasFacultyChange,finalType:route.finalType,scopes:copy(route.scopes),scopeSignatures:copy(route.scopeSignatures),updatedAt:now},
       approvals:nextApprovals,
-      audit:{requestId:text(request.id||workflow.requestId),event:'request_resubmitted',revision:revisionPlan.revision,changedFields,changedAt:now}
+      audit:{requestId:text(request.id||workflow.requestId),requesterUid:text(request.requesterUid),sessionId:text(request.sessionId),event:'request_resubmitted',revision:revisionPlan.revision,changedFields,changedAt:now}
     };
   }
 
@@ -203,7 +203,7 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
       publicPatch:{patchPublic:nextPatch,...(hasFacultyEdit?{proposedFacultyName:facultyDisplayName,...(reason===undefined?{}:{reason:normalizeMessage(reason)})}:{}),status:'pending',revision,editableFields:[],requesterMessage:'',updatedAt:now},
       workflow:{requestId:text(request.id),revision,requiredOffices:[...(nextRoute.requiredOffices||[])],hasFacultyChange:nextRoute.hasFacultyChange,finalType:nextRoute.finalType,scopes:copy(nextRoute.scopes),scopeSignatures:copy(nextRoute.scopeSignatures),updatedAt:now},
       approvalWrites,cancelOffices,
-      audit:{requestId:text(request.id),event:'request_resubmitted',revision,changedFields:[...new Set(changedFields)],changedAt:now}
+      audit:{requestId:text(request.id),requesterUid:text(request.requesterUid),sessionId:text(request.sessionId),event:'request_resubmitted',revision,changedFields:[...new Set(changedFields)],changedAt:now}
     };
   }
 
