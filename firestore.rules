@@ -476,8 +476,11 @@ service cloud.firestore {
   }
   match /calendar_sessions/{id} {
    allow read: if ready();
-   allow create: if calendarHasNoRosterData() && (officeCalendarCreate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id) || generalCalendarRepair(id));
-   allow update: if calendarHasNoRosterData() && (officeCalendarUpdate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id) || generalCalendarRepair(id));
+   // General/Owner repair is checked first so a direct sanitized projection repair
+   // short-circuits before the paired-write and maintenance branches spend the
+   // Firestore rules expression budget. The authorized cases are unchanged.
+   allow create: if calendarHasNoRosterData() && (generalCalendarRepair(id) || officeCalendarCreate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id));
+   allow update: if calendarHasNoRosterData() && (generalCalendarRepair(id) || officeCalendarUpdate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id));
    allow delete: if (teachingWritesOpen() && admin() && !existsAfter(sessionPath(id))) || maintenanceCalendarDelete(id) || generalCalendarDelete(id);
   }
   match /sessions/{id} {
