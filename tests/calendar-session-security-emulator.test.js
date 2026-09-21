@@ -20,6 +20,8 @@ before(async()=>{
    await db.doc(`change_request_private/${uid}-private`).set({requesterUid:uid,assignmentChange:{ucid:'f1'}});
    await db.doc(`faculty_groups/${uid}-group`).set({ownerUid:uid,memberUids:[uid,'faculty']});
    for(const collection of ['session_change_log','faculty_change_log','afc_audit','account_audit','audit_events'])await db.doc(`${collection}/${uid}-legacy`).set({changedBy:uid,requesterUid:uid,reportToUid:uid,privateFacultyId:'f1'});
+   await db.doc(`session_change_log/${uid}-safe`).set({action:'batch_update',sessionId:'s1',course:'505',date:'2027-03-22',topic:'Suturing',instructors:[],before:{topic:'Old'},after:{topic:'Suturing'},changes:[{field:'topic',before:'Old',after:'Suturing'}],changedBy:uid,changedByName:uid.toUpperCase(),changedByEmail:'',changedAt:new Date('2026-09-18T12:00:00Z')});
+   await db.doc(`change_request_audit/${uid}-safe`).set({requestId:'r-'+uid,event:'office_approved',revision:1,status:'pending',office:uid,message:'',changedFields:['topic'],changedBy:uid,changedByName:uid.toUpperCase(),changedAt:new Date('2026-09-18T12:00:00Z')});
   }
  });
 });
@@ -31,6 +33,15 @@ check('ADC and LAB can get and query sanitized calendar but not private source s
 check('office accounts are denied private data even when legacy actor or requester IDs match',async()=>{
  const {assertFails}=require('@firebase/rules-unit-testing');
  for(const uid of ['adc','lab']){const db=env.authenticatedContext(uid).firestore();for(const path of ['faculty/f1','settings/faculty_swap_index','settings/faculty_swap_map','settings/faculty_index','public_schedule/ccc_events',`faculty_groups/${uid}-group`,`afc_requests/${uid}-legacy`,`change_requests/${uid}-legacy`,`change_request_private/${uid}-private`,...['session_change_log','faculty_change_log','afc_audit','account_audit','audit_events'].map(c=>`${c}/${uid}-legacy`)])await assertFails(db.doc(path).get());}
+});
+check('ADC and LAB can read only their sanitized personal session and workflow history',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
+ for(const uid of ['adc','lab']){
+  const db=env.authenticatedContext(uid).firestore();
+  await assertSucceeds(db.doc(`session_change_log/${uid}-safe`).get());
+  await assertSucceeds(db.doc(`change_request_audit/${uid}-safe`).get());
+  await assertFails(db.doc(`session_change_log/${uid}-legacy`).get());
+ }
 });
 check('ADFA and Faculty keep their existing reads',async()=>{
  const {assertSucceeds}=require('@firebase/rules-unit-testing');for(const uid of ['adfa','owner','faculty']){const db=env.authenticatedContext(uid).firestore();await assertSucceeds(db.doc('sessions/s1').get());await assertSucceeds(db.doc('faculty/f1').get());}
