@@ -489,15 +489,15 @@ function publicSessionMap(session) {
   };
 }
 
-function buildRequests(sessions) {
+function buildRequests(sessions, calendar) {
   const random = mulberry32(4242);
   const docs = [];
   const targets = sessions.filter(s => s.data.type === 'LAB').slice(0, 3);
 
   const specs = [
-    {id: 'req-001', status: 'pending', offices: ['lab'], scopes: {lab: ['topic']}, fields: ['topic'], revision: 1, lab: true},
-    {id: 'req-002', status: 'update_required', offices: ['adc', 'lab'], scopes: {adc: ['date'], lab: ['topic']}, fields: ['date', 'topic'], revision: 2, lab: true},
-    {id: 'req-003', status: 'approved', offices: ['adc', 'lab', 'adfa'], scopes: {adc: ['date'], lab: ['topic'], adfa: ['assignments']}, fields: ['date', 'topic', 'assignments'], revision: 1, lab: true}
+    {id: 'req-001', status: 'pending', offices: ['lab'], scopes: {lab: ['topic']}, fields: ['topic'], editableFields: [], revision: 1, lab: true},
+    {id: 'req-002', status: 'update_required', offices: ['adc', 'lab'], scopes: {adc: ['date'], lab: ['topic']}, fields: ['date', 'topic'], editableFields: ['date'], approvalStatus: {adc: 'push_back', lab: 'pending'}, revision: 2, lab: true},
+    {id: 'req-003', status: 'approved', offices: ['adc', 'lab', 'adfa'], scopes: {adc: ['date'], lab: ['topic'], adfa: ['assignments', 'instructor']}, fields: ['date', 'topic', 'assignments', 'instructor'], editableFields: [], revision: 1, lab: true}
   ];
 
   specs.forEach((spec, index) => {
@@ -527,8 +527,8 @@ function buildRequests(sessions) {
         patchPublic: patch,
         currentFacultyName: d.instructor,
         proposedFacultyName: spec.scopes.adfa ? 'Mira Okonkwo' : '',
-        editableFields: spec.fields,
-        requesterMessage: 'Requested change for the rotation.',
+        editableFields: spec.editableFields || [],
+        requesterMessage: spec.status === 'update_required' ? 'Please revise the rotation date.' : '',
         reason: spec.scopes.adfa ? 'Coverage conflict with clinical duty.' : '',
         course: d.course,
         date: d.date,
@@ -564,20 +564,22 @@ function buildRequests(sessions) {
     });
 
     for (const office of spec.offices) {
-      const approved = spec.status === 'approved';
+      const status = spec.approvalStatus?.[office] || (spec.status === 'approved' ? 'approved' : 'pending');
+      const decided = ['approved', 'push_back', 'rejected'].includes(status);
       docs.push({
         path: `change_request_approvals/${spec.id}_${office}`,
         data: {
+          id: `${spec.id}_${office}`,
           requestId: spec.id,
           office,
           revision: spec.revision,
           fields: scopes[office],
           scopeSignature: signatures[office],
-          status: approved ? 'approved' : 'pending',
-          decidedBy: approved ? `uid-${office === 'adfa' ? 'adfa-regular' : office + '-1'}` : '',
-          decidedByName: approved ? `${office.toUpperCase()} Reviewer` : '',
-          decidedAt: approved ? stamp(-150) : null,
-          message: '',
+          status,
+          decidedBy: decided ? `uid-${office === 'adfa' ? 'adfa-regular' : office + '-1'}` : '',
+          decidedByName: decided ? `${office.toUpperCase()} Reviewer` : '',
+          decidedAt: decided ? stamp(-150) : null,
+          pushBackReason: status === 'push_back' ? 'Please revise the rotation date.' : '',
           updatedAt: stamp(-150)
         }
       });
@@ -614,6 +616,24 @@ function buildRequests(sessions) {
       }
     });
 
+    if (spec.status === 'update_required') {
+      docs.push({
+        path: `change_request_audit/${spec.id}_adc_push_back`,
+        data: {
+          requestId: spec.id,
+          event: 'office_push_back',
+          revision: spec.revision,
+          status: 'update_required',
+          office: 'adc',
+          message: 'Please revise the rotation date.',
+          changedFields: ['date'],
+          changedBy: 'uid-adc-1',
+          changedByName: 'ADC Coordinator',
+          changedAt: stamp(-150)
+        }
+      });
+    }
+
     if (spec.status === 'approved') {
       docs.push({
         path: `change_request_audit/${spec.id}_applied`,
@@ -633,19 +653,53 @@ function buildRequests(sessions) {
     }
   });
 
+    if (spec.status === 'approved') {
+      const lead = FACULTY_SEED[0], support = FACULTY_SEED[2];
+      const hours = 2;
+      const assignments = [
+        {ucid: lead.id, facultyId: lead.id, name: fullName(lead), role: 'Lab Lead', topic: patch.topic, creditedHours: hours, doeRate: DEFAULT_RATE['Lab Lead'], doeCredit: credit(hours, DEFAULT_RATE['Lab Lead']), source: 'Seed approved request'},
+        {ucid: support.id, facultyId: support.id, name: fullName(support), role: 'Lab Support', topic: patch.topic, creditedHours: hours, doeRate: DEFAULT_RATE['Lab Support'], doeCredit: credit(hours, DEFAULT_RATE['Lab Support']), source: 'Seed approved request'}
+      ];
+      Object.assign(d, {
+        date: patch.date,
+        topic: patch.topic,
+        instructor: patch.instructor,
+        instructorNames: assignments.map(row => row.name),
+        facultyIds: assignments.map(row => row.facultyId),
+        assignments,
+        updatedBy: 'uid-adfa-regular',
+        updatedByName: 'ADFA Regular',
+        updatedAt: stamp(-100)
+      });
+      const sessionId = session.path.replace('sessions/', '');
+      const calendarRow = calendar.find(row => row.path === `calendar_sessions/${sessionId}`);
+      if (!calendarRow) throw new Error(`Missing calendar projection for approved request session ${sessionId}`);
+      Object.assign(calendarRow.data, {
+        date: d.date,
+        topic: d.topic,
+        instructor: d.instructor,
+        instructorNames: [...d.instructorNames]
+      });
+    }
+  });
+
   return docs;
 }
 
-function buildNotifications(sessions) {
-  const session = sessions.find(s => s.data.type === 'LAB');
+function buildNotifications(sessions, requests) {
+  const request = requests.find(row => row.path === 'change_requests/req-001');
+  if (!request) throw new Error('Missing req-001 fixture for workflow notification.');
+  const sessionId = request.data.sessionId;
+  const session = sessions.find(row => row.path === `sessions/${sessionId}`);
+  if (!session) throw new Error(`Missing canonical session ${sessionId} for workflow notification.`);
   const d = session.data;
   return [{
     path: 'workflow_notifications/notif-001',
     data: {
       recipientOffice: 'lab',
       kind: 'request_assigned',
-      requestId: 'req-001',
-      sessionId: session.path.replace('sessions/', ''),
+      requestId: request.path.replace('change_requests/', ''),
+      sessionId,
       course: d.course,
       date: d.date,
       start: d.start,
@@ -953,10 +1007,12 @@ function buildDataset() {
   const users = buildUsers();
   const faculty = buildFaculty();
   const {sessions, calendar} = buildSessionsAndCalendar();
+  const requests = buildRequests(sessions, calendar);
+  // Derived settings and workflow notifications are built only after approved
+  // request fixtures have been applied to the canonical sessions/calendar.
   const settings = buildSettings(sessions, faculty);
   const {groups: labGroups, rosters: labRosters} = buildLabGroupsAndRosters();
-  const requests = buildRequests(sessions);
-  const notifications = buildNotifications(sessions);
+  const notifications = buildNotifications(sessions, requests);
   const afc = buildAfc();
   const audit = buildAuditLogs(sessions);
   const bulkImport = buildBulkImport();
