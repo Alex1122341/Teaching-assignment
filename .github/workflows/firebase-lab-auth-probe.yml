@@ -1,5 +1,5 @@
 name: Firebase Lab Auth Probe
-# Retry after Firebase Auth missing-config detection fix
+# Retry with service-account project quota and Firebase Admin v14 fix
 
 on:
   push:
