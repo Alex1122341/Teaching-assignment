@@ -1139,9 +1139,9 @@
     return facultyDirectory.map(f=>`<label class="selection-faculty-option"><input type="checkbox" data-selection-faculty-option value="${escapeHtml(f.__id)}" ${selected.has(String(f.__id))?'checked':''}><span><strong>${escapeHtml(swapFacultyName(f))}</strong><small>${window.UCVM_DOE_API?.isConfigured?.()?'DOE server preview on save':'DOE recalculation queued after save'}</small></span></label>`).join('');
   }
   function updateSelectionFacultyPicker(picker){
-    const checked=[...picker.querySelectorAll('[data-selection-faculty-option]:checked')],summary=picker.querySelector('summary'),chips=picker.querySelector('.selection-faculty-chips');
-    summary.textContent=checked.length?`${checked.length} faculty selected`:'Choose faculty';
-    chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value));return `<span>${escapeHtml(swapFacultyName(f))}<small>${window.UCVM_DOE_API?.isConfigured?.()?'DOE server preview on save':'DOE recalculation queued after save'}</small></span>`}).join('');
+    const checked=[...picker.querySelectorAll('[data-selection-faculty-option]:checked')],summary=picker.querySelector('summary'),chips=picker.nextElementSibling?.classList?.contains('selection-faculty-chips')?picker.nextElementSibling:null;
+    if(summary)summary.textContent=checked.length?`${checked.length} faculty selected`:'Choose faculty';
+    if(chips)chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value));return `<span>${escapeHtml(swapFacultyName(f))}<small>${window.UCVM_DOE_API?.isConfigured?.()?'DOE server preview on save':'DOE recalculation queued after save'}</small></span>`}).join('');
   }
   function selectionLabGroupOptions(session){
     const selected=new Set((session?.labGroupIds||[]).map(String)),course=String(session?.course||'');
@@ -1149,9 +1149,9 @@
     return groups.map(group=>{const id=String(group.groupId||''),code=String(group.groupCode||id),count=(labRosterDirectory.get(id)?.studentIds||[]).length;return `<label class="selection-faculty-option"><input type="checkbox" data-selection-lab-group-option value="${escapeHtml(id)}" ${selected.has(id)?'checked':''}><span><strong>Group ${escapeHtml(code)}</strong><small>${count} student${count===1?'':'s'} in roster</small></span></label>`}).join('');
   }
   function updateSelectionLabGroupPicker(picker){
-    const checked=[...picker.querySelectorAll('[data-selection-lab-group-option]:checked')],summary=picker.querySelector('summary'),chips=picker.querySelector('.selection-faculty-chips');
-    summary.textContent=checked.length?`${checked.length} LAB group${checked.length===1?'':'s'} selected`:'Choose LAB group';
-    chips.innerHTML=checked.map(input=>{const group=labGroupDirectory.get(String(input.value));return `<span>Group ${escapeHtml(group?.groupCode||input.value)}</span>`}).join('');
+    const checked=[...picker.querySelectorAll('[data-selection-lab-group-option]:checked')],summary=picker.querySelector('summary'),chips=picker.nextElementSibling?.classList?.contains('selection-faculty-chips')?picker.nextElementSibling:null;
+    if(summary)summary.textContent=checked.length?`${checked.length} LAB group${checked.length===1?'':'s'} selected`:'Choose LAB group';
+    if(chips)chips.innerHTML=checked.map(input=>{const group=labGroupDirectory.get(String(input.value));return `<span>Group ${escapeHtml(group?.groupCode||input.value)}</span>`}).join('');
   }
   function selectionRole(){if(scopedWork?.stage)return scopedWork.stage;const role=UCVM.role(currentUser?.role);return role==='developer'?'developer':hasOfficeAccess('adc')?'adc':role;}
   function selectionCapabilities(){const role=selectionRole();return role==='developer'?capabilities():capabilities(role);}
