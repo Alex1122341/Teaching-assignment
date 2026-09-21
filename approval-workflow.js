@@ -367,10 +367,11 @@
   return rows+faculty;
  }
 function routedOfficeActionHtml(r,currentOffice){
-  const own=r?._approvals?.[currentOffice];if(!own||own.status!=='pending'||r.status!=='pending')return'';
-  // Approvals are strictly serial: ADC -> LAB -> ADFA. An office whose earlier
-  // required offices are still pending sees a waiting note instead of Approve.
-  // Push Back and Reject stay available so an office can return bad work.
+  const own=r?._approvals?.[currentOffice];if(!own||own.status!=='pending'||!['pending','update_required'].includes(r.status))return'';
+  // ADC and LAB may approve their independent public scopes in parallel. ADFA is
+  // the dependent/final approval and waits for every required ADC/LAB decision.
+  // A still-pending office may also act while another office has pushed fields
+  // back to the requester; Push Back and Reject remain available in that state.
   const readiness=lifecycle.decisionReadiness({workflow:r._workflow||{},approvals:r._approvals||{},office:currentOffice});
   const label=isDeveloper()||approvalOffices().length>1?`<strong>${esc(currentOffice.toUpperCase())}</strong> · `:'';
   const waiting=readiness.allowed?'':`<div class="workflow-note"><strong>${esc(currentOffice.toUpperCase())}</strong> · Waiting for ${esc(readiness.waitingFor.map(name=>name.toUpperCase()).join(' then '))} before this office can approve.</div>`;
