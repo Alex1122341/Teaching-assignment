@@ -93,25 +93,49 @@ function buildProfile(options,{actor=actorFromEnv(),now=new Date()}={}){
 function loadFirebaseAdmin(){
   const root=path.resolve(__dirname,'..');
   const requireFromServer=createRequire(path.join(root,'server','package.json'));
-  try{return requireFromServer('firebase-admin')}
-  catch(error){
-    error.message=`firebase-admin is required for lab bootstrap. Run "npm --prefix server ci". ${error.message}`;
+  try{
+    return{
+      app:requireFromServer('firebase-admin/app'),
+      auth:requireFromServer('firebase-admin/auth'),
+      firestore:requireFromServer('firebase-admin/firestore')
+    };
+  }catch(error){
+    error.message=`firebase-admin is required for lab bootstrap. Run "npm --prefix server install --no-audit --no-fund". ${error.message}`;
     throw error;
   }
+}
+
+function createAdminClients(serviceAccount,{adminModule}={}){
+  const admin=adminModule||loadFirebaseAdmin();
+  if(admin?.app&&admin?.auth&&admin?.firestore&&typeof admin.app.getApps==='function'){
+    const apps=admin.app.getApps();
+    const app=apps.length?apps[0]:admin.app.initializeApp({
+      projectId:LAB_PROJECT_ID,
+      credential:admin.app.cert(serviceAccount)
+    });
+    return{
+      admin,
+      auth:admin.auth.getAuth(app),
+      firestore:admin.firestore.getFirestore(app),
+      FieldValue:admin.firestore.FieldValue
+    };
+  }
+  if(Array.isArray(admin?.apps)&&typeof admin.initializeApp==='function'){
+    if(!admin.apps.length){
+      admin.initializeApp({
+        projectId:LAB_PROJECT_ID,
+        credential:admin.credential.cert(serviceAccount)
+      });
+    }
+    return{admin,auth:admin.auth(),firestore:admin.firestore(),FieldValue:admin.firestore.FieldValue};
+  }
+  throw Error('Firebase Admin SDK shape is unsupported.');
 }
 
 async function execute(options,{env=process.env,adminModule}={}){
   const normalized=validateOptions(options,{projectId:env.FIREBASE_PROJECT_ID});
   const serviceAccount=parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  const admin=adminModule||loadFirebaseAdmin();
-  if(!admin.apps.length){
-    admin.initializeApp({
-      projectId:LAB_PROJECT_ID,
-      credential:admin.credential.cert(serviceAccount)
-    });
-  }
-  const auth=admin.auth();
-  const firestore=admin.firestore();
+  const {auth,firestore,FieldValue}=createAdminClients(serviceAccount,{adminModule});
   const actor=actorFromEnv(env);
   let user;
   let createdAuth=false;
@@ -127,7 +151,7 @@ async function execute(options,{env=process.env,adminModule}={}){
     const ref=firestore.collection('users').doc(user.uid);
     const existing=await ref.get();
     const profile=buildProfile(normalized,{actor,now:new Date()});
-    const remove=admin.firestore.FieldValue.delete();
+    const remove=FieldValue.delete();
     if(!FACULTY_ROLES.has(normalized.role)){
       profile.facultyId=remove;
       profile.facultyRoles=remove;
@@ -155,4 +179,4 @@ if(require.main===module){
   main().catch(error=>{console.error(`Firebase lab bootstrap failed: ${error.message}`);process.exit(1);});
 }
 
-module.exports={LAB_PROJECT_ID,ROLES,FACULTY_ROLES,OFFICE_ROLES,parseArgs,expectedConfirmation,validateOptions,parseServiceAccount,actorFromEnv,buildProfile,execute,main};
+module.exports={LAB_PROJECT_ID,ROLES,FACULTY_ROLES,OFFICE_ROLES,parseArgs,expectedConfirmation,validateOptions,parseServiceAccount,actorFromEnv,buildProfile,loadFirebaseAdmin,createAdminClients,execute,main};
