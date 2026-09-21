@@ -31,18 +31,24 @@ jobs:
 
       - name: Inspect Firebase Admin SDK shape
         run: |
+          npm --prefix server ls firebase-admin --depth=0 || true
           node - <<'NODE'
           const path=require('node:path');
           const {createRequire}=require('node:module');
           const req=createRequire(path.resolve('server/package.json'));
-          const pkg=req('firebase-admin/package.json');
           const admin=req('firebase-admin');
+          let appKeys=[],authKeys=[],firestoreKeys=[];
+          try{appKeys=Object.keys(req('firebase-admin/app')||{}).sort()}catch(error){appKeys=['ERROR:'+error.code]}
+          try{authKeys=Object.keys(req('firebase-admin/auth')||{}).sort()}catch(error){authKeys=['ERROR:'+error.code]}
+          try{firestoreKeys=Object.keys(req('firebase-admin/firestore')||{}).sort()}catch(error){firestoreKeys=['ERROR:'+error.code]}
           console.log(JSON.stringify({
-            version:pkg.version,
             exportKeys:Object.keys(admin||{}).sort(),
             hasCredential:Boolean(admin&&admin.credential),
             hasDefault:Boolean(admin&&admin.default),
-            defaultExportKeys:admin&&admin.default?Object.keys(admin.default).sort():[]
+            defaultExportKeys:admin&&admin.default?Object.keys(admin.default).sort():[],
+            appKeys,
+            authKeys,
+            firestoreKeys
           },null,2));
           NODE
 
