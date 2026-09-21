@@ -20,7 +20,7 @@ test('retired faculty assets are absent from disk, manifest and all runtime link
 
 test('source runtime allowlist contains the complete API-authoritative dependency graph and no stale visible names',()=>{
  const manifest=JSON.parse(read('tools/static-assets.json'));
- assert.equal(manifest.length,67);
+ assert.equal(manifest.length,69);
  for(const name of ['approval-scheduling.js','approval-routing.js','approval-state.js','approval-office-view.js','approval-lifecycle.js','approval-finalizer.js','afc-form-values.js','afc-form-state.js','afc-timetable-panel.js','audit-details.js','derived-index-health.js','firebase-config.js','doe-api-client.js','doe-worksheet-view.js','doe-rulebook-admin.js','doe-policy-admin.js','doe-policy-admin.css','faculty-account-planner.js','faculty-doe.js','faculty-swap-handoff.js','faculty-swap-safe.js','index-maintenance.js','scheduling-core.js','university-closures.js','timetable-selection.js','workflow-notifications.js','user-management.css'])assert.ok(manifest.includes(name),name);
  for(const name of ['doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js'])assert.equal(manifest.includes(name),false,name);
  const runtime=manifest.filter(name=>/\.(html|js)$/.test(name)).map(read).join('\n');
@@ -42,7 +42,7 @@ test('scheduling core loads before approval bootstrap and timetable consumers',(
 
 test('Spark AFC client and its PDF template remain deployable',()=>{
  const manifest=JSON.parse(read('tools/static-assets.json'));
- for(const name of ['afc-actions.js','afc-pdf-browser.js','afc-timetable-panel.js','absence-from-campus-app.pdf'])assert.ok(manifest.includes(name),name);
+ for(const name of ['afc-actions.js','afc-pdf-browser.js','afc-timetable-panel.js','absence-from-campus-app.pdf','absence-from-campus-app-v2.pdf','absence-from-campus-terms.pdf'])assert.ok(manifest.includes(name),name);
 });
 
 test('undeployed callable implementation and completed migration are removed',()=>{
@@ -70,7 +70,7 @@ test('approval routing and state engines load before timetable workflow consumer
 test('DOE API runtime deploys and loads before Faculty and Timetable consumers without browser policy engine/storage',()=>{
  const manifest=JSON.parse(read('tools/static-assets.json'));
  const deployable=['doe-api-client.js','doe-worksheet-view.js','doe-rulebook-admin.js','doe-policy-admin.js','doe-policy-admin.css'];
- assert.equal(manifest.length,67);
+ assert.equal(manifest.length,69);
  for(const name of deployable)assert.ok(manifest.includes(name),name);
  for(const name of ['doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js'])assert.equal(manifest.includes(name),false,name);
 
