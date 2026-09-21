@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {createProductionServices}=require('../src/server.js');
+const {createProductionServices,createProductionDependencies}=require('../src/server.js');
 
 function fakeDb(){return{collection(){return{where(){return{get:async()=>({docs:[]})}},doc(){return{get:async()=>({exists:false}),set:async()=>{}}}}}}}
 
@@ -23,6 +23,32 @@ test('production wiring exposes server-side DOE policy administration service',(
   assert.equal(typeof services.policyAdminService.runImpactPreview,'function');
   assert.equal(typeof services.policyAdminService.publish,'function');
   assert.equal(typeof services.policyAdminService.previewRecalculate,'function');
+});
+
+
+test('production dependencies support Firebase Admin v14 modular exports',()=>{
+  const appObject={name:'server-app'};
+  const authClient={verifyIdToken:async()=>({uid:'u1'})};
+  const firestoreClient=fakeDb();
+  const serviceAccount={project_id:'vista-teaching-lab',client_email:'svc@example.test',private_key:'PRIVATE'};
+  const adminModule={
+    app:{
+      getApps:()=>[],
+      cert:account=>({account}),
+      initializeApp:options=>{assert.equal(options.projectId,'vista-teaching-lab');assert.equal(options.credential.account,serviceAccount);return appObject}
+    },
+    auth:{getAuth:app=>{assert.equal(app,appObject);return authClient}},
+    firestore:{getFirestore:app=>{assert.equal(app,appObject);return firestoreClient}}
+  };
+  const deps=createProductionDependencies({
+    adminModule,
+    env:{
+      FIREBASE_PROJECT_ID:'vista-teaching-lab',
+      FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify(serviceAccount)
+    }
+  });
+  assert.equal(deps.firestore,firestoreClient);
+  assert.equal(typeof deps.authProvider.verify,'function');
 });
 
 test('Azure environment parsing keeps Firebase credentials server-side and parses CORS allowlist',()=>{
