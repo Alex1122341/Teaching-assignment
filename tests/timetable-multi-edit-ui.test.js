@@ -77,6 +77,15 @@ test('general selection never creates scoped Work Queue state and scoped editor 
  assert.match(scoped,/capabilities\(stage\)\.canEditInstructor/);
 });
 
+test('LAB scoped editor renders and reads the canonical LAB group assignment control',()=>{
+ const js=read('timetable.js');
+ assert.match(js,/data-selection-field="labGroups"/);
+ assert.match(js,/data-selection-lab-group-option/);
+ assert.match(js,/labGroupDirectory/);
+ assert.match(js,/labGroupIds=policy\.fields\.labGroups/);
+ assert.match(js,/selectionCapabilities\(\)\.canEditLabGroups\)await ensureLabWorkflowContext\(\)/);
+});
+
 test('scoped Work Queue editor derives field ownership from the persisted scoped stage',()=>{
  const js=read('timetable.js');
  assert.match(js,/function selectionRole\(\)\{if\(scopedWork\?\.stage\)return scopedWork\.stage;/);
