@@ -35,7 +35,7 @@ test('configured Auth patch preserves existing domains and enables password sign
   assert.deepEqual(patch.authorizedDomains,['alex1122341.github.io','example.com','localhost']);
 });
 
-test('Identity Toolkit client uses the lab config endpoint and update mask without leaking credentials',async()=>{
+test('Identity Toolkit client uses the lab config endpoint and update mask without leaking credentials or forcing a quota project',async()=>{
   const calls=[];
   const fetchImpl=async(url,options)=>{
     calls.push({url,options});
@@ -49,7 +49,7 @@ test('Identity Toolkit client uses the lab config endpoint and update mask witho
   assert.equal(calls[0].url,'https://identitytoolkit.googleapis.com/admin/v2/projects/vista-teaching-lab/config');
   assert.match(calls[1].url,/updateMask=signIn\.email,authorizedDomains$/);
   assert.equal(calls[0].options.headers.Authorization,'Bearer token-value');
-  assert.equal(calls[0].options.headers['X-Goog-User-Project'],'vista-teaching-lab');
+  assert.equal(calls[0].options.headers['X-Goog-User-Project'],undefined);
 });
 
 
