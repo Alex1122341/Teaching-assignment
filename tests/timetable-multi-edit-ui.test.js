@@ -172,3 +172,15 @@ test('timetable page contract loads private LAB workflow context only for LAB-ca
  assert.match(js,/ensureWorkflowContext:\(\)=>ensureLabWorkflowContext\(\)/);
  assert.match(js,/stage==='lab'\)await ensureLabWorkflowContext\(\)/);
 });
+
+
+test('ADC Add One keeps LAB Topic locked but successful FormData includes the TBD handoff placeholder',()=>{
+ const js=read('timetable.js');
+ const start=js.indexOf('async function openSessionForm');
+ const end=js.indexOf('\n  function input(',start);
+ const fn=js.slice(start,end);
+ assert.match(fn,/if\(isLab\)topicInput\.value='TBD'/);
+ assert.match(fn,/topicInput\.readOnly=isLab/);
+ assert.doesNotMatch(fn,/topicInput\.disabled=isLab/);
+ assert.match(fn,/new FormData\(e\.target\)/);
+});
