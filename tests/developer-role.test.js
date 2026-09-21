@@ -32,8 +32,9 @@ test('Developer is recognized by Firestore and authoritative DOE boundaries',()=
 
 test('Developer also passes ADC and LAB scoped Firestore helpers',()=>{
  const rules=read('firestore.rules');
- assert.match(rules,/function adc\(\)\{return ready\(\) && profile\(\)\.role in \['developer','adc'\]/);
- assert.match(rules,/function lab\(\)\{return ready\(\) && profile\(\)\.role in \['developer','lab'\]/);
+ assert.match(rules,/function adc\(\)\{return hasOfficeAccess\('adc'\);\}/);
+ assert.match(rules,/function lab\(\)\{return hasOfficeAccess\('lab'\);\}/);
+ assert.match(rules,/function hasOfficeAccess\(name\).*developer\(\).*name in officeAccess\(\)/);
 });
 
 
