@@ -269,9 +269,11 @@ service cloud.firestore {
   function officeCalendarCreate(id){return adc() && teachingWritesOpen() && pairedCalendarSource(id);}
   function officeCalendarUpdate(id){return teachingWritesOpen() && (adc() || lab()) && pairedCalendarSource(id);}
   function adminCalendarWrite(id){return teachingWritesOpen() && admin() && pairedCalendarSource(id);}
-  function officeSessionAuditCreate(){return (adc() || lab()) && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time
-   && request.resource.data.keys().hasOnly(['action','override','requestId','sessionId','course','date','topic','instructors','changes','changedBy','changedByName','changedByEmail','changedAt'])
-   && request.resource.data.instructors is list && request.resource.data.instructors.size() == 0 && request.resource.data.changes is list;}
+  function officeSessionAuditCreate(){let d=request.resource.data;return (adc() || lab()) && d.changedBy == request.auth.uid && d.changedAt == request.time
+   && d.keys().hasOnly(['action','override','requestId','sessionId','course','date','topic','instructors','before','after','rowNumber','changes','changedBy','changedByName','changedByEmail','changedAt'])
+   && d.changes is list && (!d.keys().hasAny(['instructors']) || (d.instructors is list && d.instructors.size() == 0))
+   && (!d.keys().hasAny(['before']) || (d.before is map && !d.before.keys().hasAny(['studentIds','studentNames','roster','rosters'])))
+   && (!d.keys().hasAny(['after']) || (d.after is map && !d.after.keys().hasAny(['studentIds','studentNames','roster','rosters'])));}
   function privateReader(){return ready() && !restrictedOffice();}
   function validOfficeIdentity(d){return !(d.role in ['adc','lab','other_office']) || !d.keys().hasAny(['facultyId','facultyRoles']);}
   function facultyRole(r){return r in ['hicc','visc','faculty','editor','viewer'];}
