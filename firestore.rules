@@ -242,7 +242,7 @@ service cloud.firestore {
     && calendar.date == source.get('date','') && calendar.start == source.get('start','') && calendar.end == source.get('end','')
     && calendar.timeUnknown == source.get('timeUnknown',false) && calendar.type == source.get('type','') && calendar.topic == source.get('topic','')
     && calendar.room == source.get('room','') && calendar.instructor == source.get('instructor','')
-    && calendar.get('labGroupIds',[]) == source.get('labGroupIds',[]);
+    && calendarLabGroupIds(calendar) == calendarLabGroupIds(source);
   }
   function calendarMatchesCurrentSource(id){
    let source=get(sessionPath(id)).data;
@@ -253,7 +253,7 @@ service cloud.firestore {
     && calendar.date == source.get('date','') && calendar.start == source.get('start','') && calendar.end == source.get('end','')
     && calendar.timeUnknown == source.get('timeUnknown',false) && calendar.type == source.get('type','') && calendar.topic == source.get('topic','')
     && calendar.room == source.get('room','') && calendar.instructor == source.get('instructor','')
-    && calendar.get('labGroupIds',[]) == source.get('labGroupIds',[]);
+    && calendarLabGroupIds(calendar) == calendarLabGroupIds(source);
   }
   function maintenanceSessionWrite(id){return maintenanceOwner() && calendarMatchesSourceAfter(id);}
   function maintenanceSessionDelete(id){return maintenanceOwner() && !existsAfter(calendarPath(id));}
@@ -277,7 +277,7 @@ service cloud.firestore {
    let changed=request.resource.data.diff(resource.data).affectedKeys();
    return lab() && teachingWritesOpen() && resource.data.get('type','') == 'LAB' && request.resource.data.get('type','') == 'LAB'
     && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
-    && request.resource.data.get('labGroupIds',[]) is list && request.resource.data.get('labGroupIds',[]).size() <= 8
+    && calendarLabGroupIds(request.resource.data) is list && calendarLabGroupIds(request.resource.data).size() <= 8
     && changed.hasOnly(['topic','labGroupIds','updatedBy','updatedByName','updatedAt']) && calendarMatchesSourceAfter(id);
   }
   function pairedCalendarSource(id){let source=getAfter(sessionPath(id)).data;return source.updatedBy == request.auth.uid && source.updatedAt == request.time;}
