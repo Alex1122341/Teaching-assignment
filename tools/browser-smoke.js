@@ -840,6 +840,11 @@ async function verifyDemoScopedEditor({debugPort,origin,setupCdp}){
    for(const name of ['date','course','room'])if(!state[name].locked)throw Error(`LAB must not edit ${name}: `+JSON.stringify(state[name]));
    if(state.facultyPicker)throw Error('LAB must not receive the official Faculty picker');
    if(!state.facultyReadonly)throw Error('LAB must see Faculty as read-only context');
+   const savedTopic='Scoped LAB save smoke';
+   const save=await cdp.send('Runtime.evaluate',{expression:`(()=>{const row=document.querySelector('[data-selection-row]'),topic=row?.querySelector('[data-selection-field="topic"]'),button=document.getElementById('selection-save-btn');if(!row||!topic||!button)return null;topic.value=${JSON.stringify(savedTopic)};topic.dispatchEvent(new Event('input',{bubbles:true}));const id=row.dataset.sessionEditId;button.click();return{id}})()`,returnByValue:true});
+   if(save.exceptionDetails||!save.result?.value?.id)throw Error('LAB scoped save could not be submitted');
+   const id=save.result.value.id;
+   await waitForCondition(cdp,`(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},source=records['sessions/${id}'],calendar=records['calendar_sessions/${id}'];return source?.topic===${JSON.stringify(savedTopic)}&&calendar?.topic===${JSON.stringify(savedTopic)}&&!document.querySelector('[data-selection-row]')})()`,'LAB scoped Work Queue save persisted',12000);
   });
 
   // ADFA is faculty-assignment only. The demo dataset has no outstanding ADFA
@@ -860,6 +865,10 @@ async function verifyDemoScopedEditor({debugPort,origin,setupCdp}){
    if(!state.open)throw Error('ADFA scoped editor did not open');
    for(const name of ['date','course','topic','room'])if(!state[name].locked)throw Error(`ADFA must not edit ${name}: `+JSON.stringify(state[name]));
    if(!state.facultyPicker)throw Error('ADFA must receive the Faculty picker');
+   const save=await cdp.send('Runtime.evaluate',{expression:"(()=>{const row=document.querySelector('[data-selection-row]'),input=row?.querySelector('[data-selection-faculty-option]'),button=document.getElementById('selection-save-btn');if(!row||!input||!button)return null;input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}));const id=row.dataset.sessionEditId,facultyId=input.value;button.click();return{id,facultyId}})()",returnByValue:true});
+   if(save.exceptionDetails||!save.result?.value?.id)throw Error('ADFA scoped save could not be submitted');
+   const saved=save.result.value;
+   await waitForCondition(cdp,`(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},source=records['sessions/${saved.id}'];return Array.isArray(source?.assignments)&&source.assignments.length===1&&source.facultyIds?.includes(${JSON.stringify(saved.facultyId)})&&!document.querySelector('[data-selection-row]')})()`,'ADFA scoped Faculty save persisted',12000);
   });
  }finally{
   try{await setStoredDemoRole(setupCdp,'uid-developer')}catch(_){}
