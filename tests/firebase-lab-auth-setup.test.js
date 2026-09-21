@@ -52,6 +52,21 @@ test('Identity Toolkit client uses the lab config endpoint and update mask witho
   assert.equal(calls[0].options.headers['X-Goog-User-Project'],'vista-teaching-lab');
 });
 
+
+test('Firebase Admin v14 modular cert export can mint an access token',async()=>{
+  const calls=[];
+  const adminModule={
+    cert(serviceAccount){
+      calls.push(serviceAccount);
+      return{getAccessToken:async()=>({access_token:'lab-access-token'})};
+    }
+  };
+  const account={project_id:'vista-teaching-lab',client_email:'svc@example.test',private_key:'PRIVATE'};
+  const token=await tool.accessTokenFor(account,{adminModule});
+  assert.equal(token,'lab-access-token');
+  assert.deepEqual(calls,[account]);
+});
+
 test('Firebase Lab Auth Setup workflow is manual, lab-only and uses the protected Admin environment',()=>{
   const source=read('.github/workflows/firebase-lab-auth-setup.yml');
   assert.match(source,/workflow_dispatch:/);
