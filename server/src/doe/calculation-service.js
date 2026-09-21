@@ -8,7 +8,7 @@ const blockedFactKeys=new Set([
   'doeCredit','resultDoe','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId',
   'calculationId','policyVersionId','ruleId','ruleKey','parameters','ruleSnapshot'
 ]);
-const persistRoles=new Set(['owner','administrator','admin','adfa_general','adfa_regular']);
+const persistRoles=new Set(['developer','owner','administrator','admin','adfa_general','adfa_regular']);
 
 function cleanFacts(raw={}){
   const facts={};

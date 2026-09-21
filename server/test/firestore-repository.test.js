@@ -151,7 +151,7 @@ test('faculty worksheet source joins canonical assignments, evidence, target, an
     ['target-f1',{targetId:'target-f1',academicYear:'2027-28',facultyId:'f1',contractTeachingDoe:40,effectiveTargetDoe:40,source:'contract',policyVersionId:'active-v1'}]
   ]));
   db._stores.set('doe_calculation_records',new Map([
-    ['calc-session',{calculationId:'calc-session',academicYear:'2027-28',facultyId:'f1',policyVersionId:'active-v1',ruleId:'r-lec',ruleKey:'teaching.lecture.standard',category:'teaching',resultDoe:.6,calculationText:'2 hours × 0.30% = 0.60%',referenceSnapshot:{title:'UCVM Workload Guidelines',section:'6.2',table:'Table 1',page:3},inputsSnapshot:{hours:2},calculatedAt:'2027-01-10T10:00:00Z'}],
+    ['calc-session',{calculationId:'calc-session',academicYear:'2027-28',facultyId:'f1',policyVersionId:'active-v1',ruleId:'r-lec',ruleKey:'teaching.lecture.standard',category:'teaching',resultDoe:.6,calculationText:'2 hours × 0.30% = 0.60%',referenceSnapshot:{title:'UCVM Workload Guidelines',section:'6.2',table:'Table 1',page:3},factsSnapshot:{courseCode:'VTMD 301',teachingRole:'Lecture',creditedHours:2,privateNote:'do not expose'},inputsSnapshot:{hours:2},parameterSnapshot:{rate:.3},ruleSnapshot:{ruleId:'r-lec',ruleKey:'teaching.lecture.standard',name:'Lecture standard',category:'teaching',calculationMode:'per_hour',internalAdminNote:'do not expose'},trigger:'session_change',calculatedAt:'2027-01-10T10:00:00Z'}],
     ['calc-hicc',{calculationId:'calc-hicc',academicYear:'2027-28',facultyId:'f1',policyVersionId:'active-v1',ruleId:'r-hicc',ruleKey:'role.hicc.development',category:'role',resultDoe:12,calculationText:'6 units × 2.00% = 12.00%',referenceSnapshot:{title:'UCVM Workload Guidelines',section:'6.4',table:'Table 3',page:5},inputsSnapshot:{units:6},calculatedAt:'2027-01-11T10:00:00Z'}]
   ]));
   db._stores.set('doe_assignments',new Map([
@@ -169,7 +169,15 @@ test('faculty worksheet source joins canonical assignments, evidence, target, an
   assert.equal(source.lines.length,2);
   assert.deepEqual(source.lines.map(row=>row.ruleKey).sort(),['role.hicc.development','teaching.lecture.standard']);
   assert.equal(source.lines.find(row=>row.ruleKey==='role.hicc.development').reference.page,5);
-  assert.equal(source.lines.find(row=>row.ruleKey==='teaching.lecture.standard').calculationText,'2 hours × 0.30% = 0.60%');
+  const lectureLine=source.lines.find(row=>row.ruleKey==='teaching.lecture.standard');
+  assert.equal(lectureLine.calculationText,'2 hours × 0.30% = 0.60%');
+  assert.deepEqual(lectureLine.explanation.facts,{courseCode:'VTMD 301',teachingRole:'Lecture',creditedHours:2,assignmentId:'a1'});
+  assert.deepEqual(lectureLine.explanation.inputs,{hours:2});
+  assert.deepEqual(lectureLine.explanation.parameters,{rate:.3});
+  assert.deepEqual(lectureLine.explanation.rule,{ruleId:'r-lec',ruleKey:'teaching.lecture.standard',name:'Lecture standard',category:'teaching',calculationMode:'per_hour'});
+  assert.equal(lectureLine.explanation.trigger,'session_change');
+  assert.equal(Object.hasOwn(lectureLine.explanation.facts,'privateNote'),false);
+  assert.equal(Object.hasOwn(lectureLine.explanation.rule,'internalAdminNote'),false);
   assert.deepEqual(await repo.listFacultyIdsForDoe('2027-28'),['f1','f2']);
 });
 

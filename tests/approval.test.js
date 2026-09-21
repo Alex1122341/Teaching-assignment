@@ -188,7 +188,7 @@ test('routed approval collections have explicit privacy boundaries',()=>{
   assert.match(rules,/match \/change_request_approvals\/\{id\}/);
   assert.match(rules,/match \/change_request_private\/\{id\}/);
   assert.match(rules,/match \/change_request_audit\/\{id\}/);
-  assert.match(rules,/change_request_private[^]*allow read:\s*if\s+adfaApprover\(\)/);
+  assert.match(rules,/change_request_private[^]*allow read:\s*if\s+admin\(\)/);
   assert.match(rules,/change_request_workflow[^]*allow read:\s*if\s+officeWorkflowRead\(id\)/);
 });
 
@@ -394,6 +394,12 @@ test('routed final apply writes source, sanitized calendar, audit and applied re
  assert.match(s,/UCVM_APPROVAL_FINALIZER/);
 });
 
+test('faculty routed finalization reuses the pre-save plan after authoritative session save',()=>{
+ const s=source(),finalize=s.slice(s.indexOf('async function finalizeRoutedRequest'),s.indexOf('\n async function swapImpactHtml'));
+ assert.match(finalize,/applyPlan=preflight\?\.plan/);
+ assert.doesNotMatch(finalize,/planFacultySwap\(\{request:bundle\.request,source:bundle\.source/);
+});
+
 test('Faculty replacement resubmission uses the privacy-safe swap index and writes only an opaque private target',()=>{
  const s=source();
  assert.match(s,/faculty_swap_index/);
@@ -489,5 +495,25 @@ test('only ADFA view requests rich private context',()=>{
   assert.equal(api.canUsePrivateFacultyContext('adc'),false);
   assert.equal(api.canUsePrivateFacultyContext('lab'),false);
   assert.equal(api.canUsePrivateFacultyContext('adfa'),true);
+});
+})();
+
+
+(() => {
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
+
+test('Developer approval UI exposes ADC LAB and ADFA scopes without changing ordinary role routing',()=>{
+ const source=read('approval-workflow.js');
+ assert.match(source,/const isDeveloper=\(\)=>role==='developer'/);
+ assert.match(source,/approvalOffices=\(\)=>isDeveloper\(\)\?\['adc','lab','adfa'\]/);
+ assert.match(source,/routedOfficeActionHtml\(r,currentOffice\)/);
+ assert.match(source,/data-office-context/);
+ assert.match(source,/Developer · all approval queues/);
+ assert.match(source,/officeCaps\.officeForRole\(role\)/);
 });
 })();

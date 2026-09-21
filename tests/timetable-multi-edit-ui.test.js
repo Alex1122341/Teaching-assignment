@@ -59,12 +59,47 @@ test('office roles use explicit capability gates and ADC LAB read the sanitized 
  const js=read('timetable.js');
  assert.match(js,/['"]adc['"]/);
  assert.match(js,/['"]lab['"]/);
- assert.match(js,/UCVM_OFFICE_CAPABILITIES\.forRole/);
+ assert.match(js,/UCVM_OFFICE_CAPABILITIES\.forProfile/);
  assert.match(js,/CALENDAR_SESSION_COLLECTION\s*=\s*['"]calendar_sessions['"]/);
- assert.match(js,/function sessionCollection\(\)/);
+ assert.match(js,/function sessionCollection\(\)[\s\S]*other_office[\s\S]*CALENDAR_SESSION_COLLECTION/);
  assert.match(js,/bulk-add-session-btn[\s\S]*canAddSessions/);
  assert.match(js,/add-session-btn[\s\S]*canAddOneSession/);
  assert.match(js,/selection-controls[\s\S]*canSelectSessions/);
+});
+
+test('general selection never creates scoped Work Queue state and scoped editor does',()=>{
+ const js=read('timetable.js');
+ const general=js.slice(js.indexOf('async function startSessionSelection'),js.indexOf('function cancelSessionSelection'));
+ const scoped=js.slice(js.indexOf('async function openScopedEditor'),js.indexOf('function selectionFacultyOptions'));
+ assert.match(general,/scopedWork=null/);
+ assert.doesNotMatch(general,/sessionId:id|capabilities\(stage\)/);
+ assert.match(scoped,/scopedWork=\{sessionId:id,stage\}/);
+ assert.match(scoped,/capabilities\(stage\)\.canEditInstructor/);
+});
+
+test('LAB scoped editor renders and reads the canonical LAB group assignment control',()=>{
+ const js=read('timetable.js');
+ assert.match(js,/data-selection-field="labGroups"/);
+ assert.match(js,/data-selection-lab-group-option/);
+ assert.match(js,/labGroupDirectory/);
+ assert.match(js,/labGroupIds=policy\.fields\.labGroups/);
+ assert.match(js,/selectionCapabilities\(\)\.canEditLabGroups\)await ensureLabWorkflowContext\(\)/);
+});
+
+test('selection pickers render chips into their sibling containers',()=>{
+ const js=read('timetable.js');
+ const faculty=js.slice(js.indexOf('function updateSelectionFacultyPicker'),js.indexOf('function selectionLabGroupOptions'));
+ const lab=js.slice(js.indexOf('function updateSelectionLabGroupPicker'),js.indexOf('function selectionRole'));
+ assert.match(faculty,/nextElementSibling/);
+ assert.match(lab,/nextElementSibling/);
+ assert.doesNotMatch(faculty,/picker\.querySelector\('\.selection-faculty-chips'\)/);
+ assert.doesNotMatch(lab,/picker\.querySelector\('\.selection-faculty-chips'\)/);
+});
+
+test('scoped Work Queue editor derives field ownership from the persisted scoped stage',()=>{
+ const js=read('timetable.js');
+ assert.match(js,/function selectionRole\(\)\{if\(scopedWork\?\.stage\)return scopedWork\.stage;/);
+ assert.doesNotMatch(js,/function selectionRole\(\)[^\n]*activeScoped/);
 });
 
 test('selection save pairs source calendar and audit writes and uses resumable progress batches',()=>{
@@ -126,4 +161,26 @@ test('ADC multi-edit emits sanitized assignment recheck instead of opening ADFA 
 test('interactive timetable saves use the conservative paired-write row budget',()=>{
  const js=read('timetable.js');
  assert.match(js,/SESSION_SAVE_BATCH_ROWS\s*=\s*8/);
+});
+
+test('timetable page contract loads private LAB workflow context only for LAB-capable profiles',()=>{
+ const js=read('timetable.js');
+ assert.match(js,/db\.collection\('lab_groups'\)\.where\('active','==',true\)\.get\(\)/);
+ assert.match(js,/db\.collection\('lab_group_rosters'\)\.get\(\)/);
+ assert.match(js,/if\(!currentUser\|\|!hasOfficeAccess\('lab'\)\)/);
+ assert.match(js,/workflowContext,/);
+ assert.match(js,/ensureWorkflowContext:\(\)=>ensureLabWorkflowContext\(\)/);
+ assert.match(js,/stage==='lab'\)await ensureLabWorkflowContext\(\)/);
+});
+
+
+test('ADC Add One keeps LAB Topic locked but successful FormData includes the TBD handoff placeholder',()=>{
+ const js=read('timetable.js');
+ const start=js.indexOf('async function openSessionForm');
+ const end=js.indexOf('\n  function input(',start);
+ const fn=js.slice(start,end);
+ assert.match(fn,/if\(isLab\)topicInput\.value='TBD'/);
+ assert.match(fn,/topicInput\.readOnly=isLab/);
+ assert.doesNotMatch(fn,/topicInput\.disabled=isLab/);
+ assert.match(fn,/new FormData\(e\.target\)/);
 });

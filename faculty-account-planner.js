@@ -5,7 +5,7 @@
 })(typeof window!=='undefined'?window:null,function(){
  'use strict';
  const SUPPORTED=['Course Coordinator','HICC','VISC','Course Coordinator / HICC','Rotation / Week Lead','CCC','Trainee / Supervision','Special Project','Other'];
- const PRIVILEGED=new Set(['owner','administrator','other_office','adfa_general','adfa_regular','admin']);
+ const PRIVILEGED=new Set(['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin']);
  const text=value=>String(value??'').trim();
  const normalize=value=>text(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
  const number=value=>{if(value===null||value===undefined||value==='')return null;const parsed=Number(value);return Number.isFinite(parsed)?parsed:null};

@@ -199,3 +199,43 @@ test('preview IDs and row ordering are deterministic for a stable run input orde
  assert.deepEqual(result.rows.map(row=>row.facultyId),['f1','f2']);
  assert.ok(result.rows.every(row=>row.impactRowId.startsWith(result.impactRunId+'--faculty--')));
 });
+
+
+test('Impact Preview keeps missing current DOE unavailable instead of coercing it to zero',async()=>{
+ const {service}=make();
+ await service.validateDraft('ucvm-workload-2027-28-v2');
+ const result=await service.runImpactPreview('ucvm-workload-2027-28-v2',dataset({current1:null,current2:.9}));
+ const f1=result.rows.find(row=>row.facultyId==='f1');
+ assert.equal(f1.currentDoe,null);
+ assert.equal(f1.difference,null);
+ assert.equal(f1.impactStatus,'resolved_current_gap');
+ assert.equal(f1.currentUnavailableCount,1);
+ assert.equal(result.resolvedCurrentGapCount,1);
+});
+
+test('Impact Preview summarizes increases decreases unchanged rows and largest changes for admin review',async()=>{
+ const {service}=make();
+ await service.validateDraft('ucvm-workload-2027-28-v2');
+ const result=await service.runImpactPreview('ucvm-workload-2027-28-v2',dataset({current1:.5,current2:1.2}));
+ assert.equal(result.increaseCount,1);
+ assert.equal(result.decreaseCount,1);
+ assert.equal(result.unchangedCount,0);
+ assert.equal(result.newNeedsReviewCount,0);
+ assert.ok(Math.abs(result.largestIncreaseDoe-.1)<1e-12);
+ assert.ok(Math.abs(result.largestDecreaseDoe+.3)<1e-12);
+ assert.equal(result.rows.find(row=>row.facultyId==='f1').impactStatus,'increase');
+ assert.equal(result.rows.find(row=>row.facultyId==='f2').impactStatus,'decrease');
+});
+
+test('Impact Preview marks Draft calculation errors as Needs Review without inventing a Draft DOE',async()=>{
+ const {service}=make();
+ const source=dataset();
+ source.calculations[0].context={activityType:'LEC'};
+ await service.validateDraft('ucvm-workload-2027-28-v2');
+ const result=await service.runImpactPreview('ucvm-workload-2027-28-v2',source);
+ const f1=result.rows.find(row=>row.facultyId==='f1');
+ assert.equal(f1.draftDoe,null);
+ assert.equal(f1.difference,null);
+ assert.equal(f1.impactStatus,'needs_review');
+ assert.equal(result.newNeedsReviewCount,1);
+});

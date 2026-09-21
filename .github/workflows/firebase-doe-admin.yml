@@ -1,0 +1,88 @@
+name: Firebase DOE Admin Job
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: DOE operation to run against the isolated Firebase lab
+        required: true
+        type: choice
+        options:
+          - validate-policy
+          - impact-preview
+          - publish-policy
+          - recalculate-preview
+          - recalculate
+          - recalculate-queue
+      policy_version_id:
+        description: DOE Policy Version ID (not required for recalculate-queue)
+        required: false
+        type: string
+      academic_year:
+        description: Academic Year (required for recalculation, for example 2026-27)
+        required: false
+        type: string
+      scope:
+        description: Recalculation scope (all or a DOE category such as teaching or role)
+        required: false
+        default: all
+        type: string
+      confirmation:
+        description: For publish use PUBLISH:<policyVersionId>; recalculate uses RECALCULATE:<policyVersionId>:<academicYear>; queue uses PROCESS-QUEUE
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-doe-admin-${{ inputs.policy_version_id }}
+  cancel-in-progress: false
+
+jobs:
+  run_doe_admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: firebase-lab-admin
+    env:
+      FIREBASE_PROJECT_ID: vista-teaching-lab
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_LAB_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - name: Check out selected repository revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install frontend and test dependencies
+        run: npm ci
+
+      - name: Install DOE server dependencies
+        run: npm --prefix server ci
+
+      - name: Verify DOE code before administrative access
+        run: npm run test:all
+
+      - name: Require lab credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "FIREBASE_LAB_SERVICE_ACCOUNT_JSON is not configured in the firebase-lab-admin Environment." >&2
+            exit 1
+          fi
+
+      - name: Run controlled DOE operation
+        run: >-
+          node tools/run-doe-admin-job.js
+          --operation "${{ inputs.operation }}"
+          --policy-version-id "${{ inputs.policy_version_id }}"
+          --academic-year "${{ inputs.academic_year }}"
+          --scope "${{ inputs.scope }}"
+          --confirmation "${{ inputs.confirmation }}"

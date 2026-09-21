@@ -14,7 +14,7 @@
   {key:'reserve-logic',label:'Reserve Logic',hint:'Teaching & Trainee'},
   {key:'other-approved',label:'Other / Approved Activities',hint:'Capped and approved allocations'}
  ]);
- const state={bundle:null,editable:false,reload:null,wired:false,historyVersionId:'',historyLoading:null};
+ const state={bundle:null,editable:false,reload:null,service:DOE_API,wired:false,historyVersionId:'',historyLoading:null};
  const text=value=>String(value??'').trim();
  const esc=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
  const doc=()=>root?.document||null;
@@ -59,11 +59,11 @@
   const body=$('doe-rulebook-history-body'),versionId=text(state.bundle?.version?.policyVersionId);
   if(!body)return[];
   if(!versionId){body.innerHTML='<tr><td colspan="5" class="empty">Select a Policy Version to view its audit history.</td></tr>';return[]}
-  if(!DOE_API?.listAudit){body.innerHTML='<tr><td colspan="5" class="empty">Rule Book audit history is unavailable.</td></tr>';return[]}
+  if(!state.service?.listAudit){body.innerHTML='<tr><td colspan="5" class="empty">Rule Book audit history is unavailable.</td></tr>';return[]}
   if(!force&&state.historyLoading&&state.historyVersionId===versionId)return state.historyLoading;
   state.historyVersionId=versionId;
   body.innerHTML='<tr><td colspan="5" class="empty">Loading Rule Book audit history…</td></tr>';
-  state.historyLoading=DOE_API.listAudit(versionId).then(rows=>{
+  state.historyLoading=state.service.listAudit(versionId).then(rows=>{
    if(state.historyVersionId===versionId)body.innerHTML=historyRows(Array.isArray(rows)?rows:[]);
    return rows;
   }).catch(error=>{
@@ -87,8 +87,8 @@
   const decorate=rows=>(rows||[]).map(row=>({...row,reference:references.get(text(row.referenceId))||{referenceId:text(row.referenceId)}}));
   return{course:decorate(bundle?.courseMappings),subject:decorate(bundle?.subjectMappings)};
  }
- function renderBundle(bundle,{editable=false,reload=null}={}){
-  state.bundle=bundle||null;state.editable=Boolean(editable);state.reload=typeof reload==='function'?reload:null;state.historyVersionId='';
+ function renderBundle(bundle,{editable=false,reload=null,service=null}={}){
+  state.bundle=bundle||null;state.editable=Boolean(editable);state.reload=typeof reload==='function'?reload:null;state.service=service||DOE_API;state.historyVersionId='';
   const decorated=referenceRows(bundle||{}),courseBody=$('doe-course-mapping-body'),subjectBody=$('doe-visc-mapping-body');
   if(courseBody)courseBody.innerHTML=renderMappingRows(decorated.course,'course',state.editable);
   if(subjectBody)subjectBody.innerHTML=renderMappingRows(decorated.subject,'subject',state.editable);
@@ -154,8 +154,8 @@
   if(type==='subject'&&!draft.subjectKey)throw new Error('VISC subject key is required.');
   setStatus('Saving Draft mapping…');
   const saved=type==='course'
-   ?await DOE_API.saveCourseMapping(versionId,draft)
-   :await DOE_API.saveSubjectMapping(versionId,draft);
+   ?await state.service.saveCourseMapping(versionId,draft)
+   :await state.service.saveSubjectMapping(versionId,draft);
   closeMappingEditor();setStatus('Draft mapping saved. Validate the Rule Book before publication.','success');
   if(state.reload)await state.reload();
   else{
@@ -181,7 +181,7 @@
   const versionId=text(state.bundle?.version?.policyVersionId);if(!state.editable||!versionId)throw new Error('Select an editable Draft Policy Version first.');
   const reference={referenceId:text($('doe-reference-id')?.value),title:text($('doe-reference-title')?.value),versionDate:text($('doe-reference-version-date')?.value),section:text($('doe-reference-section')?.value),table:text($('doe-reference-table')?.value),page:$('doe-reference-page')?.value===''?null:Number($('doe-reference-page')?.value),effectiveDate:text($('doe-reference-effective-date')?.value),documentLink:text($('doe-reference-document-link')?.value),reviewStatus:text($('doe-reference-review-status')?.value),adminNote:text($('doe-reference-admin-note')?.value)};
   if(!reference.referenceId||!reference.title)throw new Error('Reference ID and Document title are required.');
-  const saved=await DOE_API.saveReference(versionId,reference);closeReferenceEditor();setStatus('Reference saved. Draft validation is now outdated.','success');if(state.reload)await state.reload();return saved;
+  const saved=await state.service.saveReference(versionId,reference);closeReferenceEditor();setStatus('Reference saved. Draft validation is now outdated.','success');if(state.reload)await state.reload();return saved;
  }
  function closeReserveEditor(){$('doe-reserve-editor')?.classList.add('hidden')}
  function openReserveEditor(){
@@ -193,25 +193,25 @@
  async function saveReservePolicy(){
   const versionId=text(state.bundle?.version?.policyVersionId);if(!state.editable||!versionId)throw new Error('Select an editable Draft Policy Version first.');
   const reservePolicy={strategy:'flexible_teaching_reserve',splitThreshold:Number($('doe-reserve-split-threshold')?.value),splitRatio:Number($('doe-reserve-split-ratio')?.value),highTeachingTraineeCeiling:Number($('doe-reserve-high-ceiling')?.value),teachingFocusedTraineeCeiling:Number($('doe-reserve-teaching-focused-ceiling')?.value),rollingAverageYears:Number($('doe-reserve-rolling-years')?.value),referenceId:text($('doe-reserve-reference-id')?.value),reviewStatus:text($('doe-reserve-review-status')?.value)};
-  const saved=await DOE_API.saveReservePolicy(versionId,reservePolicy);closeReserveEditor();setStatus('Reserve Logic saved. Draft validation is now outdated.','success');if(state.reload)await state.reload();return saved;
+  const saved=await state.service.saveReservePolicy(versionId,reservePolicy);closeReserveEditor();setStatus('Reserve Logic saved. Draft validation is now outdated.','success');if(state.reload)await state.reload();return saved;
  }
 
  async function copyPreviousYear(){
-  if(!DOE_API?.copyPolicyYear)throw Error('DOE API is unavailable.');
+  if(!state.service?.copyPolicyYear)throw Error('DOE API is unavailable.');
   const year=$('doe-policy-year')?.value||'';
   const target=nextAcademicYear(year);if(!target)throw Error('Select a valid Academic Year first.');
   if(root.confirm&&!root.confirm(`Copy ${year} DOE rules to ${target} as a Draft? All copied items will require annual review.`))return;
   setStatus(`Copying ${year} to ${target}…`);
-  const result=await DOE_API.copyPolicyYear(year,target);
+  const result=await state.service.copyPolicyYear(year,target);
   setStatus(`${target} Draft created. Review every copied rule and mapping before validation.`,'success');
   await root?.UCVM_DOE_POLICY_ADMIN?.load?.();
   return result;
  }
  async function validateCurrentDraft(){
-  if(!DOE_API?.validateDraft)throw Error('DOE API is unavailable.');
+  if(!state.service?.validateDraft)throw Error('DOE API is unavailable.');
   const version=$('doe-policy-version')?.value||'';if(!version)throw Error('Select a Draft Policy Version first.');
   setStatus('Validating the Draft against authoritative assignments…');
-  const report=await DOE_API.validateDraft(version);
+  const report=await state.service.validateDraft(version);
   setStatus(report.valid?'Annual Rule Book validation passed.':`Validation found ${report.errors?.length||0} blocking issue(s).`,report.valid?'success':'error');
   return report;
  }

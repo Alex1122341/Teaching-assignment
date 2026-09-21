@@ -1,0 +1,8 @@
+{
+  "apiKey": "GENERATE_WITH_npm_run_config:pin:lab",
+  "authDomain": "vista-teaching-lab.firebaseapp.com",
+  "projectId": "vista-teaching-lab",
+  "storageBucket": "vista-teaching-lab.firebasestorage.app",
+  "messagingSenderId": "000000000000",
+  "appId": "1:000000000000:web:0000000000000000000000"
+}

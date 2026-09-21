@@ -347,3 +347,41 @@ These are recorded rather than hidden. Each is tracked in the audit report.
 | F10 — `npm test` silently skipped 67 tests | `npm run test:static` surfaces the count |
 | F8 — flaky emulator tests | unique project id per emulator file, guarded by `tests/emulator-isolation.test.js` |
 | R09 — hard-coded weak-password literal | replaced by a length / reuse / repetition policy |
+
+
+---
+
+## DOE authoritative model and write boundary
+
+DOE is split into policy/configuration, source facts, derived evidence and audit collections. The browser may read only the subsets allowed by `firestore.rules`; authoritative mutation is performed by trusted admin tooling.
+
+| Collection | Purpose | Browser write |
+| --- | --- | --- |
+| `doe_policies` | academic-year policy identity and active-version pointer | denied |
+| `doe_policy_versions` | immutable/reviewed policy versions and draft state | denied |
+| `doe_rules` | canonical DOE calculation rules | denied |
+| `doe_rule_selectors` | rule matching selectors | denied |
+| `doe_rule_inputs` | named calculation inputs | denied |
+| `doe_rule_parameters` | rule parameters/constants | denied |
+| `doe_rule_tiers` | tiered calculation bands | denied |
+| `doe_reference_sources` | source/reference evidence | denied |
+| `doe_course_mappings` | course-to-policy mappings | denied |
+| `doe_subject_mappings` | subject-to-policy mappings | denied |
+| `doe_exceptions` | approved policy exceptions | denied |
+| `doe_faculty_targets` | annual faculty DOE target overrides/evidence | denied except through trusted server/admin boundary |
+| `doe_assignments` | canonical DOE assignment facts | fully denied to browser |
+| `doe_calculation_records` | calculation result/provenance records | denied |
+| `doe_impact_runs` | policy impact-preview run summaries | denied |
+| `doe_impact_rows` | impact-preview per-faculty rows | denied |
+| `doe_publications` | publication evidence | denied |
+| `doe_recalculation_requests` | **non-authoritative** request to recalculate the current DOE-bearing session facts | DOE administrators may create strict `pending` requests only; browser update/delete denied |
+| `doe_recalculation_batches` | controlled recalculation progress/evidence | denied |
+| `doe_audit_log` | append-only authoritative DOE audit | denied |
+
+`doe_recalculation_requests` is intentionally outside the authoritative-result set. When a Firebase-only browser save changes a session with faculty assignments, the client strips DOE result/provenance fields from the submitted assignments and creates a strict `pending` request in the same Firestore batch as the source session/calendar write. The request contains no new DOE value, rule result, policy result, or calculation evidence.
+
+The trusted admin job re-reads the **current** session before recalculating, derives the current assignment scope, resolves the current Active policy for that Academic Year, and writes authoritative DOE results/evidence through the existing server services. A stale queued request therefore cannot force an old assignment index back onto a newer session state. Failed requests remain `pending` with retry metadata.
+
+The active test writer is `.github/workflows/firebase-doe-admin.yml`, which authenticates to the isolated `vista-teaching-lab` project using a GitHub Environment secret and invokes the existing server-side DOE services. Because Firebase Admin SDK access is outside client Security Rules, the workflow itself is guarded by manual dispatch, a hard project-id lock and typed confirmation for destructive operations.
+
+Legacy fields such as `facultySummary2026_27`, `managedRoles2026_27` and `workloadPolicy2026_27` remain migration/source evidence only. New authoritative DOE state belongs in the canonical DOE collections above.

@@ -11,12 +11,16 @@
   // Rules anchor this field to the source's public instructor string. A stale/missing
   // display string must be corrected at its writer, not reconstructed from private data.
   const instructor=text(source.instructor),instructorNames=[...new Set(instructor.split(';').map(name=>name.trim()).filter(Boolean))];
-  return{
+  const out={
    sessionId:text(id||source.id),course:text(source.course),courseName:text(source.courseName),year:numeric(source.year),
    semester:text(source.semester),week:numeric(source.week),date:text(source.date).slice(0,10),
    start:text(source.start),end:text(source.end),timeUnknown:source.timeUnknown===true,
    type:text(source.type),topic:text(source.topic),room:text(source.room),instructorNames,instructor
   };
+  // LAB group IDs are operational scheduling metadata, not roster data. Mirror
+  // only normalized scalar IDs; student IDs remain private in lab_group_rosters.
+  if(Array.isArray(source.labGroupIds))out.labGroupIds=[...new Set(source.labGroupIds.map(text).filter(Boolean))].slice(0,8);
+  return out;
  }
  return Object.freeze({fromSource});
 });

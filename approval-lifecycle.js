@@ -7,6 +7,32 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
   const approvalStatus=value=>typeof value==='string'?value:text(value?.status||'pending');
   const unfinished=status=>['pending','push_back'].includes(status);
   const normalizeMessage=message=>text(message).slice(0,1000);
+  // Approval stages are strictly serial: ADC -> LAB -> ADFA. A later office may
+  // not act while an earlier required office is still pending.
+  const STAGE_ORDER={adc:0,lab:1,adfa:2};
+  const STAGE_LABEL={adc:'ADC',lab:'LAB',adfa:'ADFA'};
+  function orderedOffices(workflow={}){
+    return [...new Set(workflow?.requiredOffices||[])]
+      .filter(name=>STAGE_ORDER[name]!==undefined)
+      .sort((a,b)=>STAGE_ORDER[a]-STAGE_ORDER[b]);
+  }
+  function previousRequiredOffices(workflow={},office=''){
+    const list=orderedOffices(workflow),index=list.indexOf(text(office));
+    return index>0?list.slice(0,index):[];
+  }
+  function decisionReadiness({workflow={},approvals={},office=''}={}){
+    office=text(office);
+    if(!orderedOffices(workflow).includes(office))return{allowed:false,waitingFor:[],reason:'not_required'};
+    const waitingFor=previousRequiredOffices(workflow,office).filter(name=>approvalStatus(approvals[name])!=='approved');
+    return{allowed:waitingFor.length===0,waitingFor,reason:waitingFor.length?'previous_stage_pending':'ready'};
+  }
+  function assertDecisionOrder({workflow={},approvals={},office=''}={}){
+    const readiness=decisionReadiness({workflow,approvals,office});
+    if(readiness.reason==='not_required')throw Error('This office is not required for the request.');
+    if(readiness.allowed)return readiness;
+    const blocker=readiness.waitingFor[0];
+    throw Error(`${STAGE_LABEL[blocker]||blocker} must complete this request before ${STAGE_LABEL[text(office)]||office} can act on it.`);
+  }
   function assertTimingPatch(base,patch){
     const check=scheduling.validateSessionTimingChange(base,patch);
     if(check.status==='invalid')throw Error(`Invalid session timing (${check.reason}).`);
@@ -25,6 +51,10 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
   function planDecision({request={},workflow={},approvals={},office='',decision='',message='',actor={},now=null}={}){
     office=text(office);decision=text(decision);
     if(!(workflow.requiredOffices||[]).includes(office))throw Error('This office is not required for the request.');
+    // Serial stage order is enforced here, not only in the UI. Approving is the
+    // step that must wait for earlier required offices; rejecting or pushing
+    // back stays available so an office can return bad work without waiting.
+    if(decision==='approve')assertDecisionOrder({workflow,approvals,office});
     const reason=normalizeMessage(message);
     if(decision==='push_back'&&!reason)throw Error('Push Back requires a message.');
     const current={...request,approvals:copy(approvals)};
@@ -175,5 +205,6 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
     };
   }
 
-  return{requiredApproved,planDecision,planWithdrawal,planResubmission,planRequesterWithdrawal,planRequesterResubmission};
+  return{requiredApproved,planDecision,planWithdrawal,planResubmission,planRequesterWithdrawal,planRequesterResubmission,
+    orderedOffices,previousRequiredOffices,decisionReadiness,assertDecisionOrder,STAGE_ORDER,STAGE_LABEL};
 })();

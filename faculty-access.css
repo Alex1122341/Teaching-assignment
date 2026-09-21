@@ -2,3 +2,22 @@
 
 /* AFC workflow */
 .afc-loading{padding:22px}.afc-new{margin:16px;border:1px solid #d7dce5;border-radius:8px;padding:12px}.afc-new summary{font-weight:700;cursor:pointer}.afc-new form{display:grid;gap:12px;margin-top:14px}.afc-autofill,.afc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}.afc-autofill{background:#f5f7fa;padding:12px;border-radius:7px}.afc-new label{display:grid;gap:5px;font-weight:600}.afc-new input,.afc-new select,.afc-new textarea,.afc-review input{padding:9px;border:1px solid #d7dce5;border-radius:6px}.afc-note{padding:10px;background:#f5f7fa;border-radius:6px}.afc-check{display:flex!important;align-items:center}.afc-card{margin:16px;padding:15px;border:1px solid #d7dce5;border-radius:8px}.afc-card header{display:flex;justify-content:space-between;gap:12px}.afc-status{font-size:12px;font-weight:700;padding:4px 8px;border-radius:999px;background:#edf2f7}.afc-status.approved{background:#dcfce7;color:#166534}.afc-status.rejected{background:#fee2e2;color:#991b1b}.afc-review{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.error{color:#b91c1c}
+
+/* Operational Work Queue. Group identity is always shown as text (Group A,
+ * READY, WAITING FOR ADC) so colour is never the only signal. */
+.work-queue-button{position:fixed;right:14px;top:64px;z-index:2147483645;font-weight:800}
+.work-queue-panel{position:fixed;right:14px;top:104px;z-index:2147483646;width:min(560px,calc(100vw - 28px));max-height:min(70vh,640px);overflow:auto;background:#fff;color:#1b1b1b;border:2px solid #24486b;border-radius:12px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.28);font:600 13px/1.4 Arial,sans-serif}
+.work-queue-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.work-queue-summaries{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.work-queue-summary{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:#eef3f9;border:1px solid #c7d6e6;border-radius:8px;padding:6px 9px}
+.work-queue-waiting{color:#7a4b00}
+.work-queue-group h3{margin:10px 0 6px;font-size:13px;letter-spacing:.04em;text-transform:uppercase}
+.work-queue-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.work-queue-item{border:1px solid #d5dde6;border-left:5px solid #24486b;border-radius:8px;padding:8px 10px;background:#fbfcfe}
+.work-queue-item.waiting{border-left-color:#b8860b;background:#fffaf0}
+.work-queue-item-head{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.work-queue-item-meta{color:#4a5560}
+.work-queue-item-missing{color:#7a2b2b}
+.work-queue-pill{font-size:11px;font-weight:900;letter-spacing:.06em;padding:2px 7px;border-radius:999px;background:#dce8f6;color:#1c3d5c}
+.work-queue-pill.waiting{background:#f6e6c5;color:#6b4a00}
+.work-queue-empty{color:#4a5560}

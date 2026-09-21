@@ -42,3 +42,54 @@ check('ADFA may read the private assignment record and legacy requests',async()=
 check('another Faculty account cannot read someone else public request',async()=>{
  const {assertFails}=require('@firebase/rules-unit-testing');await assertFails(env.authenticatedContext('other').firestore().doc('change_requests/r1').get());
 });
+
+
+check('Developer can approve ADC LAB and ADFA routed scopes with one identity',async()=>{
+ const {assertSucceeds}=require('@firebase/rules-unit-testing');
+ const {serverTimestamp}=require('firebase/firestore');
+ await env.withSecurityRulesDisabled(async ctx=>{
+  const db=ctx.firestore();
+  await db.doc('users/developer').set({role:'developer',active:true,mustChangePassword:false,email:'developer@example.test'});
+  for(const office of ['adc','lab','adfa']){
+   const id='dev-'+office,fields=office==='adc'?['date']:office==='lab'?['topic']:['assignments'];
+   await db.doc('change_requests/'+id).set({requestSchema:'office-routing-v1',requesterUid:'faculty',requesterRole:'faculty',sessionId:'s1',requestType:office==='adfa'?'faculty_swap':'session_edit',status:'pending',revision:1,editableFields:[],requesterMessage:''});
+   // A routed approval always has its workflow document. The serial stage order
+   // is derived from it, so the fixture must provide one.
+   const scopes={adc:[],lab:[],adfa:[]},scopeSignatures={adc:'',lab:'',adfa:''};
+   scopes[office]=fields;scopeSignatures[office]=office+'-sig';
+   await db.doc('change_request_workflow/'+id).set({requestId:id,revision:1,requiredOffices:[office],hasFacultyChange:office==='adfa',finalType:'LEC',scopes,scopeSignatures,updatedAt:new Date('2026-09-20T12:00:00Z')});
+   await db.doc('change_request_approvals/'+id+'_'+office).set({id:id+'_'+office,requestId:id,office,revision:1,fields,scopeSignature:office+'-sig',status:'pending',decidedBy:'',decidedByName:'',decidedAt:null,pushBackReason:'',updatedAt:new Date('2026-09-20T12:00:00Z')});
+  }
+ });
+ const db=env.authenticatedContext('developer').firestore();
+ for(const office of ['adc','lab','adfa']){
+  const id='dev-'+office,requestRef=db.doc('change_requests/'+id),approvalRef=db.doc('change_request_approvals/'+id+'_'+office);
+  await assertSucceeds(db.runTransaction(async tx=>{
+   tx.update(requestRef,{updatedAt:serverTimestamp()});
+   tx.update(approvalRef,{status:'approved',decidedBy:'developer',decidedByName:'VISTA Developer',decidedAt:serverTimestamp(),pushBackReason:'',updatedAt:serverTimestamp()});
+  }));
+ }
+});
+
+check('Owner-delegated Administrator can approve the explicit ADC scope without changing primary role',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
+ await env.withSecurityRulesDisabled(async ctx=>{
+  const db=ctx.firestore(),make=async(id,office)=>{
+   const fields=office==='adc'?['date']:['assignments'],scopes={adc:[],lab:[],adfa:[]},scopeSignatures={adc:'',lab:'',adfa:''};
+   scopes[office]=fields;scopeSignatures[office]=office+'-sig';
+   await db.doc('change_requests/'+id).set({requestSchema:'office-routing-v1',requesterUid:'faculty',requesterRole:'faculty',sessionId:'s1',requestType:'session_edit',status:'pending',revision:1,editableFields:[],requesterMessage:'',updatedAt:new Date('2026-09-20T12:00:00Z')});
+   await db.doc('change_request_workflow/'+id).set({requestId:id,revision:1,requiredOffices:[office],hasFacultyChange:office==='adfa',finalType:'LEC',scopes,scopeSignatures,updatedAt:new Date('2026-09-20T12:00:00Z')});
+   await db.doc('change_request_approvals/'+id+'_'+office).set({id:id+'_'+office,requestId:id,office,revision:1,fields,scopeSignature:office+'-sig',status:'pending',decidedBy:'',decidedByName:'',decidedAt:null,pushBackReason:'',updatedAt:new Date('2026-09-20T12:00:00Z')});
+  };
+  await db.doc('users/delegated-admin').set({role:'administrator',officeAccess:['adc'],active:true,mustChangePassword:false,email:'delegated@example.test'});
+  await make('delegated-adc','adc');await make('delegated-adfa','adfa');
+ });
+ const db=env.authenticatedContext('delegated-admin').firestore(),decide=async(id,office)=>{
+  const stamp=serverTimestamp(),batch=db.batch();
+  batch.update(db.doc('change_requests/'+id),{updatedAt:stamp});
+  batch.update(db.doc('change_request_approvals/'+id+'_'+office),{status:'approved',decidedBy:'delegated-admin',decidedByName:'Delegated Admin',decidedAt:stamp,pushBackReason:'',updatedAt:stamp});
+  return batch.commit();
+ };
+ await assertSucceeds(decide('delegated-adc','adc'));
+ await assertFails(decide('delegated-adfa','adfa'));
+});

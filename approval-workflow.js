@@ -11,8 +11,10 @@
  const {auth,db}=UCVM.init();
  const $=id=>document.getElementById(id), esc=UCVM.esc;
  const REQUESTS='change_requests', SESSIONS='sessions', LOGS='session_change_log', WORKFLOWS='change_request_workflow', APPROVALS='change_request_approvals', PRIVATE_REQUESTS='change_request_private', REQUEST_AUDIT='change_request_audit', CALENDAR='calendar_sessions', SWAP_INDEX='faculty_swap_index';
- function doeApiReady(method){return Boolean(doeApi?.[method])&&!(typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured())}
- function doeApiUnavailable(){return typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured.':'DOE API is unavailable.'}
+ function doeQueueReady(){return Boolean(doeApi?.saveSessionChange&&doeApi?.canQueueSessionChanges?.())}
+ function doeApiReady(method){if(!doeApi?.[method])return false;const configured=!(typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured());return configured||(method==='saveSessionChange'&&doeQueueReady())}
+ function doeApiUnavailable(){return doeQueueReady()?'DOE preview API is not configured; authoritative session saves will use the Firebase recalculation queue.':(typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured.':'DOE API is unavailable.')}
+
  let me=null,user=null,role='',sessions=new Map(),people=[],peopleByUid=new Map(),groups=[],myGroups=[],hiccScope=new Set();
  let hiccMode=false,requests=[],afcRequests=[],requestUnsub=null,afcUnsub=null,sessionUnsub=null,groupUnsub=null,peopleLoading=null,renderQueued=false,requestLoadToken=0;
  let approvalFaculty=[],approvalFacultyById=new Map(),approvalFacultyLoaded=false;
@@ -53,9 +55,13 @@
  const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
  const stamp=()=>firebase.firestore.FieldValue.serverTimestamp();
  const roleIsFaculty=r=>['faculty','hicc','visc'].includes(UCVM.role(r));
+ const isDeveloper=()=>role==='developer';
  const office=()=>officeCaps.officeForRole(role);
- const isOfficeApprover=()=>['adc','lab','adfa'].includes(office());
- const isAdfaApprover=()=>office()==='adfa';
+ const approvalOffices=()=>isDeveloper()?['adc','lab','adfa']:officeCaps.officesForProfile(me||{role});
+ const isOfficeApprover=()=>approvalOffices().length>0||isAdfaApprover();
+ // AFC / legacy administrative approval stays tied to the primary system role.
+ // officeAccess only changes operational timetable/routed-office work.
+ const isAdfaApprover=()=>isDeveloper()||['owner','administrator','admin','adfa_general','adfa_regular'].includes(role);
  const isApprover=isAdfaApprover;
  const ownFacultyId=()=>String(me?.facultyId||me?.facultyDirectoryMatch?.id||'').trim();
  const ownAliases=()=>new Set([me?.name,me?.instructor,me?.facultyDirectoryMatch?.name,user?.displayName].map(norm).filter(Boolean));
@@ -242,8 +248,8 @@
   }else $('my-requests-btn')?.remove();
 
   if(isOfficeApprover()){
-    const currentOffice=office(),pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?r._approvals?.[currentOffice]?.status==='pending':(isAdfaApprover()&&r.status==='pending')).length+(isAdfaApprover()?afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length:0),b=mkButton('approval-queue-btn','Approvals');
-    const label=officeView.queueLabel(currentOffice,pending),plain=label.replace(/ \(\d+\)$/,'');
+    const granted=approvalOffices(),currentOffice=granted.length===1?granted[0]:'',pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?granted.some(name=>(r._workflow?.requiredOffices||[]).includes(name)&&r._approvals?.[name]?.status==='pending'):(isAdfaApprover()&&r.status==='pending')).length+(isAdfaApprover()?afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length:0),b=mkButton('approval-queue-btn','Approvals');
+    const label=isDeveloper()?`All Approvals (${pending})`:granted.length>1?`Office Approvals (${pending})`:granted.length===1?officeView.queueLabel(currentOffice,pending):`Approval Overview (${pending})`,plain=label.replace(/ \(\d+\)$/,'');
     b.innerHTML=`${esc(plain)}${pending?` <span class="workflow-count">${pending}</span>`:''}`;
     if(!b.isConnected)bar.insertBefore(b,bar.firstChild);b.onclick=()=>openApprovalQueue();
     maybeOpenApprovalFromHash();
@@ -354,22 +360,32 @@
    if(r.requestType==='faculty_swap')return `<div class="workflow-approval-change"><strong>Faculty swap</strong>${esc(r.fromFaculty?.name||'')} → ${esc(r.toFaculty?.name||'')}</div>`;
    return (r.changes||[]).map(c=>`<div class="workflow-approval-change"><strong>${esc(c.field)}</strong>${esc(c.before)} → ${esc(c.after)}</div>`).join('');
   }
-  const view=officeView.requestView({office:officeContext?office():'',request:r,workflow:r._workflow||{},approvalMatrix:approvalMatrix(r)});
-  const rows=view.fields.map(change=>{const owner=fieldOffice(r,change.field),state=owner&&officeContext?` <span class="workflow-pill">${esc(owner.toUpperCase())}: ${esc(officeStatusText(r,owner))}</span>`:'';return `<div class="workflow-approval-change${change.owned?'':' role-locked-field'}"><strong>${esc(change.field)}</strong>${esc(change.before)} → ${esc(change.after)}${state}</div>`}).join('');
-  const faculty=view.faculty.proposedName?`<div class="workflow-approval-change${officeContext&&office()!=='adfa'?' role-locked-field':''}"><strong>Faculty Assignment</strong>${view.faculty.currentName?`${esc(view.faculty.currentName)} → `:''}${esc(view.faculty.proposedName)}${officeContext?` <span class="workflow-pill">ADFA: ${esc(officeStatusText(r,'adfa'))}</span>`:''}</div>`:'';
+  const granted=approvalOffices(),viewOffice=officeContext&&!isDeveloper()&&granted.length===1?granted[0]:'';
+  const view=officeView.requestView({office:viewOffice,request:r,workflow:r._workflow||{},approvalMatrix:approvalMatrix(r)});
+  const rows=view.fields.map(change=>{const owner=fieldOffice(r,change.field),state=owner&&officeContext?` <span class="workflow-pill">${esc(owner.toUpperCase())}: ${esc(officeStatusText(r,owner))}</span>`:'';return `<div class="workflow-approval-change${change.owned||isDeveloper()?'':' role-locked-field'}"><strong>${esc(change.field)}</strong>${esc(change.before)} → ${esc(change.after)}${state}</div>`}).join('');
+  const faculty=view.faculty.proposedName?`<div class="workflow-approval-change${officeContext&&!isDeveloper()&&!granted.includes('adfa')?' role-locked-field':''}"><strong>Faculty Assignment</strong>${view.faculty.currentName?`${esc(view.faculty.currentName)} → `:''}${esc(view.faculty.proposedName)}${officeContext?` <span class="workflow-pill">ADFA: ${esc(officeStatusText(r,'adfa'))}</span>`:''}</div>`:'';
   return rows+faculty;
  }
+function routedOfficeActionHtml(r,currentOffice){
+  const own=r?._approvals?.[currentOffice];if(!own||own.status!=='pending'||r.status!=='pending')return'';
+  // Approvals are strictly serial: ADC -> LAB -> ADFA. An office whose earlier
+  // required offices are still pending sees a waiting note instead of Approve.
+  // Push Back and Reject stay available so an office can return bad work.
+  const readiness=lifecycle.decisionReadiness({workflow:r._workflow||{},approvals:r._approvals||{},office:currentOffice});
+  const label=isDeveloper()||approvalOffices().length>1?`<strong>${esc(currentOffice.toUpperCase())}</strong> · `:'';
+  const waiting=readiness.allowed?'':`<div class="workflow-note"><strong>${esc(currentOffice.toUpperCase())}</strong> · Waiting for ${esc(readiness.waitingFor.map(name=>name.toUpperCase()).join(' then '))} before this office can approve.</div>`;
+  const approve=readiness.allowed?`<button class="btn btn-primary" data-office-decision="approve" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Approve${r._workflow?.hasFacultyChange&&currentOffice==='adfa'?' & apply':''}</button>`:'';
+  return `${waiting}<div class="workflow-actions">${label}${approve}<button class="btn btn-secondary" data-office-decision="push_back" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Push Back</button><button class="btn btn-secondary" data-office-decision="reject" data-office-context="${esc(currentOffice)}" data-request-id="${esc(r.id)}">Reject</button></div>`;
+}
  function routedActionHtml(r){
-  const currentOffice=office(),own=r?._approvals?.[currentOffice];if(!own||own.status!=='pending'||r.status!=='pending')return'';
-  const otherApproved=(r._workflow?.requiredOffices||[]).filter(name=>name!==currentOffice).every(name=>r._approvals?.[name]?.status==='approved');
-  if(r._workflow?.hasFacultyChange&&currentOffice==='adfa'&&!otherApproved)return '<div class="workflow-note">Waiting for the other required office approvals before ADFA final approval and apply.</div>';
-  return `<div class="workflow-actions"><button class="btn btn-primary" data-office-decision="approve" data-request-id="${esc(r.id)}">Approve${r._workflow?.hasFacultyChange&&currentOffice==='adfa'?' & apply':''}</button><button class="btn btn-secondary" data-office-decision="push_back" data-request-id="${esc(r.id)}">Push Back</button><button class="btn btn-secondary" data-office-decision="reject" data-request-id="${esc(r.id)}">Reject</button></div>`;
+  const granted=approvalOffices(),required=(r?._workflow?.requiredOffices||[]).filter(name=>['adc','lab','adfa'].includes(name)),offices=required.filter(name=>granted.includes(name));
+  return offices.map(name=>routedOfficeActionHtml(r,name)).filter(Boolean).join('');
  }
  function requesterActionHtml(r){if(r.requestSchema!=='office-routing-v1'||!['pending','update_required'].includes(r.status))return'';return `<div class="workflow-actions">${r.status==='update_required'?`<button class="btn btn-primary" data-request-resubmit="${esc(r.id)}">Edit & Resubmit</button>`:''}<button class="btn btn-secondary" data-request-withdraw="${esc(r.id)}">Withdraw Request</button></div>`}
  function requestCard(r,admin=false){
   const when=r.requestedAt?.toDate?.().toLocaleString('en-CA',{timeZone:'America/Edmonton'})||'Pending timestamp';
-  const routed=r.requestSchema==='office-routing-v1',currentOffice=office(),own=r?._approvals?.[currentOffice];
-  const impact=admin&&isAdfaApprover()&&routed&&r.status==='pending'&&own?.status==='pending'?`<div class="workflow-impact" data-approval-impact="${esc(r.id)}"><div class="workflow-impact-title">DOE & schedule checks</div>Checking live DOE and timetable conflicts…</div>`:'';
+  const routed=r.requestSchema==='office-routing-v1',currentOffice=office(),adfaOwn=r?._approvals?.adfa;
+  const impact=admin&&isAdfaApprover()&&approvalOffices().includes('adfa')&&routed&&r.status==='pending'&&adfaOwn?.status==='pending'?`<div class="workflow-impact" data-approval-impact="${esc(r.id)}"><div class="workflow-impact-title">DOE & schedule checks</div>Checking live DOE and timetable conflicts…</div>`:'';
   const actions=admin?(routed?routedActionHtml(r):(isAdfaApprover()&&r.status==='pending'?`<div class="workflow-actions"><button class="btn btn-primary" data-approve-request="${esc(r.id)}">Approve & apply</button><button class="btn btn-secondary" data-reject-request="${esc(r.id)}">Reject</button></div>`:'')):requesterActionHtml(r);
   return `<div class="workflow-card ${esc(r.status||'pending')}"><div class="workflow-card-head"><div><div class="workflow-card-title">${esc(r.course||r.basePublic?.course||'')} · ${esc(r.topic||r.basePublic?.topic||'')}</div><div class="workflow-card-meta">${esc(r.requesterName||r.requesterEmail||'')} · ${esc(UCVM.label(r.requesterRole||''))} · ${esc(when)}</div></div><span class="workflow-pill">${statusLabel(r)}</span></div>${requestDetail(r,admin)}${r.reason?`<div class="workflow-note">Reason: ${esc(r.reason)}</div>`:''}${r.requesterMessage?`<div class="workflow-note">Update requested: ${esc(r.requesterMessage)}</div>`:''}${impact}${actions}</div>`;
  }
@@ -392,12 +408,13 @@
   return{requestRef,workflowRef,request,workflow,approvals,approvalRefs,privateRecord,privateRef,calendar,calendarRef,source,sourceRef};
  }
  function otherRequiredApproved(bundle,currentOffice){return(bundle.workflow.requiredOffices||[]).filter(name=>name!==currentOffice).every(name=>bundle.approvals?.[name]?.status==='approved')}
- async function decideRoutedRequest(id,decision){
+ async function decideRoutedRequest(id,decision,officeOverride=''){
   if(!isOfficeApprover())return;
   let message='';
   if(decision==='push_back'){message=String(prompt('What needs to be updated?','')||'').trim();if(!message)return toast('Push Back requires a message.',true)}
   if(decision==='reject'){const value=prompt('Reason for rejection:','');if(value===null)return;message=String(value||'').trim()}
-  const currentOffice=office(),auditRef=db.collection(REQUEST_AUDIT).doc();let shouldFinalize=false;
+  const granted=approvalOffices(),requestedOffice=String(officeOverride||'').toLowerCase(),currentOffice=granted.includes(requestedOffice)?requestedOffice:(granted.length===1?granted[0]:''),auditRef=db.collection(REQUEST_AUDIT).doc();let shouldFinalize=false;
+  if(!currentOffice)return toast('Choose a permitted office context before deciding this request.',true);
   try{
    await db.runTransaction(async tx=>{
     const bundle=await readRoutedBundleTx(tx,id),own=bundle.approvals[currentOffice];
@@ -413,7 +430,7 @@
     }
     shouldFinalize=decision==='approve'&&plan.allRequiredApproved;
    });
-   if(shouldFinalize)await finalizeRoutedRequest(id);else{toast(decision==='approve'?'Office scope approved.':decision==='push_back'?'Request returned for update.':'Request rejected.');closeModal()}
+   if(shouldFinalize)await finalizeRoutedRequest(id,currentOffice);else{toast(decision==='approve'?'Office scope approved.':decision==='push_back'?'Request returned for update.':'Request rejected.');closeModal()}
   }catch(e){console.error('[routed office decision]',e);toast(e.message,true)}
  }
  async function withdrawRoutedRequest(id){
@@ -468,8 +485,9 @@
  // UCVM_DB_MIGRATION_REVISIT: spark-client-finalizer
  // Current Spark/client architecture requires ADFA to finalize requests containing private Faculty changes.
  // Move final apply to a trusted UCalgary backend transaction/service during the database/API migration.
- async function finalizeRoutedRequest(id){
-  const requestSnap=await db.doc(`${REQUESTS}/${id}`).get({source:'server'}),workflowSnap=await db.doc(`${WORKFLOWS}/${id}`).get({source:'server'});if(!requestSnap.exists||!workflowSnap.exists)throw Error('This request no longer exists.');const request={id:requestSnap.id,...requestSnap.data()},workflow={id:workflowSnap.id,...workflowSnap.data()},currentOffice=office();
+ async function finalizeRoutedRequest(id,officeOverride=''){
+  const requestSnap=await db.doc(`${REQUESTS}/${id}`).get({source:'server'}),workflowSnap=await db.doc(`${WORKFLOWS}/${id}`).get({source:'server'});if(!requestSnap.exists||!workflowSnap.exists)throw Error('This request no longer exists.');const request={id:requestSnap.id,...requestSnap.data()},workflow={id:workflowSnap.id,...workflowSnap.data()},granted=approvalOffices(),requestedOffice=String(officeOverride||'').toLowerCase(),currentOffice=granted.includes(requestedOffice)?requestedOffice:(granted.length===1?granted[0]:'');
+  if(!currentOffice)throw Error('A permitted office context is required to apply this request.');
   const approvalDocs=await Promise.all((workflow.requiredOffices||[]).map(name=>db.doc(`${APPROVALS}/${id}_${name}`).get({source:'server'}))),approvalRows={};approvalDocs.forEach((snap,index)=>{if(snap.exists)approvalRows[workflow.requiredOffices[index]]={id:snap.id,...snap.data()}});if(!lifecycle.requiredApproved(workflow,approvalRows))throw Error('All required office approvals must be complete before applying this request.');
   if(workflow.hasFacultyChange&&currentOffice!=='adfa')throw Error('ADFA must complete a request that changes Faculty assignment.');
   let resolved=null,preflight=null,conflictOverride=null,facultySource=null,serverSavedFaculty=null;
@@ -477,7 +495,7 @@
   else if(!confirm('All required offices approved. Apply this request to the live timetable?'))throw Error('Approval cancelled.');
   const auditRef=db.collection(REQUEST_AUDIT).doc(),logRef=db.collection(LOGS).doc();let beforeAfter=null;
   await db.runTransaction(async tx=>{const bundle=await readRoutedBundleTx(tx,id,{includePrivate:workflow.hasFacultyChange,includeCalendar:!workflow.hasFacultyChange,includeSource:workflow.hasFacultyChange});if(bundle.request.status!=='pending')throw Error('This request is no longer pending.');if(bundle.request.appliedRevision===bundle.request.revision||bundle.request.appliedAt)throw Error('This request revision was already applied.');if(!lifecycle.requiredApproved(bundle.workflow,bundle.approvals))throw Error('All required office approvals must be complete before applying this request.');if(bundle.workflow.hasFacultyChange&&currentOffice!=='adfa')throw Error('ADFA must complete a request that changes Faculty assignment.');const now=stamp();let applyPlan,before;
-    if(bundle.workflow.hasFacultyChange){applyPlan=finalizer.planFacultySwap({request:bundle.request,source:bundle.source,privateRecord:bundle.privateRecord,resolved});before=facultySource||bundle.source;if(!serverSavedFaculty?.session)throw Error('Authoritative DOE session save is missing.')}
+    if(bundle.workflow.hasFacultyChange){applyPlan=preflight?.plan;before=facultySource||bundle.source;if(!applyPlan||!serverSavedFaculty?.session)throw Error('Authoritative DOE session save is missing.')}
     else{applyPlan=finalizer.planPublicApply({request:bundle.request,calendar:bundle.calendar});before=bundle.calendar;tx.set(db.doc(`${SESSIONS}/${bundle.request.sessionId}`),{...applyPlan.sourcePatch,approvalRequestId:id,approvalRevision:bundle.request.revision,updatedBy:user.uid,updatedByName:me?.name||user.email||'',updatedAt:now},{merge:true});tx.set(bundle.calendarRef,applyPlan.calendar)}
     const after=bundle.workflow.hasFacultyChange?(serverSavedFaculty?.session||before):{...before,...applyPlan.sourcePatch};beforeAfter={before,after};const changes=applyPlan.changedFields.map(field=>({field,before:before?.[field]??null,after:after?.[field]??null}));tx.set(logRef,{action:bundle.workflow.hasFacultyChange?'swap_faculty':'approved_session_edit',override:conflictOverride,requestId:id,sessionId:bundle.request.sessionId,course:after.course||bundle.request.course||'',date:ymd(after.date),topic:after.topic||'',instructors:bundle.workflow.hasFacultyChange?assignedArray(after).map(a=>a.name).filter(Boolean):[],changes,doeChanges:bundle.workflow.hasFacultyChange?(serverSavedFaculty?.doeChanges||[]):[],changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:now});tx.set(auditRef,{requestId:id,event:'request_applied',revision:bundle.request.revision,office:currentOffice,changedBy:user.uid,changedByName:me?.name||user.email||'',changedAt:now});tx.update(bundle.requestRef,{status:'approved',editableFields:[],requesterMessage:'',appliedRevision:bundle.request.revision,appliedAt:now,updatedAt:now});
     if(notifications)for(const name of bundle.workflow.requiredOffices||[])notifications.emitBatch(tx,db,{kind:'request_applied',office:name,request:bundle.request,session:{id:bundle.request.sessionId,...applyPlan.calendar}},now);
@@ -513,12 +531,12 @@ async function hydrateApprovalImpacts(){if(!isAdfaApprover())return;
   for(const el of document.querySelectorAll('[data-approval-impact]')){const r=requests.find(x=>x.id===el.dataset.approvalImpact),current=r?sessions.get(r.sessionId):null;if(!r||!current){el.innerHTML='<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check warn">The live session could not be found. Do not approve until reviewed manually.</div>';continue}try{if(r.requestSchema==='office-routing-v1'&&r._workflow?.hasFacultyChange){const privateSnap=await db.doc(`${PRIVATE_REQUESTS}/${r.id}`).get({source:'server'});if(!privateSnap.exists)throw Error('The private Faculty assignment record is missing.');const privateRecord=privateSnap.data(),resolved=await resolveRoutedReplacement(privateRecord,r);el.innerHTML=await routedSwapImpactHtml(r,current,privateRecord,resolved)}else el.innerHTML=r.requestType==='faculty_swap'?await swapImpactHtml(r,current):await editImpactHtml(r,current)}catch(e){console.error('[approval impact]',e);el.innerHTML=`<div class="workflow-impact-title">DOE & schedule checks</div><div class="workflow-check unknown">Unable to calculate checks: ${esc(e.message)}</div>`}}
  }
  async function openApprovalQueue(){
-  const currentOffice=office(),pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?r._approvals?.[currentOffice]?.status==='pending':(isAdfaApprover()&&r.status==='pending')),done=requests.filter(r=>r.requestSchema==='office-routing-v1'?r._approvals?.[currentOffice]?.status!=='pending':r.status!=='pending').slice(0,20),afcPending=isAdfaApprover()?afcRequests:[];
-  const heading=currentOffice==='adc'?'ADC approval queue':currentOffice==='lab'?'LAB approval queue':'ADFA approval queue';
-  const subtitle=isAdfaApprover()?'Timetable Faculty decisions retain live DOE/AFC/conflict checks.':'Only your office-owned fields are actionable; other fields are read-only context.';
+  const granted=approvalOffices(),currentOffice=granted.length===1?granted[0]:'',pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?granted.some(name=>(r._workflow?.requiredOffices||[]).includes(name)&&r._approvals?.[name]?.status==='pending'):(isAdfaApprover()&&r.status==='pending')),done=requests.filter(r=>r.requestSchema==='office-routing-v1'?(granted.length?granted.every(name=>!(r._workflow?.requiredOffices||[]).includes(name)||r._approvals?.[name]?.status!=='pending'):isAdfaApprover()):r.status!=='pending').slice(0,20),afcPending=isAdfaApprover()?afcRequests:[],doneHeading=granted.length?'Recent decisions':'Routed request overview';
+  const heading=isDeveloper()?'Developer · all approval queues':granted.length>1?'Operational office approval queues':currentOffice==='adc'?'ADC approval queue':currentOffice==='lab'?'LAB approval queue':granted.length===1?'ADFA approval queue':'Approval overview';
+  const subtitle=isDeveloper()?'Developer can act on ADC, LAB and ADFA scopes. Timetable Faculty decisions retain live DOE/AFC/conflict checks.':granted.length>1?`Operational access: ${granted.map(name=>name.toUpperCase()).join(', ')}. Each action is recorded under its explicit office context.`:granted.length===0?'System-level approval visibility is retained, but no operational office actions are assigned.':isAdfaApprover()?'Timetable Faculty decisions retain live DOE/AFC/conflict checks.':'Only your office-owned fields are actionable; other fields are read-only context.';
   const afcHtml=isAdfaApprover()?`<h3>AFC requests (${afcPending.length})</h3>${afcPending.map(r=>afcCard(r,true)).join('')||'<p>No pending AFC requests.</p>'}`:'';
-  showModal(`<div class="modal-header"><div class="modal-title">${esc(heading)}</div><div class="modal-subtitle">${esc(subtitle)}</div></div><div class="modal-body">${afcHtml}<h3${isAdfaApprover()?' style="margin-top:18px"':''}>Timetable requests (${pending.length})</h3>${pending.map(r=>requestCard(r,true)).join('')||'<p>No pending timetable requests for this office.</p>'}${done.length?`<h3 style="margin-top:18px">Recent decisions</h3>${done.map(r=>requestCard(r,true)).join('')}`:''}</div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`);
-  document.querySelectorAll('[data-office-decision]').forEach(b=>b.onclick=()=>decideRoutedRequest(b.dataset.requestId,b.dataset.officeDecision));
+  showModal(`<div class="modal-header"><div class="modal-title">${esc(heading)}</div><div class="modal-subtitle">${esc(subtitle)}</div></div><div class="modal-body">${afcHtml}<h3${isAdfaApprover()?' style="margin-top:18px"':''}>Timetable requests (${pending.length})</h3>${pending.map(r=>requestCard(r,true)).join('')||'<p>No pending timetable requests for this office.</p>'}${done.length?`<h3 style="margin-top:18px">${esc(doneHeading)}</h3>${done.map(r=>requestCard(r,true)).join('')}`:''}</div><div class="modal-footer"><button class="btn btn-secondary" data-workflow-close>Close</button></div>`);
+  document.querySelectorAll('[data-office-decision]').forEach(b=>b.onclick=()=>decideRoutedRequest(b.dataset.requestId,b.dataset.officeDecision,b.dataset.officeContext));
   document.querySelectorAll('[data-approve-request]').forEach(b=>b.onclick=()=>approveRequest(b.dataset.approveRequest));
   document.querySelectorAll('[data-reject-request]').forEach(b=>b.onclick=()=>rejectRequest(b.dataset.rejectRequest));
   document.querySelectorAll('[data-afc-action]').forEach(b=>b.onclick=()=>decideAfc(b.dataset.afcId,b.dataset.afcAction));
@@ -579,12 +597,12 @@ async function hydrateApprovalImpacts(){if(!isAdfaApprover())return;
     if(!confirm(`TIMETABLE CONFLICT DETECTED${warningText}\n\nOverride and approve despite the timetable conflict(s)? This override will be recorded in the audit log.`))return;
   }else if(!confirm(`Approve and apply this ${r.requestType==='faculty_swap'?'faculty swap':'session change'} to the live timetable?${warningText}`))return;
   try{
-    if(!doeApi?.saveSessionChange||(typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured()))throw Error(typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured.':'DOE API is unavailable.');
+    if(!doeApi?.saveSessionChange||((typeof doeApi.isConfigured==='function'&&!doeApi.isConfigured())&&!doeApi?.canQueueSessionChanges?.()))throw Error(typeof doeApi?.isConfigured==='function'&&!doeApi.isConfigured()?'DOE API is not configured and the Firebase recalculation queue is unavailable.':'DOE API is unavailable.');
     const after={...current,...patch},saved=await doeApi.saveSessionChange({academicYear:current.academicYear||'',sessionId:current.id,afterSession:after,trigger:'approved_legacy_change'}),savedAfter=saved.session||after;
     const batch=db.batch(),reqRef=db.doc(`${REQUESTS}/${id}`),logRef=db.collection(LOGS).doc();
     batch.set(logRef,{...log,requestId:id,sessionId:r.sessionId,course:savedAfter.course||current.course||r.course||'',date:ymd(savedAfter.date||current.date),topic:savedAfter.topic||current.topic||'',override:conflictOverride,doeChanges:saved.doeChanges||[],changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:stamp()});
     batch.update(reqRef,{status:'approved',approvedBy:user.uid,approvedByName:me?.name||user.email||'',approvedAt:stamp(),appliedAt:stamp()});
-    await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after:savedAfter}]);toast('Approved and applied to the live timetable.');closeModal();
+    await batch.commit();await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([{before:current,after:savedAfter}]);toast(saved?.queued?'Approved and applied to the live timetable. DOE recalculation queued.':'Approved and applied to the live timetable.');closeModal();
   }catch(e){console.error(e);toast(e.message,true)}
  }
  async function rejectRequest(id){

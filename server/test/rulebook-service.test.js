@@ -6,6 +6,10 @@ const {createRulebookService}=require('../src/doe/rulebook-service.js');
 
 const general={uid:'g1',name:'General Admin',email:'g@ucalgary.ca',role:'adfa_general'};
 const regular={uid:'r1',name:'Regular Admin',role:'adfa_regular'};
+const administrator={uid:'a1',name:'Administrator',role:'administrator'};
+const legacyAdmin={uid:'a2',name:'Legacy Admin',role:'admin'};
+const developer={uid:'d1',name:'Developer',role:'developer'};
+const owner={uid:'o1',name:'Owner',role:'owner'};
 const faculty={uid:'f1',role:'faculty'};
 
 function sourceBundle(){
@@ -71,6 +75,22 @@ test('copy year is General/Owner only and refuses an existing target year',async
   await assert.rejects(()=>service.copyAcademicYear({sourceYear:'2026-27',targetYear:'2027-28',actor:regular}),error=>error.code==='FORBIDDEN');
   repository.getPolicyForYear=async year=>year==='2027-28'?{policyId:'already'}:sourceBundle().policy;
   await assert.rejects(()=>service.copyAcademicYear({sourceYear:'2026-27',targetYear:'2027-28',actor:general}),error=>error.code==='POLICY_YEAR_EXISTS');
+});
+
+test('rulebook roll-forward keeps Administrator aliases outside the General boundary',async()=>{
+  for(const actor of [regular,administrator,legacyAdmin]){
+    const repository=fakeRepository();
+    const service=createRulebookService({repository,engine:ENGINE,idFactory:ids()});
+    await assert.rejects(()=>service.copyAcademicYear({sourceYear:'2026-27',targetYear:'2027-28',actor}),error=>error.code==='FORBIDDEN',actor.role);
+    assert.equal(repository.stored.drafts.length,0,actor.role);
+  }
+  for(const actor of [developer,owner,general]){
+    const repository=fakeRepository();
+    const service=createRulebookService({repository,engine:ENGINE,idFactory:ids()});
+    const copied=await service.copyAcademicYear({sourceYear:'2026-27',targetYear:'2027-28',actor});
+    assert.equal(copied.version.status,'draft',actor.role);
+    assert.equal(repository.stored.drafts.length,1,actor.role);
+  }
 });
 
 test('annual validation blocks copied rows still needing review',async()=>{

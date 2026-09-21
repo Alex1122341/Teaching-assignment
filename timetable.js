@@ -16,19 +16,7 @@
   const DAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 
-  // Firebase Web configuration is public by design. This local harness uses the
-  // separate Tester Teaching project for REAL Authentication and REAL role lookup.
-  // Authentication/roles and the timetable are live. All schedule reads/writes use Firestore; no bundled timetable data is shipped with this page.
-  const FIREBASE_CONFIG = {
-    apiKey: "AIzaSyDS9VE2zTXv0656_Mh0uDXB67-mZ5Y_LkY",
-    authDomain: "tester-teaching.firebaseapp.com",
-    projectId: "tester-teaching",
-    storageBucket: "tester-teaching.firebasestorage.app",
-    messagingSenderId: "566638053186",
-    appId: "1:566638053186:web:90e04b52251c4b859baadb",
-    measurementId: "G-F7HW5XX4JE"
-  };
-  const AUTH_SETTINGS_KEY = 'ucvm_email_phone_role_settings_v6';
+  // Firebase runtime configuration is loaded only from firebase-config.js.\r\n  // GitHub Pages injects an in-memory synthetic demo backend at staging time.\r\n  const AUTH_SETTINGS_KEY = 'ucvm_email_phone_role_settings_v6';
   const DEFAULT_AUTH_SETTINGS = {
     allowedDomain: 'ucalgary.ca',
     allowedPhones: '',
@@ -88,21 +76,33 @@
     if (gateStatus && status) gateStatus.textContent = status;
   }
 
-  function capabilities(){return window.UCVM_OFFICE_CAPABILITIES.forRole(UCVM.role(currentUser?.role));}
+  function capabilities(stage=''){const profile=currentUser?.profile||{role:currentUser?.role||''};return window.UCVM_OFFICE_CAPABILITIES.forProfile(profile,stage?{stage}:{});}
   function canAddSessions(){return capabilities().canAddSessions;}
   function canAddOneSession(){return capabilities().canAddOneSession;}
   function canSelectSessions(){return capabilities().canSelectSessions;}
   function canEdit(){const c=capabilities();return c.canEditCourseFields||c.canEditInstructor;}
-  function sessionCollection(){return ['adc','lab'].includes(UCVM.role(currentUser?.role))?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;}
+  function hasOfficeAccess(stage){return window.UCVM_OFFICE_CAPABILITIES.hasOfficeAccess(currentUser?.profile||{role:currentUser?.role||''},stage);}
+  function sessionCollection(){const role=UCVM.role(currentUser?.role);return role==='other_office'||(['adc','lab'].includes(role)&&!hasOfficeAccess('adfa'))?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;}
   function getTimetableDoeRuntime(){
     if(timetableDoeRuntime&&timetableDoeRuntime.db===db)return timetableDoeRuntime;
     const api=window.UCVM_DOE_API,selectionApi=window.UCVM_TIMETABLE_SELECTION;
-    if(!db||!api||!selectionApi)throw new Error('DOE API modules are required for timetable assignment writes.');
-    if(typeof api.isConfigured==='function'&&!api.isConfigured())throw new Error('DOE API is not configured for authoritative timetable writes.');
-    const adapter=selectionApi.createDoeApiAdapter({api});
-    timetableDoeRuntime={db,api,adapter};
+    if(!db||!api||!selectionApi)throw new Error('DOE workflow modules are required for timetable assignment writes.');
+    const httpConfigured=typeof api.isConfigured!=='function'||api.isConfigured();
+    let adapter,mode='api';
+    if(httpConfigured)adapter=selectionApi.createDoeApiAdapter({api});
+    else if(api.canQueueSessionChanges?.()&&typeof api.prepareQueuedSessionChange==='function'){
+      mode='queue';
+      adapter={prepareSession:(before,after,options={})=>Promise.resolve(api.prepareQueuedSessionChange({beforeSession:before,afterSession:after,trigger:options.trigger||'session_updated'}))};
+    }else throw new Error('Neither the DOE API nor the Firebase recalculation queue is available for timetable writes.');
+    timetableDoeRuntime={db,api,adapter,mode};
     return timetableDoeRuntime;
   }
+  function queuedDoeRequestData(session,requestId,trigger,timestamp,beforeSession=null){
+    const academicYear=window.UCVM_DOE_API?.academicYearForSession?.(session);
+    if(!academicYear)throw new Error('Academic Year could not be resolved for DOE recalculation queue.');
+    return{requestId:String(requestId),academicYear,sessionId:String(session?.id||session?.sessionId||''),sourceEntityType:'session_assignment',sourceEntityIds:[],facultyIds:[],trigger:String(trigger||'office_session_updated'),status:'pending',requestedBy:currentUser.uid,requestedByName:currentUser.name,requestedAt:timestamp,previousStart:String(beforeSession?.start||''),previousEnd:String(beforeSession?.end||''),previousTimeUnknown:beforeSession?.timeUnknown===true};
+  }
+
   function doeAuditChanges(changes){
     return (Array.isArray(changes)?changes:[]).map(change=>({
       field:'doeCredit',label:'DOE',assignmentId:change.assignmentId,facultyId:change.facultyId,
@@ -128,8 +128,8 @@
       throw err;
     }
     const role = String(data.role || '').trim().toLowerCase();
-    if (!['viewer', 'editor', 'admin', 'adfa_general', 'adfa_regular', 'hicc', 'visc', 'faculty', 'adc', 'lab'].includes(role)) {
-      const err = new Error(`Invalid Firestore role: ${role || '(blank)'}. Use faculty, hicc, visc, adc, lab, adfa_regular, or adfa_general.`);
+    if (!['developer', 'owner', 'administrator', 'other_office', 'viewer', 'editor', 'admin', 'adfa_general', 'adfa_regular', 'hicc', 'visc', 'faculty', 'adc', 'lab'].includes(role)) {
+      const err = new Error(`Invalid Firestore role: ${role || '(blank)'}. Use developer, owner, administrator, other_office, faculty, hicc, visc, adc, lab, adfa_regular, or adfa_general.`);
       err.code = 'ucvm/invalid-role';
       throw err;
     }
@@ -201,8 +201,23 @@
   let allSessionsCache = null;
   let allSessionsLoading = null;
   const profileSnapshots=new Map();
+  const labGroupDirectory=new Map(),labRosterDirectory=new Map();
+  let labWorkflowLoaded=false,labWorkflowLoading=null;
   function pageProfile(){return currentUser?{...currentUser.profile,name:currentUser.name,email:currentUser.email,role:currentUser.role,facultyId:currentUser.profile?.facultyId||''}:null}
   function pageSessions(){return[...sessionCache.values()]}
+  function workflowContext(){return{rosters:Object.fromEntries([...labRosterDirectory.entries()].map(([id,row])=>[id,row])),labGroups:[...labGroupDirectory.values()]}}
+  async function ensureLabWorkflowContext(force=false){
+    if(!currentUser||!hasOfficeAccess('lab')){labGroupDirectory.clear();labRosterDirectory.clear();labWorkflowLoaded=false;return workflowContext()}
+    if(labWorkflowLoaded&&!force)return workflowContext();
+    if(labWorkflowLoading)return labWorkflowLoading;
+    labWorkflowLoading=Promise.all([db.collection('lab_groups').where('active','==',true).get(),db.collection('lab_group_rosters').get()]).then(([groups,rosters])=>{
+      labGroupDirectory.clear();labRosterDirectory.clear();
+      for(const doc of groups.docs)labGroupDirectory.set(String(doc.id),{groupId:doc.id,...doc.data()});
+      for(const doc of rosters.docs)if(labGroupDirectory.has(String(doc.id)))labRosterDirectory.set(String(doc.id),{groupId:doc.id,...doc.data()});
+      labWorkflowLoaded=true;publishPageData();return workflowContext();
+    }).finally(()=>{labWorkflowLoading=null});
+    return labWorkflowLoading;
+  }
   function publishPageData(){for(const callback of pageDataSubscribers){try{callback()}catch(error){console.error('[page data subscriber]',error)}}}
   function cacheSessionRange(range,rows){
     for(const [id,row] of sessionCache)if(row.date>=range.start&&row.date<=range.end)sessionCache.delete(id);
@@ -244,7 +259,11 @@
     profile:()=>pageProfile(),
     faculty:()=>currentFacultyRecord,
     sessions:()=>pageSessions(),
+    workflowContext,
+    ensureWorkflowContext:()=>ensureLabWorkflowContext(),
     ensureSessionsForRange,
+    invalidateSessions:()=>invalidateAllSessions(),
+    openScopedEditor:(sessionId,options)=>openScopedEditor(sessionId,options),
     subscribe:callback=>{pageDataSubscribers.add(callback);return()=>pageDataSubscribers.delete(callback)},
     facultyDirectory:()=>facultyDirectory.slice(),
     allSessions:()=>ensureAllSessions(),
@@ -280,6 +299,7 @@
   const selectedSessionOriginals = new Map();
   let selectionMode = false;
   let reviewingSelection = false;
+  let scopedWork = null;
 
   const $ = (id) => document.getElementById(id);
   const memoryStore = {};
@@ -399,19 +419,21 @@
     return clean;
   }
 
+  function liveScheduleAvailable(){return scheduleSource === 'firestore' || scheduleSource === 'firestore-empty';}
+
   function updateScheduleSourceUI() {
-    const live = scheduleSource === 'firestore';
+    const connected = liveScheduleAvailable();
     const text = $('conn-text');
     if (text && currentUser) {
-      if (live) text.textContent = `Authorized: ${currentUser.role} · Live Firestore schedule`;
-      else if (scheduleSource === 'firestore-empty') text.textContent = `Authorized: ${currentUser.role} · No timetable sessions`;
+      if (scheduleSource === 'firestore') text.textContent = `Authorized: ${currentUser.role} · Live Firestore schedule`;
+      else if (scheduleSource === 'firestore-empty') text.textContent = `Authorized: ${currentUser.role} · Live Firestore schedule · No sessions in this view`;
       else if (scheduleSource === 'firestore-error') text.textContent = `Authorized: ${currentUser.role} · Timetable unavailable`;
       else text.textContent = `Authorized: ${currentUser.role} · Connecting to live timetable`;
     }
     const publish = $('publish-firestore-schedule');
     if (publish) {
       publish.classList.toggle('hidden', !UCVM.admin(currentUser));
-      publish.textContent = live ? 'Synced Schedule Ready' : 'Sync from Faculty Dashboard';
+      publish.textContent = connected ? 'Synced Schedule Ready' : 'Sync from Faculty Dashboard';
       publish.disabled = false;
     }
   }
@@ -663,12 +685,12 @@
     catch(error){console.error('[DOE faculty swap calculation]',error);toast(`SWAP blocked: ${error.message||'DOE calculation is unavailable.'}`,true);return}
     const newCredit=swapAssignmentCredit(next.assignments[outIndex]),incomingImpact=(doeResult.facultyImpacts||[]).find(row=>String(row?.facultyId||'')===String(replacement.__id)),currentNew=incomingImpact?.currentAssignedDoe??null,projectedNew=incomingImpact?.projectedAssignedDoe??null;
     const availabilityWarning=av.available===false?`\n\nWARNING: ${newName} is not available for ${session.date} ${session.start||''}-${session.end||''}:\n${assignmentAvailabilityDetail(av,session.date,session.start,session.end)}\n\nAdmin override?`:av.available===null?`\n\nCHECK NEEDED before assigning ${newName}:\n${assignmentAvailabilityDetail(av,session.date,session.start,session.end)}\n\nContinue as admin?`:'';
-    if(!confirm(`Swap ${oldName} to ${newName} for ${session.course} - ${session.topic}?\n\n${newCredit===null?'DOE impact: this activity is unrated.':`DOE credit: ${oldCredit===null?'unrated':oldCredit.toFixed(2)+'%'} → ${newCredit.toFixed(2)}%\n${newName}: ${currentNew===null?'current DOE unavailable':currentNew.toFixed(2)+'%'} → ${projectedNew===null?'projected unavailable':projectedNew.toFixed(2)+'%'}`}${availabilityWarning}`))return;
+    if(!confirm(`Swap ${oldName} to ${newName} for ${session.course} - ${session.topic}?\n\n${doeResult.queued?'DOE impact: authoritative recalculation will be queued after save.':newCredit===null?'DOE impact: this activity is unrated.':`DOE credit: ${oldCredit===null?'unrated':oldCredit.toFixed(2)+'%'} → ${newCredit.toFixed(2)}%\n${newName}: ${currentNew===null?'current DOE unavailable':currentNew.toFixed(2)+'%'} → ${projectedNew===null?'projected unavailable':projectedNew.toFixed(2)+'%'}`}${availabilityWarning}`))return;
     const overrides=confirmSchedulingChanges([next]);if(overrides===null)return;
     try{
       const saved=await doeRuntime.api.saveSessionChange({academicYear:doeResult.academicYear||next.academicYear||'',sessionId:session.id,afterSession:next,trigger:'faculty_swap'}),savedNext=saved.session||next,auditChanges=doeAuditChanges(saved.doeChanges||doeResult.doeChanges);
       await db.collection(SESSION_LOG_COLLECTION).doc().set({action:'swap_faculty',override:overrides.get(String(session.id))||null,requestId:'',sessionId:session.id,course:savedNext.course||session.course,date:savedNext.date||session.date,topic:savedNext.topic||session.topic,role:outgoing.role||session.type||'',doeCredit:swapAssignmentCredit(savedNext.assignments?.[outIndex]),oldDoeCredit:oldCredit,doeChanges:saved.doeChanges||doeResult.doeChanges,changes:auditChanges,fromFaculty:{ucid:String(outgoing.ucid||oldFaculty?.__id||''),name:oldName},toFaculty:{ucid:String(replacement.__id),name:newName},toFacultyCurrentAssignedDOE:currentNew,toFacultyProjectedAssignedDOE:projectedNew,changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
-      invalidateAllSessions(); await updateDerivedIndexes([{before:session,after:savedNext}]); closeModal(); toast(`SWAP complete: ${oldName} → ${newName}. Faculty DOE will update automatically.`);
+      invalidateAllSessions(); await updateDerivedIndexes([{before:session,after:savedNext}]); closeModal(); toast(saved.queued?`SWAP complete: ${oldName} → ${newName}. DOE recalculation queued.`:`SWAP complete: ${oldName} → ${newName}. Faculty DOE updated.`);
     }catch(err){console.error('[faculty swap]',err);toast(`SWAP failed. ${err.message||'DOE API save is unavailable.'}`,true)}
   }
 
@@ -809,7 +831,7 @@
     $('selection-cancel-btn').addEventListener('click', cancelSessionSelection);
     $('review-selected-btn').addEventListener('click', reviewSelectedSessions);
     $('manage-users-btn').addEventListener('click', openUserManager);
-    $('faculty-dashboard-btn').addEventListener('click', () => { if (UCVM.admin(currentUser)) window.location.href = 'faculty-admin.html'; });
+    $('faculty-dashboard-btn').addEventListener('click', () => { if (UCVM.admin(currentUser)||roleIsFaculty(currentUser)) window.location.href = 'faculty-admin.html'; });
     $('my-timetable-btn').addEventListener('click', () => { myTimetableOnly = !myTimetableOnly; $('my-timetable-btn').textContent = myTimetableOnly ? 'Show All Timetable' : 'My Timetable'; render(); });
     $('course-list-btn').addEventListener('click', openCourseList);
     $('export-csv').addEventListener('click', () => openExportDialog('csv'));
@@ -1051,12 +1073,13 @@
 
   async function startSessionSelection(){
     if(!canSelectSessions())return;
+    scopedWork=null;
     if(capabilities().canEditInstructor)await ensureFacultyDirectory();
     selectionViewFlow.begin(viewMode);
     selectionMode=true;reviewingSelection=false;document.body.classList.add('session-selection-mode');updateSelectionControls();render();
   }
   function cancelSessionSelection(){
-    viewMode=selectionViewFlow.finish();selectionMode=false;reviewingSelection=false;sessionSelection.clear();selectedSessionOriginals.clear();document.body.classList.remove('session-selection-mode');updateSelectionControls();setViewButtons();refreshSessionScope();
+    viewMode=selectionViewFlow.finish();selectionMode=false;reviewingSelection=false;scopedWork=null;sessionSelection.clear();selectedSessionOriginals.clear();document.body.classList.remove('session-selection-mode');updateSelectionControls();setViewButtons();refreshSessionScope();
   }
   function updateSelectionControls(){
     const active=$('selection-active-actions');
@@ -1067,20 +1090,71 @@
   }
   async function reviewSelectedSessions(){
     if(!selectionMode||!sessionSelection.size)return;
-    if(capabilities().canEditInstructor)await ensureFacultyDirectory();
+    if(selectionCapabilities().canEditInstructor)await ensureFacultyDirectory();
+    if(selectionCapabilities().canEditLabGroups)await ensureLabWorkflowContext();
     reviewingSelection=true;viewMode=selectionViewFlow.review();setViewButtons();render();
+  }
+
+  /* Open one session directly in the scoped operational editor.
+   *
+   * The Work Queue uses this. LAB cannot use unrestricted general selection, so
+   * the Select button is hidden for it, but LAB still has to be able to work on
+   * the LAB session the queue handed it. This reuses the existing Select Sessions
+   * editor: it navigates to the session's week, selects only that session and
+   * opens the review view, where editPolicy() locks every field the role does not
+   * own. No second session editor is introduced. */
+  async function openScopedEditor(sessionId,options={}){
+    const id=String(sessionId||'').trim(),stage=String(options.stage||'').trim().toLowerCase();
+    if(!id||!['adc','lab','adfa'].includes(stage)||!hasOfficeAccess(stage))return false;
+    const find=()=>[...sessionCache.values()].find(row=>String(row.id)===id)||null;
+    let target=find();
+    const targetDate=String(options.date||target?.date||'').slice(0,10);
+    if(targetDate&&!target){
+      await ensureSessionsForDates([targetDate]);
+      target=find();
+    }
+    if(!target)return false;
+    if(stage==='lab')await ensureLabWorkflowContext();
+    const workflow=window.UCVM_SESSION_WORKFLOW,status=workflow?.stageStatus?.(target,stage,workflowContext());
+    if(!status||status.status!=='ready')return false;
+    if(targetDate){
+      const position=academicPositionForDate(parseYmd(targetDate));
+      if(position){selectedSemester=position.semester;selectedWeek=position.week}
+    }
+    if(capabilities(stage).canEditInstructor)await ensureFacultyDirectory();
+    scopedWork={sessionId:id,stage};
+    selectionViewFlow.begin(viewMode);
+    selectionMode=true;reviewingSelection=false;
+    document.body.classList.add('session-selection-mode');
+    sessionSelection.clear();selectedSessionOriginals.clear();
+    selectedSessionOriginals.set(id,target);
+    sessionSelection.toggle(id);
+    updateSelectionControls();
+    await reviewSelectedSessions();
+    return true;
   }
 
   function selectionFacultyOptions(session){
     const selected=new Set([...(session.facultyIds||[]),...(session.assignments||[]).map(a=>a.ucid||a.facultyId)].filter(Boolean).map(String));
-    return facultyDirectory.map(f=>`<label class="selection-faculty-option"><input type="checkbox" data-selection-faculty-option value="${escapeHtml(f.__id)}" ${selected.has(String(f.__id))?'checked':''}><span><strong>${escapeHtml(swapFacultyName(f))}</strong><small>DOE server preview on save</small></span></label>`).join('');
+    return facultyDirectory.map(f=>`<label class="selection-faculty-option"><input type="checkbox" data-selection-faculty-option value="${escapeHtml(f.__id)}" ${selected.has(String(f.__id))?'checked':''}><span><strong>${escapeHtml(swapFacultyName(f))}</strong><small>${window.UCVM_DOE_API?.isConfigured?.()?'DOE server preview on save':'DOE recalculation queued after save'}</small></span></label>`).join('');
   }
   function updateSelectionFacultyPicker(picker){
-    const checked=[...picker.querySelectorAll('[data-selection-faculty-option]:checked')],summary=picker.querySelector('summary'),chips=picker.querySelector('.selection-faculty-chips');
-    summary.textContent=checked.length?`${checked.length} faculty selected`:'Choose faculty';
-    chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value));return `<span>${escapeHtml(swapFacultyName(f))}<small>DOE server preview on save</small></span>`}).join('');
+    const checked=[...picker.querySelectorAll('[data-selection-faculty-option]:checked')],summary=picker.querySelector('summary'),chips=picker.nextElementSibling?.classList?.contains('selection-faculty-chips')?picker.nextElementSibling:null;
+    if(summary)summary.textContent=checked.length?`${checked.length} faculty selected`:'Choose faculty';
+    if(chips)chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value));return `<span>${escapeHtml(swapFacultyName(f))}<small>${window.UCVM_DOE_API?.isConfigured?.()?'DOE server preview on save':'DOE recalculation queued after save'}</small></span>`}).join('');
   }
-  function selectionRole(){return UCVM.role(currentUser?.role);}
+  function selectionLabGroupOptions(session){
+    const selected=new Set((session?.labGroupIds||[]).map(String)),course=String(session?.course||'');
+    const groups=[...labGroupDirectory.values()].filter(group=>group.active!==false&&(!group.course||String(group.course)===course));
+    return groups.map(group=>{const id=String(group.groupId||''),code=String(group.groupCode||id),count=(labRosterDirectory.get(id)?.studentIds||[]).length;return `<label class="selection-faculty-option"><input type="checkbox" data-selection-lab-group-option value="${escapeHtml(id)}" ${selected.has(id)?'checked':''}><span><strong>Group ${escapeHtml(code)}</strong><small>${count} student${count===1?'':'s'} in roster</small></span></label>`}).join('');
+  }
+  function updateSelectionLabGroupPicker(picker){
+    const checked=[...picker.querySelectorAll('[data-selection-lab-group-option]:checked')],summary=picker.querySelector('summary'),chips=picker.nextElementSibling?.classList?.contains('selection-faculty-chips')?picker.nextElementSibling:null;
+    if(summary)summary.textContent=checked.length?`${checked.length} LAB group${checked.length===1?'':'s'} selected`:'Choose LAB group';
+    if(chips)chips.innerHTML=checked.map(input=>{const group=labGroupDirectory.get(String(input.value));return `<span>Group ${escapeHtml(group?.groupCode||input.value)}</span>`}).join('');
+  }
+  function selectionRole(){if(scopedWork?.stage)return scopedWork.stage;const role=UCVM.role(currentUser?.role);return role==='developer'?'developer':hasOfficeAccess('adc')?'adc':role;}
+  function selectionCapabilities(){const role=selectionRole();return role==='developer'?capabilities():capabilities(role);}
   function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session);}
   function lockedAttr(enabled){return enabled?'':'disabled class="role-locked-field"';}
   function renderSelectionEditor(){
@@ -1088,7 +1162,7 @@
     const data=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids());
     renderedSessions=data;
     $('cal-label').textContent=`Review ${data.length} selected session${data.length===1?'':'s'}`;
-    const canEditFaculty=capabilities().canEditInstructor;
+    const canEditFaculty=selectionCapabilities().canEditInstructor;
     const rows=data.map(s=>{const policy=selectionPolicy(s),field=name=>lockedAttr(policy.fields[name]);return `<tr data-selection-row data-session-edit-id="${escapeHtml(s.id)}">
       <td><input type="date" data-selection-field="date" value="${escapeHtml(s.date)}" ${field('date')}></td>
       <td><select data-selection-field="year" ${field('year')}>${[1,2,3,4].map(year=>`<option ${Number(s.year)===year?'selected':''}>${year}</option>`).join('')}</select></td>
@@ -1098,12 +1172,14 @@
       <td><input type="time" data-selection-field="end" value="${escapeHtml(s.end)}" ${field('end')}></td>
       <td><input data-selection-field="topic" value="${escapeHtml(s.topic)}" ${field('topic')}></td>
       <td><input data-selection-field="room" value="${escapeHtml(s.room)}" ${field('room')}></td>
+      <td>${policy.fields.labGroups?`<details class="selection-faculty-picker selection-lab-group-picker" data-selection-field="labGroups"><summary>Choose LAB group</summary><div class="selection-faculty-menu"><div class="selection-faculty-options">${selectionLabGroupOptions(s)||'<div class="selection-faculty-readonly">No active LAB groups for this course.</div>'}</div></div></details><div class="selection-faculty-chips"></div>`:`<div class="role-locked-field selection-lab-group-readonly">${escapeHtml((s.labGroupIds||[]).join(', ')||'—')}</div>`}</td>
       <td>${policy.fields.faculty?`<details class="selection-faculty-picker" data-selection-field="faculty"><summary>Choose faculty</summary><div class="selection-faculty-menu"><div class="selection-faculty-options">${selectionFacultyOptions(s)}</div></div></details><div class="selection-faculty-chips"></div>`:`<div class="role-locked-field selection-faculty-readonly">${escapeHtml(s.instructor||'TBD')}</div>`}</td>
     </tr>`}).join('');
-    const note=canEditFaculty?'Open Faculty to choose one or more people; authoritative DOE is previewed by the server on save.':'Grey fields are context only; your office can edit only its assigned fields.';
-    $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div><div class="selection-save-bar"><span>${note}</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
-    document.querySelectorAll('.selection-faculty-picker').forEach(picker=>{picker.querySelectorAll('[data-selection-faculty-option]').forEach(input=>input.onchange=()=>updateSelectionFacultyPicker(picker));updateSelectionFacultyPicker(picker)});
-    $('selection-back-btn').onclick=()=>{reviewingSelection=false;viewMode=selectionViewFlow.finish();setViewButtons();render();refreshSessionScope()};
+    const note=canEditFaculty?'Open Faculty to choose one or more people; authoritative DOE is recalculated by the trusted backend after save when the HTTP DOE API is unavailable.':'Grey fields are context only; your office can edit only its assigned fields.';
+    $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>LAB Groups</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div><div class="selection-save-bar"><span>${note}</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
+    document.querySelectorAll('.selection-faculty-picker:not(.selection-lab-group-picker)').forEach(picker=>{picker.querySelectorAll('[data-selection-faculty-option]').forEach(input=>input.onchange=()=>updateSelectionFacultyPicker(picker));updateSelectionFacultyPicker(picker)});
+    document.querySelectorAll('.selection-lab-group-picker').forEach(picker=>{picker.querySelectorAll('[data-selection-lab-group-option]').forEach(input=>input.onchange=()=>updateSelectionLabGroupPicker(picker));updateSelectionLabGroupPicker(picker)});
+    $('selection-back-btn').onclick=()=>{const wasScoped=Boolean(scopedWork);reviewingSelection=false;viewMode=selectionViewFlow.finish();setViewButtons();render();refreshSessionScope();if(wasScoped)cancelSessionSelection()};
     $('selection-save-btn').onclick=saveSelectedChanges;
   }
   function readSelectionRows(){
@@ -1111,19 +1187,26 @@
     return [...document.querySelectorAll('[data-selection-row]')].map(tr=>{
       const id=String(tr.dataset.sessionEditId),original=originals.get(id),value=field=>tr.querySelector(`[data-selection-field="${field}"]`).value,policy=selectionPolicy(original);
       const facultyInputs=[...tr.querySelectorAll('[data-selection-faculty-option]:checked')],ids=policy.fields.faculty?facultyInputs.map(option=>String(option.value)):[...(original.facultyIds||[])].map(String);
+      const groupInputs=[...tr.querySelectorAll('[data-selection-lab-group-option]:checked')],labGroupIds=policy.fields.labGroups?groupInputs.map(option=>String(option.value)):[...(original.labGroupIds||[])].map(String);
       let type=value('type'),start=value('start'),end=value('end'),topic=value('topic'),date=value('date');
       if(selectionRole()==='adc'&&String(type).toUpperCase()==='LAB'&&String(original.type||'').toUpperCase()!=='LAB')topic='TBD';
       const position=academicPositionForDate(parseYmd(date)),originalIds=[...(original.facultyIds||[]),...(original.assignments||[]).map(a=>a.ucid||a.facultyId)].filter(Boolean).map(String),assignmentChanged=policy.fields.faculty&&(ids.join('|')!==[...new Set(originalIds)].join('|')||type!==String(original.type||'')||start!==String(original.start||'')||end!==String(original.end||'')||topic!==String(original.topic||''));
       const assignments=assignmentChanged?ids.map(facultyId=>{const faculty=facultyDirectory.find(f=>String(f.__id)===facultyId),previous=(original.assignments||[]).find(a=>String(a.ucid||a.facultyId||'')===facultyId)||{},role=previous.role||defaultTeachingRole(type),hours=swapNumeric(previous.creditedHours)??blockHours(start,end,{timeUnknown:original.timeUnknown===true&&start===String(original.start||'')&&end===String(original.end||'')});return{...previous,ucid:facultyId,facultyId,name:swapFacultyName(faculty),role,topic,creditedHours:hours,source:'Multi-session timetable edit'}}):(original.assignments||[]);
       const course=value('course');
-      return{...original,id,date,week:position.week,semester:position.semester,year:Number(value('year')),course,courseName:course===String(original.course||'')?original.courseName:(COURSES.find(c=>String(c.code)===course)?.name||''),type,start,end,topic,room:value('room'),timeUnknown:start===String(original.start||'')&&end===String(original.end||'')?Boolean(original.timeUnknown):false,assignments,facultyIds:ids,instructor:assignments.length?assignments.map(a=>a.name).filter(Boolean).join('; '):String(original.instructor||''),labDetails:assignmentChanged?labDetailsFromAssignments(type,assignments,topic):original.labDetails};
+      return{...original,id,date,week:position.week,semester:position.semester,year:Number(value('year')),course,courseName:course===String(original.course||'')?original.courseName:(COURSES.find(c=>String(c.code)===course)?.name||''),type,start,end,topic,room:value('room'),timeUnknown:start===String(original.start||'')&&end===String(original.end||'')?Boolean(original.timeUnknown):false,assignments,facultyIds:ids,instructor:assignments.length?assignments.map(a=>a.name).filter(Boolean).join('; '):String(original.instructor||''),labDetails:assignmentChanged?labDetailsFromAssignments(type,assignments,topic):original.labDetails,labGroupIds};
     });
   }
   async function saveSelectedChanges(){
-    if(!canSelectSessions()){toast('Selection permission is required.',true);return}
-    const button=$('selection-save-btn'),errorBox=$('selection-errors'),originals=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids()),canEditFaculty=capabilities().canEditInstructor,facultyById=canEditFaculty?new Map(facultyDirectory.map(f=>[String(f.__id),f])):new Map(),timestamp=firebase.firestore.FieldValue.serverTimestamp();
+    const activeScoped=typeof scopedWork==='undefined'?null:scopedWork;
+    const scoped=activeScoped&&sessionSelection.size===1&&sessionSelection.ids()[0]===activeScoped.sessionId&&hasOfficeAccess(activeScoped.stage);
+    if(!canSelectSessions()&&!scoped){toast('Selection permission is required.',true);return}
+    const button=$('selection-save-btn'),errorBox=$('selection-errors'),originals=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids()),canEditFaculty=(typeof selectionCapabilities==='function'?selectionCapabilities():capabilities()).canEditInstructor,facultyById=canEditFaculty?new Map(facultyDirectory.map(f=>[String(f.__id),f])):new Map(),timestamp=firebase.firestore.FieldValue.serverTimestamp();
+    const renderedIds=typeof document==='undefined'?sessionSelection.ids().map(String):[...document.querySelectorAll('[data-selection-row]')].map(row=>String(row.dataset.sessionEditId||''));
+    if(scoped&&(renderedIds.length!==1||renderedIds[0]!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     let rows=readSelectionRows();
+    if(scoped&&(rows.length!==1||String(rows[0].id)!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     await ensureSessionsForDates(rows.map(row=>row.date),true);
+    if(scoped){if(activeScoped.stage==='lab')await ensureLabWorkflowContext(true);const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,workflowContext());const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
     const doePrepared=new Map(),doeRuntime=canEditFaculty?getTimetableDoeRuntime():null,originalById=new Map(originals.map(row=>[String(row.id),row]));
     if(canEditFaculty)rows=await Promise.all(rows.map(async row=>{const prepared=await doeRuntime.adapter.prepareSession(originalById.get(String(row.id))||null,row,{trigger:'multi_session_edit'});doePrepared.set(String(row.id),prepared);return prepared.session}));
     const plan=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,{role:selectionRole()});
@@ -1153,7 +1236,7 @@
         }
         result={committed:true,completedRows,errors:[]};
       }else{
-        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
+        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),queueRef:()=>db.collection('doe_recalculation_requests').doc(),queueData:(update,log,ref)=>queuedDoeRequestData(update.after||log.after,ref.id,'office_multi_session_edit',update.data.updatedAt||log.changedAt,log.before),onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
       }
       const count=result.completedRows;delete button.dataset.resumeFrom;delete button.dataset.planKey;cancelSessionSelection();toast(`${count} session${count===1?'':'s'} updated with audit history.`);
     }catch(error){console.error('[multi-session save]',error);const completed=Number(error.completedRows||0);button.dataset.resumeFrom=String(completed);errorBox.textContent=completed?`${completed} of ${plan.updates.length} sessions were saved. The remaining rows were not saved. Check the connection or permissions, then click Resume save.`:error.committed?'The first batch was saved, but follow-up maintenance failed. Keep this review open and ask an administrator to verify indexes.':'Nothing was saved. Check your connection and permissions, then try again.';errorBox.classList.remove('hidden');button.disabled=false;button.textContent=completed?'Resume save':'Save selected changes'}
@@ -1311,7 +1394,7 @@
   }
   async function openBulkSessionForm(){
     if(!canAddSessions()){toast('This account cannot add timetable sessions.',true);return}
-    if(scheduleSource!=='firestore'){toast('The live Firestore timetable is unavailable.',true);return}
+    if(!liveScheduleAvailable()){toast('The live Firestore timetable is unavailable.',true);return}
     const canEditFaculty=capabilities().canEditInstructor;if(canEditFaculty)await ensureFacultyDirectory();bulkRows=[blankBulkRow()];
     const facultyOptions=canEditFaculty?facultyDirectory.map(f=>`<option value="${escapeHtml(swapFacultyName(f))}">${escapeHtml([f.email,f.ucid||f.__id].filter(Boolean).join(' · '))}</option>`).join(''):'';
     showModal(`<div class="modal-header"><div class="modal-title">Add Multiple Live Sessions</div><div class="modal-subtitle">Prepare up to 200 rows. Saving runs in small verified batches; each row keeps the source session, sanitized calendar copy and audit record together. If a later batch fails, completed batches remain saved and you can resume.</div></div><form id="bulk-session-form"><div class="modal-body">
@@ -1330,7 +1413,7 @@
   async function openSessionForm(existing = null) {
     const access=capabilities(),canEditInstructor=access.canEditInstructor,canEditCourseFields=access.canEditCourseFields,actorRole=UCVM.role(currentUser?.role);
     if (existing ? !(canEditCourseFields||canEditInstructor) : !canAddOneSession()) { toast('This account cannot use the single-session editor.', true); return; }
-    if (scheduleSource !== 'firestore') { toast('The live Firestore timetable is unavailable. Sync it from Faculty Dashboard first.', true); return; }
+    if (!liveScheduleAvailable()) { toast('The live Firestore timetable is unavailable. Sync it from Faculty Dashboard first.', true); return; }
     if(canEditInstructor)await ensureFacultyDirectory();
     const s = existing || {
       id: '', date: ymd(weekStart(selectedWeek, selectedSemester)), week: selectedWeek, semester:selectedSemester, year:1,
@@ -1379,7 +1462,15 @@
       <div class="modal-footer"><div>${existing ? '<button type="button" class="btn-danger-text" id="delete-session">Delete Session</button>' : ''}</div><div><button type="button" class="btn btn-secondary" id="cancel-session">Cancel</button> <button class="btn btn-primary" type="submit">Save Live Session</button></div></div>
       </form>`);
     renderInstructorEditor();
-    const syncTopicOwnership=()=>{if(actorRole!=='adc')return;const topicInput=$('topic'),typeInput=$('type');if(!topicInput||!typeInput)return;const isLab=String(typeInput.value||'').toUpperCase()==='LAB';if(isLab)topicInput.value='TBD';topicInput.disabled=isLab;topicInput.classList.toggle('role-locked-field',isLab)};
+    const syncTopicOwnership=()=>{if(actorRole!=='adc')return;const topicInput=$('topic'),typeInput=$('type');if(!topicInput||!typeInput)return;const isLab=String(typeInput.value||'').toUpperCase()==='LAB';if(isLab)topicInput.value='TBD';topicInput.readOnly=isLab;topicInput.classList.toggle('role-locked-field',isLab)};
+    // The same canonical capabilities that drive the selection editor drive this
+    // modal. ADFA is faculty-only, so every scheduling field is locked here too
+    // rather than left editable.
+    const lockSchedulingFields=()=>{
+      if(canEditCourseFields)return;
+      for(const id of ['date','year','course','type','start','end','topic','room']){const el=$(id);if(!el)continue;el.disabled=true;el.classList.add('role-locked-field')}
+    };
+    lockSchedulingFields();
     syncTopicOwnership();if($('type'))$('type').addEventListener('change',syncTopicOwnership);
     for(const id of ['date','start','end']){if($(id)){ $(id).addEventListener('change',renderInstructorEditor); $(id).addEventListener('input',renderInstructorEditor); }}
     if($('add-instructor-line')) $('add-instructor-line').onclick=()=>{
@@ -1426,6 +1517,7 @@
           else batch.set(ref,{...firestoreSafeSession({...next,assignments:[],instructor:''}),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
           batch.set(calendarRef,window.UCVM_CALENDAR_SESSION.fromSource(next,next.id));
           batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{action:existing?'update':'create',override:null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:[],changes:UCVM_AUDIT_DETAILS.diff(existing,next,'session'),doeChanges:[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:'',changedAt:timestamp});
+          if(existing){const queueRef=db.collection('doe_recalculation_requests').doc();batch.set(queueRef,queuedDoeRequestData(next,queueRef.id,'office_session_updated',timestamp,existing));}
           await batch.commit();
         }
         invalidateAllSessions();
@@ -1449,7 +1541,7 @@
   async function deleteSession(id) {
     if (!UCVM.admin(currentUser)) { toast('ADFA permission is required.', true); return; }
     const s = sessions.find(x => x.id === id); if (!s) return;
-    if (scheduleSource !== 'firestore') { toast('Live Schedule is not initialized.', true); return; }
+    if (!liveScheduleAvailable()) { toast('Live Schedule is not initialized.', true); return; }
     if (!confirm(`Delete ${s.course} - ${s.topic} from the live schedule?`)) return;
     try {
       const batch=db.batch();
@@ -1484,7 +1576,7 @@
           if (sessionUnsubscribe) { try { sessionUnsubscribe(); } catch (_) {} sessionUnsubscribe = null; }
           sessionRangeKey='';
           sessionCache.clear();sessionCacheRanges.length=0;sessionRangeLoads.clear();sessionCacheDates.clear();sessionDateLoads.clear();
-          allSessionsCache=null;
+          allSessionsCache=null;labGroupDirectory.clear();labRosterDirectory.clear();labWorkflowLoaded=false;labWorkflowLoading=null;
           clearCurrentFaculty();
           unsubscribeFacultyDirectory();
           scheduleSource = 'signed-out';
@@ -1562,11 +1654,11 @@
           if (code === 'permission-denied') {
             msg = 'Firestore denied access to users/{uid}. Publish the V7 Firestore Rules from README_FIRST.txt.';
           } else if (code === 'ucvm/profile-not-found') {
-            msg = 'Authentication succeeded, but this UID has no document under Firestore > users. Add users/{UID} with active=true and role=viewer or editor.';
+            msg = 'Authentication succeeded, but this UID has no document under Firestore > users. Add users/{UID} with active=true and a supported UCVM role.';
           } else if (code === 'ucvm/profile-inactive') {
             msg = 'This account exists but active is not true in Firestore.';
           } else if (code === 'ucvm/invalid-role') {
-            msg = 'Firestore role must be exactly viewer, editor, or admin (lowercase recommended).';
+            msg = 'Firestore role must be a supported UCVM role, including developer, owner, administrator, faculty, HICC, VISC, ADC or LAB.';
           }
           setAppLocked(true, 'Access denied. Sign in with an authorized account.');
           await auth.signOut().catch(() => {});
@@ -1601,7 +1693,7 @@
     showModal(`
       <div class="modal-header"><div class="modal-title">Sign in to UCVM Timetable</div><div class="modal-subtitle">Sign in with your authorized account to view the live timetable.</div></div>
       <div class="modal-body">
-        <div class="login-cheatsheet"><strong>Firebase project:</strong> Tester Teaching (<code>tester-teaching</code>)<br>Enable the matching provider in Firebase Authentication. Your UID must also exist under Firestore <code>users/{uid}</code>.</div>
+        <div class="login-cheatsheet"><strong>Firebase project:</strong> <code>${escapeHtml(window.UCVM_FIREBASE_PROJECT_ID||'vista-teaching-lab')}</code><br>Enable the matching provider in Firebase Authentication. Your UID must also exist under Firestore <code>users/{uid}</code>.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
           <button type="button" class="btn btn-primary" id="choose-email" style="padding:16px">Email + Password</button>
           <button type="button" class="btn btn-primary" id="choose-phone" style="padding:16px">Phone + SMS Code</button>
@@ -1633,7 +1725,7 @@
         console.error('[Email sign-in]', err);
         const code = err && err.code ? err.code : '';
         let msg = err && err.message ? err.message : 'Email sign-in failed.';
-        if (code === 'auth/operation-not-allowed') msg = 'Enable Email/Password in Tester Teaching > Authentication > Sign-in method.';
+        if (code === 'auth/operation-not-allowed') msg = 'Enable Email/Password in the configured Firebase project > Authentication > Sign-in method.';
         else if (code === 'auth/invalid-email') msg = 'The email address is not valid.';
         else if (code === 'auth/user-disabled') msg = 'This Firebase user is disabled.';
         else if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') msg = 'Email or password is incorrect, or the Firebase user has not been created yet.';
@@ -1681,9 +1773,9 @@
         console.error('[Phone sign-in]', err);
         const code = err && err.code ? err.code : '';
         let msg = err && err.message ? err.message : 'Could not send SMS code.';
-        if (code === 'auth/operation-not-allowed') msg = 'Enable Phone in Tester Teaching > Authentication > Sign-in method.';
+        if (code === 'auth/operation-not-allowed') msg = 'Enable Phone in the configured Firebase project > Authentication > Sign-in method.';
         else if (code === 'auth/invalid-phone-number') msg = 'The phone number is invalid. Use +1 followed by the Canadian number.';
-        else if (code === 'auth/unauthorized-domain') msg = 'Add localhost in Tester Teaching > Authentication > Settings > Authorized domains.';
+        else if (code === 'auth/unauthorized-domain') msg = 'Add localhost in the configured Firebase project > Authentication > Settings > Authorized domains.';
         else if (code === 'auth/quota-exceeded') msg = 'Firebase SMS quota has been exceeded. Use a Firebase test phone number or try later.';
         else if (code === 'auth/captcha-check-failed') msg = 'reCAPTCHA verification failed. Reload and try again.';
         else if (code === 'auth/too-many-requests') msg = 'Too many SMS requests. Use a Firebase test phone number or wait before trying again.';
@@ -1724,7 +1816,7 @@
       <div class="modal-header"><div class="modal-title">Local Auth + Firestore Role Setup</div><div class="modal-subtitle">Login is Firebase Auth. Authorization comes from Firestore users/{uid}.</div></div>
       <form id="auth-setup-form"><div class="modal-body">
         <div class="login-cheatsheet">
-          <strong>Firebase test project:</strong> Tester Teaching (<code>tester-teaching</code>)<br><br>
+          <strong>Firebase test project:</strong> the configured Firebase project<br><br>
           <strong>V9.7 UCalgary UI + synchronized workload DOE + Firestore-only authorization + admin SWAP + AFC + timetable availability:</strong><br>
           1. User signs in with Email/Password or Phone.<br>
           2. V9.7 reads <code>users/{Firebase UID}</code> from Firestore; after authorization, the timetable loads exclusively from <code>sessions</code>. Admin users also load the faculty directory, Away from Campus records, live timetable conflicts, SWAP tools and instructor selection.<br>
@@ -1765,7 +1857,7 @@
           <strong>Authentication:</strong> Firebase ${escapeHtml(currentUser.provider)} sign-in.<br>
           <strong>Authorization:</strong> Firestore <code>users/${escapeHtml(currentUser.uid)}</code>.<br>
           <strong>Role:</strong> ${escapeHtml(currentUser.role)} &nbsp; <strong>Active:</strong> ${currentUser.active ? 'true' : 'false'}<br>
-          <strong>Timetable sessions:</strong> ${scheduleSource === 'firestore' ? 'Live Firestore schedule — shared across authorized users.' : 'No synchronized source loaded — import from Faculty Dashboard.'}
+          <strong>Timetable sessions:</strong> ${liveScheduleAvailable() ? 'Live Firestore schedule — shared across authorized users.' : 'No synchronized source loaded — import from Faculty Dashboard.'}
         </div>
         <div class="form-hint">My Timetable mapping: <strong>${escapeHtml(currentUser.instructorName)}</strong>.</div>
       </div>
@@ -1779,20 +1871,34 @@
 
   function updateAuthUI() {
     const b = $('account-toggle');
-    const showAdminTools=canEdit()||UCVM.general(currentUser)||currentUser?.role==='hicc';
+    const accessRole=UCVM.role(currentUser?.role),isAdmin=UCVM.admin(currentUser),facultySelfService=roleIsFaculty(currentUser),selfHistory=facultySelfService||accessRole==='other_office';
+    // System/admin authority and faculty self-service are separate surfaces. Every
+    // administrative account keeps the Admin tools menu even when it has no
+    // delegated scheduling office, while Faculty/HICC/VISC alone receive the
+    // teaching/AFC self-service controls. ADC and HICC get role-labelled tool
+    // menus for their own operational/group actions rather than being presented
+    // as generic administrators.
+    const showTools=isAdmin||accessRole==='adc'||accessRole==='hicc';
     b.textContent = currentUser ? `${currentUser.name} - ${currentUser.role}` : 'Sign in';
-    b.classList.toggle('is-admin', canEdit());
+    b.classList.toggle('is-admin', isAdmin);
     $('bulk-add-session-btn').classList.toggle('hidden', !canAddSessions());
     $('add-session-btn').classList.toggle('hidden', !canAddOneSession());
     $('selection-controls').classList.toggle('hidden', !canSelectSessions());
-    $('outlook-invite-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
-    $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || currentUser?.role === 'hicc'));
-    $('faculty-dashboard-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
-    $('cal-admin-menu').classList.toggle('hidden',!showAdminTools);
-    for(const id of ['my-teaching-btn','afc-request-btn','my-change-history-btn'])$(id).classList.toggle('hidden',!currentUser);
-    $('publish-firestore-schedule').classList.toggle('hidden', !UCVM.admin(currentUser));
+    $('outlook-invite-btn').classList.toggle('hidden', !isAdmin);
+    $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || accessRole === 'hicc'));
+    $('faculty-dashboard-btn').classList.toggle('hidden', !(isAdmin||facultySelfService));
+    const toolMenu=$('cal-admin-menu'),toolSummary=toolMenu?.querySelector('summary');
+    if(toolSummary)toolSummary.textContent=isAdmin?'Admin tools':accessRole==='adc'?'ADC tools':accessRole==='hicc'?'HICC tools':'Tools';
+    toolMenu?.classList.toggle('hidden',!showTools);
+    $('my-teaching-btn').classList.toggle('hidden',!facultySelfService);
+    $('afc-request-btn').classList.toggle('hidden',!facultySelfService);
+    $('my-change-history-btn').classList.toggle('hidden',!selfHistory);
+    $('publish-firestore-schedule').classList.toggle('hidden', !isAdmin);
     updateScheduleSourceUI();
-    $('my-timetable-btn').classList.toggle('hidden', !currentUser || roleIsFaculty(currentUser));
+    // My Teaching is the supported faculty self-service reset. The older
+    // My Timetable button is redundant with that flow and is not part of the
+    // approved role matrix, so it stays hidden for every role.
+    $('my-timetable-btn').classList.add('hidden');
     $('my-timetable-btn').textContent = currentUser && myTimetableOnly ? 'Show All Timetable' : 'My Timetable';
   }
 

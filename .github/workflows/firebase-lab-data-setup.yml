@@ -1,0 +1,110 @@
+name: Firebase Lab Data Setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Verify/seed synthetic data or deploy reviewed Firestore configuration
+        required: true
+        type: choice
+        options:
+          - verify-data
+          - seed-data
+          - deploy-firestore
+          - provision
+      confirmation:
+        description: SEED:vista-teaching-lab, DEPLOY-FIRESTORE:vista-teaching-lab, or PROVISION:vista-teaching-lab
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-lab-data-setup
+  cancel-in-progress: false
+
+jobs:
+  lab_data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: firebase-lab-admin
+    env:
+      FIREBASE_PROJECT_ID: vista-teaching-lab
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_LAB_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - name: Check out selected repository revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Install Firebase Admin dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f server/package-lock.json ]; then
+            npm --prefix server ci --no-audit --no-fund
+          else
+            npm --prefix server install --no-audit --no-fund
+          fi
+
+      - name: Verify lab data setup contract
+        run: node --test tests/firebase-lab-data-setup.test.js tests/firebase-lab-bootstrap.test.js
+
+      - name: Require lab Admin credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "FIREBASE_LAB_SERVICE_ACCOUNT_JSON is not configured in the firebase-lab-admin Environment." >&2
+            exit 1
+          fi
+
+      - name: Verify confirmation for write operations
+        if: inputs.operation != 'verify-data'
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ inputs.operation }}" in
+            seed-data) expected="SEED:vista-teaching-lab" ;;
+            deploy-firestore) expected="DEPLOY-FIRESTORE:vista-teaching-lab" ;;
+            provision) expected="PROVISION:vista-teaching-lab" ;;
+            *) echo "Unsupported operation" >&2; exit 1 ;;
+          esac
+          if [ "${{ inputs.confirmation }}" != "$expected" ]; then
+            echo "Exact confirmation required: $expected" >&2
+            exit 1
+          fi
+
+      - name: Verify synthetic lab data
+        if: inputs.operation == 'verify-data'
+        run: node tools/seed-lab-admin.js --mode verify
+
+      - name: Seed and verify synthetic lab data
+        if: inputs.operation == 'seed-data' || inputs.operation == 'provision'
+        run: node tools/seed-lab-admin.js --mode seed
+
+      - name: Prepare Application Default Credentials for Firebase CLI
+        if: inputs.operation == 'deploy-firestore' || inputs.operation == 'provision'
+        shell: bash
+        run: |
+          set -euo pipefail
+          credential_path="$RUNNER_TEMP/firebase-lab-service-account.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$credential_path"
+          chmod 600 "$credential_path"
+          node -e "const fs=require('node:fs');const a=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));if(a.project_id!=='vista-teaching-lab')throw Error('Wrong Firebase project credential');" "$credential_path"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$credential_path" >> "$GITHUB_ENV"
+
+      - name: Deploy reviewed Firestore rules and indexes
+        if: inputs.operation == 'deploy-firestore' || inputs.operation == 'provision'
+        run: npx firebase deploy --only firestore --project vista-teaching-lab --non-interactive

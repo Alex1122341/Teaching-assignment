@@ -22,8 +22,8 @@
 
  function capabilities(profile){
   const role=normalizedRole(profile);
-  const editDraft=['adfa_regular','adfa_general'].includes(role);
-  const general=role==='adfa_general';
+  const editDraft=['developer','adfa_regular','adfa_general'].includes(role);
+  const general=['developer','adfa_general'].includes(role);
   return{
    initialize:editDraft,
    editDraft,
@@ -124,18 +124,74 @@
  const signedPct=value=>{const parsed=number(value);if(parsed===null)return'—';return`${parsed>0?'+':''}${parsed.toFixed(2)}%`};
 
  function impactPreviewHtml(result={}){
-  const status=text(result.status||'not run').toUpperCase();
+  const status=text(result.status||'not run').toUpperCase(),rawRows=Array.isArray(result.rows)?result.rows:[];
+  const mappingError=issue=>/(?:^|_)MAPPING_(?:REQUIRED|AMBIGUOUS)$/.test(text(issue?.code).toUpperCase());
+  const rowStatus=row=>{
+   if(text(row.impactStatus))return text(row.impactStatus);
+   const rowErrors=Array.isArray(row.errors)?row.errors:[],current=number(row.currentDoe),draft=number(row.draftDoe),difference=number(row.difference);
+   if(rowErrors.some(mappingError))return'missing_mapping';
+   if(rowErrors.length||draft===null)return'needs_review';
+   if(current===null)return'resolved_current_gap';
+   if(difference!==null&&difference>1e-9)return'increase';
+   if(difference!==null&&difference<-1e-9)return'decrease';
+   return'unchanged';
+  };
+  const statusLabel=value=>({
+   missing_mapping:'Missing Mapping',
+   needs_review:'Draft Needs Review',
+   resolved_current_gap:'Resolved Current Gap',
+   increase:'Increase',
+   decrease:'Decrease',
+   unchanged:'Unchanged'
+  })[text(value)]||'Draft Needs Review';
+  const rows=rawRows.map(row=>{
+   const impactStatus=rowStatus(row),issues=[...(row.warnings||[]),...(row.errors||[])];
+   const missingMappingCount=row.missingMappingCount!==undefined?Number(row.missingMappingCount||0):issues.filter(mappingError).length;
+   return{...row,impactStatus,missingMappingCount,issues};
+  });
+  const count=(key,fallback)=>result[key]!==undefined&&result[key]!==null&&result[key]!==''?Number(result[key]||0):fallback;
+  const byStatus=value=>rows.filter(row=>row.impactStatus===value).length;
+  const positive=rows.map(row=>number(row.difference)).filter(value=>value!==null&&value>0),negative=rows.map(row=>number(row.difference)).filter(value=>value!==null&&value<0);
+  const largestIncrease=result.largestIncreaseDoe!==undefined&&result.largestIncreaseDoe!==null?number(result.largestIncreaseDoe):(positive.length?Math.max(...positive):null);
+  const largestDecrease=result.largestDecreaseDoe!==undefined&&result.largestDecreaseDoe!==null?number(result.largestDecreaseDoe):(negative.length?Math.min(...negative):null);
+  const affectedFallback=rows.filter(row=>row.impactStatus!=='unchanged').length;
+  const affectedCalculationsFallback=rows.filter(row=>row.impactStatus!=='unchanged').reduce((sum,row)=>sum+Number(row.calculationCount||0),0);
   const metrics=[
-   ['Faculty checked',Number(result.facultyCount||0)],['Calculations checked',Number(result.calculationCount||0)],
-   ['Faculty changed',Number(result.changedFacultyCount||0)],['Large increases',Number(result.largeIncreaseCount||0)],
-   ['Large decreases',Number(result.largeDecreaseCount||0)],['Errors',Number(result.errorCount||0)],['Warnings',Number(result.warningCount||0)]
+   ['Faculty checked',Number(result.facultyCount||rows.length)],
+   ['Calculations checked',Number(result.calculationCount||0)],
+   ['Faculty changed',Number(result.changedFacultyCount||0)],
+   ['Faculty affected',count('affectedFacultyCount',affectedFallback)],
+   ['Calculations affected',count('affectedCalculationCount',affectedCalculationsFallback)],
+   ['Increases',count('increaseCount',byStatus('increase'))],
+   ['Decreases',count('decreaseCount',byStatus('decrease'))],
+   ['Draft Needs Review',count('newNeedsReviewCount',rows.filter(row=>['needs_review','missing_mapping'].includes(row.impactStatus)).length)],
+   ['Resolved current gaps',count('resolvedCurrentGapCount',byStatus('resolved_current_gap'))],
+   ['Missing mapping',count('missingMappingCount',byStatus('missing_mapping'))],
+   ['Largest increase',signedPct(largestIncrease)],
+   ['Largest decrease',signedPct(largestDecrease)],
+   ['Large increases',Number(result.largeIncreaseCount||0)],
+   ['Large decreases',Number(result.largeDecreaseCount||0)],
+   ['Errors',Number(result.errorCount||0)],
+   ['Warnings',Number(result.warningCount||0)]
   ];
-  const rows=Array.isArray(result.rows)?result.rows:[];
+  const priority={missing_mapping:0,needs_review:1,resolved_current_gap:2,increase:3,decrease:3,unchanged:9};
+  const sorted=rows.slice().sort((a,b)=>(priority[a.impactStatus]??8)-(priority[b.impactStatus]??8)||Math.abs(number(b.difference)||0)-Math.abs(number(a.difference)||0)||text(a.facultyId).localeCompare(text(b.facultyId)));
+  const attention=sorted.filter(row=>['missing_mapping','needs_review','resolved_current_gap'].includes(row.impactStatus)||(row.warnings||[]).some(issue=>['LARGE_INCREASE','LARGE_DECREASE'].includes(text(issue.code))));
+  const issueText=row=>row.issues.map(issue=>`${issue.code?issue.code+': ':''}${issue.message||''}`).join('; ')||({
+   resolved_current_gap:'Current DOE was unavailable; the Draft now calculates a canonical value.',
+   increase:'Draft DOE increases.',
+   decrease:'Draft DOE decreases.'
+  })[row.impactStatus]||'—';
+  const statusPill=row=>`<span class="doe-impact-status" data-impact-status="${esc(row.impactStatus)}">${esc(statusLabel(row.impactStatus))}</span>`;
+  const oldNew=row=>`${pct(row.currentDoe)} → ${pct(row.draftDoe)}`;
+  const attentionRows=attention.map(row=>`<tr><td>${statusPill(row)}</td><td><strong>${esc(row.facultyId||'—')}</strong></td><td>${esc(oldNew(row))}</td><td>${esc(signedPct(row.difference))}</td><td>${esc(issueText(row))}</td></tr>`).join('');
+  const allRows=sorted.map(row=>`<tr><td><strong>${esc(row.facultyId||'—')}</strong></td><td>${statusPill(row)}</td><td>${esc(oldNew(row))}</td><td>${esc(signedPct(row.difference))}</td><td>${esc((row.affectedRules||[]).join(', ')||'—')}</td><td>${esc(issueText(row))}</td></tr>`).join('');
   return `<div class="doe-preview-head"><div><strong>Impact Preview ${esc(status)}</strong><div class="doe-preview-meta">${esc(result.policyVersionId||'')} · revision ${esc(result.policyRevision??'—')}</div></div></div>
    <div class="doe-preview-summary">${metrics.map(([label,value])=>`<div class="doe-preview-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('')}</div>
-   <div class="table-wrap"><table class="data-table doe-preview-table"><thead><tr><th>Faculty</th><th>Current DOE</th><th>Draft DOE</th><th>Difference</th><th>Affected Rules</th><th>Warnings / Errors</th></tr></thead><tbody>
-    ${rows.map(row=>{const issues=[...(row.warnings||[]),...(row.errors||[])].map(issue=>`${issue.code?issue.code+': ':''}${issue.message||''}`).join('; ');return`<tr><td>${esc(row.facultyId||'—')}</td><td>${esc(pct(row.currentDoe))}</td><td>${esc(pct(row.draftDoe))}</td><td>${esc(signedPct(row.difference))}</td><td>${esc((row.affectedRules||[]).join(', ')||'—')}</td><td>${esc(issues||'—')}</td></tr>`}).join('')||'<tr><td colspan="6" class="empty">No DOE-bearing records were found in the preview dataset.</td></tr>'}
-   </tbody></table></div>`;
+   <div class="doe-preview-section"><h3>Attention queue</h3><div class="table-wrap"><table class="data-table doe-preview-table"><thead><tr><th>Status</th><th>Faculty</th><th>Current → Draft</th><th>Difference</th><th>Why it needs attention</th></tr></thead><tbody>${attentionRows||'<tr><td colspan="5" class="empty">No Impact Preview rows require additional attention.</td></tr>'}</tbody></table></div></div>
+   <div class="doe-preview-section"><h3>All faculty impact</h3><div class="table-wrap"><table class="data-table doe-preview-table"><thead><tr><th>Faculty</th><th>Impact</th><th>Current → Draft</th><th>Difference</th><th>Affected Rules</th><th>Warnings / Errors</th></tr></thead><tbody>
+    ${allRows||'<tr><td colspan="6" class="empty">No DOE-bearing records were found in the preview dataset.</td></tr>'}
+   </tbody></table></div></div>`;
  }
  const state={
   initialized:false,
@@ -143,6 +199,7 @@
   user:null,
   toast:null,
   service:null,
+  demoReadOnly:false,
   policies:[],
   versions:[],
   bundle:null,
@@ -169,7 +226,9 @@
  }
 
  function selectedVersion(){
-  return state.versions.find(version=>version.policyVersionId===$('doe-policy-version')?.value)||state.bundle?.version||null;
+  const selectedId=$('doe-policy-version')?.value||'';
+  if(state.bundle?.version?.policyVersionId===selectedId)return state.bundle.version;
+  return state.versions.find(version=>version.policyVersionId===selectedId)||state.bundle?.version||null;
  }
 
  function isDraft(){return selectedVersion()?.status==='draft'}
@@ -186,6 +245,7 @@
 
  function applyPermissions(){
   const cap=capabilities(state.profile),version=selectedVersion(),draft=version?.status==='draft',revision=Number(version?.revision||0);
+  if(state.demoReadOnly)for(const key of ['editDraft','validate','preview','publish','archive','recalculate'])cap[key]=false;
   const validationCurrent=draft&&version?.lastValidationPassed===true&&Number(version?.lastValidatedRevision)===revision&&!!text(version?.rulesChecksum);
   const previewCurrent=validationCurrent&&!!text(version?.lastImpactRunId)&&Number(version?.lastImpactRevision)===revision&&text(version?.lastImpactChecksum)===text(version?.rulesChecksum)&&!!text(version?.lastImpactDatasetChecksum);
   const map={
@@ -211,9 +271,9 @@
   if(publishButton&&cap.publish&&draft&&!previewCurrent)publishButton.title='A current passing Impact Preview is required';
   for(const id of ['doe-publish','doe-archive','doe-recalculate']){
    const element=$(id);
-   if(element&&!cap.publish)element.title='ADFA General / Owner only';
+   if(element&&!cap.publish)element.title='Developer / Owner only';
   }
-  if(!cap.recalculate)setRecalculateStatus('Administrative recalculation is ADFA General / Owner only.');
+  if(!cap.recalculate)setRecalculateStatus('Administrative recalculation is Developer / Owner only.');
   else if(version?.status==='active')setRecalculateStatus('Run a dry-run preview before executing recalculation.');
   else setRecalculateStatus('Select the Active policy version to recalculate.');
  }
@@ -281,10 +341,11 @@
  function renderBundle(){
   const version=state.bundle?.version;
   if(!version){setStatus('No policy selected');return}
-  setStatus(`${version.academicYear} · v${version.versionNumber} · ${String(version.status||'').toUpperCase()} · revision ${version.revision??0}`,version.status);
+  const demoLabel=state.demoReadOnly?' · Frontend Demo · NON-AUTHORITATIVE · READ-ONLY':'';
+  setStatus(`${version.academicYear} · v${version.versionNumber} · ${String(version.status||'').toUpperCase()} · revision ${version.revision??0}${demoLabel}`,version.status);
   applyPermissions();
   renderSection();
-  root?.UCVM_DOE_RULEBOOK_ADMIN?.renderBundle?.(state.bundle,{editable:capabilities(state.profile).editDraft&&version.status==='draft',reload:()=>loadBundle(version.policyVersionId)});
+  root?.UCVM_DOE_RULEBOOK_ADMIN?.renderBundle?.(state.bundle,{editable:!state.demoReadOnly&&capabilities(state.profile).editDraft&&version.status==='draft',reload:()=>loadBundle(version.policyVersionId),service:state.service});
  }
 
  function previewMessage(message,kind=''){
@@ -303,6 +364,7 @@
   const runId=text(version.lastImpactRunId);
   if(!runId){
    if(version.status==='draft'&&version.lastValidationPassed===true&&Number(version.lastValidatedRevision)===Number(version.revision||0))previewMessage('Validation is current. Run Impact Preview before Publish.');
+   else if(version.status==='draft'&&Number(version.revision||0)>0)previewMessage('Impact Preview OUTDATED — validate this Draft revision again, then run a new Impact Preview.','outdated');
    else if(version.status==='draft')previewMessage('Validate this Draft revision before running Impact Preview.');
    else previewMessage('No stored Impact Preview for this policy version.');
    return;
@@ -316,6 +378,12 @@
   if(!versionId){state.bundle=null;renderBundle();return}
   setStatus('Loading DOE policy…');
   state.bundle=await state.service.loadPolicyBundle(versionId);
+  const current=state.bundle?.version;
+  if(current){
+   const at=state.versions.findIndex(version=>version.policyVersionId===current.policyVersionId);
+   if(at>=0)state.versions[at]={...state.versions[at],...current};
+   else state.versions.push({...current});
+  }
   renderBundle();
   await renderStoredPreview();
  }
@@ -610,7 +678,7 @@
  async function recalculate(){
   const version=selectedVersion(),cap=capabilities(state.profile);
   if(!version)return;
-  if(!cap.recalculate){setRecalculateStatus('Administrative recalculation is ADFA General / Owner only.','error');say('Administrative DOE recalculation is ADFA General / Owner only.',true);return}
+  if(!cap.recalculate){setRecalculateStatus('Administrative recalculation is Developer / Owner only.','error');say('Administrative DOE recalculation is Developer / Owner only.',true);return}
   if(version.status!=='active'){setRecalculateStatus('Select the Active policy version before recalculating.','error');return}
   if(typeof state.service.previewRecalculate!=='function'||typeof state.service.runRecalculate!=='function'){say('Recalculate workflow is unavailable.',true);return}
   setRecalculateStatus('Running recalculation dry run…');
@@ -680,9 +748,10 @@
  function init({profile,user,toast}={}){
   const cap=capabilities(profile);
   if(!cap.initialize)return false;
-  const api=root?.UCVM_DOE_API;
+  const demoService=root?.UCVM_FRONTEND_DEMO_MODE===true?root?.UCVM_PAGES_DEMO?.doeRulebook:null,api=demoService||root?.UCVM_DOE_API;
   if(!api?.listPolicies||!api?.loadPolicyBundle||!api?.saveRule)return false;
-  state.profile=profile;state.user=user;state.toast=toast;state.service=api;
+  if(!demoService&&typeof api.isConfigured==='function'&&!api.isConfigured())return false;
+  state.profile=profile;state.user=user;state.toast=toast;state.service=api;state.demoReadOnly=Boolean(demoService?.readOnly);
   state.initialized=true;
   wire();
   applyPermissions();
@@ -690,7 +759,7 @@
  }
 
  function destroy(){
-  state.initialized=false;state.profile=null;state.user=null;state.service=null;state.bundle=null;state.policies=[];state.versions=[];
+  state.initialized=false;state.profile=null;state.user=null;state.service=null;state.demoReadOnly=false;state.bundle=null;state.policies=[];state.versions=[];
  }
 
  return{

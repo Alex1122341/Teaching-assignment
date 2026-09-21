@@ -1,7 +1,7 @@
 # CONFIGURATION.md — Databases, Projects and Client Configuration
 
 **Lab project:** `vista-teaching-lab` (Firestore Native, `northamerica-northeast1` / Montreal)
-**Existing live project:** `tester-teaching` — temporarily used by the GitHub Pages compatibility build and reserved for Azure production.
+**Reserved live project:** `tester-teaching` — not used by the active GitHub Pages test path; retained for future production migration.
 
 ---
 
@@ -17,8 +17,8 @@ The lab project fixes that:
 | | Lab project | Production |
 | --- | --- | --- |
 | Data | synthetic only (`tools/seed/dataset.js`) | real |
-| Public exposure | acceptable — nothing real in it | currently reached by the explicitly labelled GitHub Pages compatibility preview; normal writes are live |
-| Configuration | committed lab-targeting template (`firebase-config.js`); usable cloud values are generated/injected for the preview build | generated at build time from a tools-only public Web SDK config plus the external DOE API URL |
+| Public exposure | optional backend-integration target only; the active Pages demo does not connect to it | not used by the active test site |
+| Configuration | committed lab-targeting template (`firebase-config.js`) plus optional lab tooling for a later backend phase | legacy/future production configuration retained separately |
 
 ---
 
@@ -26,7 +26,7 @@ The lab project fixes that:
 
 | File | Purpose |
 | --- | --- |
-| `firebase-config.js` | **Single source of truth** for client Firebase configuration. The committed template targets the lab project with placeholder SDK values. GitHub Pages compatibility and production builds regenerate this file before building. |
+| `firebase-config.js` | **Single source of truth** for real Firebase client configuration. The committed template targets the lab project with placeholder SDK values; GitHub Pages Frontend Demo Mode overrides Firebase only in the staged artifact and does not require a real Web config. |
 | `.firebaserc` | Project aliases. `default` is the lab project, so a deploy without `--project` cannot reach production. |
 | `firebase.json` | Rules, indexes, hosting and emulator ports. |
 | `firestore.rules` | Authorisation model. See `docs/database/SCHEMA.md`. |
@@ -69,6 +69,12 @@ node tools/build-static.js    # writes .deploy-static/
 | `npm run db:seed:emulator` | seed the emulator |
 | `npm run db:deploy` | deploy rules and indexes to the lab project |
 | `npm run config:generate` | regenerate `firebase-config.js` |
+| `npm run config:pin:lab` | fetch and pin the public `vista-teaching-lab` Web SDK config |
+| `npm run lab:bootstrap-user` | create/reuse a lab Auth user and synchronize its `users/{uid}` profile using Admin credentials |
+| `npm run lab:auth:check` | verify Email/Password + Pages authorized-domain readiness using Admin credentials |
+| `npm run lab:auth:configure` | enforce the lab Auth boundary with exact project confirmation |
+| `npm run lab:data:verify` | verify the canonical synthetic dataset through Admin credentials |
+| `npm run lab:data:seed` | seed and verify the canonical synthetic dataset through Admin credentials |
 
 ---
 
@@ -89,32 +95,35 @@ firebase deploy --only firestore:rules,firestore:indexes --project <project-id>
 
 ---
 
-## 6. Production
+## 6. GitHub Pages frontend demo and optional Firebase lab backend
 
-Production runtime configuration is generated during the `main` build.
+The active browser test runtime is the fixed GitHub Pages site:
 
-The Firebase Web SDK config for project `tester-teaching` is pinned in `tools/production-firebase-web-config.json`. This is public client configuration, not a server credential. The file is deliberately outside `tools/static-assets.json`, so it is never shipped as a standalone frontend asset. During the temporary GitHub Pages compatibility period, the Pages workflow uses this file to generate `firebase-config.js` with an empty DOE API endpoint; the later production build uses the same Web SDK config plus the approved production DOE API URL.
+`https://alex1122341.github.io/Teaching-assignment/`
 
-Before a production release can build, define this GitHub repository **Actions variable**:
+For the current frontend-first phase, GitHub Pages does **not** connect to Cloud Firestore or Firebase Authentication. After the normal build and CI verification, `tools/stage-github-pages.js` injects:
 
-- `PRODUCTION_DOE_API_BASE_URL` — the approved HTTPS Azure App Service base URL for the DOE API.
+- `pages-demo-data.js` — the deterministic synthetic dataset from `tools/seed/dataset.js`
+- `pages-demo-runtime.js` — an in-browser Firebase Auth/Firestore compatibility layer
 
-After tests/emulators pass, the `Azure Static Web Apps` main-push workflow runs:
+The staged demo auto-signs a synthetic account, supports role switching, reads/writes browser-local demo state, and provides a reset control. No demo write leaves the browser.
 
-```bash
-node tools/build-firebase-config.js --from-json tools/production-firebase-web-config.json --doe-api-base-url "$PRODUCTION_DOE_API_BASE_URL"
-node tools/verify-production-client-config.js
-node tools/verify-production-doe-api.js
-node tools/build-static.js
-```
+Authoritative DOE is disabled in this mode. The Pages artifact never receives a DOE API URL and does not present browser-computed DOE as authoritative.
 
-The main build fails closed if the DOE API URL is missing/invalid or if the live DOE API health/CORS verification fails.
+The Firebase lab project `vista-teaching-lab` remains available for a later backend-integration phase. Its Web config pinning, Auth setup, user bootstrap, synthetic data setup, rules/index deployment, and DOE Admin jobs are all optional/manual and do not block the Pages demo.
 
-The verifier requires project `tester-teaching`, a non-placeholder Firebase web config, emulator mode off, and a non-local HTTPS DOE API endpoint before the production artifact can be uploaded.
+### Optional future lab Admin credential
 
-For Firebase Rules/index deployment, always use an explicit `--project tester-teaching`. Never rely on the `.firebaserc` default. Keep the production project out of `.firebaserc` `default`, so a mistaken deploy lands on the lab project rather than in production.
+When cloud-backend testing resumes, use a dedicated test-only `firebase-lab-admin` service account with least-privilege roles:
 
-**Never commit a service-account key, deployment token, ARM token, or other server credential to this repository.** Firebase Web SDK configuration is public client metadata; the production copy is allowed only in the tools-only config file and must never be hard-coded into runtime source files or added to the preview/deployment source allowlist. `tests/firebase-config.test.js` enforces that boundary.
+- `roles/identitytoolkit.admin`
+- `roles/datastore.user`
+- `roles/firebaserules.admin`
+- `roles/datastore.indexAdmin`
+
+Store its JSON only in the GitHub Environment secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`. Never commit it.
+
+Azure production workflows remain paused/fallback infrastructure and are not prerequisites for the Pages frontend demo.
 
 ---
 

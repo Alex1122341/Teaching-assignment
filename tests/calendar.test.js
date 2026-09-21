@@ -46,6 +46,11 @@ test('calendar sanitizer exposes exactly the public scheduling schema and names'
  assert.deepEqual(input,before);
  for(const forbidden of ['facultyIds','assignments','ucid','doeCredit','awayFromCampusRecords','private-id','private@example.test','private-reason','hidden@example.test'])assert.equal(JSON.stringify(clean).includes(forbidden),false,forbidden);
 });
+test('calendar sanitizer mirrors bounded LAB group IDs without copying roster-shaped data',()=>{
+ const clean=load().fromSource({...source(),labGroupIds:['g-a','g-a','g-b',{studentIds:['30012345']}]},'lab-groups');
+ assert.deepEqual(clean.labGroupIds,['g-a','g-b']);
+ assert.equal(JSON.stringify(clean).includes('30012345'),false);
+});
 test('calendar sanitizer preserves unknown time without inventing a time',()=>{
  const result=load().fromSource({...source(),start:'',end:'',timeUnknown:true},'s2');assert.equal(result.timeUnknown,true);assert.equal(result.start,'');assert.equal(result.end,'');
 });

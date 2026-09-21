@@ -18,7 +18,7 @@ const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 
 // A real Firebase web API key. The committed placeholder must not match this.
 const REAL_API_KEY = /AIza[0-9A-Za-z_-]{35}/;
-const RUNTIME_SOURCES = ['faculty-access.js', 'faculty-admin.js', 'index.html', 'faculty-admin.html', 'password.html', 'user-management.html'];
+const RUNTIME_SOURCES = ['faculty-access.js', 'faculty-admin.js', 'timetable.js', 'index.html', 'faculty-admin.html', 'password.html', 'user-management.html'];
 
 test('no runtime source hard-codes a Firebase project configuration', () => {
   for (const name of RUNTIME_SOURCES) {
@@ -101,23 +101,57 @@ test('production Firebase Web config is pinned tools-only and excluded from prev
 });
 
 
-test('preview config verifier accepts tester-teaching compatibility config only when DOE API is disabled',()=>{
+test('lab Firebase Web config is pinned tools-only and supports one-command refresh',()=>{
+  const config=JSON.parse(read('tools/lab-firebase-web-config.json'));
+  assert.equal(config.projectId,'vista-teaching-lab');
+  assert.equal(config.authDomain,'vista-teaching-lab.firebaseapp.com');
+  assert.ok(config.apiKey==='GENERATE_WITH_npm_run_config:pin:lab'||REAL_API_KEY.test(config.apiKey));
+  const manifest=JSON.parse(read('tools/static-assets.json'));
+  assert.equal(manifest.includes('tools/lab-firebase-web-config.json'),false);
+  const workflow=read('.github/workflows/github-pages-test.yml');
+  assert.doesNotMatch(workflow,/--from-json tools\/lab-firebase-web-config\.json/);
+  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/node tools\/stage-github-pages\.js/);
+  const pkg=JSON.parse(read('package.json'));
+  assert.equal(pkg.scripts['config:pin:lab'],'node tools/pin-lab-firebase-web-config.js');
+  const pin=read('tools/pin-lab-firebase-web-config.js');
+  assert.match(pin,/apps:sdkconfig/);
+  assert.match(pin,/vista-teaching-lab/);
+  assert.doesNotMatch(pin,/tester-teaching/);
+});
+
+test('lab config pin helper validates only a real vista-teaching-lab Web config',()=>{
+  const pin=require('../tools/pin-lab-firebase-web-config.js');
+  const good={
+    apiKey:'AIza'+'A'.repeat(35),
+    authDomain:'vista-teaching-lab.firebaseapp.com',
+    projectId:'vista-teaching-lab',
+    storageBucket:'vista-teaching-lab.firebasestorage.app',
+    messagingSenderId:'123456789012',
+    appId:'1:123456789012:web:abcdef0123456789abcdef'
+  };
+  assert.equal(pin.validateLabConfig(good).projectId,'vista-teaching-lab');
+  assert.throws(()=>pin.validateLabConfig({...good,projectId:'tester-teaching'}),/vista-teaching-lab/);
+  assert.throws(()=>pin.validateLabConfig({...good,apiKey:'GENERATE_WITH_npm_run_config:pin:lab'}),/API key/);
+});
+
+test('preview config verifier accepts only the isolated lab project with DOE API disabled',()=>{
   const {validatePreview}=require('../tools/verify-preview-client-config.js');
   const good={
     firebaseConfig:{
       apiKey:'AIza'+'A'.repeat(35),
-      authDomain:'tester-teaching.firebaseapp.com',
-      projectId:'tester-teaching',
-      storageBucket:'tester-teaching.firebasestorage.app',
+      authDomain:'vista-teaching-lab.firebaseapp.com',
+      projectId:'vista-teaching-lab',
+      storageBucket:'vista-teaching-lab.firebasestorage.app',
       messagingSenderId:'123456789012',
       appId:'1:123456789012:web:abcdef0123456789abcdef'
     },
     emulator:false,
-    projectId:'tester-teaching',
+    projectId:'vista-teaching-lab',
     doeApiBaseUrl:''
   };
   assert.equal(validatePreview(good),true);
   assert.throws(()=>validatePreview({...good,firebaseConfig:{...good.firebaseConfig,apiKey:'GENERATE_WITH_tools_build-firebase-config.js'}}),/placeholder|invalid/i);
-  assert.throws(()=>validatePreview({...good,projectId:'vista-teaching-lab',firebaseConfig:{...good.firebaseConfig,projectId:'vista-teaching-lab',authDomain:'vista-teaching-lab.firebaseapp.com'}}),/tester-teaching/);
+  assert.throws(()=>validatePreview({...good,projectId:'tester-teaching',firebaseConfig:{...good.firebaseConfig,projectId:'tester-teaching',authDomain:'tester-teaching.firebaseapp.com'}}),/vista-teaching-lab/);
   assert.throws(()=>validatePreview({...good,doeApiBaseUrl:'https://example.azurewebsites.net'}),/must not be configured to reach a DOE API endpoint/);
 });

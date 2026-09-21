@@ -9,7 +9,10 @@ const root=path.resolve(__dirname,'..');
 function loadSelection(){
   const context={window:{},Date,console};
   vm.runInNewContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
-  vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
+  // Field ownership is derived from the canonical modules, so the harness must load them.
+ vm.runInNewContext(fs.readFileSync(path.join(root,'office-capabilities.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'session-workflow.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
   return context.window.UCVM_TIMETABLE_SELECTION;
 }
 function session(overrides={}){
@@ -175,22 +178,43 @@ test('timetable faculty pickers do not present locally-derived DOE totals as aut
  assert.match(picker,/server preview/i);
 });
 
-test('timetable writes fail closed when DOE API base URL is not configured',()=>{
+test('Firebase-only timetable writes use the queued DOE fallback when HTTP API is absent',()=>{
  const source=fs.readFileSync(path.join(root,'timetable.js'),'utf8');
  const start=source.indexOf('function getTimetableDoeRuntime');
  const end=source.indexOf('\n  function',start+20);
  const fn=source.slice(start,end);
- assert.match(fn,/isConfigured/);
- assert.match(fn,/not configured/i);
+ assert.match(fn,/canQueueSessionChanges/);
+ assert.match(fn,/prepareQueuedSessionChange/);
+ assert.doesNotMatch(fn,/UCVM_DOE_POLICY_ENGINE/);
 });
 
-test('approval and safe-swap DOE writes fail closed when API base URL is not configured',()=>{
+test('approval and safe-swap session saves allow the Firebase queue without enabling DOE preview math',()=>{
  const approval=fs.readFileSync(path.join(root,'approval-workflow.js'),'utf8');
  const safeSwap=fs.readFileSync(path.join(root,'faculty-swap-safe.js'),'utf8');
- assert.match(approval,/isConfigured/);
- assert.match(approval,/not configured/i);
- assert.match(safeSwap,/isConfigured/);
- assert.match(safeSwap,/not configured/i);
+ assert.match(approval,/canQueueSessionChanges/);
+ assert.match(approval,/method==='saveSessionChange'/);
+ assert.match(safeSwap,/canQueueSessionChanges/);
+ assert.match(safeSwap,/previewConfigured/);
+});
+
+test('queued session preparation strips authoritative DOE evidence and refreshes duration facts',()=>{
+ const api=require('../doe-api-client.js'),before=session(),after=plain(before);after.end='12:00';
+ const prepared=api.prepareQueuedSessionChange({beforeSession:before,afterSession:after,trigger:'session_updated'});
+ const row=prepared.session.assignments[0];
+ assert.equal(prepared.queued,true);assert.equal(row.creditedHours,3);
+ for(const field of ['doeCredit','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId','doeRate'])assert.equal(row[field],undefined);
+ assert.deepEqual(prepared.queue.sourceEntityIds,['s1--assignment--1']);
+ assert.deepEqual(prepared.queue.facultyIds,['f1']);
+ const custom={...before,assignments:[{...before.assignments[0],assignmentId:'custom-assignment'}]};
+ const customPrepared=api.prepareQueuedSessionChange({beforeSession:custom,afterSession:custom});
+ assert.deepEqual(customPrepared.queue.sourceEntityIds,['custom-assignment']);
+});
+
+test('unconfigured HTTP DOE client fails before attempting a relative network request',async()=>{
+ let called=false;
+ const api=require('../doe-api-client.js').createClient({baseUrl:'',tokenProvider:async()=> 'token',fetchImpl:async()=>{called=true;return{ok:true,status:200,json:async()=>({})}}});
+ await assert.rejects(()=>api.listPolicies(),error=>error?.code==='DOE_API_NOT_CONFIGURED');
+ assert.equal(called,false);
 });
 
 test('legacy approval apply path persists session changes through the DOE API',()=>{

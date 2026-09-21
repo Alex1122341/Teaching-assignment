@@ -22,8 +22,8 @@
   const raw=text(value&&typeof value==='object'?value.role:value).toLowerCase();
   return({owner:'adfa_general',administrator:'adfa_regular',admin:'adfa_regular',adfa_general:'adfa_general',adfa_regular:'adfa_regular'}[raw]||raw);
  };
- const canEditDraft=actor=>['adfa_general','adfa_regular'].includes(role(actor));
- const canPublish=actor=>role(actor)==='adfa_general';
+ const canEditDraft=actor=>['developer','adfa_general','adfa_regular'].includes(role(actor));
+ const canPublish=actor=>['developer','adfa_general'].includes(role(actor));
  const canRecalculate=canPublish;
 
  function deny(action){
@@ -174,7 +174,7 @@
   const approvedAt=text(approval?.approvedAt);
   return Boolean(
    text(approval?.approvedBy)&&
-   role(approval?.approvedByRole)==='adfa_general'&&
+   ['developer','adfa_general'].includes(role(approval?.approvedByRole))&&
    approvedAt&&!Number.isNaN(Date.parse(approvedAt))&&
    text(approval?.approvalReference)
   );
@@ -324,7 +324,8 @@
      const value=Object.prototype.hasOwnProperty.call(sourceContext,field)?sourceContext[field]:source[field];
      if(value!==undefined&&value!==null&&value!=='')context[field]=stableValue(value);
     }
-    const currentDoe=Number(source.currentDoe);
+    const rawCurrentDoe=source.currentDoe;
+    const currentDoe=rawCurrentDoe===null||rawCurrentDoe===undefined||rawCurrentDoe===''?null:Number(rawCurrentDoe);
     return{
      sourceEntityType:text(source.sourceEntityType),
      sourceEntityId:text(source.sourceEntityId||source.assignmentId||source.sessionId),
@@ -449,6 +450,8 @@
     if(!groups.has(facultyId))groups.set(facultyId,{
      facultyId,
      currentDoe:0,
+     currentUnavailableCount:0,
+     resolvedCurrentGapCount:0,
      draftDoe:0,
      calculationCount:0,
      affectedRules:new Set(),
@@ -457,6 +460,7 @@
     const group=groups.get(facultyId);
     group.calculationCount+=1;
     if(Number.isFinite(item.currentDoe))group.currentDoe+=item.currentDoe;
+    else group.currentUnavailableCount+=1;
     const context={
      ...(item.context||{}),
      academicYear:text(version.academicYear),
@@ -469,6 +473,7 @@
     try{
      const result=engine.calculate(calculationBundleForItem(bundle,{...item,context}),context);
      group.draftDoe+=Number(result.resultDoe);
+     if(!Number.isFinite(item.currentDoe))group.resolvedCurrentGapCount+=1;
      if(text(result.ruleKey))group.affectedRules.add(text(result.ruleKey));
      else if(text(result.exceptionId))group.affectedRules.add(`Exception: ${text(result.exceptionId)}`);
     }catch(error){
@@ -480,11 +485,22 @@
 
    const threshold=Math.abs(Number(previewReviewThreshold))||5;
    let changedFacultyCount=0,largeIncreaseCount=0,largeDecreaseCount=0,warningCount=0;
+   let increaseCount=0,decreaseCount=0,unchangedCount=0,newNeedsReviewCount=0,resolvedCurrentGapCount=0,missingMappingCount=0;
+   let largestIncreaseDoe=null,largestDecreaseDoe=null;
+   const mappingError=error=>/(?:^|_)MAPPING_(?:REQUIRED|AMBIGUOUS)$/.test(text(error?.code).toUpperCase());
    const rows=[...groups.values()].sort((a,b)=>a.facultyId.localeCompare(b.facultyId)).map(group=>{
     const rowErrors=group.errors.slice();
+    const currentDoe=group.currentUnavailableCount>0?null:group.currentDoe;
     const draftDoe=rowErrors.length?null:group.draftDoe;
-    const difference=draftDoe===null?null:draftDoe-group.currentDoe;
+    const difference=currentDoe===null||draftDoe===null?null:draftDoe-currentDoe;
     const warnings=[];
+    const rowMissingMappingCount=rowErrors.filter(mappingError).length;
+    let impactStatus='unchanged';
+    if(rowMissingMappingCount>0)impactStatus='missing_mapping';
+    else if(rowErrors.length)impactStatus='needs_review';
+    else if(group.currentUnavailableCount>0)impactStatus='resolved_current_gap';
+    else if(difference!==null&&difference>1e-9)impactStatus='increase';
+    else if(difference!==null&&difference<-1e-9)impactStatus='decrease';
     if(difference!==null&&difference>threshold){
      warnings.push({code:'LARGE_INCREASE',message:`Draft DOE increases by more than ${threshold.toFixed(2)} percentage points.`});
      largeIncreaseCount+=1;
@@ -493,21 +509,33 @@
      largeDecreaseCount+=1;
     }
     if(difference!==null&&Math.abs(difference)>1e-9)changedFacultyCount+=1;
+    if(impactStatus==='increase'){increaseCount+=1;largestIncreaseDoe=largestIncreaseDoe===null?difference:Math.max(largestIncreaseDoe,difference)}
+    else if(impactStatus==='decrease'){decreaseCount+=1;largestDecreaseDoe=largestDecreaseDoe===null?difference:Math.min(largestDecreaseDoe,difference)}
+    else if(impactStatus==='unchanged')unchangedCount+=1;
+    if(rowErrors.length)newNeedsReviewCount+=1;
+    if(impactStatus==='resolved_current_gap')resolvedCurrentGapCount+=1;
+    if(rowMissingMappingCount>0)missingMappingCount+=1;
     warningCount+=warnings.length;
     return{
      impactRowId:`${impactRunId}--faculty--${group.facultyId.replace(/[^A-Za-z0-9._-]+/g,'-')}`,
      impactRunId,
      policyVersionId:text(policyVersionId),
      facultyId:group.facultyId,
-     currentDoe:group.currentDoe,
+     currentDoe,
      draftDoe,
      difference,
+     impactStatus,
+     currentUnavailableCount:group.currentUnavailableCount,
+     resolvedCurrentGapCount:group.resolvedCurrentGapCount,
+     missingMappingCount:rowMissingMappingCount,
      calculationCount:group.calculationCount,
      affectedRules:[...group.affectedRules].sort(),
      warnings,
      errors:rowErrors
     };
    });
+   const affectedFacultyCount=rows.filter(row=>row.impactStatus!=='unchanged').length;
+   const affectedCalculationCount=rows.filter(row=>row.impactStatus!=='unchanged').reduce((sum,row)=>sum+Number(row.calculationCount||0),0);
 
    const status=errors.length?'failed':'passed';
    const completedAt=timestamp();
@@ -522,6 +550,16 @@
     facultyCount:rows.length,
     calculationCount:projection.calculations.length,
     changedFacultyCount,
+    affectedFacultyCount,
+    affectedCalculationCount,
+    increaseCount,
+    decreaseCount,
+    unchangedCount,
+    newNeedsReviewCount,
+    resolvedCurrentGapCount,
+    missingMappingCount,
+    largestIncreaseDoe,
+    largestDecreaseDoe,
     largeIncreaseCount,
     largeDecreaseCount,
     errorCount:errors.length,

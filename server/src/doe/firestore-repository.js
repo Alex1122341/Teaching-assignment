@@ -40,6 +40,42 @@ function rowFromDoc(doc,idField){
   return row;
 }
 
+const EXPLANATION_FACT_KEYS=new Set([
+  'category','courseCode','course','subjectKey','subject','roleType','teachingRole','activityType','type',
+  'hours','creditedHours','units','weeks','trainees','shifts','sessionId','assignmentId','sourceEntityType','sourceEntityId'
+]);
+function explanationValue(value,depth=0){
+  if(value===null||value===undefined)return null;
+  if(typeof value==='string'||typeof value==='boolean')return value;
+  if(typeof value==='number')return Number.isFinite(value)?value:null;
+  if(depth>=2)return null;
+  if(Array.isArray(value))return value.map(item=>explanationValue(item,depth+1)).filter(item=>item!==null);
+  if(typeof value==='object'){
+    const out={};
+    for(const [key,item] of Object.entries(value)){const safe=explanationValue(item,depth+1);if(safe!==null)out[key]=safe}
+    return out;
+  }
+  return null;
+}
+function explanationMap(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))return{};
+  const out={};
+  for(const [key,item] of Object.entries(value)){const safe=explanationValue(item);if(safe!==null)out[key]=safe}
+  return out;
+}
+function explanationFacts(row={},snapshot={}){
+  const source={...(row&&typeof row==='object'?row:{}),...(snapshot&&typeof snapshot==='object'?snapshot:{})},out={};
+  for(const key of EXPLANATION_FACT_KEYS){if(!Object.prototype.hasOwnProperty.call(source,key))continue;const safe=explanationValue(source[key]);if(safe!==null&&safe!=='')out[key]=safe}
+  return out;
+}
+function explanationRule(snapshot={}){
+  const source=snapshot&&typeof snapshot==='object'?snapshot:{},out={};
+  for(const key of ['ruleId','ruleKey','name','label','title','category','calculationMode','description']){
+    const safe=explanationValue(source[key]);if(safe!==null&&safe!=='')out[key]=safe;
+  }
+  return out;
+}
+
 function createRepository(db){
   if(!db?.collection)throw new Error('Firestore database is required.');
 
@@ -396,6 +432,13 @@ function createRepository(db){
       exceptionId:text(row?.exceptionId||evidence?.exceptionId),calculationId,
       quantity:quantity.quantity,quantityUnit:quantity.quantityUnit,calculationText:text(evidence?.calculationText),
       reference:evidence?.referenceSnapshot?structuredClone(evidence.referenceSnapshot):null,
+      explanation:{
+        source:text(evidence?.source),trigger:text(evidence?.trigger),
+        facts:explanationFacts(row,evidence?.factsSnapshot),
+        inputs:explanationMap(evidence?.inputsSnapshot),
+        parameters:explanationMap(evidence?.parameterSnapshot),
+        rule:explanationRule(evidence?.ruleSnapshot)
+      },
       calculatedAt:text(evidence?.calculatedAt),status,errorCode
     };
   }

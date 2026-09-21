@@ -49,25 +49,19 @@ jobs:
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator
 
-      - name: Prepare live Firebase compatibility configuration
-        shell: bash
-        env:
-          EXPECTED_FIREBASE_PROJECT_ID: tester-teaching
-        run: |
-          set -euo pipefail
-          node tools/build-firebase-config.js --from-json tools/production-firebase-web-config.json
-          node tools/verify-preview-client-config.js
-
       - name: Build static site
         run: node tools/build-static.js
 
-      - name: Stage GitHub Pages test site
+      - name: Stage GitHub Pages frontend demo
         run: >-
           node tools/stage-github-pages.js
           --directory .deploy-static
           --pr "${{ github.event.pull_request.number }}"
           --head-sha "${{ github.event.pull_request.head.sha }}"
           --build-sha "${{ github.event.pull_request.head.sha }}"
+
+      - name: Browser smoke staged frontend demo
+        run: node tools/browser-smoke.js --demo
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6

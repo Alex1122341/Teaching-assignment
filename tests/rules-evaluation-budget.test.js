@@ -28,7 +28,13 @@ const rules = fs.readFileSync(path.resolve(__dirname, '../firestore.rules'), 'ut
 // though one Firestore request cannot traverse both rule paths. Keep separate
 // growth guards, then rely on the emulator suite for the real per-request budget.
 const CORE_CEILING = {
-  documentReads: 265,
+  // 265 -> 267: approvalOrderSatisfied() adds two getAfter() reads (the earlier
+  // ADC and LAB approval documents) so an approval write is rejected unless the
+  // preceding applicable stages have already approved. Those reads are only
+  // reached on the approve branch, and the serial-order emulator suite
+  // (tests/approval-order-security-emulator.test.js) confirms the routed
+  // approval path still commits inside the budget.
+  documentReads: 267,
   existenceChecks: 60
 };
 const DOE_CEILING = {
@@ -83,10 +89,13 @@ test('core and DOE existence checks stay within their reviewed domain budgets', 
 });
 
 test('the routed approval path still proves its companion writes', () => {
-  // These are the guarantees that make an approval meaningful. They must not be
-  // removed to save evaluation budget.
+  // These are the guarantees that make an approval meaningful. Scope/signature
+  // integrity is proven when approval records are created/resubmitted; final apply
+  // then checks the already-locked records' approved status. Do not remove those
+  // proofs merely to save evaluation budget.
   assert.match(rules, /function allRequiredApproved\(id,workflow\)/);
-  assert.match(rules, /function requiredApprovalMatches\(id,workflow,office\)/);
+  assert.match(rules, /function approvalMatchesWorkflow\(id,d,workflow\)/);
+  assert.match(rules, /validRoutedApprovalCreate\(id\)[^]*approvalMatchesWorkflow|validRoutedApprovalResubmitCreate\(id\)[^]*approvalMatchesWorkflow/);
   assert.match(rules, /function routedSessionApplyFor\(id,rid\)/);
   assert.match(rules, /function legacyAppliedCompanionWrite\(\)/);
   assert.match(rules, /function calendarMatchesSourceAfter\(id\)/);

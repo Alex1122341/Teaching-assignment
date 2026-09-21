@@ -7,8 +7,20 @@
  'use strict';
  const text=value=>String(value??'').trim();
  const facultyFacingRole=role=>['faculty','hicc','visc'].includes(role);
- const rolesAllowed=['faculty','hicc','visc','adc','lab','other_office','administrator','owner'];
- function build({role,faculty=null,roles=[],current=null,office={},active=false,mustChangePassword=true}={}){
+ const rolesAllowed=['faculty','hicc','visc','adc','lab','other_office','administrator','owner','developer'];
+ const officeRoles=['adc','lab','administrator','owner','developer'];
+ const allowedOfficeAccess=role=>role==='developer'||['administrator','owner'].includes(role)?['adc','lab','adfa']:['adc','lab'].includes(role)?['adc','lab']:[];
+ const normalizeOfficeAccess=(value,allowed=['adc','lab','adfa'])=>[...new Set((Array.isArray(value)?value:[]).map(item=>text(item).toLowerCase()).filter(item=>allowed.includes(item)))];
+ const defaultOfficeAccess=role=>role==='developer'?['adc','lab','adfa']:role==='adc'?['adc']:role==='lab'?['lab']:['administrator','owner'].includes(role)?['adfa']:[];
+ function officeAccessFor({role,current=null,officeAccess}={}){
+  if(role==='developer')return['adc','lab','adfa'];
+  if(!officeRoles.includes(role))return null;
+  const allowed=allowedOfficeAccess(role);
+  if(Array.isArray(officeAccess))return normalizeOfficeAccess(officeAccess,allowed);
+  if(current&&Array.isArray(current.officeAccess))return normalizeOfficeAccess(current.officeAccess,allowed);
+  return defaultOfficeAccess(role);
+ }
+ function build({role,faculty=null,roles=[],current=null,office={},officeAccess,active=false,mustChangePassword=true}={}){
   if(!rolesAllowed.includes(role))throw Error('Choose a valid account role.');
   const profile={};
   if(facultyFacingRole(role)){
@@ -23,6 +35,7 @@
   if(!profile.name||profile.name.length>120)throw Error('Enter an account display name with 1 to 120 characters.');
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email))throw Error('Enter a valid account email.');
   Object.assign(profile,{role,active:active===true,mustChangePassword:current?mustChangePassword===true:true});
+  const access=officeAccessFor({role,current,officeAccess});if(access!==null)profile.officeAccess=access;
   return profile;
  }
  function existingUid(value){
@@ -42,5 +55,5 @@
   if(typeof password!=='string'||password.length<8)throw Error('Enter a temporary password with at least 8 characters.');
   return createAuthenticationUser(email,password);
  }
- return Object.freeze({facultyFacingRole,build,existingUid,resolveNewUid});
+ return Object.freeze({facultyFacingRole,allowedOfficeAccess,normalizeOfficeAccess,defaultOfficeAccess,officeAccessFor,build,existingUid,resolveNewUid});
 });

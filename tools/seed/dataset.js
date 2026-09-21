@@ -47,6 +47,7 @@ const FACULTY_SEED = [
 // Accounts. Password-completion and inactive states are represented on purpose
 // so tests can prove those gates behave.
 const USER_SEED = [
+  {uid: 'uid-developer', name: 'VISTA Developer', role: 'developer'},
   {uid: 'uid-owner', name: 'VISTA Owner', role: 'owner'},
   {uid: 'uid-admin', name: 'VISTA Administrator', role: 'administrator'},
   {uid: 'uid-otheroffice', name: 'Other Office', role: 'other_office'},
@@ -196,7 +197,7 @@ function buildFaculty() {
       awayFromCampusSource: 'seed-2026-27',
       awayFromCampusImportedAt: stamp(0),
       awayFromCampusImportedBy: 'uid-owner',
-      facultySummary2026_27: {assignedTeachingDOE: null, sourceNonTimetableTeachingDOE: null},
+      facultySummary2026_27: {assignedTeachingDOE: person.contract, sourceScheduledTeachingDOE: person.contract, sourceNonTimetableTeachingDOE: 0},
       facultySummarySource2026_27: 'seed-2026-27',
       facultySummaryStatus2026_27: 'imported',
       facultySummaryImportedAt: stamp(0),
@@ -242,7 +243,9 @@ function buildSessionsAndCalendar() {
       const start = `${String(startHour).padStart(2, '0')}:${random() < 0.5 ? '00' : '30'}`;
       const end = `${String(startHour + 2).padStart(2, '0')}:${start.endsWith('30') ? '30' : '00'}`;
       const timeUnknown = random() < 0.05;
-      const type = isLab ? 'LAB' : (random() < 0.2 ? 'SRL' : 'Lecture');
+      // Session type uses the canonical application vocabulary (LEC / SRL / LAB).
+      // 'Lecture' is a teaching ROLE, not a session type, so it must not be used here.
+      const type = isLab ? 'LAB' : (random() < 0.2 ? 'SRL' : 'LEC');
       const topic = isLab ? pick(LAB_TOPICS, random) : pick(LECTURE_TOPICS, random);
       const room = isLab ? 'Clinical Skills Lab' : pick(ROOMS.slice(0, 4), random);
       const lead = FACULTY_SEED[Math.floor(random() * FACULTY_SEED.length)];
@@ -281,6 +284,7 @@ function buildSessionsAndCalendar() {
         data: {
           course: course.code,
           courseName: course.name,
+          academicYear: ACADEMIC_YEAR,
           year: 2,
           semester: 'winter',
           week,
@@ -325,6 +329,30 @@ function buildSessionsAndCalendar() {
     }
   }
   return {sessions, calendar};
+}
+
+function buildLabGroupsAndRosters() {
+  const groups = [], rosters = [];
+  COURSES.forEach((course, index) => {
+    const groupId = `lab-group-${String(index + 1).padStart(2, '0')}-a`;
+    groups.push({
+      path: `lab_groups/${groupId}`,
+      data: {
+        groupId, academicYear: ACADEMIC_YEAR, course: course.code,
+        groupCode: 'A', colorKey: 'group-a', active: true,
+        updatedBy: 'uid-lab-1', updatedByName: 'LAB Coordinator', updatedAt: stamp(0)
+      }
+    });
+    rosters.push({
+      path: `lab_group_rosters/${groupId}`,
+      data: {
+        groupId,
+        studentIds: [`39${String(index + 1).padStart(6, '0')}`, `49${String(index + 1).padStart(6, '0')}`],
+        updatedBy: 'uid-lab-1', updatedByName: 'LAB Coordinator', updatedAt: stamp(0)
+      }
+    });
+  });
+  return {groups, rosters};
 }
 
 function buildSettings(sessions, faculty) {
@@ -773,6 +801,122 @@ function buildBulkImport() {
   ];
 }
 
+function buildDoePolicy() {
+  const policyId = 'lab-synthetic-2026-27';
+  const policyVersionId = 'lab-synthetic-2026-27-v1';
+  const note = 'TEST ONLY - synthetic VISTA lab fixture; not an approved UCVM workload policy.';
+  const createdAt = stamp(-800);
+  const documents = [
+    {
+      path: `doe_policies/${policyId}`,
+      data: {
+        policyId,
+        academicYear: ACADEMIC_YEAR,
+        name: 'VISTA Lab Synthetic DOE Policy',
+        description: note,
+        currentActiveVersionId: policyVersionId,
+        testOnly: true,
+        createdBy: 'seed',
+        createdAt,
+        updatedBy: 'seed',
+        updatedAt: createdAt
+      }
+    },
+    {
+      path: `doe_policy_versions/${policyVersionId}`,
+      data: {
+        policyVersionId,
+        policyId,
+        academicYear: ACADEMIC_YEAR,
+        versionNumber: 1,
+        status: 'active',
+        revision: 1,
+        name: 'VISTA Lab Synthetic DOE Policy v1',
+        description: note,
+        sourceType: 'synthetic_test_fixture',
+        testOnly: true,
+        publishedBy: 'seed',
+        publishedByName: 'Synthetic Seed',
+        publishedAt: createdAt,
+        createdBy: 'seed',
+        createdByName: 'Synthetic Seed',
+        createdAt,
+        updatedBy: 'seed',
+        updatedByName: 'Synthetic Seed',
+        updatedAt: createdAt
+      }
+    }
+  ];
+
+  const rules = [
+    {key: 'lecture', name: 'Synthetic Lecture / SRL', teachingRole: 'Lecture', rate: DEFAULT_RATE.Lecture},
+    {key: 'lab-lead', name: 'Synthetic Lab Lead', teachingRole: 'Lab Lead', rate: DEFAULT_RATE['Lab Lead']},
+    {key: 'lab-support', name: 'Synthetic Lab Support', teachingRole: 'Lab Support', rate: DEFAULT_RATE['Lab Support']}
+  ];
+
+  for (const [index, spec] of rules.entries()) {
+    const ruleId = `lab-rule-${spec.key}`;
+    documents.push({
+      path: `doe_rules/${ruleId}`,
+      data: {
+        ruleId,
+        policyVersionId,
+        ruleKey: `test.teaching.${spec.key}`,
+        category: 'teaching',
+        name: spec.name,
+        calculationMode: 'per_hour',
+        resultKind: 'credit',
+        priority: 100 - index,
+        enabled: true,
+        sourceType: 'synthetic_test_fixture',
+        reviewStatus: 'test_only',
+        adminNote: note
+      }
+    });
+    documents.push({
+      path: `doe_rule_selectors/${ruleId}-selector-role`,
+      data: {
+        selectorId: `${ruleId}-selector-role`,
+        ruleId,
+        policyVersionId,
+        field: 'teachingRole',
+        operator: 'equals',
+        valueText: spec.teachingRole,
+        order: 1
+      }
+    });
+    documents.push({
+      path: `doe_rule_inputs/${ruleId}-input-hours`,
+      data: {
+        ruleInputId: `${ruleId}-input-hours`,
+        ruleId,
+        policyVersionId,
+        inputName: 'hours',
+        inputType: 'number',
+        required: true,
+        source: 'session.creditedHours',
+        unit: 'hours',
+        order: 1
+      }
+    });
+    documents.push({
+      path: `doe_rule_parameters/${ruleId}-param-rate`,
+      data: {
+        parameterId: `${ruleId}-param-rate`,
+        ruleId,
+        policyVersionId,
+        name: 'rate',
+        valueNumber: spec.rate,
+        unit: 'synthetic_doe_per_hour',
+        required: true,
+        order: 1
+      }
+    });
+  }
+
+  return documents;
+}
+
 function buildPublicInfo() {
   return [
     {
@@ -810,11 +954,13 @@ function buildDataset() {
   const faculty = buildFaculty();
   const {sessions, calendar} = buildSessionsAndCalendar();
   const settings = buildSettings(sessions, faculty);
+  const {groups: labGroups, rosters: labRosters} = buildLabGroupsAndRosters();
   const requests = buildRequests(sessions);
   const notifications = buildNotifications(sessions);
   const afc = buildAfc();
   const audit = buildAuditLogs(sessions);
   const bulkImport = buildBulkImport();
+  const doe = buildDoePolicy();
   const publicInfo = buildPublicInfo();
 
   const documents = [
@@ -823,12 +969,15 @@ function buildDataset() {
     ...sessions,
     ...calendar,
     ...settings,
+    ...labGroups,
+    ...labRosters,
     ...buildGroups(),
     ...requests,
     ...notifications,
     ...afc,
     ...audit,
     ...bulkImport,
+    ...doe,
     ...publicInfo
   ];
 
@@ -842,11 +991,14 @@ function buildDataset() {
       sessions: sessions.length,
       calendarSessions: calendar.length,
       settings: settings.length,
+      labGroups: labGroups.length,
+      labRosters: labRosters.length,
       requests: requests.length,
       notifications: notifications.length,
       afc: afc.length,
       audit: audit.length,
       bulkImport: bulkImport.length,
+      doe: doe.length,
       publicInfo: publicInfo.length,
       total: documents.length
     },

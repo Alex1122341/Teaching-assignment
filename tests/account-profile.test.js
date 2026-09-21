@@ -4,9 +4,9 @@ const load=()=>require('../account-profile.js');
 const faculty={id:'f1',name:'Faculty Name',email:'FACULTY@example.test'};
 
 test('office profiles require their own identity and carry no Faculty link or roles',()=>{
- const api=load();for(const role of ['adc','lab','other_office','administrator','owner']){
+ const api=load();for(const role of ['adc','lab','other_office','administrator','owner','developer']){
   const profile=api.build({role,faculty,roles:['hicc'],office:{name:'Scheduling Office',email:'OFFICE@example.test'},active:true,current:{facultyId:'f1',facultyRoles:['hicc']},mustChangePassword:true});
-  assert.deepEqual(profile,{name:'Scheduling Office',email:'office@example.test',role,active:true,mustChangePassword:true});
+  const expected={name:'Scheduling Office',email:'office@example.test',role,active:true,mustChangePassword:true};if(['adc','lab','administrator','owner','developer'].includes(role))expected.officeAccess=api.defaultOfficeAccess(role);assert.deepEqual(profile,expected);
   assert.equal(api.facultyFacingRole(role),false);
  }
 });
@@ -45,3 +45,7 @@ test('new Authentication creation requires a password and delegates once',async(
 });
 
 test('an indeterminate existing-profile read fails closed',async()=>{await assert.rejects(load().resolveNewUid({existingUid:'test',readProfile:async()=>undefined}),/verify|profile/i);});
+
+test('operational office access is independent of the primary role and fails closed for faculty roles',()=>{const api=load();assert.deepEqual(api.build({role:'owner',office:{name:'Owner',email:'owner@example.test'},officeAccess:['adc','lab'],current:{},active:true,mustChangePassword:false}).officeAccess,['adc','lab']);assert.deepEqual(api.build({role:'administrator',office:{name:'Admin',email:'admin@example.test'},officeAccess:[],current:{},active:true,mustChangePassword:false}).officeAccess,[]);assert.equal(Object.prototype.hasOwnProperty.call(api.build({role:'faculty',faculty}), 'officeAccess'),false);assert.deepEqual(api.normalizeOfficeAccess(['LAB','adc','lab','bad']),['lab','adc']);});
+
+test('ADC and LAB accounts may exchange ADC/LAB duties but cannot receive ADFA private-data authority',()=>{const api=load();assert.deepEqual(api.allowedOfficeAccess('adc'),['adc','lab']);assert.deepEqual(api.allowedOfficeAccess('lab'),['adc','lab']);assert.deepEqual(api.officeAccessFor({role:'lab',officeAccess:['adc','adfa']}),['adc']);assert.deepEqual(api.allowedOfficeAccess('administrator'),['adc','lab','adfa']);});

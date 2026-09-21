@@ -38,11 +38,15 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/npm run test:all/);
   assert.match(workflow,/npm run test:emulator/);
   assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
-  assert.match(workflow,/node tools\/build-firebase-config\.js --from-json tools\/production-firebase-web-config\.json/);
-  assert.match(workflow,/node tools\/verify-preview-client-config\.js/);
-  assert.ok(workflow.indexOf('Prepare live Firebase compatibility configuration')<workflow.indexOf('Build static site'));
+  assert.doesNotMatch(workflow,/EXPECTED_FIREBASE_PROJECT_ID|build-firebase-config\.js --from-json tools\/lab-firebase-web-config\.json|verify-preview-client-config\.js/);
+  assert.doesNotMatch(workflow,/PRODUCTION_DOE_API_BASE_URL|PAGES_DOE_API_BASE_URL|verify-production-doe-api|--doe-api-base-url/);
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
+  assert.match(workflow,/node tools\/build-static\.js/);
+  assert.match(workflow,/node tools\/stage-github-pages\.js/);
+  assert.match(workflow,/node tools\/browser-smoke\.js --demo/);
+  assert.ok(workflow.indexOf('Stage GitHub Pages frontend demo')<workflow.indexOf('Browser smoke staged frontend demo'));
+  assert.ok(workflow.indexOf('Browser smoke staged frontend demo')<workflow.indexOf('Configure GitHub Pages'));
   assert.match(workflow,/--pr\s+["']?\$\{\{ github\.event\.pull_request\.number \}\}["']?/);
   assert.match(workflow,/--head-sha\s+["']?\$\{\{ github\.event\.pull_request\.head\.sha \}\}["']?/);
   assert.match(workflow,/--build-sha\s+["']?\$\{\{ github\.event\.pull_request\.head\.sha \}\}["']?/);
@@ -63,17 +67,18 @@ test('Pages workflow leaves the independent Test workflow in place',()=>{
   assert.match(workflow,/push:\s*\n\s+branches:\s*\n\s+- main/);
 });
 
-test('setup docs define the fixed Pages live Firebase compatibility boundary',()=>{
+test('setup docs define the fixed Pages frontend demo boundary',()=>{
   const setup=read('SETUP.md');
   assert.match(setup,/https:\/\/alex1122341\.github\.io\/Teaching-assignment\//);
   assert.match(setup,/GitHub Pages/i);
-  assert.match(setup,/tester-teaching/);
-  assert.match(setup,/Live Firebase Compatibility Mode|live Firebase compatibility/i);
-  assert.match(setup,/DOE API.*not configured|DOE API.*disabled/i);
+  assert.match(setup,/Frontend Demo/i);
+  assert.match(setup,/browser-local|browser local/i);
+  assert.match(setup,/synthetic/i);
+  assert.match(setup,/no cloud writes|cloud writes.*none|does not require Firebase/i);
+  assert.match(setup,/DOE.*disabled|authoritative DOE.*off/i);
   assert.match(setup,/alex1122341\.github\.io/);
-  assert.match(setup,/Authorized domains/i);
   assert.match(setup,/latest successful.*pull request|latest successful.*PR/i);
-  assert.match(setup,/TEST SITE|Not Production/i);
+  assert.match(setup,/TEST SITE|fixed test/i);
 });
 
 test('setup docs require manual production approval after merge',()=>{
@@ -123,6 +128,7 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const {
   injectTestBanner,
+  injectDemoRuntime,
   buildFacultyDashboardRedirect,
   stagePagesDirectory
 }=require('../tools/stage-github-pages');
@@ -133,15 +139,25 @@ const identity={
   buildSha:'2222222222222222222222222222222222222222'
 };
 
-test('Pages banner identifies test host, live Firebase compatibility mode, PR and short head SHA',()=>{
+test('Pages banner identifies frontend demo mode, PR and short head SHA',()=>{
   const html=injectTestBanner('<!doctype html><html><body class="app"><main>UCVM</main></body></html>',identity);
   assert.match(html,/id="github-pages-test-site-banner"/);
   assert.match(html,/TEST SITE - GitHub Pages/);
-  assert.match(html,/Live Firebase Compatibility Mode/);
-  assert.match(html,/tester-teaching/);
+  assert.match(html,/Frontend Demo/);
+  assert.match(html,/synthetic browser-local data/);
+  assert.match(html,/DOE backend off/);
   assert.match(html,/PR #23/);
   assert.match(html,/1111111/);
   assert.equal((html.match(/github-pages-test-site-banner/g)||[]).length,1);
+});
+
+test('Pages demo runtime is injected after Firebase compat and before application runtime',()=>{
+  const input='<!doctype html><html><body><script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script><script src="bundles/shared-auth.bundle.js"></script></body></html>';
+  const html=injectDemoRuntime(input);
+  const firebaseIndex=html.indexOf('firebase-firestore-compat.js');
+  const demoIndex=html.indexOf('pages-demo-runtime.js');
+  const authIndex=html.indexOf('bundles/shared-auth.bundle.js');
+  assert.ok(firebaseIndex>=0&&demoIndex>firebaseIndex&&authIndex>demoIndex);
 });
 
 test('faculty dashboard Pages shim redirects within the project subpath',()=>{
@@ -154,23 +170,28 @@ test('faculty dashboard Pages shim redirects within the project subpath',()=>{
 
 test('Pages staging changes only the supplied build directory',()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ucvm-pages-'));
-  fs.writeFileSync(path.join(dir,'index.html'),'<!doctype html><html><body>Index</body></html>');
-  fs.writeFileSync(path.join(dir,'faculty-admin.html'),'<!doctype html><html><body>Faculty</body></html>');
+  const firebase='<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>';
+  fs.writeFileSync(path.join(dir,'index.html'),'<!doctype html><html><body>Index'+firebase+'<script src="bundles/shared-auth.bundle.js"></script></body></html>');
+  fs.writeFileSync(path.join(dir,'faculty-admin.html'),'<!doctype html><html><body>Faculty'+firebase+'<script src="bundles/shared-auth.bundle.js"></script></body></html>');
 
   const result=stagePagesDirectory(dir,identity);
   assert.equal(result.htmlFiles,2);
   assert.match(fs.readFileSync(path.join(dir,'index.html'),'utf8'),/TEST SITE - GitHub Pages/);
-  assert.match(fs.readFileSync(path.join(dir,'faculty-admin.html'),'utf8'),/Live Firebase Compatibility Mode/);
+  assert.match(fs.readFileSync(path.join(dir,'faculty-admin.html'),'utf8'),/Frontend Demo/);
+  assert.match(fs.readFileSync(path.join(dir,'index.html'),'utf8'),/pages-demo-runtime\.js/);
+  assert.ok(fs.existsSync(path.join(dir,'pages-demo-runtime.js')));
+  assert.ok(fs.existsSync(path.join(dir,'pages-demo-data.js')));
   assert.ok(fs.existsSync(path.join(dir,'.nojekyll')));
   assert.ok(fs.existsSync(path.join(dir,'faculty-dashboard.html')));
 
   const meta=JSON.parse(fs.readFileSync(path.join(dir,'github-pages-build.json'),'utf8'));
-  assert.deepEqual(meta,{
-    environment:'github-pages-test',
-    prNumber:23,
-    headSha:identity.headSha,
-    buildSha:identity.buildSha
-  });
+  assert.equal(meta.environment,'github-pages-test');
+  assert.equal(meta.mode,'frontend-demo');
+  assert.equal(meta.doeBackend,'disabled');
+  assert.ok(meta.demoDocuments>0);
+  assert.equal(meta.prNumber,23);
+  assert.equal(meta.headSha,identity.headSha);
+  assert.equal(meta.buildSha,identity.buildSha);
   fs.rmSync(dir,{recursive:true,force:true});
 });
 
@@ -197,15 +218,16 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 
-test('Pages compatibility preview uses the pinned tester-teaching Web SDK config but no DOE API',()=>{
+test('Pages preview runs the frontend demo without cloud Firebase or DOE API wiring',()=>{
   const workflow=read('.github/workflows/github-pages-test.yml');
-  const verifier=read('tools/verify-preview-client-config.js');
-  assert.match(workflow,/tools\/production-firebase-web-config\.json/);
-  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
-  assert.match(workflow,/EXPECTED_FIREBASE_PROJECT_ID:\s*tester-teaching/);
-  assert.match(verifier,/tester-teaching/);
-  assert.match(verifier,/GENERATE_WITH_/);
-  assert.match(verifier,/AIza/);
-  assert.match(verifier,/must not be configured to reach a DOE API endpoint/);
+  const stage=read('tools/stage-github-pages.js');
+  const runtime=read('tools/pages-demo-runtime.js');
+  assert.doesNotMatch(workflow,/lab-firebase-web-config\.json|EXPECTED_FIREBASE_PROJECT_ID|verify-preview-client-config|PRODUCTION_DOE_API_BASE_URL|PAGES_DOE_API_BASE_URL/);
+  assert.match(workflow,/node tools\/stage-github-pages\.js/);
+  assert.match(stage,/pages-demo-data\.js/);
+  assert.match(stage,/pages-demo-runtime\.js/);
+  assert.match(stage,/frontend-demo/);
+  assert.match(runtime,/UCVM_FRONTEND_DEMO_MODE/);
+  assert.match(runtime,/no cloud writes|doeAuthoritative:false/);
 });
 })();

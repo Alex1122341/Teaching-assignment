@@ -5,6 +5,10 @@ const {createDoeRoutes}=require('../src/routes/doe-routes.js');
 
 const general={uid:'g',role:'adfa_general'};
 const regular={uid:'r',role:'adfa_regular'};
+const administrator={uid:'a',role:'administrator'};
+const legacyAdmin={uid:'la',role:'admin'};
+const developer={uid:'d',role:'developer'};
+const owner={uid:'o',role:'owner'};
 const faculty={uid:'f',role:'faculty',facultyId:'f1'};
 
 test('preview-assignment never persists calculation evidence',async()=>{
@@ -44,6 +48,37 @@ test('annual policy copy is routed only for General administrators',async()=>{
  assert.equal(calls.length,1);
  assert.equal(calls[0][1].sourceYear,'2026-27');
  assert.equal(calls[0][1].targetYear,'2027-28');
+});
+
+test('Administrator aliases cannot cross the General DOE boundary while Developer and Owner can',async()=>{
+ const calls=[];
+ const routes=createDoeRoutes({
+  calculationService:{calculateAssignment:async()=>({})},
+  policyAdminService:{
+   publish:async input=>{calls.push(['publish',input]);return{status:'active'}},
+   archive:async input=>{calls.push(['archive',input]);return{status:'archived'}},
+   previewRecalculate:async input=>{calls.push(['recalc-preview',input]);return{errors:[],warnings:[]}},
+   runRecalculate:async input=>{calls.push(['recalc',input]);return{batchId:'b1'}}
+  },
+  rulebookService:{copyAcademicYear:async input=>{calls.push(['copy',input]);return{version:{policyVersionId:'draft-next'}}}}
+ });
+ const deniedActors=[regular,administrator,legacyAdmin];
+ for(const actor of deniedActors){
+  assert.equal((await routes.handle({method:'POST',path:'/api/doe/drafts/v1/publish',actor,body:{}})).statusCode,403,actor.role+' publish');
+  assert.equal((await routes.handle({method:'POST',path:'/api/doe/policy-versions/v1/archive',actor,body:{}})).statusCode,403,actor.role+' archive');
+  assert.equal((await routes.handle({method:'POST',path:'/api/doe/recalculate/preview',actor,body:{academicYear:'2026-27',policyVersionId:'v1',scope:'all'}})).statusCode,403,actor.role+' recalc preview');
+  assert.equal((await routes.handle({method:'POST',path:'/api/doe/recalculate',actor,body:{academicYear:'2026-27',policyVersionId:'v1',scope:'all'}})).statusCode,403,actor.role+' recalc');
+  assert.equal((await routes.handle({method:'POST',path:'/api/doe/policy-years/2027-28/copy-from/2026-27',actor,body:{}})).statusCode,403,actor.role+' policy-year copy');
+ }
+ assert.equal(calls.length,0,'denied General operations must not reach services');
+ for(const actor of [developer,owner,general]){
+  assert.equal((await routes.handle({method:'POST',path:'/api/doe/drafts/v1/publish',actor,body:{}})).statusCode,200,actor.role+' publish');
+  assert.equal((await routes.handle({method:'POST',path:'/api/doe/policy-versions/v1/archive',actor,body:{}})).statusCode,200,actor.role+' archive');
+  assert.equal((await routes.handle({method:'POST',path:'/api/doe/recalculate/preview',actor,body:{academicYear:'2026-27',policyVersionId:'v1',scope:'all'}})).statusCode,200,actor.role+' recalc preview');
+  assert.equal((await routes.handle({method:'POST',path:'/api/doe/recalculate',actor,body:{academicYear:'2026-27',policyVersionId:'v1',scope:'all'}})).statusCode,200,actor.role+' recalc');
+  assert.equal((await routes.handle({method:'POST',path:'/api/doe/policy-years/2027-28/copy-from/2026-27',actor,body:{}})).statusCode,200,actor.role+' policy-year copy');
+ }
+ assert.equal(calls.length,15);
 });
 
 test('annual draft validation routes dataset to rulebook service',async()=>{

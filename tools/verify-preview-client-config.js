@@ -2,7 +2,7 @@
 const path=require('node:path');
 const {loadRuntimeConfig}=require('./verify-production-client-config');
 
-function validatePreview(runtime,{expectedProjectId='tester-teaching'}={}){
+function validatePreview(runtime,{expectedProjectId='vista-teaching-lab'}={}){
   if(!runtime?.firebaseConfig)throw Error('Preview Firebase client configuration is missing.');
   if(runtime.emulator===true)throw Error('GitHub Pages preview must not enable local emulator mode.');
   if(runtime.projectId!==expectedProjectId||runtime.firebaseConfig.projectId!==expectedProjectId){
@@ -16,17 +16,18 @@ function validatePreview(runtime,{expectedProjectId='tester-teaching'}={}){
   if(String(config.authDomain||'')!==`${expectedProjectId}.firebaseapp.com`){
     throw Error('Preview Firebase authDomain does not match the expected Firebase project.');
   }
-  if(String(runtime.doeApiBaseUrl||'').trim()){
-    throw Error('GitHub Pages compatibility preview must not be configured to reach a DOE API endpoint.');
+  const doeApiBaseUrl=String(runtime.doeApiBaseUrl||'').trim();
+  if(doeApiBaseUrl){
+    throw Error('GitHub Pages test site must not be configured to reach a DOE API endpoint. Authoritative DOE writes run through the Firebase DOE Admin GitHub Action.');
   }
   return true;
 }
 
 function main(){
-  const expected=process.env.EXPECTED_FIREBASE_PROJECT_ID||'tester-teaching';
+  const expected=process.env.EXPECTED_FIREBASE_PROJECT_ID||'vista-teaching-lab';
   const runtime=loadRuntimeConfig(path.resolve(__dirname,'..','firebase-config.js'),'alex1122341.github.io');
   validatePreview(runtime,{expectedProjectId:expected});
-  console.log(`Preview client configuration verified for isolated project "${runtime.projectId}".`);
+  console.log(`Preview client configuration verified for isolated Firebase lab project "${runtime.projectId}".`);
 }
 
 if(require.main===module){

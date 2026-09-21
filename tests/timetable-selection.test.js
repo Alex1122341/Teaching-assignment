@@ -9,6 +9,9 @@ const root=path.resolve(__dirname,'..');
 function load(){
  const context={window:{},Date};
  vm.runInNewContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
+ // Field ownership is derived from the canonical modules, so the harness must load them.
+ vm.runInNewContext(fs.readFileSync(path.join(root,'office-capabilities.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'session-workflow.js'),'utf8'),context);
  vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
  return context.window.UCVM_TIMETABLE_SELECTION;
 }
@@ -122,7 +125,8 @@ test('ADC and LAB edit policies expose only their owned timetable fields',()=>{
  const adcLab=plain(api.editPolicy('adc',{type:'LAB'}));
  assert.equal(adcLab.fields.topic,false);
  const lab=plain(api.editPolicy('lab',{type:'LAB'}));
- assert.equal(lab.canSelect,true);
+ // LAB works from the Work Queue, so it does not get unrestricted general selection.
+ assert.equal(lab.canSelect,false);
  assert.equal(lab.fields.topic,true);
  for(const field of ['date','year','course','type','start','end','room','faculty'])assert.equal(lab.fields[field],false,field);
  const labNonLab=plain(api.editPolicy('lab',{type:'LEC'}));
@@ -155,6 +159,25 @@ test('progressive commit keeps each source calendar and audit row together and r
  assert.deepEqual(progress.map(p=>p.completedRows),[20,40,45]);
 });
 
+test('commitPlan can keep a non-authoritative DOE queue request in the same source/calendar/audit batch',async()=>{
+ const api=load(),commits=[];
+ const store={
+  batch:()=>{const ops=[];return{update:(ref,data)=>ops.push(['update',ref,data]),set:(ref,data)=>ops.push(['set',ref,data]),commit:async()=>commits.push(ops)}},
+  sessionRef:id=>`sessions/${id}`,
+  calendarRef:id=>`calendar/${id}`,
+  logRef:()=>`logs/l1`,
+  calendarFromSource:(row,id)=>({sessionId:id,topic:row.topic}),
+  queueRef:()=>({id:'q1',path:'doe_recalculation_requests/q1'}),
+  queueData:(update,log,ref)=>({requestId:ref.id,sessionId:update.id,status:'pending',requestedAt:log.changedAt})
+ };
+ const plan={errors:[],updates:[{id:'s1',data:{topic:'New'},after:{id:'s1',topic:'New'}}],logs:[{sessionId:'s1',changedAt:'STAMP'}]};
+ const result=await api.commitPlan(plan,store);
+ assert.equal(result.committed,true);assert.equal(result.operations,4);
+ assert.equal(commits.length,1);assert.equal(commits[0].length,4);
+ assert.equal(commits[0][0][1],'sessions/s1');assert.equal(commits[0][1][1],'calendar/s1');assert.equal(commits[0][2][1],'logs/l1');
+ assert.equal(commits[0][3][1].path,'doe_recalculation_requests/q1');assert.equal(commits[0][3][2].status,'pending');
+});
+
 test('progressive commit stops after a failed batch and exposes a resumable row offset',async()=>{
  const api=load();let attempt=0;
  const store={
@@ -181,12 +204,17 @@ test('ADC change planning writes only public owned fields and forces LAB topic t
  for(const privateField of ['assignments','facultyIds','instructor','labDetails'])assert.equal(Object.hasOwn(plan.updates[0].data,privateField),false,privateField);
 });
 
-test('LAB change planning allows LAB topic only and rejects non-LAB rows',()=>{
- const api=load(),lab={...plain(baseSession),type:'LAB',topic:'Old',instructor:'Alex Faculty'};
- const edited={...plain(lab),topic:'New',room:'Blocked'};
+test('LAB change planning requires an assigned group, allows owned LAB fields, and rejects non-LAB rows',()=>{
+ const api=load(),lab={...plain(baseSession),type:'LAB',topic:'Old',instructor:'Alex Faculty',labGroupIds:['g-a']};
+ const edited={...plain(lab),topic:'New'};
  const plan=plain(api.planChanges([lab],[edited],{uid:'lab-1',name:'LAB'},123,new Map(),{role:'lab'}));
  assert.deepEqual(plan.errors,[]);
  assert.deepEqual(plan.updates[0].data,{topic:'New'});
+ // A locked field is refused explicitly rather than silently dropped.
+ const missingGroup=plain(api.planChanges([{...plain(lab),labGroupIds:[]}],[{...plain(lab),labGroupIds:[],topic:'New'}],{uid:'lab-1'},123,new Map(),{role:'lab'}));
+ assert.ok(missingGroup.errors.some(error=>/at least one LAB group is required/i.test(error)),JSON.stringify(missingGroup.errors));
+ const locked=plain(api.planChanges([lab],[{...plain(lab),topic:'New',room:'Blocked'}],{uid:'lab-1'},123,new Map(),{role:'lab'}));
+ assert.ok(locked.errors.some(error=>/LAB cannot change room/i.test(error)),JSON.stringify(locked.errors));
  const nonLab=plain(api.planChanges([baseSession],[{...plain(baseSession),topic:'Nope'}],{uid:'lab-1'},123,new Map(),{role:'lab'}));
  assert.ok(nonLab.errors.some(error=>/LAB sessions only/i.test(error)));
 });
@@ -204,4 +232,11 @@ test('client batch writer rejects DOE calculation evidence so authoritative reco
  const plan={errors:[],updates:[{id:'s1',data:{topic:'T1'},after:{id:'s1',topic:'T1'},calculationRecords:[record]}],logs:[{sessionId:'s1',action:'batch_update'}]};
  await assert.rejects(()=>api.commitPlan(plan,store),/server-side DOE API/i);
  assert.equal(commits.length,0);
+});
+
+
+test('Developer selection policy exposes every editable timetable field',()=>{
+ const api=load(),policy=plain(api.editPolicy('developer',{type:'LAB'}));
+ assert.equal(policy.canSelect,true);
+ for(const field of Object.keys(policy.fields))assert.equal(policy.fields[field],true,field);
 });
