@@ -96,7 +96,7 @@ async function identityRequest({method='GET',accessToken,body,fetchImpl=globalTh
     const message=text(payload?.error?.message)||`HTTP ${response.status}`;
     const error=Error(`Identity Toolkit ${method} failed: ${message}`);
     error.statusCode=response.status;
-    error.apiCode=text(payload?.error?.status||payload?.error?.message);
+    error.apiCode=text(payload?.error?.message||payload?.error?.status);
     throw error;
   }
   return payload;
