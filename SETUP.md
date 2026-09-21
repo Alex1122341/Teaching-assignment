@@ -147,6 +147,8 @@ Never put a service-account or Admin credential in `LAB_FIREBASE_WEB_CONFIG`. Th
 
 A normal pull request never produces a Firebase Lab artifact and never turns the shared Pages URL into a cloud-writing site.
 
+Note: `Firebase Lab Pages` is a new workflow file. GitHub only offers `workflow_dispatch` for workflows that already exist on the repository default branch, so it cannot receive a real dispatch acceptance run until this change is merged into `main`. A first post-merge live workflow run remains required to prove the manual dispatch end to end.
+
 ### Firebase Lab Data Setup
 
 `.github/workflows/firebase-lab-data-setup.yml` is manual-only. It supports:
