@@ -18,7 +18,7 @@ const PAGE_EXPECTATIONS=Object.freeze([
  {page:'index.html',titles:['UCVM Timetable - Workload Guideline DOE V9.7'],requiredLogical:'bundles/timetable-app.bundle.js'},
  {page:'faculty-admin.html',titles:['Faculty Dashboard'],requiredLogical:'bundles/faculty-runtime-main.bundle.js'},
  {page:'user-management.html',titles:['UCVM · User Management','UCVM Timetable - Workload Guideline DOE V9.7'],requiredLogical:'bundles/user-management.bundle.js'},
- {page:'password.html',titles:['UCVM · Change Password','UCVM Timetable - Workload Guideline DOE V9.7'],requiredLogical:'bundles/shared-auth.bundle.js'}
+ {page:'password.html',titles:['UCVM · Password Help','UCVM Timetable - Workload Guideline DOE V9.7'],requiredLogical:'bundles/shared-auth.bundle.js'}
 ]);
 const AUTH_FIXTURE=Object.freeze({
  projectId:'vista-teaching-lab',
