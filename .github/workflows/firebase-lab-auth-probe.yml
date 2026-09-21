@@ -1,5 +1,5 @@
 name: Firebase Lab Auth Probe
-# Retry with service-account project quota and Firebase Admin v14 fix
+# Retry after removing all quota-project overrides
 
 on:
   push:
