@@ -49,8 +49,8 @@
  function renderOfficeAccess(reset=false){
   const role=$('account-role').value,fieldset=$('account-office-access'),allowed=['adc','lab','administrator','owner','developer'].includes(role);
   fieldset.hidden=!allowed;
-  const values=reset?profilePolicy.defaultOfficeAccess(role):(editingUser?.officeAccess||profilePolicy.defaultOfficeAccess(role));
-  for(const input of fieldset.querySelectorAll('input[name="office-access"]')){input.checked=role==='developer'||values.includes(input.value);input.disabled=role==='developer'}
+  const values=reset?profilePolicy.defaultOfficeAccess(role):(editingUser?.officeAccess||profilePolicy.defaultOfficeAccess(role)),allowedOffices=profilePolicy.allowedOfficeAccess(role);
+  for(const input of fieldset.querySelectorAll('input[name="office-access"]')){const allowed=allowedOffices.includes(input.value);input.checked=allowed&&(role==='developer'||values.includes(input.value));input.disabled=role==='developer'||!allowed}
  }
  function selectAccount(user){
   if(user&&developerAccount(user)&&!developerActor()){status('Only Developer can modify Developer accounts.',true);return}
