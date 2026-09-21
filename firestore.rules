@@ -232,7 +232,7 @@ service cloud.firestore {
     && after.readBy.toSet().difference(before.readBy.toSet()).hasOnly([request.auth.uid])));}
   function calendarPath(id){return /databases/$(database)/documents/calendar_sessions/$(id);}
   function sessionPath(id){return /databases/$(database)/documents/sessions/$(id);}
-  function calendarKeysValid(d){return d.keys().hasOnly(['sessionId','course','courseName','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructorNames','instructor']) && d.instructorNames is list;}
+  function calendarKeysValid(d){return d.keys().hasOnly(['sessionId','course','courseName','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructorNames','instructor','labGroupIds']) && d.instructorNames is list && d.get('labGroupIds',[]) is list && d.get('labGroupIds',[]).size() <= 8;
   function calendarMatchesSourceAfter(id){
    let source=getAfter(sessionPath(id)).data;
    let calendar=getAfter(calendarPath(id)).data;
@@ -241,7 +241,8 @@ service cloud.firestore {
     && calendar.year == source.get('year',null) && calendar.semester == source.get('semester','') && calendar.week == source.get('week',null)
     && calendar.date == source.get('date','') && calendar.start == source.get('start','') && calendar.end == source.get('end','')
     && calendar.timeUnknown == source.get('timeUnknown',false) && calendar.type == source.get('type','') && calendar.topic == source.get('topic','')
-    && calendar.room == source.get('room','') && calendar.instructor == source.get('instructor','');
+    && calendar.room == source.get('room','') && calendar.instructor == source.get('instructor','')
+    && calendar.get('labGroupIds',[]) == source.get('labGroupIds',[]);
   }
   function calendarMatchesCurrentSource(id){
    let source=get(sessionPath(id)).data;
@@ -251,7 +252,8 @@ service cloud.firestore {
     && calendar.year == source.get('year',null) && calendar.semester == source.get('semester','') && calendar.week == source.get('week',null)
     && calendar.date == source.get('date','') && calendar.start == source.get('start','') && calendar.end == source.get('end','')
     && calendar.timeUnknown == source.get('timeUnknown',false) && calendar.type == source.get('type','') && calendar.topic == source.get('topic','')
-    && calendar.room == source.get('room','') && calendar.instructor == source.get('instructor','');
+    && calendar.room == source.get('room','') && calendar.instructor == source.get('instructor','')
+    && calendar.get('labGroupIds',[]) == source.get('labGroupIds',[]);
   }
   function maintenanceSessionWrite(id){return maintenanceOwner() && calendarMatchesSourceAfter(id);}
   function maintenanceSessionDelete(id){return maintenanceOwner() && !existsAfter(calendarPath(id));}
@@ -275,7 +277,8 @@ service cloud.firestore {
    let changed=request.resource.data.diff(resource.data).affectedKeys();
    return lab() && teachingWritesOpen() && resource.data.get('type','') == 'LAB' && request.resource.data.get('type','') == 'LAB'
     && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
-    && changed.hasOnly(['topic','updatedBy','updatedByName','updatedAt']) && calendarMatchesSourceAfter(id);
+    && request.resource.data.get('labGroupIds',[]) is list && request.resource.data.get('labGroupIds',[]).size() <= 8
+    && changed.hasOnly(['topic','labGroupIds','updatedBy','updatedByName','updatedAt']) && calendarMatchesSourceAfter(id);
   }
   function pairedCalendarSource(id){let source=getAfter(sessionPath(id)).data;return source.updatedBy == request.auth.uid && source.updatedAt == request.time;}
   function officeCalendarCreate(id){return adc() && teachingWritesOpen() && pairedCalendarSource(id);}
