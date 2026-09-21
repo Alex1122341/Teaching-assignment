@@ -427,6 +427,7 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(cloudRequests.length)problems.push(`unexpected Firebase cloud request(s) in ${demoMode?'Pages demo':'emulator smoke'}: ${cloudRequests.join(' | ')}`);
   if(problems.length)throw Error(`${expectation.page}: ${problems.join('; ')}`);
   if(demoMode&&expectation.page==='index.html')await verifyTimetableRoleMatrix({debugPort,origin,setupCdp:cdp});
+  if(demoMode&&expectation.page==='index.html')await verifySeededLabApprovalAfterAdcPushBack({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoAdcLabHandoff({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoSessionAuditWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoFacultySwapAuditWorkflow({debugPort,origin,setupCdp:cdp});
@@ -549,6 +550,29 @@ async function verifyTimetableRoleMatrix({debugPort,origin,setupCdp}){
   await setStoredDemoRole(setupCdp,'uid-developer');
  }
 }
+async function verifySeededLabApprovalAfterAdcPushBack({debugPort,origin,setupCdp}){
+ const requestId='req-002';
+ try{
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-lab-1',label:'LAB seeded update-required approval'},async cdp=>{
+   await cdp.send('Runtime.evaluate',{expression:"(async()=>{await window.UCVM_ASSETS.ensureApprovalWorkflow();return true})()",returnByValue:true,awaitPromise:true});
+   await waitForCondition(cdp,"(()=>!!document.getElementById('approval-queue-btn'))()",'LAB seeded approval queue button',12000);
+   const before=await cdp.send('Runtime.evaluate',{expression:"(()=>{const r=window.UCVM_PAGES_DEMO?.export?.()||{},req=r['change_requests/"+requestId+"'],sid=req?.sessionId,session=r['sessions/'+sid],calendar=r['calendar_sessions/'+sid];return{requestStatus:req?.status,adc:r['change_request_approvals/"+requestId+"_adc']?.status,lab:r['change_request_approvals/"+requestId+"_lab']?.status,sessionId:sid,sessionDate:session?.date,sessionTopic:session?.topic,calendarDate:calendar?.date,calendarTopic:calendar?.topic}})()",returnByValue:true});
+   if(before.exceptionDetails)throw Error('LAB seeded fixture read failed: '+exceptionText(before.exceptionDetails));
+   const initial=before.result?.value||{};
+   if(initial.requestStatus!=='update_required'||initial.adc!=='push_back'||initial.lab!=='pending')throw Error('Seeded LAB approval fixture is not ADC push_back + LAB pending: '+JSON.stringify(initial));
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('approval-queue-btn')?.click();return true})()",returnByValue:true});
+   const selector='[data-office-decision="approve"][data-office-context="lab"][data-request-id="'+requestId+'"]';
+   await waitForCondition(cdp,"(()=>!!document.querySelector("+JSON.stringify(selector)+"))()",'LAB Approve action while ADC is pushed back',12000);
+   const approve=await cdp.send('Runtime.evaluate',{expression:"(()=>{document.querySelector("+JSON.stringify(selector)+")?.click();return true})()",returnByValue:true});
+   if(approve.exceptionDetails)throw Error('LAB seeded approval click failed: '+exceptionText(approve.exceptionDetails));
+   const stateExpression="(()=>{const r=window.UCVM_PAGES_DEMO?.export?.()||{},req=r['change_requests/"+requestId+"'],sid=req?.sessionId,session=r['sessions/'+sid],calendar=r['calendar_sessions/'+sid];return req?.status==='update_required'&&r['change_request_approvals/"+requestId+"_adc']?.status==='push_back'&&r['change_request_approvals/"+requestId+"_lab']?.status==='approved'&&session?.date==="+JSON.stringify(initial.sessionDate)+"&&session?.topic==="+JSON.stringify(initial.sessionTopic)+"&&calendar?.date==="+JSON.stringify(initial.calendarDate)+"&&calendar?.topic==="+JSON.stringify(initial.calendarTopic)+"})()";
+   await waitForCondition(cdp,stateExpression,'LAB approval preserved ADC push back without early timetable apply',12000);
+  });
+ }finally{
+  try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
+ }
+}
+
 async function verifyDemoAdcLabHandoff({debugPort,origin,setupCdp}){
  const markerRoom='ADC-LAB-HANDOFF-SMOKE';let sessionId='';
  try{
