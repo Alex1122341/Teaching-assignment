@@ -232,7 +232,8 @@ service cloud.firestore {
     && after.readBy.toSet().difference(before.readBy.toSet()).hasOnly([request.auth.uid])));}
   function calendarPath(id){return /databases/$(database)/documents/calendar_sessions/$(id);}
   function sessionPath(id){return /databases/$(database)/documents/sessions/$(id);}
-  function calendarKeysValid(d){return d.keys().hasOnly(['sessionId','course','courseName','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructorNames','instructor','labGroupIds']) && d.instructorNames is list && d.get('labGroupIds',[]) is list && d.get('labGroupIds',[]).size() <= 8;
+  function calendarLabGroupIds(d){return d.keys().hasAny(['labGroupIds']) ? d.labGroupIds : [];}
+  function calendarKeysValid(d){let groups=calendarLabGroupIds(d);return d.keys().hasOnly(['sessionId','course','courseName','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructorNames','instructor','labGroupIds']) && d.instructorNames is list && groups is list && groups.size() <= 8;}
   function calendarMatchesSourceAfter(id){
    let source=getAfter(sessionPath(id)).data;
    let calendar=getAfter(calendarPath(id)).data;
