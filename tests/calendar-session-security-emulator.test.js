@@ -51,7 +51,11 @@ check('Faculty can read session, AFC and account audit records related to themse
  const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
  const faculty=env.authenticatedContext('faculty').firestore(),other=env.authenticatedContext('otherfaculty').firestore();
  for(const path of ['session_change_log/faculty-related','afc_audit/faculty-related','account_audit/faculty-related'])await assertSucceeds(faculty.doc(path).get());
+ await assertSucceeds(faculty.collection('session_change_log').where('sessionId','==','s1').get());
+ await assertSucceeds(faculty.collection('afc_audit').where('requesterUid','==','faculty').get());
+ await assertSucceeds(faculty.collection('account_audit').where('targetUid','==','faculty').get());
  for(const path of ['session_change_log/faculty-related','afc_audit/faculty-related','account_audit/faculty-related'])await assertFails(other.doc(path).get());
+ await assertFails(other.collection('session_change_log').where('sessionId','==','s1').get());
 });
 check('ADFA and Faculty keep their existing reads',async()=>{
  const {assertSucceeds}=require('@firebase/rules-unit-testing');for(const uid of ['adfa','owner','faculty']){const db=env.authenticatedContext(uid).firestore();await assertSucceeds(db.doc('sessions/s1').get());await assertSucceeds(db.doc('faculty/f1').get());}
