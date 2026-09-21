@@ -59,9 +59,9 @@ test('office roles use explicit capability gates and ADC LAB read the sanitized 
  const js=read('timetable.js');
  assert.match(js,/['"]adc['"]/);
  assert.match(js,/['"]lab['"]/);
- assert.match(js,/UCVM_OFFICE_CAPABILITIES\.forRole/);
+ assert.match(js,/UCVM_OFFICE_CAPABILITIES\.forProfile/);
  assert.match(js,/CALENDAR_SESSION_COLLECTION\s*=\s*['"]calendar_sessions['"]/);
- assert.match(js,/function sessionCollection\(\)/);
+ assert.match(js,/function sessionCollection\(\)[\s\S]*other_office[\s\S]*CALENDAR_SESSION_COLLECTION/);
  assert.match(js,/bulk-add-session-btn[\s\S]*canAddSessions/);
  assert.match(js,/add-session-btn[\s\S]*canAddOneSession/);
  assert.match(js,/selection-controls[\s\S]*canSelectSessions/);
