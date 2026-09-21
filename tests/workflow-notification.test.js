@@ -129,7 +129,7 @@ test('emitBatch persists only the sanitized builder output',()=>{
 
 test('notification client is role-scoped and acknowledges only readBy',()=>{
  const source=fs.readFileSync(path.join(root,'workflow-notifications.js'),'utf8');
- assert.match(source,/where\('recipientOffice','==',office\)/);
+ assert.match(source,/officesForProfile/);assert.match(source,/where\('recipientOffice','==',offices\[0\]\)/);assert.match(source,/where\('recipientOffice','in',offices\)/);
  assert.match(source,/orderBy\('createdAt','desc'\)/);
  assert.match(source,/arrayUnion\(user\.uid\)/);
  assert.match(source,/update\(\{readBy:/);
