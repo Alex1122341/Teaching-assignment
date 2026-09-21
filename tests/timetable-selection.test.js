@@ -9,6 +9,9 @@ const root=path.resolve(__dirname,'..');
 function load(){
  const context={window:{},Date};
  vm.runInNewContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
+ // Field ownership is derived from the canonical modules, so the harness must load them.
+ vm.runInNewContext(fs.readFileSync(path.join(root,'office-capabilities.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'session-workflow.js'),'utf8'),context);
  vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
  return context.window.UCVM_TIMETABLE_SELECTION;
 }
@@ -122,7 +125,8 @@ test('ADC and LAB edit policies expose only their owned timetable fields',()=>{
  const adcLab=plain(api.editPolicy('adc',{type:'LAB'}));
  assert.equal(adcLab.fields.topic,false);
  const lab=plain(api.editPolicy('lab',{type:'LAB'}));
- assert.equal(lab.canSelect,true);
+ // LAB works from the Work Queue, so it does not get unrestricted general selection.
+ assert.equal(lab.canSelect,false);
  assert.equal(lab.fields.topic,true);
  for(const field of ['date','year','course','type','start','end','room','faculty'])assert.equal(lab.fields[field],false,field);
  const labNonLab=plain(api.editPolicy('lab',{type:'LEC'}));
@@ -202,10 +206,13 @@ test('ADC change planning writes only public owned fields and forces LAB topic t
 
 test('LAB change planning allows LAB topic only and rejects non-LAB rows',()=>{
  const api=load(),lab={...plain(baseSession),type:'LAB',topic:'Old',instructor:'Alex Faculty'};
- const edited={...plain(lab),topic:'New',room:'Blocked'};
+ const edited={...plain(lab),topic:'New'};
  const plan=plain(api.planChanges([lab],[edited],{uid:'lab-1',name:'LAB'},123,new Map(),{role:'lab'}));
  assert.deepEqual(plan.errors,[]);
  assert.deepEqual(plan.updates[0].data,{topic:'New'});
+ // A locked field is refused explicitly rather than silently dropped.
+ const locked=plain(api.planChanges([lab],[{...plain(lab),topic:'New',room:'Blocked'}],{uid:'lab-1'},123,new Map(),{role:'lab'}));
+ assert.ok(locked.errors.some(error=>/LAB cannot change room/i.test(error)),JSON.stringify(locked.errors));
  const nonLab=plain(api.planChanges([baseSession],[{...plain(baseSession),topic:'Nope'}],{uid:'lab-1'},123,new Map(),{role:'lab'}));
  assert.ok(nonLab.errors.some(error=>/LAB sessions only/i.test(error)));
 });

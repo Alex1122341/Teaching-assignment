@@ -9,7 +9,10 @@ const root=path.resolve(__dirname,'..');
 function loadSelection(){
   const context={window:{},Date,console};
   vm.runInNewContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
-  vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
+  // Field ownership is derived from the canonical modules, so the harness must load them.
+ vm.runInNewContext(fs.readFileSync(path.join(root,'office-capabilities.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'session-workflow.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
   return context.window.UCVM_TIMETABLE_SELECTION;
 }
 function session(overrides={}){

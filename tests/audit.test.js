@@ -83,6 +83,9 @@ const plain=value=>JSON.parse(JSON.stringify(value));
 function loadSelection(){
  const context={window:{},Date};
  vm.runInNewContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
+ // Field ownership is derived from the canonical modules, so the harness must load them.
+ vm.runInNewContext(fs.readFileSync(path.join(root,'office-capabilities.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'session-workflow.js'),'utf8'),context);
  vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
  return context.window.UCVM_TIMETABLE_SELECTION;
 }
@@ -109,15 +112,12 @@ test('R02 partial source write contract does not invent an empty facultyIds fiel
  });
 });
 
-test('R02 ADFA room-only edit preserves faculty state and emits only the room patch',()=>{
+test('R02 ADFA is faculty-only and cannot change a scheduling field',()=>{
  const api=loadSelection();
  const edited={...plain(original),room:'B202'};
  const plan=plain(api.planChanges([original],[edited],actor,123,faculty,{role:'administrator'}));
- assert.deepEqual(plan.errors,[]);
- assert.equal(plan.updates.length,1);
- assert.deepEqual(plan.updates[0].data,{room:'B202'});
- assert.deepEqual(plan.updates[0].after.facultyIds,['1001']);
- assert.equal(plan.updates[0].after.instructor,'Alex Faculty');
+ assert.deepEqual(plan.updates,[]);
+ assert.ok(plan.errors.some(error=>/ADFA cannot change room/i.test(error)),JSON.stringify(plan.errors));
 });
 
 test('R02 ADFA faculty-only edit carries the private assignment fields into the source patch',()=>{
@@ -134,17 +134,15 @@ test('R02 ADFA faculty-only edit carries the private assignment fields into the 
  assert.deepEqual(plan.logs[0].changes.map(change=>change.field),['assignments']);
 });
 
-test('R02 ADFA date and course edits carry their derived calendar fields',()=>{
+test('R02 ADFA is faculty-only and cannot change date or course',()=>{
  const api=loadSelection();
  const edited={...plain(original),date:'2027-01-11',week:1,semester:'winter',course:'305',courseName:'Clinical Skills II'};
  const plan=plain(api.planChanges([original],[edited],actor,123,faculty,{role:'administrator'}));
- assert.deepEqual(plan.errors,[]);
- assert.equal(plan.updates.length,1);
- assert.equal(plan.updates[0].data.date,'2027-01-11');
- assert.equal(plan.updates[0].data.week,1);
- assert.equal(plan.updates[0].data.semester,'winter');
- assert.equal(plan.updates[0].data.course,'305');
- assert.equal(plan.updates[0].data.courseName,'Clinical Skills II');
+ assert.deepEqual(plan.updates,[]);
+ const refusal=plan.errors.find(error=>/ADFA cannot change/i.test(error));
+ assert.ok(refusal,JSON.stringify(plan.errors));
+ assert.match(refusal,/date/);
+ assert.match(refusal,/course/);
 });
 
 test('R02 multi-session save uses the partial-write serializer instead of the full-session serializer',()=>{

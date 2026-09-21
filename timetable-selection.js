@@ -11,15 +11,24 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
  const equal=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
  const AUDIT_FIELDS={date:'Date',year:'Year',course:'Course',type:'Type',start:'Start time',end:'End time',topic:'Topic',room:'Room'};
  const EDIT_FIELDS=['date','year','course','type','start','end','topic','room','faculty'];
+ // Field ownership comes from the canonical modules only. This function must not
+ // invent a second, contradictory scope definition: office capabilities decide
+ // which fields an office may edit, and the canonical workflow engine decides
+ // what type of session is being edited.
  function editPolicy(role,row={}){
   role=text(role).toLowerCase();
   const fields=Object.fromEntries(EDIT_FIELDS.map(field=>[field,false]));
   if(isReadOnlySynthetic(row))return{canSelect:false,fields};
-  const adfa=['developer','owner','administrator','admin','adfa_general','adfa_regular'].includes(role);
-  if(adfa){for(const field of EDIT_FIELDS)fields[field]=true;return{canSelect:true,fields}}
-  if(role==='adc'){for(const field of ['date','year','course','type','start','end','room'])fields[field]=true;fields.topic=text(row?.type).toUpperCase()!=='LAB';return{canSelect:true,fields}}
-  if(role==='lab'){fields.topic=text(row?.type).toUpperCase()==='LAB';return{canSelect:fields.topic,fields}}
-  return{canSelect:false,fields};
+  const caps=window.UCVM_OFFICE_CAPABILITIES,workflow=window.UCVM_SESSION_WORKFLOW;
+  // Fail closed when the canonical policy modules are unavailable.
+  if(!caps||!workflow)return{canSelect:false,fields};
+  const access=caps.forRole(role),sessionType=workflow.sessionType(row);
+  if(access.canEditCourseFields)for(const field of ['date','year','course','type','start','end','room'])fields[field]=true;
+  // ADC owns Topic for LEC / SRL. LAB owns Topic for LAB sessions only.
+  fields.topic=sessionType==='LAB'?Boolean(access.canEditLabTopic):Boolean(access.canEditCourseFields);
+  // Only ADFA (and Developer) may make the official Faculty assignment.
+  fields.faculty=Boolean(access.canEditInstructor);
+  return{canSelect:Boolean(access.canSelectSessions),fields};
  }
  const assignmentNames=row=>(row?.assignments||[]).map(item=>text(item?.name)||facultyId(item)).filter(Boolean);
  function auditChanges(before,after){
@@ -70,11 +79,33 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
  }
  function planChanges(originals,rows,actor,timestamp,facultyById,options={}){
   const originalById=new Map((originals||[]).map(row=>[text(row.id),row])),errors=[],role=text(options.role||actor?.role).toLowerCase();
+  const workflow=window.UCVM_SESSION_WORKFLOW;
+  const roleLabel={adc:'ADC',lab:'LAB',adfa:'ADFA'}[workflow?.stageForRole?.(role)]||role.toUpperCase();
   (rows||[]).forEach((row,index)=>{
    const policy=role?editPolicy(role,row):{canSelect:true,fields:{faculty:true}};
-   if(role==='lab'&&!policy.canSelect)errors.push(`Row ${index+1}: LAB accounts can edit LAB sessions only.`);
+   const original=originalById.get(text(row.id));
+   // LAB works from the Work Queue on LAB sessions only. General selection is not
+   // the gate; the session type is.
+   const isLabSession=workflow?workflow.sessionType(row)==='LAB':Boolean(policy.fields.topic);
+   if(role==='lab'&&!isLabSession)errors.push(`Row ${index+1}: LAB accounts can edit LAB sessions only.`);
    errors.push(...validateRow(row,index+1,facultyById||new Map(facultyIds(row).map(id=>[id,true])),{requireFaculty:!role||policy.fields.faculty===true}));
    if(!text(row.id)||!originalById.has(text(row.id)))errors.push(`Row ${index+1}: session does not exist.`);
+   // A field the role does not own is refused explicitly rather than silently
+   // ignored, so a locked field can never be smuggled through a stale form.
+   if(role&&original){
+    const attempted=[];
+    if(!policy.fields.faculty){
+     const facultyChanged=!equal(facultyIds(original),facultyIds(row))||!equal(assignmentNames(original),assignmentNames(row));
+     if(facultyChanged)attempted.push('faculty assignment');
+    }
+    for(const field of ['date','year','course','type','start','end','room','topic']){
+     if(policy.fields[field])continue;
+     // ADC converting a session to LAB forces Topic to TBD, so that is not an attempt.
+     if(role==='adc'&&field==='topic'&&text(row.type).toUpperCase()==='LAB')continue;
+     if(!equal(original[field],row[field]))attempted.push(field);
+    }
+    if(attempted.length)errors.push(`Row ${index+1}: ${roleLabel} cannot change ${attempted.join(', ')}.`);
+   }
   });
   if(errors.length)return{updates:[],logs:[],errors};
   const updates=[],logs=[];
