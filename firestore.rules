@@ -14,8 +14,9 @@ service cloud.firestore {
    && instructors is list && instructors.size() == 0
    && (!d.keys().hasAny(['before']) || (d.before is map && !d.before.keys().hasAny(['studentIds','studentNames','roster','rosters','assignments','facultyIds'])))
    && (!d.keys().hasAny(['after']) || (d.after is map && !d.after.keys().hasAny(['studentIds','studentNames','roster','rosters','assignments','facultyIds'])));}
-  function safeWorkflowHistory(d){let rid=d.keys().hasAny(['requestId']) ? d.requestId : '';let event=d.keys().hasAny(['event']) ? d.event : '';let fields=d.keys().hasAny(['changedFields']) ? d.changedFields : [];return d.keys().hasOnly(['requestId','event','revision','status','office','message','changedFields','changedBy','changedByName','changedAt'])
-   && rid is string && event is string && fields is list;}
+  function safeWorkflowHistory(d){let rid=d.keys().hasAny(['requestId']) ? d.requestId : '';let requester=d.keys().hasAny(['requesterUid']) ? d.requesterUid : '';let sid=d.keys().hasAny(['sessionId']) ? d.sessionId : '';let event=d.keys().hasAny(['event']) ? d.event : '';let fields=d.keys().hasAny(['changedFields']) ? d.changedFields : [];return d.keys().hasOnly(['requestId','requesterUid','sessionId','event','revision','status','office','message','changedFields','changedBy','changedByName','changedAt'])
+   && rid is string && requester is string && sid is string && event is string && fields is list;}
+  function workflowHistoryReader(d){let p=profile();let requester=d.keys().hasAny(['requesterUid']) ? d.requesterUid : '';let sid=d.keys().hasAny(['sessionId']) ? d.sessionId : '';let fid=p.keys().hasAny(['facultyId']) ? p.facultyId : '';let currentFacultyIds=(sid is string && sid.size() > 0 && exists(sessionPath(sid))) ? get(sessionPath(sid)).data.facultyIds : [];return historyAll() || (safeWorkflowHistory(d) && ready() && (historyActor(d) || requester == request.auth.uid || (!restrictedOffice() && fid is string && fid.size() > 0 && currentFacultyIds is list && fid in currentFacultyIds)));}
   function sessionHistoryReader(d){let p=profile();let sid=d.keys().hasAny(['sessionId']) ? d.sessionId : '';let fid=p.keys().hasAny(['facultyId']) ? p.facultyId : '';let actorAllowed=historyActor(d) && (!restrictedOffice() || safeOfficeSessionHistory(d));let currentFacultyIds=(sid is string && sid.size() > 0 && exists(sessionPath(sid))) ? get(sessionPath(sid)).data.facultyIds : [];return historyAll() || actorAllowed || linkedFacultyHistory(d) || (ready() && fid is string && fid.size() > 0 && currentFacultyIds is list && fid in currentFacultyIds);}
   function facultyHistoryReader(d){return historyAll() || (!restrictedOffice() && (historyActor(d) || linkedFacultyHistory(d)));}
   function accountHistoryReader(d){let target=d.keys().hasAny(['targetUid']) ? d.targetUid : '';return historyAll() || (!restrictedOffice() && (historyActor(d) || (ready() && target == request.auth.uid)));}
@@ -197,8 +198,8 @@ service cloud.firestore {
    && sourceMatchesPublicPatch(resource.data,request.resource.data,parentBefore) && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && calendarMatchesSourceAfter(id);}
   function routedSessionApply(id){let rid=request.resource.data.get('approvalRequestId','');return teachingWritesOpen() && rid is string && rid.size() > 0 && routedSessionApplyFor(id,rid);}
   function validRoutedAuditCreate(){let d=request.resource.data;let parent=getAfter(requestPublicPath(d.requestId)).data;return routedRequest(parent)
-   && d.keys().hasOnly(['requestId','event','revision','status','office','message','changedFields','changedBy','changedByName','changedAt'])
-   && d.requestId is string && d.requestId.size() > 0 && d.revision is int && d.changedBy == request.auth.uid && d.changedByName is string && d.changedAt == request.time
+   && d.keys().hasOnly(['requestId','requesterUid','sessionId','event','revision','status','office','message','changedFields','changedBy','changedByName','changedAt'])
+   && d.requestId is string && d.requestId.size() > 0 && d.requesterUid == parent.requesterUid && d.sessionId == parent.sessionId && d.revision is int && d.changedBy == request.auth.uid && d.changedByName is string && d.changedAt == request.time
    && d.get('status','') is string && d.get('office','') is string && d.get('message','') is string && d.get('changedFields',[]) is list
    && ((d.event == 'request_submitted' && parent.requesterUid == request.auth.uid && parent.status == 'pending' && d.revision == 1)
     || (d.event in ['request_withdrawn','request_resubmitted'] && parent.requesterUid == request.auth.uid)
@@ -534,7 +535,7 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /change_request_audit/{id} {
-   allow read: if admin() || (historyActor(resource.data) && safeWorkflowHistory(resource.data));
+   allow read: if workflowHistoryReader(resource.data);
    allow create: if teachingWritesOpen() && validRoutedAuditCreate();
    allow update,delete: if false;
   }
