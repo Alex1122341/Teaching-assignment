@@ -209,8 +209,8 @@
    refreshing=true;
    try{
     const profile=page.profile?.()||{},role=String(profile.role||'').toLowerCase(),caps=window.UCVM_OFFICE_CAPABILITIES;
-    const offices=caps?.officesForProfile?.(profile)||null;
-    const view=buildViewModel({sessions:page.sessions()||[],role,offices,workflow:window.UCVM_SESSION_WORKFLOW,context:window.UCVM_WORK_QUEUE_CONTEXT||{}});
+    const offices=caps?.officesForProfile?.(profile)||null,context=page.workflowContext?.()||window.UCVM_WORK_QUEUE_CONTEXT||{};
+    const view=buildViewModel({sessions:page.sessions()||[],role,offices,workflow:window.UCVM_SESSION_WORKFLOW,context});
     view.role=role;
     if(!controller)controller=createController({document,host:target,onOpen:onOpen||defaultOpen});
     controller.render(view);
@@ -224,7 +224,8 @@
    yearLoading=true;
    try{
     const rows=await page.ensureSessionsForRange(range.start,range.end);
-    if(Array.isArray(rows)&&rows.length)yearLoaded=true;
+    if(typeof page.ensureWorkflowContext==='function')await page.ensureWorkflowContext();
+    if(Array.isArray(rows))yearLoaded=true;
    }catch(error){console.error('[work queue range]',error)}
    finally{yearLoading=false}
    if(yearLoaded)refresh();
