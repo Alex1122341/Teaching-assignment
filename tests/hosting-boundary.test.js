@@ -23,7 +23,7 @@ test('Firebase and Azure use one generated static build',()=>{
  assert.match(azure,/build-static\.js/);
  assert.match(azure,/\.deploy-static/);
  assert.equal(bundles.version,1);
- for(const file of ['index.html','faculty-admin.html','approval-workflow.js','faculty-swap-safe.js','absence-from-campus-app.pdf'])assert.ok(manifest.includes(file),`${file} is required`);
+ for(const file of ['index.html','faculty-admin.html','approval-workflow.js','faculty-swap-safe.js','absence-from-campus-app.pdf','absence-from-campus-app-v2.pdf','absence-from-campus-terms.pdf'])assert.ok(manifest.includes(file),`${file} is required`);
 });
 
 test('source static manifest excludes repository and development files',()=>{
@@ -85,8 +85,8 @@ test('Azure stages the canonical config after the same generated lightweight bui
  const metadataPath=path.join(root,'.deploy-metadata','deployment-assets.json');
  const metadata=JSON.parse(fs.readFileSync(metadataPath,'utf8'));
  assert.equal(metadata.schemaVersion,'ucvm-static-deployment-v2');
- assert.equal(metadata.sourceAssetCount,67);
- assert.equal(metadata.deploymentAssetCount,30);
+ assert.equal(metadata.sourceAssetCount,69);
+ assert.equal(metadata.deploymentAssetCount,32);
  assert.equal(metadata.deployedJsCount,20);
  assert.equal(metadata.bundles.length,12);
 

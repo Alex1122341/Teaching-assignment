@@ -155,18 +155,33 @@ test('timetable exposes the AFC request panel', () => {
   assert.match(html, /afc-workflow\.js/);
 });
 
+test('AFC source, single-page application, and Terms ship as distinct PDF assets', () => {
+  const sourcePdf=fs.readFileSync(path.join(root,'absence-from-campus-app.pdf'));
+  const application=fs.readFileSync(path.join(root,'absence-from-campus-app-v2.pdf'));
+  const terms=fs.readFileSync(path.join(root,'absence-from-campus-terms.pdf'));
+  for(const file of [sourcePdf,application,terms]) assert.equal(file.subarray(0,5).toString('ascii'),'%PDF-');
+  assert.notDeepEqual(sourcePdf,application);
+  assert.notDeepEqual(application,terms);
+  assert.ok(terms.length<application.length,'Terms asset should remain smaller than the application template');
+});
+
 test('AFC UI collects dates, conditional details, terms acceptance, and electronic signature', () => {
   const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
   for (const field of ['startDate','endDate','reason','purposeDestination','coverage','applicantSignature','UCVM_SIGNATURE','afc-view-terms','afc-terms-accepted','termsAcceptedAt','termsVersion','termsSource']) assert.match(source, new RegExp(field));
   assert.match(source,/Open the AFC Terms & Conditions before signing/);
+  assert.match(source,/AFC_TERMS_SOURCE='absence-from-campus-app\.pdf#page=2'/);
+  assert.match(source,/AFC_TERMS_VIEW_ASSET='absence-from-campus-terms\.pdf'/);
+  assert.match(source,/frame\.onload=\(\)=>\{termsViewed=true/);
   assert.match(source,/absence-from-campus-app\.pdf#page=2/);
   assert.match(fs.readFileSync(path.join(root, 'afc-actions.js'), 'utf8'), /pdf_chunks/);
 });
 
-test('approved AFC PDF removes the Terms page and records the accepted terms version in metadata', () => {
+test('approved AFC PDF uses the versioned single-page template and never strips pages at runtime', () => {
   const source=fs.readFileSync(path.join(root,'afc-pdf-browser.js'),'utf8');
-  assert.match(source,/while\(pdf\.getPageCount\(\)>1\)pdf\.removePage\(pdf\.getPageCount\(\)-1\)/);
-  assert.match(source,/terms accepted:/);
+  assert.match(source,/AFC_APPLICATION_TEMPLATE='absence-from-campus-app-v2\.pdf'/);
+  assert.match(source,/pdf\.getPageCount\(\)!==1/);
+  assert.match(source,/AFC application template must contain exactly one page/);
+  assert.doesNotMatch(source,/removePage\(/);
 });
 
 test('AFC UI requires contact details for each new request', () => {
