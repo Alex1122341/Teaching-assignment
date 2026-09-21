@@ -7,8 +7,9 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
   const approvalStatus=value=>typeof value==='string'?value:text(value?.status||'pending');
   const unfinished=status=>['pending','push_back'].includes(status);
   const normalizeMessage=message=>text(message).slice(0,1000);
-  // Approval stages are strictly serial: ADC -> LAB -> ADFA. A later office may
-  // not act while an earlier required office is still pending.
+  // ADC and LAB own independent public scopes, so those two offices may decide
+  // in parallel. ADFA remains the dependent/final stage and waits for every
+  // required ADC/LAB decision before approving.
   const STAGE_ORDER={adc:0,lab:1,adfa:2};
   const STAGE_LABEL={adc:'ADC',lab:'LAB',adfa:'ADFA'};
   function orderedOffices(workflow={}){
@@ -17,8 +18,9 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
       .sort((a,b)=>STAGE_ORDER[a]-STAGE_ORDER[b]);
   }
   function previousRequiredOffices(workflow={},office=''){
-    const list=orderedOffices(workflow),index=list.indexOf(text(office));
-    return index>0?list.slice(0,index):[];
+    const list=orderedOffices(workflow),current=text(office);
+    if(current!=='adfa')return[];
+    return list.filter(name=>name!=='adfa');
   }
   function decisionReadiness({workflow={},approvals={},office=''}={}){
     office=text(office);
