@@ -14,6 +14,8 @@ service cloud.firestore {
    && d.get('instructors',[]) is list && d.get('instructors',[]).size() == 0
    && (!d.keys().hasAny(['before']) || (d.before is map && !d.before.keys().hasAny(['studentIds','studentNames','roster','rosters','assignments','facultyIds'])))
    && (!d.keys().hasAny(['after']) || (d.after is map && !d.after.keys().hasAny(['studentIds','studentNames','roster','rosters','assignments','facultyIds'])));}
+  function safeWorkflowHistory(d){return d.keys().hasOnly(['requestId','event','revision','status','office','message','changedFields','changedBy','changedByName','changedAt'])
+   && d.get('requestId','') is string && d.get('event','') is string && d.get('changedFields',[]) is list;}
   function sessionHistoryReader(d){let sid=d.get('sessionId','');let fid=profile().get('facultyId','');let actorAllowed=historyActor(d) && (!restrictedOffice() || safeOfficeSessionHistory(d));return historyAll() || actorAllowed || linkedFacultyHistory(d) || (ready() && fid is string && fid.size() > 0 && sid is string && sid.size() > 0 && exists(sessionPath(sid)) && fid in get(sessionPath(sid)).data.get('facultyIds',[]));}
   function facultyHistoryReader(d){return historyAll() || (!restrictedOffice() && (historyActor(d) || linkedFacultyHistory(d)));}
   function accountHistoryReader(d){return historyAll() || (!restrictedOffice() && (historyActor(d) || (ready() && d.get('targetUid','') == request.auth.uid)));}
@@ -532,7 +534,7 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /change_request_audit/{id} {
-   allow read: if admin() || historyActor(resource.data);
+   allow read: if admin() || (historyActor(resource.data) && safeWorkflowHistory(resource.data));
    allow create: if teachingWritesOpen() && validRoutedAuditCreate();
    allow update,delete: if false;
   }
