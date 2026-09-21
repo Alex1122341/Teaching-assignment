@@ -35,7 +35,7 @@ test('production dependencies support Firebase Admin v14 modular exports',()=>{
     app:{
       getApps:()=>[],
       cert:account=>({account}),
-      initializeApp:options=>{assert.equal(options.projectId,'vista-teaching-lab');assert.equal(options.credential.account,serviceAccount);return appObject}
+      initializeApp:options=>{assert.equal(options.projectId,'vista-teaching-lab');assert.deepEqual(options.credential.account,serviceAccount);return appObject}
     },
     auth:{getAuth:app=>{assert.equal(app,appObject);return authClient}},
     firestore:{getFirestore:app=>{assert.equal(app,appObject);return firestoreClient}}
