@@ -188,7 +188,7 @@ test('routed approval collections have explicit privacy boundaries',()=>{
   assert.match(rules,/match \/change_request_approvals\/\{id\}/);
   assert.match(rules,/match \/change_request_private\/\{id\}/);
   assert.match(rules,/match \/change_request_audit\/\{id\}/);
-  assert.match(rules,/change_request_private[^]*allow read:\s*if\s+adfaApprover\(\)/);
+  assert.match(rules,/change_request_private[^]*allow read:\s*if\s+admin\(\)/);
   assert.match(rules,/change_request_workflow[^]*allow read:\s*if\s+officeWorkflowRead\(id\)/);
 });
 
