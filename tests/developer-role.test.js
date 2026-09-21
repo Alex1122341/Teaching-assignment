@@ -44,10 +44,10 @@ test('Developer multi-office routed approvals are explicit in UI and Firestore r
  assert.match(workflow,/data-office-context/);
  assert.match(workflow,/decideRoutedRequest\(id,decision,officeOverride=''/);
  assert.match(workflow,/Developer · all approval queues/);
- assert.match(rules,/function developerDecisionOn\(id,office\)/);
- assert.match(rules,/function developerDecisionOffice\(id\)/);
  assert.match(rules,/function officeDecisionOn\(id,office\)/);
- assert.match(rules,/function decisionOffice\(id\)\{return developer\(\) \? developerDecisionOffice\(id\) : officeDecisionOffice\(id\);\}/);
+ assert.match(rules,/function decisionOffice\(id\)\{return officeDecisionOn\(id,'adc'\) \? 'adc' : \(officeDecisionOn\(id,'lab'\) \? 'lab' : \(officeDecisionOn\(id,'adfa'\) \? 'adfa' : ''\)\);\}/);
+ assert.match(rules,/hasOfficeAccess\(resource\.data\.office\) && validOfficeApprovalDecision\(id,d,resource\.data\.office\)/);
+ assert.match(rules,/d\.status == 'cancelled' \? validRoutedOfficeCancellation/);
  assert.match(rules,/function hasRequiredOffice\(workflow\)/);
  assert.match(rules,/!workflow\.hasFacultyChange \|\| hasOfficeAccess\('adfa'\)/);
 });
