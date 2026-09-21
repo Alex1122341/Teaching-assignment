@@ -516,6 +516,6 @@ test('Developer approval UI exposes ADC LAB and ADFA scopes without changing ord
  assert.match(source,/Developer · all approval queues/);
  assert.match(source,/officeCaps\.officeForRole\(role\)/);
  assert.match(source,/\['pending','update_required'\]\.includes\(r\.status\)/);
- assert.match(source,/Approve<\/button>/);
+ assert.match(source,/data-office-decision="approve"/);
 });
 })();
