@@ -76,12 +76,13 @@
     if (gateStatus && status) gateStatus.textContent = status;
   }
 
-  function capabilities(){return window.UCVM_OFFICE_CAPABILITIES.forRole(UCVM.role(currentUser?.role));}
+  function capabilities(stage=''){const profile=currentUser?.profile||{role:currentUser?.role||''};return window.UCVM_OFFICE_CAPABILITIES.forProfile(profile,stage?{stage}:{});}
   function canAddSessions(){return capabilities().canAddSessions;}
   function canAddOneSession(){return capabilities().canAddOneSession;}
   function canSelectSessions(){return capabilities().canSelectSessions;}
   function canEdit(){const c=capabilities();return c.canEditCourseFields||c.canEditInstructor;}
-  function sessionCollection(){return ['adc','lab','other_office'].includes(UCVM.role(currentUser?.role))?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;}
+  function hasOfficeAccess(stage){return window.UCVM_OFFICE_CAPABILITIES.hasOfficeAccess(currentUser?.profile||{role:currentUser?.role||''},stage);}
+  function sessionCollection(){const role=UCVM.role(currentUser?.role);return role==='other_office'||(['adc','lab'].includes(role)&&!hasOfficeAccess('adfa'))?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;}
   function getTimetableDoeRuntime(){
     if(timetableDoeRuntime&&timetableDoeRuntime.db===db)return timetableDoeRuntime;
     const api=window.UCVM_DOE_API,selectionApi=window.UCVM_TIMETABLE_SELECTION;
@@ -281,6 +282,7 @@
   const selectedSessionOriginals = new Map();
   let selectionMode = false;
   let reviewingSelection = false;
+  let scopedWork = null;
 
   const $ = (id) => document.getElementById(id);
   const memoryStore = {};
@@ -1054,12 +1056,13 @@
 
   async function startSessionSelection(){
     if(!canSelectSessions())return;
-    if(capabilities().canEditInstructor)await ensureFacultyDirectory();
+    if(capabilities(stage).canEditInstructor)await ensureFacultyDirectory();
+    scopedWork={sessionId:id,stage};
     selectionViewFlow.begin(viewMode);
     selectionMode=true;reviewingSelection=false;document.body.classList.add('session-selection-mode');updateSelectionControls();render();
   }
   function cancelSessionSelection(){
-    viewMode=selectionViewFlow.finish();selectionMode=false;reviewingSelection=false;sessionSelection.clear();selectedSessionOriginals.clear();document.body.classList.remove('session-selection-mode');updateSelectionControls();setViewButtons();refreshSessionScope();
+    viewMode=selectionViewFlow.finish();selectionMode=false;reviewingSelection=false;scopedWork=null;sessionSelection.clear();selectedSessionOriginals.clear();document.body.classList.remove('session-selection-mode');updateSelectionControls();setViewButtons();refreshSessionScope();
   }
   function updateSelectionControls(){
     const active=$('selection-active-actions');
@@ -1083,8 +1086,8 @@
    * opens the review view, where editPolicy() locks every field the role does not
    * own. No second session editor is introduced. */
   async function openScopedEditor(sessionId,options={}){
-    const id=String(sessionId||'').trim();
-    if(!id)return false;
+    const id=String(sessionId||'').trim(),stage=String(options.stage||'').trim().toLowerCase();
+    if(!id||!['adc','lab','adfa'].includes(stage)||!hasOfficeAccess(stage))return false;
     const find=()=>[...sessionCache.values()].find(row=>String(row.id)===id)||null;
     let target=find();
     const targetDate=String(options.date||target?.date||'').slice(0,10);
@@ -1093,6 +1096,8 @@
       target=find();
     }
     if(!target)return false;
+    const workflow=window.UCVM_SESSION_WORKFLOW,status=workflow?.stageStatus?.(target,stage,window.UCVM_WORK_QUEUE_CONTEXT||{});
+    if(!status||status.status!=='ready')return false;
     if(targetDate){
       const position=academicPositionForDate(parseYmd(targetDate));
       if(position){selectedSemester=position.semester;selectedWeek=position.week}
@@ -1118,7 +1123,8 @@
     summary.textContent=checked.length?`${checked.length} faculty selected`:'Choose faculty';
     chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value));return `<span>${escapeHtml(swapFacultyName(f))}<small>${window.UCVM_DOE_API?.isConfigured?.()?'DOE server preview on save':'DOE recalculation queued after save'}</small></span>`}).join('');
   }
-  function selectionRole(){return UCVM.role(currentUser?.role);}
+  function selectionRole(){if(scopedWork?.stage)return scopedWork.stage;const role=UCVM.role(currentUser?.role);return role==='developer'?'developer':hasOfficeAccess('adc')?'adc':role;}
+  function selectionCapabilities(){const role=selectionRole();return role==='developer'?capabilities():capabilities(role);}
   function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session);}
   function lockedAttr(enabled){return enabled?'':'disabled class="role-locked-field"';}
   function renderSelectionEditor(){
@@ -1126,7 +1132,7 @@
     const data=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids());
     renderedSessions=data;
     $('cal-label').textContent=`Review ${data.length} selected session${data.length===1?'':'s'}`;
-    const canEditFaculty=capabilities().canEditInstructor;
+    const canEditFaculty=selectionCapabilities().canEditInstructor;
     const rows=data.map(s=>{const policy=selectionPolicy(s),field=name=>lockedAttr(policy.fields[name]);return `<tr data-selection-row data-session-edit-id="${escapeHtml(s.id)}">
       <td><input type="date" data-selection-field="date" value="${escapeHtml(s.date)}" ${field('date')}></td>
       <td><select data-selection-field="year" ${field('year')}>${[1,2,3,4].map(year=>`<option ${Number(s.year)===year?'selected':''}>${year}</option>`).join('')}</select></td>
@@ -1141,7 +1147,7 @@
     const note=canEditFaculty?'Open Faculty to choose one or more people; authoritative DOE is recalculated by the trusted backend after save when the HTTP DOE API is unavailable.':'Grey fields are context only; your office can edit only its assigned fields.';
     $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div><div class="selection-save-bar"><span>${note}</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
     document.querySelectorAll('.selection-faculty-picker').forEach(picker=>{picker.querySelectorAll('[data-selection-faculty-option]').forEach(input=>input.onchange=()=>updateSelectionFacultyPicker(picker));updateSelectionFacultyPicker(picker)});
-    $('selection-back-btn').onclick=()=>{reviewingSelection=false;viewMode=selectionViewFlow.finish();setViewButtons();render();refreshSessionScope()};
+    $('selection-back-btn').onclick=()=>{if(scopedWork){cancelSessionSelection();return}reviewingSelection=false;viewMode=selectionViewFlow.finish();setViewButtons();render();refreshSessionScope()};
     $('selection-save-btn').onclick=saveSelectedChanges;
   }
   function readSelectionRows(){
@@ -1158,10 +1164,13 @@
     });
   }
   async function saveSelectedChanges(){
-    if(!canSelectSessions()){toast('Selection permission is required.',true);return}
-    const button=$('selection-save-btn'),errorBox=$('selection-errors'),originals=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids()),canEditFaculty=capabilities().canEditInstructor,facultyById=canEditFaculty?new Map(facultyDirectory.map(f=>[String(f.__id),f])):new Map(),timestamp=firebase.firestore.FieldValue.serverTimestamp();
+    const scoped=scopedWork&&sessionSelection.size===1&&sessionSelection.ids()[0]===scopedWork.sessionId&&hasOfficeAccess(scopedWork.stage);
+    if(!canSelectSessions()&&!scoped){toast('Selection permission is required.',true);return}
+    const button=$('selection-save-btn'),errorBox=$('selection-errors'),originals=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids()),canEditFaculty=selectionCapabilities().canEditInstructor,facultyById=canEditFaculty?new Map(facultyDirectory.map(f=>[String(f.__id),f])):new Map(),timestamp=firebase.firestore.FieldValue.serverTimestamp();
     let rows=readSelectionRows();
+    if(scoped&&(rows.length!==1||String(rows[0].id)!==scopedWork.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     await ensureSessionsForDates(rows.map(row=>row.date),true);
+    if(scoped){const live=[...sessionCache.values()].find(row=>String(row.id)===scopedWork.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,scopedWork.stage,window.UCVM_WORK_QUEUE_CONTEXT||{});const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
     const doePrepared=new Map(),doeRuntime=canEditFaculty?getTimetableDoeRuntime():null,originalById=new Map(originals.map(row=>[String(row.id),row]));
     if(canEditFaculty)rows=await Promise.all(rows.map(async row=>{const prepared=await doeRuntime.adapter.prepareSession(originalById.get(String(row.id))||null,row,{trigger:'multi_session_edit'});doePrepared.set(String(row.id),prepared);return prepared.session}));
     const plan=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,{role:selectionRole()});
