@@ -248,8 +248,8 @@
   }else $('my-requests-btn')?.remove();
 
   if(isOfficeApprover()){
-    const currentOffice=office(),pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?(isDeveloper()?(r._workflow?.requiredOffices||[]).some(name=>r._approvals?.[name]?.status==='pending'):r._approvals?.[currentOffice]?.status==='pending'):(isAdfaApprover()&&r.status==='pending')).length+(isAdfaApprover()?afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length:0),b=mkButton('approval-queue-btn','Approvals');
-    const label=isDeveloper()?`All Approvals (${pending})`:officeView.queueLabel(currentOffice,pending),plain=label.replace(/ \(\d+\)$/,'');
+    const granted=approvalOffices(),currentOffice=granted.length===1?granted[0]:'',pending=requests.filter(r=>r.requestSchema==='office-routing-v1'?granted.some(name=>(r._workflow?.requiredOffices||[]).includes(name)&&r._approvals?.[name]?.status==='pending'):(isAdfaApprover()&&r.status==='pending')).length+(isAdfaApprover()?afcRequests.filter(r=>['pending_report_to','pending_admin'].includes(r.status)).length:0),b=mkButton('approval-queue-btn','Approvals');
+    const label=isDeveloper()?`All Approvals (${pending})`:granted.length>1?`Office Approvals (${pending})`:officeView.queueLabel(currentOffice,pending),plain=label.replace(/ \(\d+\)$/,'');
     b.innerHTML=`${esc(plain)}${pending?` <span class="workflow-count">${pending}</span>`:''}`;
     if(!b.isConnected)bar.insertBefore(b,bar.firstChild);b.onclick=()=>openApprovalQueue();
     maybeOpenApprovalFromHash();
