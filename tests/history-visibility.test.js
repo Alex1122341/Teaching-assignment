@@ -26,6 +26,8 @@ test('My Change History is relationship-scoped rather than actor-only', () => {
   assert.match(source, /afc_audit','afc','requesterUid'/);
   assert.match(source, /afc_audit','afc','reportToUid'/);
   assert.match(source, /change_request_audit','workflow','changedBy'/);
+  assert.match(source, /change_request_audit','workflow','requesterUid'/);
+  assert.match(source, /change_request_audit','workflow','sessionId'/);
   assert.match(source, /sessions, AFC and changes related to you/);
 });
 
@@ -42,7 +44,9 @@ test('Firestore personal history rules include actor, linked session, faculty, a
   assert.match(rules, /function facultyHistoryReader\(d\)/);
   assert.match(rules, /function accountHistoryReader\(d\)/);
   assert.match(rules, /function afcHistoryReader\(d\)/);
-  assert.match(rules, /match \/change_request_audit\/\{id\}[\s\S]*historyActor\(resource\.data\)/);
+  assert.match(rules, /function workflowHistoryReader\(d\)/);
+  assert.match(rules, /requester == request\.auth\.uid/);
+  assert.match(rules, /match \/change_request_audit\/\{id\}[\s\S]*workflowHistoryReader\(resource\.data\)/);
 });
 
 test('restricted office personal session history remains sanitized', () => {
