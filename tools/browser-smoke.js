@@ -437,6 +437,18 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(demoMode&&expectation.page==='index.html')await verifyDemoScopedEditor({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='user-management.html')await verifyUserManagementRoleMatrix({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='faculty-admin.html'){
+   await waitForCondition(cdp,`(()=>{const tab=document.querySelector('.tab[data-tab="doe-rules"]');return !!tab&&!tab.classList.contains('hidden')})()`,'Frontend Demo DOE Rules tab visible',12000);
+   await cdp.send('Runtime.evaluate',{expression:`(()=>{document.querySelector('.tab[data-tab="doe-rules"]')?.click();return true})()`,returnByValue:true});
+   await waitForCondition(cdp,`(()=>{const status=document.getElementById('doe-policy-status')?.textContent||'',rules=document.getElementById('doe-rules-body')?.textContent||'';return /Frontend Demo/.test(status)&&/NON-AUTHORITATIVE/.test(status)&&/READ-ONLY/.test(status)&&/Demo Lecture rate/.test(rules)})()`,'Frontend Demo read-only Rule Book loaded',12000);
+   const readOnly=await cdp.send('Runtime.evaluate',{expression:`(()=>({status:(document.getElementById('doe-policy-status')?.textContent||'').trim(),cloneDisabled:!!document.getElementById('doe-clone-draft')?.disabled,publishDisabled:!!document.getElementById('doe-publish')?.disabled,recalcDisabled:!!document.getElementById('doe-recalculate')?.disabled}))()`,returnByValue:true});
+   if(readOnly.exceptionDetails)throw Error('Frontend Demo Rule Book inspection failed: '+exceptionText(readOnly.exceptionDetails));
+   if(!readOnly.result?.value?.cloneDisabled||!readOnly.result?.value?.publishDisabled||!readOnly.result?.value?.recalcDisabled)throw Error('Frontend Demo Rule Book must remain read-only: '+JSON.stringify(readOnly.result?.value||{}));
+   await cdp.send('Runtime.evaluate',{expression:`(()=>{document.querySelector('.tab[data-tab="database"]')?.click();return true})()`,returnByValue:true});
+   await waitForCondition(cdp,`(()=>!!document.querySelector('#db-body [data-edit]'))()`,'Frontend Demo Faculty Database rows',12000);
+   const edit=await cdp.send('Runtime.evaluate',{expression:`(()=>{const b=document.querySelector('#db-body [data-edit]');b?.click();return{found:!!b}})()`,returnByValue:true});
+   if(edit.exceptionDetails||!edit.result?.value?.found)throw Error('Frontend Demo could not open Edit Faculty for DOE Role Assignment');
+   await waitForCondition(cdp,`(()=>{const sec=document.getElementById('ucvm-doe-role-section'),add=document.getElementById('ucvm-add-managed-role'),text=sec?.textContent||'';return !!sec&&!!add&&/DOE Role Assignment/.test(text)&&/Access role and DOE assignment are separate/.test(text)})()`,'Frontend Demo DOE Role Assignment panel',12000);
+   await cdp.send('Runtime.evaluate',{expression:`(()=>{document.getElementById('modal-x')?.click();return true})()`,returnByValue:true});
    if(!state.reconciliationTab)throw Error('faculty-admin.html: DOE Reconciliation tab is missing in Frontend Demo');
    const open=await cdp.send('Runtime.evaluate',{expression:`(()=>{document.getElementById('doe-reconciliation-tab')?.click();return true})()`,returnByValue:true});
    if(open.exceptionDetails)throw Error(`faculty-admin.html: could not open DOE Reconciliation: ${exceptionText(open.exceptionDetails)}`);

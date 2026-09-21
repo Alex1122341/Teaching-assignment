@@ -80,8 +80,8 @@ test('mapping draft normalization keeps assignment facts separate from server-ow
 test('Annual Rule Book has editable structured References and Reserve Logic',()=>{
   const html=read('faculty-admin.html'),source=read('doe-rulebook-admin.js');
   for(const id of ['doe-add-reference','doe-reference-list','doe-reference-editor','doe-reference-title','doe-reference-section','doe-reference-table','doe-reference-page','doe-reference-effective-date','doe-reference-review-status','doe-reference-admin-note','doe-reference-save','doe-edit-reserve','doe-reserve-editor','doe-reserve-split-threshold','doe-reserve-split-ratio','doe-reserve-high-ceiling','doe-reserve-teaching-focused-ceiling','doe-reserve-rolling-years','doe-reserve-reference-id','doe-reserve-review-status','doe-reserve-save'])assert.match(html,new RegExp(`id=["']${id}["']`),id);
-  assert.match(source,/DOE_API\.saveReference/);
-  assert.match(source,/DOE_API\.saveReservePolicy/);
+  assert.match(source,/state\.service\.saveReference/);
+  assert.match(source,/state\.service\.saveReservePolicy/);
 });
 
 test('DOE API client exposes Reference and Reserve Draft writes',()=>{
@@ -95,8 +95,16 @@ test('Rule Book History is backed by the server DOE audit API',()=>{
  const api=require('../doe-api-client.js');
  assert.equal(typeof api.listAudit,'function');
  const source=read('doe-rulebook-admin.js');
- assert.match(source,/DOE_API\.listAudit/);
+ assert.match(source,/state\.service\?\.listAudit/);
  assert.match(source,/doe-rulebook-history-body/);
  assert.match(source,/changedAt/);
  assert.match(source,/changedByName/);
+});
+
+
+test('Rule Book renderer accepts the policy-admin selected service for Demo and authoritative modes',()=>{
+ const source=read('doe-rulebook-admin.js');
+ assert.match(source,/renderBundle\(bundle,\{editable=false,reload=null,service=null\}/);
+ assert.match(source,/state\.service=service\|\|DOE_API/);
+ assert.match(source,/state\.service\?\.listAudit/);
 });
