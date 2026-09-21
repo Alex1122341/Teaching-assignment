@@ -8,7 +8,13 @@ service cloud.firestore {
   function admin(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
   function general(){return ready() && profile().role in ['developer','owner','adfa_general'];}
   function historyAll(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
-  function historyReader(d){return historyAll() || (ready() && !(profile().role in ['adc','lab']) && d.changedBy == request.auth.uid);}
+  function historyActor(d){return ready() && d.get('changedBy','') == request.auth.uid;}
+  function linkedFacultyHistory(d){let fid=profile().get('facultyId','');return ready() && fid is string && fid.size() > 0 && (d.get('facultyId','') == fid || fid in d.get('relatedFacultyIds',[]));}
+  function sessionHistoryReader(d){let sid=d.get('sessionId','');let fid=profile().get('facultyId','');return historyAll() || historyActor(d) || linkedFacultyHistory(d) || (ready() && fid is string && fid.size() > 0 && sid is string && sid.size() > 0 && exists(sessionPath(sid)) && fid in get(sessionPath(sid)).data.get('facultyIds',[]));}
+  function facultyHistoryReader(d){return historyAll() || historyActor(d) || linkedFacultyHistory(d);}
+  function accountHistoryReader(d){return historyAll() || historyActor(d) || (ready() && d.get('targetUid','') == request.auth.uid);}
+  function afcHistoryReader(d){return historyAll() || (ready() && (d.get('changedBy','') == request.auth.uid || d.get('requesterUid','') == request.auth.uid || d.get('reportToUid','') == request.auth.uid));}
+  function historyReader(d){return historyAll() || historyActor(d);}
   function hicc(){return ready() && profile().role == 'hicc';}
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
   function explicitRole(r){return r in ['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
@@ -653,19 +659,19 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /session_change_log/{id} {
-   allow read: if historyReader(resource.data);
+   allow read: if sessionHistoryReader(resource.data);
    allow create: if teachingWritesOpen() && ((admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time) || officeSessionAuditCreate());
    allow update: if false;
    allow delete: if false;
   }
   match /faculty_change_log/{id} {
-   allow read: if historyReader(resource.data);
+   allow read: if facultyHistoryReader(resource.data);
    allow create: if teachingWritesOpen() && admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
    allow update: if false;
    allow delete: if false;
   }
   match /account_audit/{id} {
-   allow read: if historyReader(resource.data);
+   allow read: if accountHistoryReader(resource.data);
    allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time && (general() || (hicc() && request.resource.data.action == 'group_members_updated' && get(/databases/$(database)/documents/faculty_groups/$(request.resource.data.groupId)).data.ownerUid == request.auth.uid));
    allow update,delete: if false;
   }
@@ -681,7 +687,7 @@ service cloud.firestore {
     allow update,delete: if false;
    }
   }
-  match /afc_audit/{id} {allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid || resource.data.requesterUid == request.auth.uid || resource.data.reportToUid == request.auth.uid); allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time; allow update,delete: if false;}
+  match /afc_audit/{id} {allow read: if afcHistoryReader(resource.data); allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time; allow update,delete: if false;}
   match /lab_groups/{id} {
    allow read: if ready() && (officeName() != '' || facultyMember() || general());
    allow create,update: if teachingWritesOpen() && labGroupWrite(id);
