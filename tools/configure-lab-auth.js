@@ -84,8 +84,7 @@ async function identityRequest({method='GET',accessToken,body,fetchImpl=globalTh
     method,
     headers:{
       Authorization:`Bearer ${token}`,
-      'Content-Type':'application/json',
-      'X-Goog-User-Project':LAB_PROJECT_ID
+      'Content-Type':'application/json'
     },
     body:body===undefined?undefined:JSON.stringify(body)
   });
