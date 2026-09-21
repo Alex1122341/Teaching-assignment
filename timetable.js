@@ -1057,8 +1057,7 @@
   async function startSessionSelection(){
     if(!canSelectSessions())return;
     scopedWork=null;
-    if(capabilities(stage).canEditInstructor)await ensureFacultyDirectory();
-    scopedWork={sessionId:id,stage};
+    if(capabilities().canEditInstructor)await ensureFacultyDirectory();
     selectionViewFlow.begin(viewMode);
     selectionMode=true;reviewingSelection=false;document.body.classList.add('session-selection-mode');updateSelectionControls();render();
   }
@@ -1103,7 +1102,8 @@
       const position=academicPositionForDate(parseYmd(targetDate));
       if(position){selectedSemester=position.semester;selectedWeek=position.week}
     }
-    if(capabilities().canEditInstructor)await ensureFacultyDirectory();
+    if(capabilities(stage).canEditInstructor)await ensureFacultyDirectory();
+    scopedWork={sessionId:id,stage};
     selectionViewFlow.begin(viewMode);
     selectionMode=true;reviewingSelection=false;
     document.body.classList.add('session-selection-mode');
