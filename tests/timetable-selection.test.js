@@ -204,13 +204,15 @@ test('ADC change planning writes only public owned fields and forces LAB topic t
  for(const privateField of ['assignments','facultyIds','instructor','labDetails'])assert.equal(Object.hasOwn(plan.updates[0].data,privateField),false,privateField);
 });
 
-test('LAB change planning allows LAB topic only and rejects non-LAB rows',()=>{
- const api=load(),lab={...plain(baseSession),type:'LAB',topic:'Old',instructor:'Alex Faculty'};
+test('LAB change planning requires an assigned group, allows owned LAB fields, and rejects non-LAB rows',()=>{
+ const api=load(),lab={...plain(baseSession),type:'LAB',topic:'Old',instructor:'Alex Faculty',labGroupIds:['g-a']};
  const edited={...plain(lab),topic:'New'};
  const plan=plain(api.planChanges([lab],[edited],{uid:'lab-1',name:'LAB'},123,new Map(),{role:'lab'}));
  assert.deepEqual(plan.errors,[]);
  assert.deepEqual(plan.updates[0].data,{topic:'New'});
  // A locked field is refused explicitly rather than silently dropped.
+ const missingGroup=plain(api.planChanges([{...plain(lab),labGroupIds:[]}],[{...plain(lab),labGroupIds:[],topic:'New'}],{uid:'lab-1'},123,new Map(),{role:'lab'}));
+ assert.ok(missingGroup.errors.some(error=>/at least one LAB group is required/i.test(error)),JSON.stringify(missingGroup.errors));
  const locked=plain(api.planChanges([lab],[{...plain(lab),topic:'New',room:'Blocked'}],{uid:'lab-1'},123,new Map(),{role:'lab'}));
  assert.ok(locked.errors.some(error=>/LAB cannot change room/i.test(error)),JSON.stringify(locked.errors));
  const nonLab=plain(api.planChanges([baseSession],[{...plain(baseSession),topic:'Nope'}],{uid:'lab-1'},123,new Map(),{role:'lab'}));
