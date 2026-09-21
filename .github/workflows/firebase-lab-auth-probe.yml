@@ -67,30 +67,32 @@ jobs:
       - name: Probe Firebase Auth and Firestore read-only
         run: |
           node - <<'NODE'
-          const path=require('node:path');
-          const {createRequire}=require('node:module');
-          const req=createRequire(path.resolve('server/package.json'));
-          const {initializeApp,cert,getApps}=req('firebase-admin/app');
-          const {getAuth}=req('firebase-admin/auth');
-          const {getFirestore}=req('firebase-admin/firestore');
-          const raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-          if(!raw)throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON missing');
-          const serviceAccount=JSON.parse(raw);
-          if(serviceAccount.project_id!=='vista-teaching-lab')throw new Error('Unexpected Firebase project');
-          const app=getApps()[0]||initializeApp({
-            projectId:'vista-teaching-lab',
-            credential:cert(serviceAccount)
-          });
-          const auth=getAuth(app);
-          const firestore=getFirestore(app);
-          const users=await auth.listUsers(1);
-          const probe=await firestore.collection('users').limit(1).get();
-          console.log(JSON.stringify({
-            projectId:'vista-teaching-lab',
-            authReachable:true,
-            authUserSampleCount:users.users.length,
-            firestoreReachable:true,
-            firestoreUserSampleCount:probe.size
-          },null,2));
-          if(typeof firestore.terminate==='function')await firestore.terminate();
+          (async()=>{
+            const path=require('node:path');
+            const {createRequire}=require('node:module');
+            const req=createRequire(path.resolve('server/package.json'));
+            const {initializeApp,cert,getApps}=req('firebase-admin/app');
+            const {getAuth}=req('firebase-admin/auth');
+            const {getFirestore}=req('firebase-admin/firestore');
+            const raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+            if(!raw)throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON missing');
+            const serviceAccount=JSON.parse(raw);
+            if(serviceAccount.project_id!=='vista-teaching-lab')throw new Error('Unexpected Firebase project');
+            const app=getApps()[0]||initializeApp({
+              projectId:'vista-teaching-lab',
+              credential:cert(serviceAccount)
+            });
+            const auth=getAuth(app);
+            const firestore=getFirestore(app);
+            const users=await auth.listUsers(1);
+            const probe=await firestore.collection('users').limit(1).get();
+            console.log(JSON.stringify({
+              projectId:'vista-teaching-lab',
+              authReachable:true,
+              authUserSampleCount:users.users.length,
+              firestoreReachable:true,
+              firestoreUserSampleCount:probe.size
+            },null,2));
+            if(typeof firestore.terminate==='function')await firestore.terminate();
+          })().catch(error=>{console.error(error.stack||error.message);process.exit(1)});
           NODE
