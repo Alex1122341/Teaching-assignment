@@ -78,4 +78,11 @@ test('Developer account hierarchy is enforced in User Management UI',()=>{
  assert.match(source,/option\[value="developer"\]/);
 });
 
+test('HICC people-index fallback normalizes missing office arrays before account rendering',()=>{
+ const source=read('user-management.js');
+ assert.match(source,/data\.people\.map\(person=>\(\{[^\n]*facultyRoles:\[\],officeAccess:\[\]/);
+ assert.match(source,/officeAccess:Array\.isArray\(user\?\.officeAccess\)\?user\.officeAccess:\[\]/);
+ assert.match(source,/facultyRoles:Array\.isArray\(user\?\.facultyRoles\)\?user\.facultyRoles:\[\]/);
+});
+
 test('Owner User Management exposes audited ADC LAB and ADFA office access checkboxes',()=>{const html=read('user-management.html'),source=read('user-management.js');for(const office of ['adc','lab','adfa'])assert.match(html,new RegExp(`name=\"office-access\" value=\"${office}\"`));assert.match(html,/Operational office access/);assert.match(source,/selectedOfficeAccess/);assert.match(source,/beforeOfficeAccess/);assert.match(source,/officeAccess:fields\.officeAccess/);});
