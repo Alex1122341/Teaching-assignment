@@ -1167,6 +1167,8 @@
     const scoped=scopedWork&&sessionSelection.size===1&&sessionSelection.ids()[0]===scopedWork.sessionId&&hasOfficeAccess(scopedWork.stage);
     if(!canSelectSessions()&&!scoped){toast('Selection permission is required.',true);return}
     const button=$('selection-save-btn'),errorBox=$('selection-errors'),originals=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids()),canEditFaculty=selectionCapabilities().canEditInstructor,facultyById=canEditFaculty?new Map(facultyDirectory.map(f=>[String(f.__id),f])):new Map(),timestamp=firebase.firestore.FieldValue.serverTimestamp();
+    const renderedIds=[...document.querySelectorAll('[data-selection-row]')].map(row=>String(row.dataset.sessionEditId||''));
+    if(scoped&&(renderedIds.length!==1||renderedIds[0]!==scopedWork.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     let rows=readSelectionRows();
     if(scoped&&(rows.length!==1||String(rows[0].id)!==scopedWork.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     await ensureSessionsForDates(rows.map(row=>row.date),true);
