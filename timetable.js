@@ -201,8 +201,23 @@
   let allSessionsCache = null;
   let allSessionsLoading = null;
   const profileSnapshots=new Map();
+  const labGroupDirectory=new Map(),labRosterDirectory=new Map();
+  let labWorkflowLoaded=false,labWorkflowLoading=null;
   function pageProfile(){return currentUser?{...currentUser.profile,name:currentUser.name,email:currentUser.email,role:currentUser.role,facultyId:currentUser.profile?.facultyId||''}:null}
   function pageSessions(){return[...sessionCache.values()]}
+  function workflowContext(){return{rosters:Object.fromEntries([...labRosterDirectory.entries()].map(([id,row])=>[id,row])),labGroups:[...labGroupDirectory.values()]}}
+  async function ensureLabWorkflowContext(force=false){
+    if(!currentUser||!hasOfficeAccess('lab')){labGroupDirectory.clear();labRosterDirectory.clear();labWorkflowLoaded=false;return workflowContext()}
+    if(labWorkflowLoaded&&!force)return workflowContext();
+    if(labWorkflowLoading)return labWorkflowLoading;
+    labWorkflowLoading=Promise.all([db.collection('lab_groups').where('active','==',true).get(),db.collection('lab_group_rosters').get()]).then(([groups,rosters])=>{
+      labGroupDirectory.clear();labRosterDirectory.clear();
+      for(const doc of groups.docs)labGroupDirectory.set(String(doc.id),{groupId:doc.id,...doc.data()});
+      for(const doc of rosters.docs)if(labGroupDirectory.has(String(doc.id)))labRosterDirectory.set(String(doc.id),{groupId:doc.id,...doc.data()});
+      labWorkflowLoaded=true;publishPageData();return workflowContext();
+    }).finally(()=>{labWorkflowLoading=null});
+    return labWorkflowLoading;
+  }
   function publishPageData(){for(const callback of pageDataSubscribers){try{callback()}catch(error){console.error('[page data subscriber]',error)}}}
   function cacheSessionRange(range,rows){
     for(const [id,row] of sessionCache)if(row.date>=range.start&&row.date<=range.end)sessionCache.delete(id);
@@ -244,6 +259,8 @@
     profile:()=>pageProfile(),
     faculty:()=>currentFacultyRecord,
     sessions:()=>pageSessions(),
+    workflowContext,
+    ensureWorkflowContext:()=>ensureLabWorkflowContext(),
     ensureSessionsForRange,
     invalidateSessions:()=>invalidateAllSessions(),
     openScopedEditor:(sessionId,options)=>openScopedEditor(sessionId,options),
@@ -1096,7 +1113,8 @@
       target=find();
     }
     if(!target)return false;
-    const workflow=window.UCVM_SESSION_WORKFLOW,status=workflow?.stageStatus?.(target,stage,window.UCVM_WORK_QUEUE_CONTEXT||{});
+    if(stage==='lab')await ensureLabWorkflowContext();
+    const workflow=window.UCVM_SESSION_WORKFLOW,status=workflow?.stageStatus?.(target,stage,workflowContext());
     if(!status||status.status!=='ready')return false;
     if(targetDate){
       const position=academicPositionForDate(parseYmd(targetDate));
@@ -1174,7 +1192,7 @@
     let rows=readSelectionRows();
     if(scoped&&(rows.length!==1||String(rows[0].id)!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     await ensureSessionsForDates(rows.map(row=>row.date),true);
-    if(scoped){const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,window.UCVM_WORK_QUEUE_CONTEXT||{});const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
+    if(scoped){if(activeScoped.stage==='lab')await ensureLabWorkflowContext(true);const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,workflowContext());const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
     const doePrepared=new Map(),doeRuntime=canEditFaculty?getTimetableDoeRuntime():null,originalById=new Map(originals.map(row=>[String(row.id),row]));
     if(canEditFaculty)rows=await Promise.all(rows.map(async row=>{const prepared=await doeRuntime.adapter.prepareSession(originalById.get(String(row.id))||null,row,{trigger:'multi_session_edit'});doePrepared.set(String(row.id),prepared);return prepared.session}));
     const plan=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,{role:selectionRole()});
@@ -1544,7 +1562,7 @@
           if (sessionUnsubscribe) { try { sessionUnsubscribe(); } catch (_) {} sessionUnsubscribe = null; }
           sessionRangeKey='';
           sessionCache.clear();sessionCacheRanges.length=0;sessionRangeLoads.clear();sessionCacheDates.clear();sessionDateLoads.clear();
-          allSessionsCache=null;
+          allSessionsCache=null;labGroupDirectory.clear();labRosterDirectory.clear();labWorkflowLoaded=false;labWorkflowLoading=null;
           clearCurrentFaculty();
           unsubscribeFacultyDirectory();
           scheduleSource = 'signed-out';
