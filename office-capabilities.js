@@ -15,7 +15,7 @@
  'use strict';
  const OFFICES=Object.freeze(['adc','lab','adfa']);
  const normalize=role=>String(role||'').trim().toLowerCase();
- const adfaRoles=['developer','owner','administrator','admin','adfa_general','adfa_regular'];
+ const adfaRoles=['developer','owner','administrator','admin','adfa_general','adfa_regular','adfa'];
  const facultyRoles=['faculty','hicc','visc','editor','viewer'];
  const configurableRoles=['owner','administrator','admin','adfa_general','adfa_regular','adc','lab'];
  function roleOf(profileOrRole){return normalize(profileOrRole&&typeof profileOrRole==='object'?profileOrRole.role:profileOrRole);}
