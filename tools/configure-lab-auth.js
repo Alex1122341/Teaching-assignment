@@ -98,16 +98,18 @@ async function identityRequest({method='GET',accessToken,body,fetchImpl=globalTh
 function loadFirebaseAdmin(){
   const root=path.resolve(__dirname,'..');
   const requireFromServer=createRequire(path.join(root,'server','package.json'));
-  try{return requireFromServer('firebase-admin')}
+  try{return requireFromServer('firebase-admin/app')}
   catch(error){
-    error.message=`firebase-admin is required. Run "npm --prefix server ci". ${error.message}`;
+    error.message=`firebase-admin is required. Run "npm --prefix server install --no-audit --no-fund". ${error.message}`;
     throw error;
   }
 }
 
 async function accessTokenFor(serviceAccount,{adminModule}={}){
   const admin=adminModule||loadFirebaseAdmin();
-  const credential=admin.credential.cert(serviceAccount);
+  const certFn=typeof admin?.cert==='function'?admin.cert:admin?.credential?.cert;
+  if(typeof certFn!=='function')throw Error('Firebase Admin SDK does not expose a compatible cert() credential factory.');
+  const credential=certFn.call(admin?.credential||admin,serviceAccount);
   const value=await credential.getAccessToken();
   const token=text(value?.access_token||value?.accessToken);
   if(!token)throw Error('Firebase Admin credential did not return a Google access token.');
