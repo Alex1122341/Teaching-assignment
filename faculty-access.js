@@ -91,7 +91,8 @@ const config=window.UCVM_FIREBASE_CONFIG;
   includeFaculty=includeFaculty||container?.id==='faculty-audit';
   const {auth,db}=init(),user=auth.currentUser;
   if(!user){container.innerHTML='<p>Sign in to view change history.</p>';return}
-  const canReadAll=!personalOnly&&historyAll(profile),PAGE_SIZE=20;
+  const canReadAll=!personalOnly&&historyAll(profile);
+  const PAGE_SIZE=20;
   let entries=[],loading=false;
   const cursors={session:null,faculty:null,account:null,afc:null,workflow:null};
   const exhausted={session:false,faculty:!includeFaculty,account:false,afc:false,workflow:false};
