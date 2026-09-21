@@ -179,3 +179,5 @@ test('completing all required work removes the item and hides the button',()=>{
  assert.equal(view.visible,false);
  assert.equal(controller.button.classList.contains('hidden'),true);
 });
+
+test('explicit office access combines delegated office work without inventing other stages',()=>{const {workflow,queue}=loadModule(),sessions=[lec({room:''}),lab({topic:'Lab topic',labGroupIds:[]})];const view=queue.buildViewModel({sessions,role:'owner',offices:['adc','lab'],workflow});assert.equal(view.stage,'all');assert.equal(view.label,`Office Work (${view.total})`);assert.ok(view.items.some(item=>item.stage==='adc'));assert.ok(view.items.some(item=>item.stage==='lab'));assert.equal(view.items.some(item=>item.stage==='adfa'),false);});
