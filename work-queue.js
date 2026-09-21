@@ -40,13 +40,15 @@
  }
 
  /* Pure view model. Never mutates the sessions it is given. */
- function buildViewModel({sessions=[],role='',context={},workflow=null}={}){
+ function buildViewModel({sessions=[],role='',offices:null,context={},workflow=null}={}){
   const api=workflow||(typeof window!=='undefined'?window.UCVM_SESSION_WORKFLOW:null);
   const empty={visible:false,total:0,offices:{},items:[],label:'',stage:'',ready:0,waiting:0};
   if(!api||!api.workflowItemsForRole)return empty;
-  const stage=api.stageForRole(role);
-  if(!stage)return empty;
-  const items=api.workflowItemsForRole(sessions,role,context)||[];
+  const explicit=Array.isArray(offices)?[...new Set(offices.filter(name=>api.STAGES.includes(name)))]:null;
+  const legacy=api.stageForRole(role),stages=explicit||(legacy==='all'?api.STAGES.slice():(legacy?[legacy]:[]));
+  if(!stages.length)return empty;
+  const stage=stages.length===1?stages[0]:'all';
+  const items=stages.flatMap(name=>api.workflowItemsForRole(sessions,name,context)||[]);
   const offices={};
   for(const name of api.STAGES)offices[name]={stage:name,label:STAGE_LABEL[name],ready:0,waiting:0,total:0};
   let ready=0,waiting=0;
@@ -57,7 +59,7 @@
   const total=items.length;
   return{
    visible:total>0,total,ready,waiting,offices,items,stage,
-   label:stage==='all'?`All Work (${total})`:`${STAGE_LABEL[stage]} Work (${total})`
+   label:stage==='all'?`${String(role).toLowerCase()==='developer'?'All':'Office'} Work (${total})`:`${STAGE_LABEL[stage]} Work (${total})`
   };
  }
 
@@ -182,13 +184,13 @@
   };
   // Opening Work goes to the real Select Sessions context for the target session
   // instead of opening another read-only information modal.
-  const defaultOpen=async({sessionId})=>{
+  const defaultOpen=async({sessionId,stage})=>{
    try{
     // The timetable page owns the scoped editor. Using its entry point means the
     // Work Queue reuses the real Select Sessions editor, and a role without
     // unrestricted selection (LAB) still reaches the session it owns.
     if(typeof page.openScopedEditor==='function'){
-     await page.openScopedEditor(sessionId,{});
+     await page.openScopedEditor(sessionId,{stage});
      return;
     }
     const session=(page.sessions()||[]).find(row=>String(row.id)===String(sessionId));
