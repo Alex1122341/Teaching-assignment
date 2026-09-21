@@ -181,3 +181,10 @@ test('completing all required work removes the item and hides the button',()=>{
 });
 
 test('explicit office access combines delegated office work without inventing other stages',()=>{const {workflow,queue}=loadModule(),sessions=[lec({room:''}),lab({topic:'Lab topic',labGroupIds:[]})];const view=queue.buildViewModel({sessions,role:'owner',offices:['adc','lab'],workflow});assert.equal(view.stage,'all');assert.equal(view.label,`Office Work (${view.total})`);assert.ok(view.items.some(item=>item.stage==='adc'));assert.ok(view.items.some(item=>item.stage==='lab'));assert.equal(view.items.some(item=>item.stage==='adfa'),false);});
+
+test('mounted Work Queue derives office stages from the current profile access grants',()=>{
+ const source=read('work-queue.js');
+ assert.match(source,/const profile=page\.profile\?\.\(\)\|\|\{\}/);
+ assert.match(source,/officesForProfile\?\.\(profile\)/);
+ assert.match(source,/buildViewModel\(\{sessions:page\.sessions\(\)\|\|\[\],role,offices,/);
+});
