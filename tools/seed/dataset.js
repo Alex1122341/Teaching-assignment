@@ -331,6 +331,30 @@ function buildSessionsAndCalendar() {
   return {sessions, calendar};
 }
 
+function buildLabGroupsAndRosters() {
+  const groups = [], rosters = [];
+  COURSES.forEach((course, index) => {
+    const groupId = `lab-group-${String(index + 1).padStart(2, '0')}-a`;
+    groups.push({
+      path: `lab_groups/${groupId}`,
+      data: {
+        groupId, academicYear: ACADEMIC_YEAR, course: course.code,
+        groupCode: 'A', colorKey: 'group-a', active: true,
+        updatedBy: 'uid-lab-1', updatedByName: 'LAB Coordinator', updatedAt: stamp(0)
+      }
+    });
+    rosters.push({
+      path: `lab_group_rosters/${groupId}`,
+      data: {
+        groupId,
+        studentIds: [`39${String(index + 1).padStart(6, '0')}`, `49${String(index + 1).padStart(6, '0')}`],
+        updatedBy: 'uid-lab-1', updatedByName: 'LAB Coordinator', updatedAt: stamp(0)
+      }
+    });
+  });
+  return {groups, rosters};
+}
+
 function buildSettings(sessions, faculty) {
   const facultyIndexEntries = faculty.map(record => ({
     key: record.path.replace('faculty/', ''),
@@ -930,6 +954,7 @@ function buildDataset() {
   const faculty = buildFaculty();
   const {sessions, calendar} = buildSessionsAndCalendar();
   const settings = buildSettings(sessions, faculty);
+  const {groups: labGroups, rosters: labRosters} = buildLabGroupsAndRosters();
   const requests = buildRequests(sessions);
   const notifications = buildNotifications(sessions);
   const afc = buildAfc();
@@ -944,6 +969,8 @@ function buildDataset() {
     ...sessions,
     ...calendar,
     ...settings,
+    ...labGroups,
+    ...labRosters,
     ...buildGroups(),
     ...requests,
     ...notifications,
@@ -964,6 +991,8 @@ function buildDataset() {
       sessions: sessions.length,
       calendarSessions: calendar.length,
       settings: settings.length,
+      labGroups: labGroups.length,
+      labRosters: labRosters.length,
       requests: requests.length,
       notifications: notifications.length,
       afc: afc.length,
