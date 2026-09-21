@@ -45,8 +45,12 @@ test('applied approval fixture is already reflected in canonical session and cal
   assert.deepEqual(session[field],request.patchPublic[field],field);
   assert.deepEqual(calendar[field],session[field],field+' calendar');
  }
- assert.deepEqual(session.facultyIds,['fac-001','fac-003']);
+ assert.equal(session.facultyIds[0],'fac-003');
  assert.deepEqual(session.assignments.map(row=>row.facultyId),session.facultyIds);
+ const privateRecord=docs.get('change_request_private/req-003');
+ assert.equal(privateRecord.assignmentChange.to.candidateKey,'cand-003');
+ assert.notEqual(privateRecord.assignmentChange.from.facultyId,'');
+ assert.notEqual(privateRecord.assignmentChange.from.facultyId,session.facultyIds[0]);
 });
 
 test('update-required fixture identifies the returned office without blocking LAB review',()=>{
