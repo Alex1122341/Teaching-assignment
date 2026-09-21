@@ -433,6 +433,7 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(demoMode&&expectation.page==='index.html')await verifyDemoRoutedApprovalWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoWorkQueue({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoOperationalModules({debugPort,origin,setupCdp:cdp});
+  if(demoMode&&expectation.page==='index.html')await verifyDemoScopedEditor({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='user-management.html')await verifyUserManagementRoleMatrix({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='faculty-admin.html'){
    if(!state.reconciliationTab)throw Error('faculty-admin.html: DOE Reconciliation tab is missing in Frontend Demo');
@@ -811,6 +812,55 @@ async function verifyDemoOperationalModules({debugPort,origin,setupCdp}){
   if(value.suggestionLines!=='Suggested by ADC: Dr X')throw Error('ADFA suggestion line is wrong: '+value.suggestionLines);
   if(!value.privateRefused)throw Error('A suggestion carrying private Faculty data was accepted');
  });
+ }finally{
+  try{await setStoredDemoRole(setupCdp,'uid-developer')}catch(_){}
+ }
+}
+
+async function verifyDemoScopedEditor({debugPort,origin,setupCdp}){
+ const editorState="(()=>{const row=document.querySelector('[data-selection-row]');if(!row)return{open:false};const field=name=>{const el=row.querySelector(`[data-selection-field=\"${name}\"]`);return el?{present:true,locked:el.disabled===true||el.classList.contains('role-locked-field')}:{present:false}};return{open:true,sessionId:row.dataset.sessionEditId||'',date:field('date'),course:field('course'),topic:field('topic'),room:field('room'),facultyPicker:!!row.querySelector('.selection-faculty-picker'),facultyReadonly:!!row.querySelector('.selection-faculty-readonly')}})()";
+ const readEditor=async cdp=>{
+  const result=await cdp.send('Runtime.evaluate',{expression:editorState,returnByValue:true});
+  if(result.exceptionDetails)throw Error('Scoped editor inspection failed: '+exceptionText(result.exceptionDetails));
+  return result.result?.value||{open:false};
+ };
+ // LAB reaches the session it owns through the Work Queue even though it has no
+ // unrestricted selection, and only the LAB-owned fields are editable.
+ try{
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-lab-1',label:'LAB scoped editor'},async cdp=>{
+   await waitForCondition(cdp,"(()=>!document.body.classList.contains('auth-locked'))()",'timetable ready for the LAB scoped editor',12000);
+   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')})()",'LAB Work Queue button',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('ucvm-work-queue-btn').click();return true})()",returnByValue:true});
+   const opened=await waitForCondition(cdp,"(()=>{const b=document.querySelector('#ucvm-work-queue-panel [data-work-open]:not([disabled])');if(!b)return false;b.click();return true})()",'LAB Open Work target',12000);
+   if(!opened)throw Error('LAB Work Queue exposed no openable item');
+   await waitForCondition(cdp,"(()=>!!document.querySelector('[data-selection-row]'))()",'LAB scoped editor opened from the Work Queue',12000);
+   const state=await readEditor(cdp);
+   if(!state.open)throw Error('LAB scoped editor did not open');
+   if(!state.topic.present||state.topic.locked)throw Error('LAB must be able to edit Topic: '+JSON.stringify(state.topic));
+   for(const name of ['date','course','room'])if(!state[name].locked)throw Error(`LAB must not edit ${name}: `+JSON.stringify(state[name]));
+   if(state.facultyPicker)throw Error('LAB must not receive the official Faculty picker');
+   if(!state.facultyReadonly)throw Error('LAB must see Faculty as read-only context');
+  });
+
+  // ADFA is faculty-assignment only. The demo dataset has no outstanding ADFA
+  // work, so clear one session's assignment to create a real ADFA work item and
+  // drive the actual Work Queue flow.
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-admin',label:'ADFA scoped editor'},async cdp=>{
+   await waitForCondition(cdp,"(()=>!document.body.classList.contains('auth-locked'))()",'timetable ready for the ADFA scoped editor',12000);
+   const seeded=await cdp.send('Runtime.evaluate',{expression:"(async()=>{const sessions=window.UCVM_PAGE_DATA?.sessions?.()||[];const session=sessions.find(row=>String(row.type).toUpperCase()==='LEC')||sessions[0];if(!session)return null;const id=String(session.id),date=String(session.date||'').slice(0,10);await firebase.firestore().doc('sessions/'+id).update({assignments:[],facultyIds:[],instructor:''});window.UCVM_PAGE_DATA.invalidateSessions();await window.UCVM_PAGE_DATA.ensureSessionsForRange(date,date);window.dispatchEvent(new Event('ucvm:sessions-updated'));return{id,date}})()",returnByValue:true,awaitPromise:true});
+   if(seeded.exceptionDetails)throw Error('ADFA work fixture failed: '+exceptionText(seeded.exceptionDetails));
+   const seededValue=seeded.result?.value;
+   if(!seededValue?.id)throw Error('No session available to create ADFA work');
+   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')&&/ADFA Work \\(\\d+\\)/.test((b.textContent||'').trim())})()",'ADFA Work Queue button',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('ucvm-work-queue-btn').click();return true})()",returnByValue:true});
+   const opened=await waitForCondition(cdp,"(()=>{const b=document.querySelector('#ucvm-work-queue-panel [data-work-open]:not([disabled])');if(!b)return false;b.click();return true})()",'ADFA Open Work target',12000);
+   if(!opened)throw Error('ADFA Work Queue exposed no openable item');
+   await waitForCondition(cdp,"(()=>!!document.querySelector('[data-selection-row]'))()",'ADFA scoped editor opened from the Work Queue',12000);
+   const state=await readEditor(cdp);
+   if(!state.open)throw Error('ADFA scoped editor did not open');
+   for(const name of ['date','course','topic','room'])if(!state[name].locked)throw Error(`ADFA must not edit ${name}: `+JSON.stringify(state[name]));
+   if(!state.facultyPicker)throw Error('ADFA must receive the Faculty picker');
+  });
  }finally{
   try{await setStoredDemoRole(setupCdp,'uid-developer')}catch(_){}
  }

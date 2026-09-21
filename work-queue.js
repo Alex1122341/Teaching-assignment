@@ -184,6 +184,13 @@
   // instead of opening another read-only information modal.
   const defaultOpen=async({sessionId})=>{
    try{
+    // The timetable page owns the scoped editor. Using its entry point means the
+    // Work Queue reuses the real Select Sessions editor, and a role without
+    // unrestricted selection (LAB) still reaches the session it owns.
+    if(typeof page.openScopedEditor==='function'){
+     await page.openScopedEditor(sessionId,{});
+     return;
+    }
     const session=(page.sessions()||[]).find(row=>String(row.id)===String(sessionId));
     const date=String(session?.date||'').slice(0,10);
     if(date&&typeof page.ensureSessionsForRange==='function')await page.ensureSessionsForRange(date,date);

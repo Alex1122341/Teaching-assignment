@@ -244,6 +244,8 @@
     faculty:()=>currentFacultyRecord,
     sessions:()=>pageSessions(),
     ensureSessionsForRange,
+    invalidateSessions:()=>invalidateAllSessions(),
+    openScopedEditor:(sessionId,options)=>openScopedEditor(sessionId,options),
     subscribe:callback=>{pageDataSubscribers.add(callback);return()=>pageDataSubscribers.delete(callback)},
     facultyDirectory:()=>facultyDirectory.slice(),
     allSessions:()=>ensureAllSessions(),
@@ -1072,6 +1074,41 @@
     reviewingSelection=true;viewMode=selectionViewFlow.review();setViewButtons();render();
   }
 
+  /* Open one session directly in the scoped operational editor.
+   *
+   * The Work Queue uses this. LAB cannot use unrestricted general selection, so
+   * the Select button is hidden for it, but LAB still has to be able to work on
+   * the LAB session the queue handed it. This reuses the existing Select Sessions
+   * editor: it navigates to the session's week, selects only that session and
+   * opens the review view, where editPolicy() locks every field the role does not
+   * own. No second session editor is introduced. */
+  async function openScopedEditor(sessionId,options={}){
+    const id=String(sessionId||'').trim();
+    if(!id)return false;
+    const find=()=>[...sessionCache.values()].find(row=>String(row.id)===id)||null;
+    let target=find();
+    const targetDate=String(options.date||target?.date||'').slice(0,10);
+    if(targetDate&&!target){
+      await ensureSessionsForDates([targetDate]);
+      target=find();
+    }
+    if(!target)return false;
+    if(targetDate){
+      const position=academicPositionForDate(parseYmd(targetDate));
+      if(position){selectedSemester=position.semester;selectedWeek=position.week}
+    }
+    if(capabilities().canEditInstructor)await ensureFacultyDirectory();
+    selectionViewFlow.begin(viewMode);
+    selectionMode=true;reviewingSelection=false;
+    document.body.classList.add('session-selection-mode');
+    sessionSelection.clear();selectedSessionOriginals.clear();
+    selectedSessionOriginals.set(id,target);
+    sessionSelection.toggle(id);
+    updateSelectionControls();
+    await reviewSelectedSessions();
+    return true;
+  }
+
   function selectionFacultyOptions(session){
     const selected=new Set([...(session.facultyIds||[]),...(session.assignments||[]).map(a=>a.ucid||a.facultyId)].filter(Boolean).map(String));
     return facultyDirectory.map(f=>`<label class="selection-faculty-option"><input type="checkbox" data-selection-faculty-option value="${escapeHtml(f.__id)}" ${selected.has(String(f.__id))?'checked':''}><span><strong>${escapeHtml(swapFacultyName(f))}</strong><small>${window.UCVM_DOE_API?.isConfigured?.()?'DOE server preview on save':'DOE recalculation queued after save'}</small></span></label>`).join('');
@@ -1381,6 +1418,14 @@
       </form>`);
     renderInstructorEditor();
     const syncTopicOwnership=()=>{if(actorRole!=='adc')return;const topicInput=$('topic'),typeInput=$('type');if(!topicInput||!typeInput)return;const isLab=String(typeInput.value||'').toUpperCase()==='LAB';if(isLab)topicInput.value='TBD';topicInput.disabled=isLab;topicInput.classList.toggle('role-locked-field',isLab)};
+    // The same canonical capabilities that drive the selection editor drive this
+    // modal. ADFA is faculty-only, so every scheduling field is locked here too
+    // rather than left editable.
+    const lockSchedulingFields=()=>{
+      if(canEditCourseFields)return;
+      for(const id of ['date','year','course','type','start','end','topic','room']){const el=$(id);if(!el)continue;el.disabled=true;el.classList.add('role-locked-field')}
+    };
+    lockSchedulingFields();
     syncTopicOwnership();if($('type'))$('type').addEventListener('change',syncTopicOwnership);
     for(const id of ['date','start','end']){if($(id)){ $(id).addEventListener('change',renderInstructorEditor); $(id).addEventListener('input',renderInstructorEditor); }}
     if($('add-instructor-line')) $('add-instructor-line').onclick=()=>{
