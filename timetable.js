@@ -1168,7 +1168,7 @@
     const scoped=activeScoped&&sessionSelection.size===1&&sessionSelection.ids()[0]===activeScoped.sessionId&&hasOfficeAccess(activeScoped.stage);
     if(!canSelectSessions()&&!scoped){toast('Selection permission is required.',true);return}
     const button=$('selection-save-btn'),errorBox=$('selection-errors'),originals=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids()),canEditFaculty=(typeof selectionCapabilities==='function'?selectionCapabilities():capabilities()).canEditInstructor,facultyById=canEditFaculty?new Map(facultyDirectory.map(f=>[String(f.__id),f])):new Map(),timestamp=firebase.firestore.FieldValue.serverTimestamp();
-    const renderedIds=[...document.querySelectorAll('[data-selection-row]')].map(row=>String(row.dataset.sessionEditId||''));
+    const renderedIds=typeof document==='undefined'?sessionSelection.ids().map(String):[...document.querySelectorAll('[data-selection-row]')].map(row=>String(row.dataset.sessionEditId||''));
     if(scoped&&(renderedIds.length!==1||renderedIds[0]!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     let rows=readSelectionRows();
     if(scoped&&(rows.length!==1||String(rows[0].id)!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
