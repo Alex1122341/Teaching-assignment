@@ -199,6 +199,7 @@
   user:null,
   toast:null,
   service:null,
+  demoReadOnly:false,
   policies:[],
   versions:[],
   bundle:null,
@@ -244,6 +245,7 @@
 
  function applyPermissions(){
   const cap=capabilities(state.profile),version=selectedVersion(),draft=version?.status==='draft',revision=Number(version?.revision||0);
+  if(state.demoReadOnly)for(const key of ['editDraft','validate','preview','publish','archive','recalculate'])cap[key]=false;
   const validationCurrent=draft&&version?.lastValidationPassed===true&&Number(version?.lastValidatedRevision)===revision&&!!text(version?.rulesChecksum);
   const previewCurrent=validationCurrent&&!!text(version?.lastImpactRunId)&&Number(version?.lastImpactRevision)===revision&&text(version?.lastImpactChecksum)===text(version?.rulesChecksum)&&!!text(version?.lastImpactDatasetChecksum);
   const map={
@@ -339,10 +341,11 @@
  function renderBundle(){
   const version=state.bundle?.version;
   if(!version){setStatus('No policy selected');return}
-  setStatus(`${version.academicYear} · v${version.versionNumber} · ${String(version.status||'').toUpperCase()} · revision ${version.revision??0}`,version.status);
+  const demoLabel=state.demoReadOnly?' · Frontend Demo · NON-AUTHORITATIVE · READ-ONLY':'';
+  setStatus(`${version.academicYear} · v${version.versionNumber} · ${String(version.status||'').toUpperCase()} · revision ${version.revision??0}${demoLabel}`,version.status);
   applyPermissions();
   renderSection();
-  root?.UCVM_DOE_RULEBOOK_ADMIN?.renderBundle?.(state.bundle,{editable:capabilities(state.profile).editDraft&&version.status==='draft',reload:()=>loadBundle(version.policyVersionId)});
+  root?.UCVM_DOE_RULEBOOK_ADMIN?.renderBundle?.(state.bundle,{editable:!state.demoReadOnly&&capabilities(state.profile).editDraft&&version.status==='draft',reload:()=>loadBundle(version.policyVersionId),service:state.service});
  }
 
  function previewMessage(message,kind=''){
@@ -745,10 +748,10 @@
  function init({profile,user,toast}={}){
   const cap=capabilities(profile);
   if(!cap.initialize)return false;
-  const api=root?.UCVM_DOE_API;
+  const demoService=root?.UCVM_FRONTEND_DEMO_MODE===true?root?.UCVM_PAGES_DEMO?.doeRulebook:null,api=demoService||root?.UCVM_DOE_API;
   if(!api?.listPolicies||!api?.loadPolicyBundle||!api?.saveRule)return false;
-  if(typeof api.isConfigured==='function'&&!api.isConfigured())return false;
-  state.profile=profile;state.user=user;state.toast=toast;state.service=api;
+  if(!demoService&&typeof api.isConfigured==='function'&&!api.isConfigured())return false;
+  state.profile=profile;state.user=user;state.toast=toast;state.service=api;state.demoReadOnly=Boolean(demoService?.readOnly);
   state.initialized=true;
   wire();
   applyPermissions();
@@ -756,7 +759,7 @@
  }
 
  function destroy(){
-  state.initialized=false;state.profile=null;state.user=null;state.service=null;state.bundle=null;state.policies=[];state.versions=[];
+  state.initialized=false;state.profile=null;state.user=null;state.service=null;state.demoReadOnly=false;state.bundle=null;state.policies=[];state.versions=[];
  }
 
  return{

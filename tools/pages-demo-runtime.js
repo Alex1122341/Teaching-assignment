@@ -537,6 +537,24 @@
     ];
   }
 
+
+  function demoRulebookService(academicYear='2026-27'){
+    const year=text(academicYear)||'2026-27',policyId=`demo-rulebook-${year}`,policyVersionId=`${policyId}-v1`;
+    const reference={referenceId:'demo-wg-6-4',policyVersionId,academicYear:year,title:'UCVM Workload Guidelines',versionDate:'2026-07-01',section:'6.4',table:'Table 3',page:5,effectiveDate:'2026-07-01',reviewStatus:'confirmed_unchanged',adminNote:'Frontend Demo reference fixture'};
+    const policy={policyId,academicYear:year,name:`Frontend Demo Rule Book ${year}`,currentActiveVersionId:policyVersionId};
+    const version={policyVersionId,policyId,academicYear:year,versionNumber:1,status:'active',revision:1,name:`${year} Frontend Demo active policy`,lastValidationPassed:true,lastValidatedRevision:1,rulesChecksum:'demo-rulebook-read-only',lastImpactRunId:'',lastImpactRevision:null,lastImpactChecksum:'',lastImpactDatasetChecksum:'',reservePolicy:{strategy:'flexible_teaching_reserve',splitThreshold:20,splitRatio:.5,highTeachingTraineeCeiling:15,teachingFocusedTraineeCeiling:20,rollingAverageYears:3,referenceId:reference.referenceId,reviewStatus:'confirmed_unchanged'}};
+    const rules=[
+      {ruleId:'demo-rule-lecture',policyVersionId,ruleKey:'teaching.lecture',name:'Demo Lecture rate',category:'teaching',calculationMode:'rate',resultKind:'credit',priority:10,enabled:true,reviewStatus:'confirmed_unchanged',referenceId:reference.referenceId,guidelineReference:'§6.4 · Table 3',sourceType:'workload_guideline',mappingRequirement:'course',selectors:[{selectorId:'demo-selector-lecture',field:'activityType',operator:'equals',valueText:'Lecture'}],inputs:[{ruleInputId:'demo-input-hours',inputName:'hours',inputType:'number',source:'assignment.creditedHours',required:true}],parameters:[{parameterId:'demo-param-rate',name:'rate',valueNumber:14,unit:'% DOE/h',required:true}],tiers:[]},
+      {ruleId:'demo-rule-hicc',policyVersionId,ruleKey:'role.hicc',name:'Demo HICC role',category:'role',calculationMode:'fixed',resultKind:'credit',priority:20,enabled:true,reviewStatus:'confirmed_unchanged',referenceId:reference.referenceId,guidelineReference:'§6.4 · Table 3',sourceType:'workload_guideline',mappingRequirement:'course',selectors:[{selectorId:'demo-selector-hicc',field:'roleType',operator:'equals',valueText:'HICC'}],inputs:[],parameters:[{parameterId:'demo-param-hicc',name:'fixedDoe',valueNumber:12,unit:'% DOE',required:true}],tiers:[]}
+    ];
+    const bundle={policy,version,references:[reference],rules,exceptions:[],courseMappings:[{mappingId:'demo-course-vtmd204',policyVersionId,academicYear:year,courseCode:'VTMD 204',unitCount:2,referenceId:reference.referenceId,reviewStatus:'confirmed_unchanged',adminNote:'Frontend Demo mapping',enabled:true}],subjectMappings:[{mappingId:'demo-visc-anatomy',policyVersionId,academicYear:year,subjectKey:'anatomy',displayName:'Anatomy',curriculumStage:'year_1',referenceId:reference.referenceId,reviewStatus:'confirmed_unchanged',adminNote:'Frontend Demo mapping',enabled:true}]};
+    const audit=[{policyVersionId,academicYear:year,action:'demo_policy_loaded',entityType:'policy_version',changedAt:'2026-09-20T12:00:00Z',changedByName:'Frontend Demo'}];
+    const readonly=async()=>{const error=new Error('Frontend Demo Rule Book is non-authoritative and read-only. Connect the DOE backend to save or publish policy changes.');error.code='FRONTEND_DEMO_READ_ONLY';throw error};
+    const api={readOnly:true,demoOnly:true,authoritative:false,listPolicies:async()=>clone([policy]),listVersions:async id=>text(id)===policyId?clone([version]):[],loadPolicyBundle:async id=>text(id)===policyVersionId?clone(bundle):null,listAudit:async id=>text(id)===policyVersionId?clone(audit):[],getImpactPreview:async()=>null};
+    for(const name of ['saveRule','testRule','saveException','createPolicyYear','cloneAsDraft','validateDraft','runImpactPreview','publish','archive','previewRecalculate','runRecalculate','copyPolicyYear','saveCourseMapping','saveSubjectMapping','saveReference','saveReservePolicy'])api[name]=readonly;
+    return Object.freeze(api);
+  }
+
   function installToolbar(root,seed,store,auth){
     const render=()=>{
       if(root.document.getElementById('ucvm-pages-demo-toolbar'))return;
@@ -596,10 +614,12 @@
     const runtime=createDemoFirebase(root,seed);
     root.firebase=runtime.firebase;
     root.UCVM_FRONTEND_DEMO_MODE=true;
+    const doeRulebook=demoRulebookService('2026-27');
     root.UCVM_PAGES_DEMO=Object.freeze({
       reset:()=>runtime.reset(),
       export:()=>runtime.store.export(),
       selectUser:uid=>runtime.auth._select(uid),
+      doeRulebook,
       doeRows:academicYear=>demoDoeRows(runtime.store,academicYear),
       doeWorksheet:(facultyId,academicYear)=>demoDoeWorksheet(runtime.store,facultyId,academicYear),
       doeReconciliationRows:academicYear=>demoReconciliationRows(runtime.store,academicYear),
@@ -611,5 +631,5 @@
     return runtime;
   }
 
-  return{DemoTimestamp,FieldValue,createStore,createDemoFirebase,demoDoeRows,demoDoeCalculation,demoDoeWorksheet,demoReconciliationRows,install,filterMatches,mergeObject};
+  return{DemoTimestamp,FieldValue,createStore,createDemoFirebase,demoDoeRows,demoDoeCalculation,demoDoeWorksheet,demoReconciliationRows,demoRulebookService,install,filterMatches,mergeObject};
 });
