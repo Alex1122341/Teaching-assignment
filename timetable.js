@@ -1123,7 +1123,7 @@
     summary.textContent=checked.length?`${checked.length} faculty selected`:'Choose faculty';
     chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value));return `<span>${escapeHtml(swapFacultyName(f))}<small>${window.UCVM_DOE_API?.isConfigured?.()?'DOE server preview on save':'DOE recalculation queued after save'}</small></span>`}).join('');
   }
-  function selectionRole(){if(scopedWork?.stage)return scopedWork.stage;const role=UCVM.role(currentUser?.role);return role==='developer'?'developer':hasOfficeAccess('adc')?'adc':role;}
+  function selectionRole(){if(scopedWork?.stage)return activeScoped.stage;const role=UCVM.role(currentUser?.role);return role==='developer'?'developer':hasOfficeAccess('adc')?'adc':role;}
   function selectionCapabilities(){const role=selectionRole();return role==='developer'?capabilities():capabilities(role);}
   function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session);}
   function lockedAttr(enabled){return enabled?'':'disabled class="role-locked-field"';}
@@ -1164,15 +1164,16 @@
     });
   }
   async function saveSelectedChanges(){
-    const scoped=scopedWork&&sessionSelection.size===1&&sessionSelection.ids()[0]===scopedWork.sessionId&&hasOfficeAccess(scopedWork.stage);
+    const activeScoped=typeof scopedWork==='undefined'?null:scopedWork;
+    const scoped=activeScoped&&sessionSelection.size===1&&sessionSelection.ids()[0]===activeScoped.sessionId&&hasOfficeAccess(activeScoped.stage);
     if(!canSelectSessions()&&!scoped){toast('Selection permission is required.',true);return}
     const button=$('selection-save-btn'),errorBox=$('selection-errors'),originals=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids()),canEditFaculty=selectionCapabilities().canEditInstructor,facultyById=canEditFaculty?new Map(facultyDirectory.map(f=>[String(f.__id),f])):new Map(),timestamp=firebase.firestore.FieldValue.serverTimestamp();
     const renderedIds=[...document.querySelectorAll('[data-selection-row]')].map(row=>String(row.dataset.sessionEditId||''));
-    if(scoped&&(renderedIds.length!==1||renderedIds[0]!==scopedWork.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
+    if(scoped&&(renderedIds.length!==1||renderedIds[0]!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     let rows=readSelectionRows();
-    if(scoped&&(rows.length!==1||String(rows[0].id)!==scopedWork.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
+    if(scoped&&(rows.length!==1||String(rows[0].id)!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     await ensureSessionsForDates(rows.map(row=>row.date),true);
-    if(scoped){const live=[...sessionCache.values()].find(row=>String(row.id)===scopedWork.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,scopedWork.stage,window.UCVM_WORK_QUEUE_CONTEXT||{});const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
+    if(scoped){const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,window.UCVM_WORK_QUEUE_CONTEXT||{});const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
     const doePrepared=new Map(),doeRuntime=canEditFaculty?getTimetableDoeRuntime():null,originalById=new Map(originals.map(row=>[String(row.id),row]));
     if(canEditFaculty)rows=await Promise.all(rows.map(async row=>{const prepared=await doeRuntime.adapter.prepareSession(originalById.get(String(row.id))||null,row,{trigger:'multi_session_edit'});doePrepared.set(String(row.id),prepared);return prepared.session}));
     const plan=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,{role:selectionRole()});
