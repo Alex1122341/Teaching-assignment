@@ -18,8 +18,10 @@ jobs:
       FIREBASE_PROJECT_ID: vista-teaching-lab
       FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_LAB_SERVICE_ACCOUNT_JSON }}
     steps:
-      - name: Check out probe branch
+      - name: Check out Firebase Admin v14 fix branch
         uses: actions/checkout@v4
+        with:
+          ref: fix/firebase-admin-v14-compat
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
