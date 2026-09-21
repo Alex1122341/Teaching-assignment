@@ -53,6 +53,67 @@ test('Identity Toolkit client uses the lab config endpoint and update mask witho
 });
 
 
+
+test('check treats an uninitialized Firebase Authentication project as not ready without mutating it',async()=>{
+  const calls=[];
+  const fetchImpl=async(url,options={})=>{
+    calls.push({url,method:options.method||'GET'});
+    return{
+      ok:false,status:404,
+      text:async()=>JSON.stringify({error:{status:'NOT_FOUND',message:'CONFIGURATION_NOT_FOUND'}})
+    };
+  };
+  const adminModule={cert:()=>({getAccessToken:async()=>({access_token:'token-value'})})};
+  const env={
+    FIREBASE_PROJECT_ID:'vista-teaching-lab',
+    FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({project_id:'vista-teaching-lab',client_email:'svc@example.test',private_key:'PRIVATE'})
+  };
+  const result=await tool.execute({operation:'check',confirmation:''},{env,adminModule,fetchImpl});
+  assert.equal(result.after.ready,false);
+  assert.equal(result.after.initialized,false);
+  assert.deepEqual(calls.map(row=>row.method),['GET']);
+});
+
+test('configure initializes Firebase Authentication when project config is missing, then enables email/password and Pages domain',async()=>{
+  const calls=[];
+  let getCount=0;
+  const fetchImpl=async(url,options={})=>{
+    const method=options.method||'GET';
+    calls.push({url,method,body:options.body});
+    if(method==='GET'){
+      getCount+=1;
+      if(getCount===1)return{
+        ok:false,status:404,
+        text:async()=>JSON.stringify({error:{status:'NOT_FOUND',message:'CONFIGURATION_NOT_FOUND'}})
+      };
+      return{
+        ok:true,status:200,
+        text:async()=>JSON.stringify({signIn:{email:{enabled:false,passwordRequired:false}},authorizedDomains:['localhost']})
+      };
+    }
+    if(method==='POST'&&url.includes('/identityPlatform:initializeAuth'))return{ok:true,status:200,text:async()=>''};
+    if(method==='PATCH')return{
+      ok:true,status:200,
+      text:async()=>JSON.stringify({signIn:{email:{enabled:true,passwordRequired:true}},authorizedDomains:['localhost','alex1122341.github.io']})
+    };
+    throw Error('unexpected request '+method+' '+url);
+  };
+  const adminModule={cert:()=>({getAccessToken:async()=>({access_token:'token-value'})})};
+  const env={
+    FIREBASE_PROJECT_ID:'vista-teaching-lab',
+    FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({project_id:'vista-teaching-lab',client_email:'svc@example.test',private_key:'PRIVATE'})
+  };
+  const result=await tool.execute(
+    {operation:'configure',confirmation:'CONFIGURE-AUTH:vista-teaching-lab'},
+    {env,adminModule,fetchImpl}
+  );
+  assert.equal(result.initializedNow,true);
+  assert.equal(result.after.ready,true);
+  assert.equal(result.after.initialized,true);
+  assert.deepEqual(calls.map(row=>row.method),['GET','POST','GET','PATCH']);
+  assert.match(calls[1].url,/identityPlatform:initializeAuth$/);
+});
+
 test('Firebase Admin v14 modular cert export can mint an access token',async()=>{
   const calls=[];
   const adminModule={
