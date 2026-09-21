@@ -63,5 +63,5 @@ jobs:
             exit 1
           fi
 
-      - name: Check Firebase Authentication readiness
-        run: node tools/configure-lab-auth.js --operation check
+      - name: Configure Firebase Authentication readiness
+        run: node tools/configure-lab-auth.js --operation configure --confirmation CONFIGURE-AUTH:vista-teaching-lab
