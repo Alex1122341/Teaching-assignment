@@ -507,7 +507,10 @@ function buildRequests(sessions, calendar) {
     const patch = {...base};
     if (spec.scopes.adc) patch.date = isoDate(d.date, 2);
     if (spec.scopes.lab) patch.topic = 'Advanced ' + d.topic;
-    if (spec.scopes.adfa) patch.instructor = 'Avery Lindqvist, Mira Okonkwo';
+    if (spec.scopes.adfa) {
+      const replacement = FACULTY_SEED[2];
+      patch.instructor = [fullName(replacement), ...d.assignments.slice(1).map(row => row.name)].filter(Boolean).join(', ');
+    }
 
     docs.push({
       path: `change_requests/${spec.id}`,
@@ -593,8 +596,8 @@ function buildRequests(sessions, calendar) {
         revision: spec.revision,
         assignmentChange: {
           assignmentIndex: 0,
-          from: {facultyId: 'fac-001', candidateKey: '', kind: ''},
-          to: spec.scopes.adfa ? {facultyId: '', candidateKey: 'cand-003', kind: ''} : {facultyId: 'fac-001', candidateKey: '', kind: ''}
+          from: {facultyId: d.assignments[0]?.facultyId || '', candidateKey: '', kind: ''},
+          to: spec.scopes.adfa ? {facultyId: '', candidateKey: 'cand-003', kind: ''} : {facultyId: d.assignments[0]?.facultyId || '', candidateKey: '', kind: ''}
         },
         updatedAt: stamp(-200 + index * 10)
       }
@@ -653,11 +656,11 @@ function buildRequests(sessions, calendar) {
     }
 
     if (spec.status === 'approved') {
-      const lead = FACULTY_SEED[0], support = FACULTY_SEED[2];
-      const hours = 2;
+      const replacement = FACULTY_SEED[2],outgoing=d.assignments[0]||{};
+      const replacementRole=outgoing.role||'Lab Lead',replacementHours=Number(outgoing.creditedHours)||2,replacementRate=Number(outgoing.doeRate)||DEFAULT_RATE[replacementRole]||DEFAULT_RATE['Lab Lead'];
       const assignments = [
-        {ucid: lead.id, facultyId: lead.id, name: fullName(lead), role: 'Lab Lead', topic: patch.topic, creditedHours: hours, doeRate: DEFAULT_RATE['Lab Lead'], doeCredit: credit(hours, DEFAULT_RATE['Lab Lead']), source: 'Seed approved request'},
-        {ucid: support.id, facultyId: support.id, name: fullName(support), role: 'Lab Support', topic: patch.topic, creditedHours: hours, doeRate: DEFAULT_RATE['Lab Support'], doeCredit: credit(hours, DEFAULT_RATE['Lab Support']), source: 'Seed approved request'}
+        {ucid: replacement.id, facultyId: replacement.id, name: fullName(replacement), role: replacementRole, topic: patch.topic, creditedHours: replacementHours, doeRate: replacementRate, doeCredit: credit(replacementHours, replacementRate), source: 'Seed approved request'},
+        ...d.assignments.slice(1).map(row=>({...row,topic:patch.topic}))
       ];
       Object.assign(d, {
         date: patch.date,
