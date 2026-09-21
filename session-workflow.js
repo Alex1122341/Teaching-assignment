@@ -35,6 +35,10 @@
   if(Array.isArray(value))return value.length>0;
   return true;
  };
+ const hasTopic=session=>{
+  const value=text(session?.topic),normalized=value.toLowerCase().replace(/[^a-z0-9]+/g,'');
+  return Boolean(value)&&normalized!=='tbd'&&normalized!=='tobedetermined';
+ };
  const hasDate=session=>/^\d{4}-\d{2}-\d{2}$/.test(text(session?.date).slice(0,10));
  const hasAssignments=session=>Array.isArray(session?.assignments)&&session.assignments.some(row=>text(row?.facultyId||row?.ucid));
  const groupIds=session=>[...new Set((Array.isArray(session?.labGroupIds)?session.labGroupIds:[]).map(text).filter(Boolean))];
@@ -63,7 +67,7 @@
       field('adc','type','Type',true,s=>sessionType(s)===type),
       field('adc','start','Start',true,s=>present(s,'start')),
       field('adc','end','End',true,s=>present(s,'end')),
-      field('adc','topic','Topic',true,s=>present(s,'topic')),
+      field('adc','topic','Topic',true,hasTopic),
       field('adc','room','Room',true,s=>present(s,'room')),
       field('adc','facultySuggestion','Faculty suggestion',false,(s,c)=>suggestionFor(c,'adc'))
      ])}),
@@ -89,7 +93,7 @@
       field('adc','facultySuggestion','Faculty suggestion',false,(s,c)=>suggestionFor(c,'adc'))
      ])}),
      lab:Object.freeze({applicable:true,fields:Object.freeze([
-      field('lab','topic','Topic',true,s=>present(s,'topic')),
+      field('lab','topic','Topic',true,hasTopic),
       field('lab','labGroups','LAB group',true,s=>groupIds(s).length>0),
       field('lab','labRoster','Group roster',true,hasEveryRoster),
       field('lab','facultySuggestion','Faculty suggestion',false,(s,c)=>suggestionFor(c,'lab'))

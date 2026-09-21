@@ -101,6 +101,17 @@ test('LAB: after ADC completes, missing topic/group/roster makes LAB ready',()=>
  assert.deepEqual(arr(evaluation.stages.lab.missing).map(f=>f.key),['topic','labGroups','labRoster']);
 });
 
+test('LAB: ADC placeholder TBD is still missing LAB Topic and keeps ADFA waiting',()=>{
+ const w=load(),session=lab({topic:'TBD'}),evaluation=w.evaluateSessionWorkflow(session);
+ assert.equal(evaluation.stages.adc.status,'complete');
+ assert.equal(evaluation.stages.lab.status,'ready');
+ assert.deepEqual(arr(evaluation.stages.lab.missing).map(f=>f.key),['topic','labGroups','labRoster']);
+ assert.equal(evaluation.stages.adfa.status,'waiting');
+ assert.equal(evaluation.stages.adfa.waitingFor,'LAB');
+ assert.deepEqual(arr(w.workflowItemsForRole([session],'lab'))[0].missingLabels.map(String),['Topic','LAB group','Group roster']);
+ assert.deepEqual(arr(w.workflowItemsForRole([session],'adfa'))[0].missingLabels.map(String),['Faculty assignment']);
+});
+
 test('LAB: ADFA waits while LAB is incomplete and becomes ready when LAB completes',()=>{
  const w=load(),session=lab({topic:'Neuro',labGroupIds:['g-a']});
  const incomplete=w.evaluateSessionWorkflow(session,rosterContext([]));

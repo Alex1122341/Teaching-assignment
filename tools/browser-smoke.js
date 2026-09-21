@@ -427,6 +427,7 @@ async function inspectPage({debugPort,origin,expectation,bundlePaths,demoMode=fa
   if(cloudRequests.length)problems.push(`unexpected Firebase cloud request(s) in ${demoMode?'Pages demo':'emulator smoke'}: ${cloudRequests.join(' | ')}`);
   if(problems.length)throw Error(`${expectation.page}: ${problems.join('; ')}`);
   if(demoMode&&expectation.page==='index.html')await verifyTimetableRoleMatrix({debugPort,origin,setupCdp:cdp});
+  if(demoMode&&expectation.page==='index.html')await verifyDemoAdcLabHandoff({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoSessionAuditWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoFacultySwapAuditWorkflow({debugPort,origin,setupCdp:cdp});
   if(demoMode&&expectation.page==='index.html')await verifyDemoSessionCreateDeleteWorkflow({debugPort,origin,setupCdp:cdp});
@@ -502,25 +503,21 @@ async function withDemoRolePage({debugPort,origin,setupCdp,page,uid,label},verif
  }
 }
 async function timetableToolState(cdp){
- const result=await cdp.send('Runtime.evaluate',{expression:"(()=>{const visible=id=>{const el=document.getElementById(id);return !!el&&!el.classList.contains('hidden')};return{uid:window.firebase?.auth?.().currentUser?.uid||'',bulkAdd:visible('bulk-add-session-btn'),addOne:visible('add-session-btn'),select:visible('selection-controls'),manageUsers:visible('manage-users-btn'),facultyDashboard:visible('faculty-dashboard-btn'),outlook:visible('outlook-invite-btn'),publish:visible('publish-firestore-schedule'),myTeaching:visible('my-teaching-btn'),afcRequest:visible('afc-request-btn'),myHistory:visible('my-change-history-btn'),myTimetable:visible('my-timetable-btn')}})()",returnByValue:true});
+ const result=await cdp.send('Runtime.evaluate',{expression:"(()=>{const visible=id=>{const el=document.getElementById(id);return !!el&&!el.classList.contains('hidden')},menu=document.getElementById('cal-admin-menu');return{uid:window.firebase?.auth?.().currentUser?.uid||'',bulkAdd:visible('bulk-add-session-btn'),addOne:visible('add-session-btn'),select:visible('selection-controls'),manageUsers:visible('manage-users-btn'),facultyDashboard:visible('faculty-dashboard-btn'),outlook:visible('outlook-invite-btn'),publish:visible('publish-firestore-schedule'),adminMenu:visible('cal-admin-menu'),adminMenuLabel:(menu?.querySelector('summary')?.textContent||'').trim(),myTeaching:visible('my-teaching-btn'),afcRequest:visible('afc-request-btn'),myHistory:visible('my-change-history-btn'),myTimetable:visible('my-timetable-btn')}})()",returnByValue:true});
  if(result.exceptionDetails)throw Error('Timetable role tool inspection failed: '+exceptionText(result.exceptionDetails));
  return result.result?.value||{};
 }
 async function verifyTimetableRoleMatrix({debugPort,origin,setupCdp}){
  const cases=[
-  {uid:'uid-developer',label:'Developer',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true}},
-  // ADFA operational roles (Owner / Administrator) are FACULTY ASSIGNMENT ONLY
-  // for timetable operational scope: no Add One, no Add Sessions, no general
-  // selection. Their administrative authority lives on the admin pages.
-  {uid:'uid-owner',label:'Owner',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:true,facultyDashboard:true,outlook:true,publish:true}},
-  {uid:'uid-admin',label:'Administrator',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:true,publish:true}},
-  {uid:'uid-adc-1',label:'ADC',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
-  // LAB works from the Work Queue, so it does not get unrestricted selection.
-  {uid:'uid-lab-1',label:'LAB',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
-  {uid:'uid-otheroffice',label:'Other Office',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,myTeaching:false,afcRequest:false,myHistory:true,myTimetable:false}},
-  {uid:'uid-hicc-1',label:'HICC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:true,facultyDashboard:true,outlook:false,publish:false}},
-  {uid:'uid-visc-1',label:'VISC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false}},
-  {uid:'uid-fac-001',label:'Faculty',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false}}
+  {uid:'uid-developer',label:'Developer',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true,adminMenu:true,adminMenuLabel:'Admin tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
+  {uid:'uid-owner',label:'Owner',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:true,facultyDashboard:true,outlook:true,publish:true,adminMenu:true,adminMenuLabel:'Admin tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
+  {uid:'uid-admin',label:'Administrator',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:true,publish:true,adminMenu:true,adminMenuLabel:'Admin tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
+  {uid:'uid-adc-1',label:'ADC',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,adminMenu:true,adminMenuLabel:'ADC tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
+  {uid:'uid-lab-1',label:'LAB',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,adminMenu:false,myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
+  {uid:'uid-otheroffice',label:'Other Office',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,adminMenu:false,myTeaching:false,afcRequest:false,myHistory:true,myTimetable:false}},
+  {uid:'uid-hicc-1',label:'HICC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:true,facultyDashboard:true,outlook:false,publish:false,adminMenu:true,adminMenuLabel:'HICC tools',myTeaching:true,afcRequest:true,myHistory:true,myTimetable:false}},
+  {uid:'uid-visc-1',label:'VISC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false,adminMenu:false,myTeaching:true,afcRequest:true,myHistory:true,myTimetable:false}},
+  {uid:'uid-fac-001',label:'Faculty',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false,adminMenu:false,myTeaching:true,afcRequest:true,myHistory:true,myTimetable:false}}
  ];
  try{
   for(const entry of cases){
@@ -540,6 +537,39 @@ async function verifyTimetableRoleMatrix({debugPort,origin,setupCdp}){
   await setStoredDemoRole(setupCdp,'uid-developer');
  }
 }
+async function verifyDemoAdcLabHandoff({debugPort,origin,setupCdp}){
+ const markerRoom='ADC-LAB-HANDOFF-SMOKE';let sessionId='';
+ try{
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-adc-1',label:'ADC LAB creation handoff'},async cdp=>{
+   await waitForCondition(cdp,"(()=>document.getElementById('add-session-btn')&&!document.getElementById('add-session-btn').classList.contains('hidden')&&!document.body.classList.contains('auth-locked')&&/Live Firestore schedule/.test(document.getElementById('conn-text')?.textContent||''))()",'ADC Add One ready',12000);
+   const open=await cdp.send('Runtime.evaluate',{expression:"(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},today=new Date().toISOString().slice(0,10),dates=Object.entries(records).filter(([path,row])=>path.startsWith('sessions/')&&!path.slice('sessions/'.length).includes('/')&&String(row?.date||'')>=today).map(([,row])=>String(row.date)).filter(Boolean).sort(),date=dates.at(-1)||'2027-04-12';document.getElementById('add-session-btn')?.click();return{date}})()",returnByValue:true});
+   if(open.exceptionDetails)throw Error('ADC Add One could not open: '+exceptionText(open.exceptionDetails));
+   const targetDate=open.result?.value?.date||'2027-04-12';
+   await waitForCondition(cdp,"(()=>!!document.getElementById('session-form')&&!!document.getElementById('topic'))()",'ADC Add One form',12000);
+   const submit=await cdp.send('Runtime.evaluate',{expression:`(()=>{const set=(id,value)=>{const el=document.getElementById(id);if(!el)return false;el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return true};const ok=[set('date',${JSON.stringify(targetDate)}),set('year','1'),set('course','200'),set('start','15:00'),set('end','16:00'),set('room',${JSON.stringify(markerRoom)}),set('type','LAB')].every(Boolean),topic=document.getElementById('topic'),form=document.getElementById('session-form'),state={ok,topicValue:topic?.value||'',topicReadOnly:topic?.readOnly===true,topicDisabled:topic?.disabled===true};if(ok&&form)form.requestSubmit();return state})()`,returnByValue:true});
+   if(submit.exceptionDetails)throw Error('ADC LAB submit failed: '+exceptionText(submit.exceptionDetails));
+   const formState=submit.result?.value||{};
+   if(!formState.ok||formState.topicValue!=='TBD'||formState.topicReadOnly!==true||formState.topicDisabled!==false)throw Error('ADC LAB Topic must submit as locked TBD placeholder: '+JSON.stringify(formState));
+   sessionId=await waitForCondition(cdp,`(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},hit=Object.entries(records).find(([path,row])=>path.startsWith('sessions/')&&row?.room===${JSON.stringify(markerRoom)}&&String(row?.type||'').toUpperCase()==='LAB');if(!hit)return false;const id=hit[0].slice('sessions/'.length),row=hit[1],calendar=records['calendar_sessions/'+id];return row.topic==='TBD'&&Array.isArray(row.assignments)&&row.assignments.length===0&&calendar?.topic==='TBD'?id:false})()`,'ADC-created LAB persisted with TBD and no Faculty',12000);
+   if(!sessionId)throw Error('ADC-created LAB session ID could not be resolved');
+  });
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-lab-1',label:'LAB receives Topic work'},async cdp=>{
+   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')})()",'LAB Work Queue after ADC create',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('ucvm-work-queue-btn')?.click();return true})()",returnByValue:true});
+   const item=await waitForCondition(cdp,`(()=>{const row=[...document.querySelectorAll('#ucvm-work-queue-panel [data-work-session]')].find(node=>node.dataset.workSession===${JSON.stringify(sessionId)}&&node.dataset.workStage==='lab');if(!row)return false;return{missing:(row.querySelector('.work-queue-item-missing')?.textContent||'').trim(),status:(row.querySelector('.work-queue-pill')?.textContent||'').trim(),openDisabled:!!row.querySelector('[data-work-open]')?.disabled}})()`,'LAB Topic work item',12000);
+   if(!/Topic/.test(item.missing)||item.status!=='READY'||item.openDisabled)throw Error('LAB did not receive READY Topic work after ADC LAB create: '+JSON.stringify(item));
+  });
+  await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-admin',label:'ADFA receives Faculty assignment work'},async cdp=>{
+   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')})()",'ADFA Work Queue after ADC create',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('ucvm-work-queue-btn')?.click();return true})()",returnByValue:true});
+   const item=await waitForCondition(cdp,`(()=>{const row=[...document.querySelectorAll('#ucvm-work-queue-panel [data-work-session]')].find(node=>node.dataset.workSession===${JSON.stringify(sessionId)}&&node.dataset.workStage==='adfa');if(!row)return false;return{missing:(row.querySelector('.work-queue-item-missing')?.textContent||'').trim(),status:(row.querySelector('.work-queue-pill')?.textContent||'').trim(),openDisabled:!!row.querySelector('[data-work-open]')?.disabled}})()`,'ADFA Faculty assignment work item',12000);
+   if(!/Faculty assignment/.test(item.missing)||item.status!=='WAITING FOR LAB'||item.openDisabled!==true)throw Error('ADFA did not receive the ordered Faculty assignment prompt: '+JSON.stringify(item));
+  });
+ }finally{
+  try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
+ }
+}
+
 async function verifyDemoSessionAuditWorkflow({debugPort,origin,setupCdp}){
  const markerRoom='DEMO-AUDIT-ROOM',markerTopic='DEMO-AUDIT-NAME';
  const newStart='06:30',newEnd='07:00';

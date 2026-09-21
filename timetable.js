@@ -831,7 +831,7 @@
     $('selection-cancel-btn').addEventListener('click', cancelSessionSelection);
     $('review-selected-btn').addEventListener('click', reviewSelectedSessions);
     $('manage-users-btn').addEventListener('click', openUserManager);
-    $('faculty-dashboard-btn').addEventListener('click', () => { if (UCVM.admin(currentUser)) window.location.href = 'faculty-admin.html'; });
+    $('faculty-dashboard-btn').addEventListener('click', () => { if (UCVM.admin(currentUser)||roleIsFaculty(currentUser)) window.location.href = 'faculty-admin.html'; });
     $('my-timetable-btn').addEventListener('click', () => { myTimetableOnly = !myTimetableOnly; $('my-timetable-btn').textContent = myTimetableOnly ? 'Show All Timetable' : 'My Timetable'; render(); });
     $('course-list-btn').addEventListener('click', openCourseList);
     $('export-csv').addEventListener('click', () => openExportDialog('csv'));
@@ -1462,7 +1462,7 @@
       <div class="modal-footer"><div>${existing ? '<button type="button" class="btn-danger-text" id="delete-session">Delete Session</button>' : ''}</div><div><button type="button" class="btn btn-secondary" id="cancel-session">Cancel</button> <button class="btn btn-primary" type="submit">Save Live Session</button></div></div>
       </form>`);
     renderInstructorEditor();
-    const syncTopicOwnership=()=>{if(actorRole!=='adc')return;const topicInput=$('topic'),typeInput=$('type');if(!topicInput||!typeInput)return;const isLab=String(typeInput.value||'').toUpperCase()==='LAB';if(isLab)topicInput.value='TBD';topicInput.disabled=isLab;topicInput.classList.toggle('role-locked-field',isLab)};
+    const syncTopicOwnership=()=>{if(actorRole!=='adc')return;const topicInput=$('topic'),typeInput=$('type');if(!topicInput||!typeInput)return;const isLab=String(typeInput.value||'').toUpperCase()==='LAB';if(isLab)topicInput.value='TBD';topicInput.readOnly=isLab;topicInput.classList.toggle('role-locked-field',isLab)};
     // The same canonical capabilities that drive the selection editor drive this
     // modal. ADFA is faculty-only, so every scheduling field is locked here too
     // rather than left editable.
@@ -1871,25 +1871,34 @@
 
   function updateAuthUI() {
     const b = $('account-toggle');
-    const showAdminTools=canEdit()||UCVM.general(currentUser)||currentUser?.role==='hicc';
-    const accessRole=currentUser?.role||'';
-    const officeSelfServiceBlocked=['adc','lab','other_office'].includes(accessRole);
-    const historyBlocked=['adc','lab'].includes(accessRole);
+    const accessRole=UCVM.role(currentUser?.role),isAdmin=UCVM.admin(currentUser),facultySelfService=roleIsFaculty(currentUser),selfHistory=facultySelfService||accessRole==='other_office';
+    // System/admin authority and faculty self-service are separate surfaces. Every
+    // administrative account keeps the Admin tools menu even when it has no
+    // delegated scheduling office, while Faculty/HICC/VISC alone receive the
+    // teaching/AFC self-service controls. ADC and HICC get role-labelled tool
+    // menus for their own operational/group actions rather than being presented
+    // as generic administrators.
+    const showTools=isAdmin||accessRole==='adc'||accessRole==='hicc';
     b.textContent = currentUser ? `${currentUser.name} - ${currentUser.role}` : 'Sign in';
-    b.classList.toggle('is-admin', canEdit());
+    b.classList.toggle('is-admin', isAdmin);
     $('bulk-add-session-btn').classList.toggle('hidden', !canAddSessions());
     $('add-session-btn').classList.toggle('hidden', !canAddOneSession());
     $('selection-controls').classList.toggle('hidden', !canSelectSessions());
-    $('outlook-invite-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
-    $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || currentUser?.role === 'hicc'));
-    $('faculty-dashboard-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
-    $('cal-admin-menu').classList.toggle('hidden',!showAdminTools);
-    $('my-teaching-btn').classList.toggle('hidden',!currentUser||officeSelfServiceBlocked);
-    $('afc-request-btn').classList.toggle('hidden',!currentUser||officeSelfServiceBlocked);
-    $('my-change-history-btn').classList.toggle('hidden',!currentUser||historyBlocked);
-    $('publish-firestore-schedule').classList.toggle('hidden', !UCVM.admin(currentUser));
+    $('outlook-invite-btn').classList.toggle('hidden', !isAdmin);
+    $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || accessRole === 'hicc'));
+    $('faculty-dashboard-btn').classList.toggle('hidden', !(isAdmin||facultySelfService));
+    const toolMenu=$('cal-admin-menu'),toolSummary=toolMenu?.querySelector('summary');
+    if(toolSummary)toolSummary.textContent=isAdmin?'Admin tools':accessRole==='adc'?'ADC tools':accessRole==='hicc'?'HICC tools':'Tools';
+    toolMenu?.classList.toggle('hidden',!showTools);
+    $('my-teaching-btn').classList.toggle('hidden',!facultySelfService);
+    $('afc-request-btn').classList.toggle('hidden',!facultySelfService);
+    $('my-change-history-btn').classList.toggle('hidden',!selfHistory);
+    $('publish-firestore-schedule').classList.toggle('hidden', !isAdmin);
     updateScheduleSourceUI();
-    $('my-timetable-btn').classList.toggle('hidden', !currentUser || roleIsFaculty(currentUser) || officeSelfServiceBlocked);
+    // My Teaching is the supported faculty self-service reset. The older
+    // My Timetable button is redundant with that flow and is not part of the
+    // approved role matrix, so it stays hidden for every role.
+    $('my-timetable-btn').classList.add('hidden');
     $('my-timetable-btn').textContent = currentUser && myTimetableOnly ? 'Show All Timetable' : 'My Timetable';
   }
 
