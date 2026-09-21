@@ -69,10 +69,6 @@ function identityConfigUrl(projectId=LAB_PROJECT_ID){
   return `https://identitytoolkit.googleapis.com/admin/v2/projects/${encodeURIComponent(projectId)}/config`;
 }
 
-function identityInitializeUrl(projectId=LAB_PROJECT_ID){
-  return `https://identitytoolkit.googleapis.com/v2/projects/${encodeURIComponent(projectId)}/identityPlatform:initializeAuth`;
-}
-
 async function identityRequest({method='GET',accessToken,body,fetchImpl=globalThis.fetch}={}){
   if(typeof fetchImpl!=='function')throw Error('fetch is unavailable.');
   const token=text(accessToken);
@@ -96,31 +92,6 @@ async function identityRequest({method='GET',accessToken,body,fetchImpl=globalTh
     const error=Error(`Identity Toolkit ${method} failed: ${message}`);
     error.statusCode=response.status;
     error.apiCode=text(payload?.error?.message||payload?.error?.status);
-    throw error;
-  }
-  return payload;
-}
-
-async function initializeIdentityPlatform({accessToken,fetchImpl=globalThis.fetch}={}){
-  if(typeof fetchImpl!=='function')throw Error('fetch is unavailable.');
-  const token=text(accessToken);
-  if(!token)throw Error('Google access token is required.');
-  const response=await fetchImpl(identityInitializeUrl(),{
-    method:'POST',
-    headers:{
-      Authorization:`Bearer ${token}`,
-      'Content-Type':'application/json'
-    },
-    body:'{}'
-  });
-  const raw=await response.text();
-  let payload={};
-  try{payload=raw?JSON.parse(raw):{}}catch{payload={raw:raw.slice(0,500)}}
-  if(!response.ok){
-    const message=text(payload?.error?.message)||`HTTP ${response.status}`;
-    const error=Error(`Identity Toolkit initializeAuth failed: ${message}`);
-    error.statusCode=response.status;
-    error.apiCode=text(payload?.error?.status||payload?.error?.message);
     throw error;
   }
   return payload;
@@ -151,18 +122,21 @@ async function execute(options,{env=process.env,adminModule,fetchImpl=globalThis
   const normalized=validateOptions(options,{projectId:env.FIREBASE_PROJECT_ID});
   const account=parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT_JSON);
   const accessToken=await accessTokenFor(account,{adminModule});
-  let current,initializedNow=false;
+  let current;
   try{
     current=await identityRequest({accessToken,fetchImpl});
   }catch(error){
     if(error?.apiCode!=='CONFIGURATION_NOT_FOUND')throw error;
-    const beforeMissing={...authReadiness({}),initialized:false};
+    const missing={...authReadiness({}),initialized:false};
     if(normalized.operation==='check'){
-      return{operation:'check',changed:false,before:beforeMissing,after:beforeMissing};
+      return{operation:'check',changed:false,before:missing,after:missing};
     }
-    await initializeIdentityPlatform({accessToken,fetchImpl});
-    initializedNow=true;
-    current=await identityRequest({accessToken,fetchImpl});
+    const setupError=Error(
+      'Firebase Authentication is not initialized for vista-teaching-lab. '+
+      'In Firebase Console open Authentication, click Get started, enable Email/Password, save, then rerun this workflow.'
+    );
+    setupError.code='FIREBASE_AUTH_CONSOLE_SETUP_REQUIRED';
+    throw setupError;
   }
   const before={...authReadiness(current),initialized:true};
 
@@ -174,7 +148,7 @@ async function execute(options,{env=process.env,adminModule,fetchImpl=globalThis
   current=await identityRequest({method:'PATCH',accessToken,body:patch,fetchImpl});
   const after={...authReadiness(current),initialized:true};
   if(!after.ready)throw Error('Firebase Authentication configuration is still not ready after the update.');
-  return{operation:'configure',changed:initializedNow||JSON.stringify(before)!==JSON.stringify(after),initializedNow,before,after};
+  return{operation:'configure',changed:JSON.stringify(before)!==JSON.stringify(after),before,after};
 }
 
 async function main(){
@@ -193,5 +167,5 @@ if(require.main===module){
 module.exports={
   LAB_PROJECT_ID,PAGES_DOMAIN,OPERATIONS,CONFIGURE_CONFIRMATION,
   parseArgs,validateOptions,normalizeDomains,authReadiness,configuredPatch,
-  identityConfigUrl,identityInitializeUrl,identityRequest,initializeIdentityPlatform,accessTokenFor,execute,main
+  identityConfigUrl,identityRequest,accessTokenFor,execute,main
 };
