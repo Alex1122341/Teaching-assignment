@@ -94,7 +94,8 @@ test('the routed approval path still proves its companion writes', () => {
   // then checks the already-locked records' approved status. Do not remove those
   // proofs merely to save evaluation budget.
   assert.match(rules, /function allRequiredApproved\(id,workflow\)/);
-  assert.match(rules, /function approvalMatchesWorkflow\(id,d,workflow\)/);\n  assert.match(rules, /validRoutedApprovalCreate\(id\)[^]*approvalMatchesWorkflow|validRoutedApprovalResubmitCreate\(id\)[^]*approvalMatchesWorkflow/);
+  assert.match(rules, /function approvalMatchesWorkflow\(id,d,workflow\)/);
+  assert.match(rules, /validRoutedApprovalCreate\(id\)[^]*approvalMatchesWorkflow|validRoutedApprovalResubmitCreate\(id\)[^]*approvalMatchesWorkflow/);
   assert.match(rules, /function routedSessionApplyFor\(id,rid\)/);
   assert.match(rules, /function legacyAppliedCompanionWrite\(\)/);
   assert.match(rules, /function calendarMatchesSourceAfter\(id\)/);
