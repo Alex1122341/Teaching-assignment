@@ -72,7 +72,7 @@ test('empty timetable ranges remain connected and allow creating the first sessi
 
 test('Other Office uses the sanitized calendar collection and history-only timetable controls',()=>{
  const source=read('timetable.js');
- assert.match(source,/\['adc','lab','other_office'\]\.includes\(UCVM\.role\(currentUser\?\.role\)\)\?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION/);
+ assert.match(source,/function sessionCollection\(\)\{const role=UCVM\.role\(currentUser\?\.role\);return role==='other_office'\|\|\(\['adc','lab'\]\.includes\(role\)&&!hasOfficeAccess\('adfa'\)\)\?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;\}/);
  assert.match(source,/const officeSelfServiceBlocked=\['adc','lab','other_office'\]\.includes\(accessRole\)/);
  assert.match(source,/const historyBlocked=\['adc','lab'\]\.includes\(accessRole\)/);
  assert.match(source,/my-teaching-btn'[\s\S]*officeSelfServiceBlocked/);
