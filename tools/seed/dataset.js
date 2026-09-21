@@ -607,6 +607,8 @@ function buildRequests(sessions, calendar) {
       path: `change_request_audit/${spec.id}_submitted`,
       data: {
         requestId: spec.id,
+        requesterUid: 'uid-hicc-1',
+        sessionId: session.path.replace('sessions/', ''),
         event: 'request_submitted',
         revision: 1,
         status: 'pending',
@@ -624,6 +626,8 @@ function buildRequests(sessions, calendar) {
         path: `change_request_audit/${spec.id}_adc_push_back`,
         data: {
           requestId: spec.id,
+          requesterUid: 'uid-hicc-1',
+          sessionId: session.path.replace('sessions/', ''),
           event: 'office_push_back',
           revision: spec.revision,
           status: 'update_required',
@@ -642,6 +646,8 @@ function buildRequests(sessions, calendar) {
         path: `change_request_audit/${spec.id}_applied`,
         data: {
           requestId: spec.id,
+          requesterUid: 'uid-hicc-1',
+          sessionId: session.path.replace('sessions/', ''),
           event: 'request_applied',
           revision: spec.revision,
           status: 'approved',
