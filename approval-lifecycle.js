@@ -160,7 +160,7 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
     return{
       publicPatch:{status:'withdrawn',editableFields:[],requesterMessage:'',withdrawnBy:text(actor.uid),withdrawnAt:now,updatedAt:now},
       cancelOffices:[...(route.requiredOffices||[])],
-      audit:{requestId:text(request.id),event:'request_withdrawn',revision:Number(request.revision)||1,changedBy:text(actor.uid),changedByName:text(actor.name),changedAt:now}
+      audit:{requestId:text(request.id),requesterUid:text(request.requesterUid),sessionId:text(request.sessionId),event:'request_withdrawn',revision:Number(request.revision)||1,changedBy:text(actor.uid),changedByName:text(actor.name),changedAt:now}
     };
   }
 
