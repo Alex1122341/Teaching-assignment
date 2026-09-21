@@ -108,8 +108,8 @@ test('LAB: ADC placeholder TBD is still missing LAB Topic and keeps ADFA waiting
  assert.deepEqual(arr(evaluation.stages.lab.missing).map(f=>f.key),['topic','labGroups','labRoster']);
  assert.equal(evaluation.stages.adfa.status,'waiting');
  assert.equal(evaluation.stages.adfa.waitingFor,'LAB');
- assert.deepEqual(arr(w.workflowItemsForRole([session],'lab'))[0].missingLabels.map(String),['Topic','LAB group','Group roster']);
- assert.deepEqual(arr(w.workflowItemsForRole([session],'adfa'))[0].missingLabels.map(String),['Faculty assignment']);
+ assert.deepEqual(arr(arr(w.workflowItemsForRole([session],'lab'))[0].missingLabels).map(String),['Topic','LAB group','Group roster']);
+ assert.deepEqual(arr(arr(w.workflowItemsForRole([session],'adfa'))[0].missingLabels).map(String),['Faculty assignment']);
 });
 
 test('LAB: ADFA waits while LAB is incomplete and becomes ready when LAB completes',()=>{
