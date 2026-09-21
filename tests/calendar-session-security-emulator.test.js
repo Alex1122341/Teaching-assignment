@@ -18,6 +18,8 @@ before(async()=>{
   await db.doc('session_change_log/faculty-related').set({action:'batch_update',sessionId:'s1',course:'505',date:'2027-03-22',topic:'Suturing',instructors:['Jane Smith'],changes:[{field:'date',before:'2027-03-21',after:'2027-03-22'}],changedBy:'owner',changedByName:'OWNER',changedByEmail:'owner@example.test',changedAt:new Date('2026-09-18T12:10:00Z')});
   await db.doc('afc_audit/faculty-related').set({action:'afc_submitted',requesterUid:'faculty',reportToUid:'owner',changedBy:'owner',changedAt:new Date('2026-09-18T12:11:00Z')});
   await db.doc('account_audit/faculty-related').set({action:'account_updated',targetUid:'faculty',changedBy:'owner',changedAt:new Date('2026-09-18T12:12:00Z')});
+  await db.doc('change_request_audit/requester-related').set({requestId:'r-owned',requesterUid:'faculty',sessionId:'missing-session',event:'office_approve',revision:1,status:'pending',office:'lab',message:'',changedFields:['topic'],changedBy:'owner',changedByName:'OWNER',changedAt:new Date('2026-09-18T12:13:00Z')});
+  await db.doc('change_request_audit/session-related').set({requestId:'r-session',requesterUid:'owner',sessionId:'s1',event:'office_approve',revision:1,status:'pending',office:'lab',message:'',changedFields:['topic'],changedBy:'owner',changedByName:'OWNER',changedAt:new Date('2026-09-18T12:14:00Z')});
   for(const uid of ['adc','lab']){
    await db.doc(`afc_requests/${uid}-legacy`).set({requesterUid:uid,reportToUid:uid,purpose:'private purpose',status:'pending_admin'});
    await db.doc(`change_requests/${uid}-legacy`).set({requesterUid:uid,fromFaculty:{ucid:'f1'},status:'pending'});
@@ -50,12 +52,15 @@ check('ADC and LAB can read only their sanitized personal session and workflow h
 check('Faculty can read session, AFC and account audit records related to themselves but not another Faculty',async()=>{
  const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
  const faculty=env.authenticatedContext('faculty').firestore(),other=env.authenticatedContext('otherfaculty').firestore();
- for(const path of ['session_change_log/faculty-related','afc_audit/faculty-related','account_audit/faculty-related'])await assertSucceeds(faculty.doc(path).get());
+ for(const path of ['session_change_log/faculty-related','afc_audit/faculty-related','account_audit/faculty-related','change_request_audit/requester-related','change_request_audit/session-related'])await assertSucceeds(faculty.doc(path).get());
  await assertSucceeds(faculty.collection('session_change_log').where('sessionId','==','s1').get());
  await assertSucceeds(faculty.collection('afc_audit').where('requesterUid','==','faculty').get());
  await assertSucceeds(faculty.collection('account_audit').where('targetUid','==','faculty').get());
- for(const path of ['session_change_log/faculty-related','afc_audit/faculty-related','account_audit/faculty-related'])await assertFails(other.doc(path).get());
+ await assertSucceeds(faculty.collection('change_request_audit').where('requesterUid','==','faculty').get());
+ await assertSucceeds(faculty.collection('change_request_audit').where('sessionId','==','s1').get());
+ for(const path of ['session_change_log/faculty-related','afc_audit/faculty-related','account_audit/faculty-related','change_request_audit/requester-related','change_request_audit/session-related'])await assertFails(other.doc(path).get());
  await assertFails(other.collection('session_change_log').where('sessionId','==','s1').get());
+ await assertFails(other.collection('change_request_audit').where('sessionId','==','s1').get());
 });
 check('ADFA and Faculty keep their existing reads',async()=>{
  const {assertSucceeds}=require('@firebase/rules-unit-testing');for(const uid of ['adfa','owner','faculty']){const db=env.authenticatedContext(uid).firestore();await assertSucceeds(db.doc('sessions/s1').get());await assertSucceeds(db.doc('faculty/f1').get());}
