@@ -651,7 +651,6 @@ function buildRequests(sessions, calendar) {
         }
       });
     }
-  });
 
     if (spec.status === 'approved') {
       const lead = FACULTY_SEED[0], support = FACULTY_SEED[2];
