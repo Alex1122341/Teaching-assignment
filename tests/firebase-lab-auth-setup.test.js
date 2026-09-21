@@ -112,6 +112,7 @@ test('configure initializes Firebase Authentication when project config is missi
   assert.equal(result.after.initialized,true);
   assert.deepEqual(calls.map(row=>row.method),['GET','POST','GET','PATCH']);
   assert.match(calls[1].url,/identityPlatform:initializeAuth$/);
+  assert.equal(calls[1].headers?.['X-Goog-User-Project'],undefined);
 });
 
 test('Firebase Admin v14 modular cert export can mint an access token',async()=>{
