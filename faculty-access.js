@@ -139,7 +139,8 @@ const config=window.UCVM_FIREBASE_CONFIG;
     const normalizedRole=role(profile?.role),officeOnly=['adc','lab','other_office'].includes(normalizedRole);
     const tasks=[
       queryRelated('session_change_log','session','changedBy','==',user.uid),
-      queryRelated('change_request_audit','workflow','changedBy','==',user.uid)
+      queryRelated('change_request_audit','workflow','changedBy','==',user.uid),
+      queryRelated('change_request_audit','workflow','requesterUid','==',user.uid)
     ];
     if(!officeOnly){
       tasks.push(queryRelated('account_audit','account','changedBy','==',user.uid));
@@ -153,10 +154,13 @@ const config=window.UCVM_FIREBASE_CONFIG;
       tasks.push(queryRelated('faculty_change_log','faculty','changedBy','==',user.uid));
       tasks.push(queryRelated('faculty_change_log','faculty','facultyId','==',facultyId));
       const sessionSnap=await db.collection('sessions').where('facultyIds','array-contains',facultyId).get();
-      for(const doc of sessionSnap.docs)tasks.push(queryRelated('session_change_log','session','sessionId','==',doc.id));
+      for(const doc of sessionSnap.docs){
+        tasks.push(queryRelated('session_change_log','session','sessionId','==',doc.id));
+        tasks.push(queryRelated('change_request_audit','workflow','sessionId','==',doc.id));
+      }
     }
     await Promise.all(tasks);
-    exhausted.session=exhausted.faculty=exhausted.account=exhausted.afc=true;
+    exhausted.session=exhausted.faculty=exhausted.account=exhausted.afc=exhausted.workflow=true;
   }
   async function more(){
     if(loading)return;loading=true;$('audit-more').disabled=true;$('audit-status').textContent='Loading changes…';
