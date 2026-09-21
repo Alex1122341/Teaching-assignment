@@ -70,3 +70,26 @@ check('Developer can approve ADC LAB and ADFA routed scopes with one identity',a
   }));
  }
 });
+
+check('Owner-delegated Administrator can approve the explicit ADC scope without changing primary role',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
+ await env.withSecurityRulesDisabled(async ctx=>{
+  const db=ctx.firestore(),make=async(id,office)=>{
+   const fields=office==='adc'?['date']:['assignments'],scopes={adc:[],lab:[],adfa:[]},scopeSignatures={adc:'',lab:'',adfa:''};
+   scopes[office]=fields;scopeSignatures[office]=office+'-sig';
+   await db.doc('change_requests/'+id).set({requestSchema:'office-routing-v1',requesterUid:'faculty',requesterRole:'faculty',sessionId:'s1',requestType:'session_edit',status:'pending',revision:1,editableFields:[],requesterMessage:'',updatedAt:new Date('2026-09-20T12:00:00Z')});
+   await db.doc('change_request_workflow/'+id).set({requestId:id,revision:1,requiredOffices:[office],hasFacultyChange:office==='adfa',finalType:'LEC',scopes,scopeSignatures,updatedAt:new Date('2026-09-20T12:00:00Z')});
+   await db.doc('change_request_approvals/'+id+'_'+office).set({id:id+'_'+office,requestId:id,office,revision:1,fields,scopeSignature:office+'-sig',status:'pending',decidedBy:'',decidedByName:'',decidedAt:null,pushBackReason:'',updatedAt:new Date('2026-09-20T12:00:00Z')});
+  };
+  await db.doc('users/delegated-admin').set({role:'administrator',officeAccess:['adc'],active:true,mustChangePassword:false,email:'delegated@example.test'});
+  await make('delegated-adc','adc');await make('delegated-adfa','adfa');
+ });
+ const db=env.authenticatedContext('delegated-admin').firestore(),decide=async(id,office)=>{
+  const stamp=serverTimestamp(),batch=db.batch();
+  batch.update(db.doc('change_requests/'+id),{updatedAt:stamp});
+  batch.update(db.doc('change_request_approvals/'+id+'_'+office),{status:'approved',decidedBy:'delegated-admin',decidedByName:'Delegated Admin',decidedAt:stamp,pushBackReason:'',updatedAt:stamp});
+  return batch.commit();
+ };
+ await assertSucceeds(decide('delegated-adc','adc'));
+ await assertFails(decide('delegated-adfa','adfa'));
+});
