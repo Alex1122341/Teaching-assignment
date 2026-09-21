@@ -96,13 +96,10 @@ service cloud.firestore {
         && after.editableFields.hasAll(before.editableFields) && after.editableFields.hasAll(approval.fields)
         && after.editableFields.toSet().difference(before.editableFields.toSet()).hasOnly(approval.fields))
     || (approval.status == 'rejected' && after.status == 'rejected' && after.editableFields.size() == 0 && after.requesterMessage.size() <= 1000));}
-  function developerDecisionOn(id,office){return developer() && exists(requestApprovalPath(id,office)) && existsAfter(requestApprovalPath(id,office))
-   && get(requestApprovalPath(id,office)).data.status == 'pending' && getAfter(requestApprovalPath(id,office)).data.status in ['approved','push_back','rejected']
-   && getAfter(requestApprovalPath(id,office)).data.decidedBy == request.auth.uid && getAfter(requestApprovalPath(id,office)).data.decidedAt == request.time;}
+  function officeDecisionOn(id,office){let before=get(requestApprovalPath(id,office)).data;let after=getAfter(requestApprovalPath(id,office)).data;return hasOfficeAccess(office) && exists(requestApprovalPath(id,office)) && existsAfter(requestApprovalPath(id,office))
+   && before.status == 'pending' && after.status in ['approved','push_back','rejected'] && after.decidedBy == request.auth.uid && after.decidedAt == request.time;}
+  function developerDecisionOn(id,office){return developer() && officeDecisionOn(id,office);}
   function developerDecisionOffice(id){return developerDecisionOn(id,'adc') ? 'adc' : (developerDecisionOn(id,'lab') ? 'lab' : (developerDecisionOn(id,'adfa') ? 'adfa' : ''));}
-  function officeDecisionOn(id,office){return hasOfficeAccess(office) && exists(requestApprovalPath(id,office)) && existsAfter(requestApprovalPath(id,office))
-   && get(requestApprovalPath(id,office)).data.status == 'pending' && getAfter(requestApprovalPath(id,office)).data.status in ['approved','push_back','rejected']
-   && getAfter(requestApprovalPath(id,office)).data.decidedBy == request.auth.uid && getAfter(requestApprovalPath(id,office)).data.decidedAt == request.time;}
   function officeDecisionOffice(id){return officeDecisionOn(id,'adc') ? 'adc' : (officeDecisionOn(id,'lab') ? 'lab' : (officeDecisionOn(id,'adfa') ? 'adfa' : ''));}
   function decisionOffice(id){return developer() ? developerDecisionOffice(id) : officeDecisionOffice(id);}
   function validRoutedOfficeRequestUpdate(id){let before=resource.data;let after=request.resource.data;let actorOffice=decisionOffice(id);return actorOffice != '' && routedRequest(before) && before.status in ['pending','update_required'] && officeDecisionParentMatches(before,after,getAfter(requestApprovalPath(id,actorOffice)).data);}
