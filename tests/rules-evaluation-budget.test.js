@@ -89,10 +89,12 @@ test('core and DOE existence checks stay within their reviewed domain budgets', 
 });
 
 test('the routed approval path still proves its companion writes', () => {
-  // These are the guarantees that make an approval meaningful. They must not be
-  // removed to save evaluation budget.
+  // These are the guarantees that make an approval meaningful. Scope/signature
+  // integrity is proven when approval records are created/resubmitted; final apply
+  // then checks the already-locked records' approved status. Do not remove those
+  // proofs merely to save evaluation budget.
   assert.match(rules, /function allRequiredApproved\(id,workflow\)/);
-  assert.match(rules, /function requiredApprovalMatches\(id,workflow,office\)/);
+  assert.match(rules, /function approvalMatchesWorkflow\(id,d,workflow\)/);\n  assert.match(rules, /validRoutedApprovalCreate\(id\)[^]*approvalMatchesWorkflow|validRoutedApprovalResubmitCreate\(id\)[^]*approvalMatchesWorkflow/);
   assert.match(rules, /function routedSessionApplyFor\(id,rid\)/);
   assert.match(rules, /function legacyAppliedCompanionWrite\(\)/);
   assert.match(rules, /function calendarMatchesSourceAfter\(id\)/);
