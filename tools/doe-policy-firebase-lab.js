@@ -186,14 +186,16 @@
         return rows.sort(byTimestampDescending(['changedAt','createdAt'])).slice(0,50);
       },
 
-      async getImpactPreview(policyVersionId){
-        const versionId=text(policyVersionId);
-        if(!versionId)return null;
-        const runs=await select(db(),COLLECTIONS.impactRuns,[{field:'policyVersionId',value:versionId}]);
-        if(!runs.length)return null;
-        const run=runs.slice().sort(byTimestampDescending(['completedAt','startedAt','createdAt']))[0];
-        const runId=text(run.impactRunId||run.runId||run.id);
-        const rows=runId?await select(db(),COLLECTIONS.impactRows,[{field:'impactRunId',value:runId}]):[];
+      // Contract matches the authoritative DOE API client:
+      // getImpactPreview(impactRunId) loads the stored doe_impact_runs/{id}
+      // record and then its rows by impactRunId. It never searches by policy
+      // version, because the caller already resolved version.lastImpactRunId.
+      async getImpactPreview(impactRunId){
+        const runId=text(impactRunId);
+        if(!runId)return null;
+        const run=toObject(await db().collection(COLLECTIONS.impactRuns).doc(runId).get());
+        if(!run)return null;
+        const rows=await select(db(),COLLECTIONS.impactRows,[{field:'impactRunId',value:runId}]);
         return{run,rows};
       },
 

@@ -250,11 +250,57 @@ test('11. Rule Book can render a real Firebase-shaped policy bundle',async()=>{
   assert.equal(bundle.courseMappings.length,1);
   assert.equal(bundle.subjectMappings.length,1);
   assert.equal(bundle.exceptions.length,1);
-  const preview=await service.getImpactPreview('v1');
+  // Stored impact preview is addressed by impact run id, not by policy version.
+  const preview=await service.getImpactPreview('ir1');
   assert.equal(preview.run.impactRunId,'ir1');
   assert.equal(preview.rows.length,1);
+  assert.ok(preview.rows.every(row=>row.impactRunId==='ir1'));
+  // A policy version id is not an impact run id.
+  assert.equal(await service.getImpactPreview('v1'),null);
+  assert.equal(await service.getImpactPreview(''),null);
   const audit=await service.listAudit('v1');
   assert.deepEqual(audit,[]);
+});
+
+test('11b. stored Impact Preview resolves version.lastImpactRunId to the exact run and rows',async()=>{
+  const collections={
+    doe_policy_versions:[{id:'v1',data:{
+      policyVersionId:'v1',policyId:'p1',academicYear:'2026-27',versionNumber:1,status:'active',revision:3,
+      rulesChecksum:'checksum-3',lastImpactRunId:'run-42',lastImpactRevision:3,lastImpactChecksum:'checksum-3',lastImpactDatasetChecksum:'dataset-9'
+    }}],
+    doe_policies:[{id:'p1',data:{policyId:'p1',academicYear:'2026-27',currentActiveVersionId:'v1'}}],
+    doe_impact_runs:[
+      {id:'run-42',data:{impactRunId:'run-42',policyVersionId:'v1',status:'completed',completedAt:'2026-09-02T00:00:00.000Z',datasetChecksum:'dataset-9'}},
+      {id:'run-07',data:{impactRunId:'run-07',policyVersionId:'v1',status:'completed',completedAt:'2026-09-01T00:00:00.000Z',datasetChecksum:'dataset-1'}}
+    ],
+    doe_impact_rows:[
+      {id:'row-a',data:{impactRowId:'row-a',impactRunId:'run-42',facultyId:'f1'}},
+      {id:'row-b',data:{impactRowId:'row-b',impactRunId:'run-42',facultyId:'f2'}},
+      {id:'row-c',data:{impactRowId:'row-c',impactRunId:'run-07',facultyId:'f3'}}
+    ]
+  };
+  const service=labDoe.createService({firestore:fakeFirestore(collections)});
+
+  // The Rule Book only ever asks for the run recorded on the policy version.
+  const bundle=await service.loadPolicyBundle('v1');
+  const runId=String(bundle.version.lastImpactRunId||'');
+  assert.equal(runId,'run-42');
+
+  const preview=await service.getImpactPreview(runId);
+  assert.ok(preview,'stored impact preview must resolve from version.lastImpactRunId');
+  assert.equal(preview.run.impactRunId,'run-42');
+  assert.equal(preview.run.policyVersionId,'v1');
+  assert.equal(preview.rows.length,2);
+  assert.deepEqual(preview.rows.map(row=>row.impactRowId).sort(),['row-a','row-b']);
+  assert.ok(preview.rows.every(row=>row.impactRunId==='run-42'));
+
+  // The caller contract itself is asserted: doe-policy-admin passes the stored
+  // impact run id, and the authoritative client addresses the run by that id.
+  const admin=read('doe-policy-admin.js');
+  assert.match(admin,/const runId=text\(version\.lastImpactRunId\)/);
+  assert.match(admin,/state\.service\.getImpactPreview\(runId\)/);
+  const client=read('doe-api-client.js');
+  assert.match(client,/getImpactPreview:impactRunId=>request\(`\/api\/doe\/impact-runs\//);
 });
 
 test('12. authoritative DOE write actions stay disabled without the trusted backend',()=>{
@@ -303,6 +349,13 @@ test('16. Firebase Lab is manual-only and never an implicit PR default',()=>{
   assert.doesNotMatch(workflow,/schedule:/);
   assert.doesNotMatch(workflow,/repository_dispatch:/);
   assert.match(workflow,/PUBLISH-LAB-TO-PAGES/);
+  // Least privilege: no workflow-level permissions block; each job declares
+  // only what it needs, and the build job cannot write to GitHub Pages.
+  assert.doesNotMatch(workflow,/^permissions:/m);
+  assert.match(workflow,/build_lab:[\s\S]*?permissions:\s*\n\s+contents: read\n(?!\s+pages: write)/);
+  const buildBlock=workflow.slice(workflow.indexOf('build_lab:'),workflow.indexOf('publish_lab_pages:'));
+  assert.doesNotMatch(buildBlock,/pages: write|id-token: write/);
+  assert.match(workflow,/publish_lab_pages:[\s\S]*?permissions:\s*\n\s+contents: read\n\s+pages: write\n\s+id-token: write/);
   // The normal Pages workflow must stay in demo mode.
   const pages=read('.github/workflows/github-pages-test.yml');
   assert.doesNotMatch(pages,/--mode lab/);
