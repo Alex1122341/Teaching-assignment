@@ -101,7 +101,7 @@ service cloud.firestore {
   // changed by this actor in the same atomic batch. The approval document's own
   // rule proves the pending -> decision transition; this helper only identifies
   // that explicit office context and avoids re-validating all three records.
-  function officeDecisionOn(id,office){return hasOfficeAccess(office)
+  function officeDecisionOn(id,office){return hasOfficeAccess(office) && existsAfter(requestApprovalPath(id,office))
    && approvalAfter(id,office).decidedBy == request.auth.uid && approvalAfter(id,office).decidedAt == request.time
    && approvalAfter(id,office).status in ['approved','push_back','rejected'];}
   function decisionOffice(id){return officeDecisionOn(id,'adc') ? 'adc' : (officeDecisionOn(id,'lab') ? 'lab' : (officeDecisionOn(id,'adfa') ? 'adfa' : ''));}
