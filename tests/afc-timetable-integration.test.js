@@ -301,3 +301,12 @@ test('AFC focus trap cycles only through visible controls when the request detai
   assert.equal(documentRef.activeElement, request);
   assert.equal(history.inert, false);
 });
+
+
+test('AFC blocks unverified closure ranges and delegates proactive maintenance warnings by role',()=>{
+  const source=read('afc-workflow.js');
+  assert.match(source,/closures\.coverageStatus\(a,b\)/);
+  assert.match(source,/closures\.coverageMessage\(closureStatus\)/);
+  assert.match(source,/submitButton\.disabled=Boolean\(rangeReady&&!closureStatus\?\.supported\)/);
+  assert.match(source,/closures\.warnMaintenance\?\.\(UCVM\.role\(me\(\)\.role\)\)/);
+});
