@@ -888,6 +888,10 @@ async function verifyUserManagementRoleMatrix({debugPort,origin,setupCdp}){
    await waitForCondition(cdp,"(()=>document.getElementById('content')?.hidden===false&&!document.getElementById('accounts')?.hidden)()",'Owner User Management access',12000);
    const state=await userManagementState(cdp);
    if(!state.developerOptionDisabled||!state.developerEditDisabled||state.selectedRole!=='faculty')throw Error('Owner can still control Developer role/account: '+JSON.stringify(state));
+   const delegated=await cdp.send('Runtime.evaluate',{expression:"(()=>{const edit=document.querySelector('button[data-edit=\\\"uid-admin\\\"]');if(!edit)return{ok:false,reason:'admin edit missing'};edit.click();const adc=document.querySelector('input[name=\\\"office-access\\\"][value=\\\"adc\\\"]'),adfa=document.querySelector('input[name=\\\"office-access\\\"][value=\\\"adfa\\\"]');if(!adc||!adfa)return{ok:false,reason:'office checkboxes missing'};adc.checked=true;adfa.checked=false;document.getElementById('account-form')?.requestSubmit();return{ok:true}})()",returnByValue:true});
+   if(delegated.exceptionDetails||!delegated.result?.value?.ok)throw Error('Owner office delegation UI failed: '+(delegated.result?.value?.reason||exceptionText(delegated.exceptionDetails)));
+   await waitForCondition(cdp,"(()=>{const records=window.UCVM_PAGES_DEMO?.export?.()||{},profile=records['users/uid-admin'],audit=Object.values(records).find(row=>row?.action==='account_updated'&&row?.targetUid==='uid-admin'&&row?.changedBy==='uid-owner'&&Array.isArray(row?.officeAccess));return profile?.role==='administrator'&&Array.isArray(profile.officeAccess)&&profile.officeAccess.includes('adc')&&!profile.officeAccess.includes('adfa')&&!!audit})()",'Owner operational office delegation persisted',12000);
+   await cdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true});
   });
 
   await withDemoRolePage({debugPort,origin,setupCdp,page:'user-management.html',uid:'uid-hicc-1',label:'HICC User Management'},async cdp=>{
