@@ -143,3 +143,13 @@ test('interactive timetable saves use the conservative paired-write row budget',
  const js=read('timetable.js');
  assert.match(js,/SESSION_SAVE_BATCH_ROWS\s*=\s*8/);
 });
+
+test('timetable page contract loads private LAB workflow context only for LAB-capable profiles',()=>{
+ const js=read('timetable.js');
+ assert.match(js,/db\.collection\('lab_groups'\)\.where\('active','==',true\)\.get\(\)/);
+ assert.match(js,/db\.collection\('lab_group_rosters'\)\.get\(\)/);
+ assert.match(js,/if\(!currentUser\|\|!hasOfficeAccess\('lab'\)\)/);
+ assert.match(js,/workflowContext,/);
+ assert.match(js,/ensureWorkflowContext:\(\)=>ensureLabWorkflowContext\(\)/);
+ assert.match(js,/stage==='lab'\)await ensureLabWorkflowContext\(\)/);
+});
