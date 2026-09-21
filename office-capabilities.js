@@ -27,15 +27,16 @@
   if(adfaRoles.includes(role))return['adfa'];
   return[];
  }
- function normalizeOfficeAccess(value){
-  return[...new Set((Array.isArray(value)?value:[]).map(normalize).filter(name=>OFFICES.includes(name)))];
+ function allowedOfficesForRole(role){role=roleOf(role);if(role==='developer'||['owner','administrator','admin','adfa_general','adfa_regular'].includes(role))return OFFICES.slice();if(role==='adc'||role==='lab')return['adc','lab'];return[];}
+ function normalizeOfficeAccess(value,allowed=OFFICES){
+  return[...new Set((Array.isArray(value)?value:[]).map(normalize).filter(name=>allowed.includes(name)))];
  }
  function officesForProfile(profileOrRole){
   const role=roleOf(profileOrRole);
   if(role==='developer')return OFFICES.slice();
   if(profileOrRole&&typeof profileOrRole==='object'&&Array.isArray(profileOrRole.officeAccess)){
    if(!configurableRoles.includes(role))return[];
-   return normalizeOfficeAccess(profileOrRole.officeAccess);
+   return normalizeOfficeAccess(profileOrRole.officeAccess,allowedOfficesForRole(role));
   }
   return defaultOfficeAccess(role);
  }
@@ -77,5 +78,5 @@
   return Object.freeze(c);
  }
  function forRole(role){return forProfile({role});}
- return Object.freeze({OFFICES,forRole,forProfile,defaultOfficeAccess,normalizeOfficeAccess,officesForProfile,hasOfficeAccess,officeForRole,isOfficeAccount});
+ return Object.freeze({OFFICES,forRole,forProfile,allowedOfficesForRole,defaultOfficeAccess,normalizeOfficeAccess,officesForProfile,hasOfficeAccess,officeForRole,isOfficeAccount});
 });
