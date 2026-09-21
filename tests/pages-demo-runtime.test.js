@@ -184,3 +184,14 @@ test('demo DOE rows never present a reconciliation anomaly as a normal Faculty r
   assert.equal(row.authoritative,false);
  }
 });
+
+
+test('Frontend Demo exposes a non-authoritative read-only DOE Rule Book fixture',async()=>{
+ const service=runtime.demoRulebookService('2026-27');
+ assert.equal(service.readOnly,true);assert.equal(service.authoritative,false);assert.equal(service.demoOnly,true);
+ const policies=await service.listPolicies();assert.equal(policies.length,1);assert.equal(policies[0].academicYear,'2026-27');
+ const versions=await service.listVersions(policies[0].policyId);assert.equal(versions.length,1);assert.equal(versions[0].status,'active');
+ const bundle=await service.loadPolicyBundle(versions[0].policyVersionId);assert.ok(bundle.rules.some(row=>row.category==='teaching'));assert.ok(bundle.rules.some(row=>row.category==='role'));assert.ok(bundle.courseMappings.length);assert.ok(bundle.subjectMappings.length);
+ const audit=await service.listAudit(versions[0].policyVersionId);assert.equal(audit.length,1);
+ await assert.rejects(()=>service.saveRule(versions[0].policyVersionId,{}),error=>error.code==='FRONTEND_DEMO_READ_ONLY'&&/read-only/i.test(error.message));
+});
