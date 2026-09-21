@@ -20,7 +20,7 @@ service cloud.firestore {
   function adc(){return hasOfficeAccess('adc');}
   function lab(){return hasOfficeAccess('lab');}
   function adfaApprover(){return hasOfficeAccess('adfa');}
-  function approver(){return adfaApprover();}
+  function approver(){return admin();}
   function officeForRole(r){return r == 'adc' ? 'adc' : (r == 'lab' ? 'lab' : (r in ['developer','owner','administrator','admin','adfa_general','adfa_regular'] ? 'adfa' : ''));}
   function officeUser(){return hasOfficeAccess('adc') || hasOfficeAccess('lab') || hasOfficeAccess('adfa');}
   function officeName(){return ready() ? officeForRole(profile().role) : '';}
@@ -184,9 +184,9 @@ service cloud.firestore {
     || (d.event in ['request_withdrawn','request_resubmitted'] && parent.requesterUid == request.auth.uid)
     || (d.event in ['office_approve','office_push_back','office_reject'] && officeUser() && d.office == decisionOffice(d.requestId) && d.revision == parent.revision)
     || (d.event == 'request_applied' && officeUser() && hasOfficeAccess(d.office) && d.office in get(requestWorkflowPath(d.requestId)).data.requiredOffices && parent.status == 'approved' && d.revision == parent.revision));}
-  function routedRequestRead(id,d){return routedRequest(d) && (adfaApprover() || d.requesterUid == request.auth.uid || (adc() && exists(requestApprovalPath(id,'adc'))) || (lab() && exists(requestApprovalPath(id,'lab'))));}
-  function legacyRequestRead(d){return adfaApprover() && !routedRequest(d);}
-  function officeWorkflowRead(id){return adfaApprover() || (adc() && exists(requestApprovalPath(id,'adc'))) || (lab() && exists(requestApprovalPath(id,'lab')));}
+  function routedRequestRead(id,d){return routedRequest(d) && (admin() || d.requesterUid == request.auth.uid || (adc() && exists(requestApprovalPath(id,'adc'))) || (lab() && exists(requestApprovalPath(id,'lab'))));}
+  function legacyRequestRead(d){return admin() && !routedRequest(d);}
+  function officeWorkflowRead(id){return admin() || (adc() && exists(requestApprovalPath(id,'adc'))) || (lab() && exists(requestApprovalPath(id,'lab')));}
   function workflowNotificationShapeValid(d){return d.keys().hasOnly(['recipientOffice','kind','requestId','sessionId','course','date','start','end','type','topic','facultyDisplayName','message','createdAt','readBy'])
    && d.recipientOffice in ['adc','lab','adfa'] && d.kind in ['request_assigned','request_resubmitted','office_decision','request_applied','request_withdrawn','assignment_recheck_required']
    && d.requestId is string && d.sessionId is string && d.sessionId.size() > 0 && d.course is string && d.date is string && d.start is string && d.end is string && d.type is string && d.topic is string
@@ -501,13 +501,13 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /change_request_private/{id} {
-   allow read: if adfaApprover();
+   allow read: if admin();
    allow create: if teachingWritesOpen() && validRoutedPrivateCreate(id);
    allow update: if teachingWritesOpen() && validRoutedPrivateResubmit(id);
    allow delete: if false;
   }
   match /change_request_audit/{id} {
-   allow read: if adfaApprover();
+   allow read: if admin();
    allow create: if teachingWritesOpen() && validRoutedAuditCreate();
    allow update,delete: if false;
   }
