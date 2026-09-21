@@ -38,7 +38,7 @@ test('Firestore personal history rules include actor, linked session, faculty, a
   const rules = read('firestore.rules');
   assert.match(rules, /function sessionHistoryReader\(d\)/);
   assert.match(rules, /exists\(sessionPath\(sid\)\)/);
-  assert.match(rules, /fid in get\(sessionPath\(sid\)\)\.data\.get\('facultyIds',\[\]\)/);
+  assert.match(rules, /get\(sessionPath\(sid\)\)\.data\.facultyIds/);
   assert.match(rules, /function facultyHistoryReader\(d\)/);
   assert.match(rules, /function accountHistoryReader\(d\)/);
   assert.match(rules, /function afcHistoryReader\(d\)/);
