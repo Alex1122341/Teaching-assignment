@@ -86,6 +86,16 @@ test('LAB scoped editor renders and reads the canonical LAB group assignment con
  assert.match(js,/selectionCapabilities\(\)\.canEditLabGroups\)await ensureLabWorkflowContext\(\)/);
 });
 
+test('selection pickers render chips into their sibling containers',()=>{
+ const js=read('timetable.js');
+ const faculty=js.slice(js.indexOf('function updateSelectionFacultyPicker'),js.indexOf('function selectionLabGroupOptions'));
+ const lab=js.slice(js.indexOf('function updateSelectionLabGroupPicker'),js.indexOf('function selectionRole'));
+ assert.match(faculty,/nextElementSibling/);
+ assert.match(lab,/nextElementSibling/);
+ assert.doesNotMatch(faculty,/picker\.querySelector\('\.selection-faculty-chips'\)/);
+ assert.doesNotMatch(lab,/picker\.querySelector\('\.selection-faculty-chips'\)/);
+});
+
 test('scoped Work Queue editor derives field ownership from the persisted scoped stage',()=>{
  const js=read('timetable.js');
  assert.match(js,/function selectionRole\(\)\{if\(scopedWork\?\.stage\)return scopedWork\.stage;/);
