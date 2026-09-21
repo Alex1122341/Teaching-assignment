@@ -1,4 +1,5 @@
 name: Firebase Lab Auth Probe
+# Retry after Firebase Auth missing-config detection fix
 
 on:
   push:
