@@ -49,16 +49,16 @@
   if(!stages.length)return empty;
   const stage=stages.length===1?stages[0]:'all';
   const items=stages.flatMap(name=>api.workflowItemsForRole(sessions,name,context)||[]);
-  const offices={};
-  for(const name of api.STAGES)offices[name]={stage:name,label:STAGE_LABEL[name],ready:0,waiting:0,total:0};
+  const officeStats={};
+  for(const name of api.STAGES)officeStats[name]={stage:name,label:STAGE_LABEL[name],ready:0,waiting:0,total:0};
   let ready=0,waiting=0;
   for(const item of items){
-   const bucket=offices[item.stage];
+   const bucket=officeStats[item.stage];
    if(bucket){if(item.status==='ready'){bucket.ready+=1;ready+=1}else{bucket.waiting+=1;waiting+=1}bucket.total+=1}
   }
   const total=items.length;
   return{
-   visible:total>0,total,ready,waiting,offices,items,stage,
+   visible:total>0,total,ready,waiting,offices:officeStats,items,stage,
    label:stage==='all'?`${String(role).toLowerCase()==='developer'?'All':'Office'} Work (${total})`:`${STAGE_LABEL[stage]} Work (${total})`
   };
  }
