@@ -1123,7 +1123,7 @@
     summary.textContent=checked.length?`${checked.length} faculty selected`:'Choose faculty';
     chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value));return `<span>${escapeHtml(swapFacultyName(f))}<small>${window.UCVM_DOE_API?.isConfigured?.()?'DOE server preview on save':'DOE recalculation queued after save'}</small></span>`}).join('');
   }
-  function selectionRole(){if(scopedWork?.stage)return activeScoped.stage;const role=UCVM.role(currentUser?.role);return role==='developer'?'developer':hasOfficeAccess('adc')?'adc':role;}
+  function selectionRole(){if(scopedWork?.stage)return scopedWork.stage;const role=UCVM.role(currentUser?.role);return role==='developer'?'developer':hasOfficeAccess('adc')?'adc':role;}
   function selectionCapabilities(){const role=selectionRole();return role==='developer'?capabilities():capabilities(role);}
   function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session);}
   function lockedAttr(enabled){return enabled?'':'disabled class="role-locked-field"';}
