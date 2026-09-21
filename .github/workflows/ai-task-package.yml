@@ -1,0 +1,43 @@
+name: AI Task Package
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Open issue number to prepare (no model is called)
+        required: true
+        type: string
+permissions:
+  contents: read
+  issues: read
+concurrency:
+  group: ai-package-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: true
+jobs:
+  prepare:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ai-ready'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Prepare reviewed issue data
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AI_ISSUE_NUMBER: ${{ inputs.issue_number || github.event.issue.number }}
+        run: node tools/ai/prepare-issue.js
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ai-task-${{ inputs.issue_number || github.event.issue.number }}-${{ github.run_id }}
+          path: |
+            .ai/tasks/${{ inputs.issue_number || github.event.issue.number }}/
+            .ai/generated/${{ inputs.issue_number || github.event.issue.number }}/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: error

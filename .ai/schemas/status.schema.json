@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VISTA status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "issue_number",
+    "title",
+    "current_stage",
+    "risk_level",
+    "preferred_builder",
+    "branch",
+    "pull_request",
+    "architecture_status",
+    "implementation_status",
+    "review_status",
+    "verification_status",
+    "final_review_status",
+    "blocking_findings",
+    "last_updated"
+  ],
+  "properties": {
+    "issue_number": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "current_stage": {
+      "type": "string",
+      "enum": [
+        "architecture",
+        "implementation",
+        "review",
+        "verification",
+        "final_review",
+        "ready_for_human"
+      ]
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "preferred_builder": {
+      "type": "string",
+      "enum": [
+        "hy4",
+        "deepseek",
+        "codex"
+      ]
+    },
+    "branch": {
+      "type": "string",
+      "pattern": "^(?!main$)[A-Za-z0-9/_-]+$"
+    },
+    "pull_request": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "architecture_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "complete"
+      ]
+    },
+    "implementation_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "complete"
+      ]
+    },
+    "review_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "complete"
+      ]
+    },
+    "verification_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "complete"
+      ]
+    },
+    "final_review_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "complete"
+      ]
+    },
+    "blocking_findings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20000
+      },
+      "maxItems": 100
+    },
+    "last_updated": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
