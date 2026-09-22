@@ -509,7 +509,7 @@ function buildRequests(sessions, calendar) {
     if (spec.scopes.lab) patch.topic = 'Advanced ' + d.topic;
     if (spec.scopes.adfa) {
       const replacement = FACULTY_SEED[2];
-      patch.instructor = [fullName(replacement), ...d.assignments.slice(1).map(row => row.name)].filter(Boolean).join(', ');
+      patch.instructor = fullName(replacement);
     }
 
     docs.push({
@@ -528,7 +528,7 @@ function buildRequests(sessions, calendar) {
         revision: spec.revision,
         basePublic: base,
         patchPublic: patch,
-        currentFacultyName: d.instructor,
+        currentFacultyName: spec.scopes.adfa ? (d.assignments[0]?.name || '') : d.instructor,
         proposedFacultyName: spec.scopes.adfa ? 'Mira Okonkwo' : '',
         editableFields: spec.editableFields || [],
         requesterMessage: spec.status === 'update_required' ? 'Please revise the rotation date.' : '',
@@ -661,7 +661,7 @@ function buildRequests(sessions, calendar) {
       Object.assign(d, {
         date: patch.date,
         topic: patch.topic,
-        instructor: patch.instructor,
+        instructor: assignments.map(row => row.name).filter(Boolean).join('; '),
         instructorNames: assignments.map(row => row.name),
         facultyIds: assignments.map(row => row.facultyId),
         assignments,
