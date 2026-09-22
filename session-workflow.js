@@ -47,7 +47,16 @@
  const hasEveryRoster=(session,context)=>{
   const ids=groupIds(session);
   if(!ids.length)return false;
-  return ids.every(groupId=>rosterIds(context,groupId).length>0);
+  const groups=new Map((context?.labGroups||[]).map(group=>[text(group?.groupId),group]));
+  return ids.every(groupId=>{
+   const group=groups.get(groupId),privateRoster=context?.rosters?.[groupId];
+   if(group&&(group.active===false||(text(group.course)&&text(group.course)!==text(session?.course))))return false;
+   if(privateRoster){
+    const complete=rosterIds(context,groupId).length>0;
+    return complete&&(!group||group.rosterComplete===true);
+   }
+   return group?.active===true&&group.rosterComplete===true;
+  });
  };
 
  const field=(stage,key,label,required,complete)=>({stage,key,label,required,owner:stage,complete});

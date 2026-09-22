@@ -175,6 +175,7 @@ test('LAB roster planner creates only private roster-shaped writes for valid stu
   assert.deepEqual(JSON.parse(JSON.stringify(result.errors)),[]);
   assert.equal(result.plans.length,1);
   assert.equal(result.plans[0].groupId,'g-a');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.plans[0].groupPatch??null)),{rosterComplete:true,updatedAt:'SERVER_TIME',updatedBy:'uid-lab'});
   assert.deepEqual(JSON.parse(JSON.stringify(result.plans[0].data)),{
     groupId:'g-a',
     studentIds:['30012345','30012346'],

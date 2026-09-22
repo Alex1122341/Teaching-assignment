@@ -332,7 +332,11 @@ service cloud.firestore {
   function teachingWritesOpen(){return !teachingLocked();}
   // LAB groups: codes and colour keys are shared with the sanitized calendar, so
   // any office account may read them.
-  function labGroupWrite(id){return ready() && (developer() || general() || lab()) && request.resource.data.groupId == id && request.resource.data.groupCode is string && request.resource.data.colorKey is string && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time;}
+  function labRosterPath(id){return /databases/$(database)/documents/lab_group_rosters/$(id);}
+  function labGroupPath(id){return /databases/$(database)/documents/lab_groups/$(id);}
+  function labCompletionValid(id,d){return !d.keys().hasAny(['rosterComplete']) || (d.rosterComplete is bool && d.rosterComplete == (existsAfter(labRosterPath(id)) && getAfter(labRosterPath(id)).data.studentIds.size() > 0));}
+  function labGroupWrite(id){return ready() && (developer() || general() || lab()) && request.resource.data.keys().hasOnly(['groupId','academicYear','course','groupCode','colorKey','active','updatedAt','updatedBy','updatedByName','rosterComplete']) && request.resource.data.groupId == id && request.resource.data.groupCode is string && request.resource.data.colorKey is string && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && labCompletionValid(id,request.resource.data);}
+  function rosterCompletionPaired(id){let group=getAfter(labGroupPath(id)).data;return group.rosterComplete == (request.resource.data.studentIds.size() > 0) && group.updatedAt == request.time && group.updatedBy == request.auth.uid;}
   // Student rosters are private to LAB, Developer and Owner. ADFA, ADC, Faculty,
   // VISC, HICC and Other Office never receive student IDs.
   function rosterReader(){return ready() && (developer() || general() || lab());}
@@ -688,7 +692,7 @@ service cloud.firestore {
   }
   match /lab_group_rosters/{id} {
    allow read: if rosterReader();
-   allow create,update: if teachingWritesOpen() && rosterReader() && rosterShapeValid(request.resource.data) && request.resource.data.groupId == id;
+   allow create,update: if teachingWritesOpen() && rosterReader() && rosterShapeValid(request.resource.data) && request.resource.data.groupId == id && rosterCompletionPaired(id);
    allow delete: if false;
   }
   match /{document=**} {allow read,write: if false;}

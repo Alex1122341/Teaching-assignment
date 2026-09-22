@@ -163,14 +163,17 @@ test('interactive timetable saves use the conservative paired-write row budget',
  assert.match(js,/SESSION_SAVE_BATCH_ROWS\s*=\s*8/);
 });
 
-test('timetable page contract loads private LAB workflow context only for LAB-capable profiles',()=>{
- const js=read('timetable.js');
- assert.match(js,/db\.collection\('lab_groups'\)\.where\('active','==',true\)\.get\(\)/);
- assert.match(js,/db\.collection\('lab_group_rosters'\)\.get\(\)/);
- assert.match(js,/if\(!currentUser\|\|!hasOfficeAccess\('lab'\)\)/);
- assert.match(js,/workflowContext,/);
- assert.match(js,/ensureWorkflowContext:\(\)=>ensureLabWorkflowContext\(\)/);
- assert.match(js,/stage==='lab'\)await ensureLabWorkflowContext\(\)/);
+test('timetable page contract loads private LAB workflow context only for LAB-capable profiles',async()=>{
+ const vm=require('node:vm'),sourceFunction=require('../test-support/source-function');
+ for(const office of ['lab','adc','adfa','faculty']){
+  const reads=[],ctx={currentUser:{},hasOfficeAccess:name=>name===office,labGroupDirectory:new Map(),labRosterDirectory:new Map(),labWorkflowLoaded:false,labWorkflowLoading:null,publishPageData(){},
+   db:{collection(name){reads.push(name);return{where(){return this},async get(){return{docs:[]}}}}}};
+  vm.createContext(ctx);
+  vm.runInContext(sourceFunction('timetable.js','workflowContext')+'\n'+sourceFunction('timetable.js','ensureLabWorkflowContext'),ctx);
+  await ctx.ensureLabWorkflowContext();
+  assert.equal(reads.includes('lab_group_rosters'),office==='lab',office);
+  assert.equal(reads.includes('lab_groups'),office!=='faculty',office);
+ }
 });
 
 

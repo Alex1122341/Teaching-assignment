@@ -207,10 +207,10 @@
   function pageSessions(){return[...sessionCache.values()]}
   function workflowContext(){return{rosters:Object.fromEntries([...labRosterDirectory.entries()].map(([id,row])=>[id,row])),labGroups:[...labGroupDirectory.values()]}}
   async function ensureLabWorkflowContext(force=false){
-    if(!currentUser||!hasOfficeAccess('lab')){labGroupDirectory.clear();labRosterDirectory.clear();labWorkflowLoaded=false;return workflowContext()}
+    if(!currentUser||!['adc','lab','adfa'].some(hasOfficeAccess)){labGroupDirectory.clear();labRosterDirectory.clear();labWorkflowLoaded=false;return workflowContext()}
     if(labWorkflowLoaded&&!force)return workflowContext();
     if(labWorkflowLoading)return labWorkflowLoading;
-    labWorkflowLoading=Promise.all([db.collection('lab_groups').where('active','==',true).get(),db.collection('lab_group_rosters').get()]).then(([groups,rosters])=>{
+    labWorkflowLoading=Promise.all([db.collection('lab_groups').where('active','==',true).get({source:'server'}),hasOfficeAccess('lab')?db.collection('lab_group_rosters').get({source:'server'}):Promise.resolve({docs:[]})]).then(([groups,rosters])=>{
       labGroupDirectory.clear();labRosterDirectory.clear();
       for(const doc of groups.docs)labGroupDirectory.set(String(doc.id),{groupId:doc.id,...doc.data()});
       for(const doc of rosters.docs)if(labGroupDirectory.has(String(doc.id)))labRosterDirectory.set(String(doc.id),{groupId:doc.id,...doc.data()});
@@ -1115,7 +1115,7 @@
       target=find();
     }
     if(!target)return false;
-    if(stage==='lab')await ensureLabWorkflowContext();
+    await ensureLabWorkflowContext(true);
     const workflow=window.UCVM_SESSION_WORKFLOW,status=workflow?.stageStatus?.(target,stage,workflowContext());
     if(!status||status.status!=='ready')return false;
     if(targetDate){
@@ -1208,8 +1208,8 @@
     const plans=[];
     for(const [id,studentIds] of drafts){
       const before=(labRosterDirectory.get(id)?.studentIds||[]).map(String);
-      if(JSON.stringify(before)===JSON.stringify(studentIds))continue;
-      plans.push({groupId:id,data:api.rosterFor(id,{studentIds,updatedAt:timestamp,updatedBy:currentUser.uid,updatedByName:currentUser.name||currentUser.email||''})});
+      if(JSON.stringify(before)===JSON.stringify(studentIds)&&labGroupDirectory.get(id)?.rosterComplete===true)continue;
+      plans.push({groupId:id,data:api.rosterFor(id,{studentIds,updatedAt:timestamp,updatedBy:currentUser.uid,updatedByName:currentUser.name||currentUser.email||''}),groupPatch:{rosterComplete:studentIds.length>0,updatedAt:timestamp,updatedBy:currentUser.uid}});
     }
     return{plans,errors:[...new Set(errors)]};
   }
@@ -1273,7 +1273,7 @@
     let rows=readSelectionRows();
     if(scoped&&(rows.length!==1||String(rows[0].id)!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     await ensureSessionsForDates(rows.map(row=>row.date),true);
-    if(scoped){if(activeScoped.stage==='lab')await ensureLabWorkflowContext(true);const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,workflowContext());const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
+    if(scoped){await ensureLabWorkflowContext(true);const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,workflowContext());const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
     const rosterResult=buildSelectionLabRosterPlans(rows,timestamp),rosterPlans=rosterResult.plans,rosterAuditChanges=labRosterAuditChanges(rosterPlans);
     if(rosterResult.errors.length){errorBox.innerHTML=rosterResult.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
     const doePrepared=new Map(),doeRuntime=canEditFaculty?getTimetableDoeRuntime():null,originalById=new Map(originals.map(row=>[String(row.id),row]));
@@ -1289,7 +1289,7 @@
       button.disabled=true;button.textContent='Saving LAB roster...';
       try{
         const batch=db.batch(),row=rows[0]||originals[0]||{};
-        for(const roster of rosterPlans)batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);
+        for(const roster of rosterPlans){batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);batch.update(db.collection('lab_groups').doc(roster.groupId),roster.groupPatch)}
         batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{
           action:'lab_roster_update',override:null,requestId:'',sessionId:String(row.id||activeScoped?.sessionId||''),course:String(row.course||''),date:String(row.date||'').slice(0,10),topic:String(row.topic||''),instructors:[],
           changes:rosterAuditChanges,changedBy:currentUser.uid,changedByName:currentUser.name||currentUser.email||'',changedByEmail:'',changedAt:timestamp
@@ -1327,7 +1327,7 @@
         result={committed:true,completedRows,errors:[]};
       }else{
         let rosterWritesStaged=false;
-        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),queueRef:()=>db.collection('doe_recalculation_requests').doc(),queueData:(update,log,ref)=>queuedDoeRequestData(update.after||log.after,ref.id,'office_multi_session_edit',update.data.updatedAt||log.changedAt,log.before),stageExtraWrites:rosterPlans.length?({batch})=>{if(rosterWritesStaged)return 0;for(const roster of rosterPlans)batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);rosterWritesStaged=true;return rosterPlans.length}:null,onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(activeScoped?.stage==='lab'&&rosterPlans.length)await ensureLabWorkflowContext(true);if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
+        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),queueRef:()=>db.collection('doe_recalculation_requests').doc(),queueData:(update,log,ref)=>queuedDoeRequestData(update.after||log.after,ref.id,'office_multi_session_edit',update.data.updatedAt||log.changedAt,log.before),stageExtraWrites:rosterPlans.length?({batch})=>{if(rosterWritesStaged)return 0;for(const roster of rosterPlans){batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);batch.update(db.collection('lab_groups').doc(roster.groupId),roster.groupPatch)}rosterWritesStaged=true;return rosterPlans.length*2}:null,onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(activeScoped?.stage==='lab'&&rosterPlans.length)await ensureLabWorkflowContext(true);if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
       }
       const count=result.completedRows;delete button.dataset.resumeFrom;delete button.dataset.planKey;cancelSessionSelection();toast(`${count} session${count===1?'':'s'} updated with audit history${rosterPlans.length?` and ${rosterPlans.length} LAB roster${rosterPlans.length===1?'':'s'} saved`:''}.`);
     }catch(error){console.error('[multi-session save]',error);const completed=Number(error.completedRows||0);button.dataset.resumeFrom=String(completed);errorBox.textContent=completed?`${completed} of ${plan.updates.length} sessions were saved. The remaining rows were not saved. Check the connection or permissions, then click Resume save.`:error.committed?'The first batch was saved, but follow-up maintenance failed. Keep this review open and ask an administrator to verify indexes.':'Nothing was saved. Check your connection and permissions, then try again.';errorBox.classList.remove('hidden');button.disabled=false;button.textContent=completed?'Resume save':'Save selected changes'}

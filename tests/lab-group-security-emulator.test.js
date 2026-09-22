@@ -46,7 +46,10 @@ const db=uid=>env.authenticatedContext(uid).firestore();
 check('LAB may create a group and its roster',async()=>{
  const {assertSucceeds}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore'),fire=db('lab'),stamp=serverTimestamp();
  await assertSucceeds(fire.doc('lab_groups/g-b').set({groupId:'g-b',academicYear:'2026-27',course:'601',groupCode:'B',colorKey:'group-b',active:true,updatedBy:'lab',updatedAt:stamp}));
- await assertSucceeds(fire.doc('lab_group_rosters/g-b').set({groupId:'g-b',studentIds:['30012347'],updatedBy:'lab',updatedByName:'LAB',updatedAt:stamp}));
+ const batch=fire.batch();
+ batch.set(fire.doc('lab_group_rosters/g-b'),{groupId:'g-b',studentIds:['30012347'],updatedBy:'lab',updatedByName:'LAB',updatedAt:stamp});
+ batch.update(fire.doc('lab_groups/g-b'),{rosterComplete:true,updatedBy:'lab',updatedAt:stamp});
+ await assertSucceeds(batch.commit());
 });
 
 check('LAB scoped work can save topic, group, sanitized calendar, audit and private roster atomically',async()=>{
@@ -62,6 +65,7 @@ check('LAB scoped work can save topic, group, sanitized calendar, audit and priv
   changedBy:'lab',changedByName:'LAB',changedByEmail:'',changedAt:stamp
  });
  batch.set(fire.doc('lab_group_rosters/g-a'),{groupId:'g-a',studentIds:['30012345','30012346','30012349'],updatedBy:'lab',updatedByName:'LAB',updatedAt:stamp});
+ batch.update(fire.doc('lab_groups/g-a'),{rosterComplete:true,updatedBy:'lab',updatedAt:stamp});
  await assertSucceeds(batch.commit());
  const roster=await fire.doc('lab_group_rosters/g-a').get();
  if(!roster.exists||roster.data().studentIds.length!==3)throw Error('LAB roster write did not persist.');
@@ -73,7 +77,10 @@ check('Developer and Owner may manage groups and rosters',async()=>{
  const {assertSucceeds}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
  for(const uid of ['developer','owner']){
   const fire=db(uid),stamp=serverTimestamp();
-  await assertSucceeds(fire.doc('lab_group_rosters/g-a').set({groupId:'g-a',studentIds:['30012345'],updatedBy:uid,updatedByName:uid,updatedAt:stamp}));
+  const batch=fire.batch();
+  batch.set(fire.doc('lab_group_rosters/g-a'),{groupId:'g-a',studentIds:['30012345'],updatedBy:uid,updatedByName:uid,updatedAt:stamp});
+  batch.update(fire.doc('lab_groups/g-a'),{rosterComplete:true,updatedBy:uid,updatedAt:stamp});
+  await assertSucceeds(batch.commit());
  }
 });
 
