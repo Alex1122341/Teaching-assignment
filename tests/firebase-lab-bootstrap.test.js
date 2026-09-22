@@ -43,6 +43,30 @@ test('service account validation requires the isolated lab project',()=>{
   assert.throws(()=>tool.parseServiceAccount(''),/required/);
 });
 
+
+test('Firebase Admin v14 modular exports create Auth and Firestore clients',()=>{
+  const serviceAccount={project_id:'vista-teaching-lab',client_email:'svc@example.test',private_key:'PRIVATE'};
+  const appObject={name:'lab-app'};
+  const authClient={kind:'auth'};
+  const firestoreClient={kind:'firestore'};
+  const adminModule={
+    app:{
+      getApps:()=>[],
+      cert:account=>({account}),
+      initializeApp:options=>{assert.equal(options.projectId,'vista-teaching-lab');assert.equal(options.credential.account,serviceAccount);return appObject}
+    },
+    auth:{getAuth:app=>{assert.equal(app,appObject);return authClient}},
+    firestore:{
+      getFirestore:app=>{assert.equal(app,appObject);return firestoreClient},
+      FieldValue:{delete:()=>({delete:true})}
+    }
+  };
+  const clients=tool.createAdminClients(serviceAccount,{adminModule});
+  assert.equal(clients.auth,authClient);
+  assert.equal(clients.firestore,firestoreClient);
+  assert.equal(typeof clients.FieldValue.delete,'function');
+});
+
 test('profile builder emits only known role-appropriate account fields',()=>{
   const now=new Date('2026-09-20T00:00:00Z');
   const office=tool.buildProfile({email:'lab@ucalgary.ca',displayName:'LAB Test',role:'lab',facultyId:'',officeName:'UCVM LAB'},{actor:{uid:'actor',name:'Actor'},now});

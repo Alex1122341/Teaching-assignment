@@ -200,6 +200,7 @@
   toast:null,
   service:null,
   demoReadOnly:false,
+  labReadOnly:false,
   policies:[],
   versions:[],
   bundle:null,
@@ -341,7 +342,7 @@
  function renderBundle(){
   const version=state.bundle?.version;
   if(!version){setStatus('No policy selected');return}
-  const demoLabel=state.demoReadOnly?' · Frontend Demo · NON-AUTHORITATIVE · READ-ONLY':'';
+  const demoLabel=state.demoReadOnly?(state.labReadOnly?' · Firebase Lab · DOE policy data LIVE · authoritative writer OFF':' · Frontend Demo · NON-AUTHORITATIVE · READ-ONLY'):'';
   setStatus(`${version.academicYear} · v${version.versionNumber} · ${String(version.status||'').toUpperCase()} · revision ${version.revision??0}${demoLabel}`,version.status);
   applyPermissions();
   renderSection();
@@ -748,10 +749,16 @@
  function init({profile,user,toast}={}){
   const cap=capabilities(profile);
   if(!cap.initialize)return false;
-  const demoService=root?.UCVM_FRONTEND_DEMO_MODE===true?root?.UCVM_PAGES_DEMO?.doeRulebook:null,api=demoService||root?.UCVM_DOE_API;
-  if(!api?.listPolicies||!api?.loadPolicyBundle||!api?.saveRule)return false;
-  if(!demoService&&typeof api.isConfigured==='function'&&!api.isConfigured())return false;
-  state.profile=profile;state.user=user;state.toast=toast;state.service=api;state.demoReadOnly=Boolean(demoService?.readOnly);
+  const demoService=root?.UCVM_FRONTEND_DEMO_MODE===true?root?.UCVM_PAGES_DEMO?.doeRulebook:null,
+   labService=root?.UCVM_FIREBASE_LAB_MODE===true?root?.UCVM_DOE_LAB_SERVICE:null,
+   api=demoService||labService||root?.UCVM_DOE_API,
+   readOnlyService=Boolean(demoService?.readOnly||labService?.readOnly);
+  if(!api?.listPolicies||!api?.loadPolicyBundle)return false;
+  if(!readOnlyService&&!api?.saveRule)return false;
+  if(!demoService&&!labService&&typeof api.isConfigured==='function'&&!api.isConfigured())return false;
+  state.profile=profile;state.user=user;state.toast=toast;state.service=api;
+  state.labReadOnly=Boolean(labService?.readOnly);
+  state.demoReadOnly=Boolean(demoService?.readOnly||labService?.readOnly);
   state.initialized=true;
   wire();
   applyPermissions();
@@ -759,7 +766,7 @@
  }
 
  function destroy(){
-  state.initialized=false;state.profile=null;state.user=null;state.service=null;state.demoReadOnly=false;state.bundle=null;state.policies=[];state.versions=[];
+  state.initialized=false;state.profile=null;state.user=null;state.service=null;state.demoReadOnly=false;state.labReadOnly=false;state.bundle=null;state.policies=[];state.versions=[];
  }
 
  return{

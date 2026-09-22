@@ -15,27 +15,28 @@ test('Auth setup is hard-locked to the Firebase lab project and configure needs 
   assert.equal(tool.validateOptions({operation:'configure',confirmation:'CONFIGURE-AUTH:vista-teaching-lab'},{projectId:'vista-teaching-lab'}).operation,'configure');
 });
 
-test('Auth readiness requires email password sign-in and the GitHub Pages domain',()=>{
+test('Auth readiness requires email sign-in and the GitHub Pages domain but does not require password-only mode',()=>{
   const ready=tool.authReadiness({
-    signIn:{email:{enabled:true,passwordRequired:true}},
+    signIn:{email:{enabled:true,passwordRequired:false}},
     authorizedDomains:['localhost','alex1122341.github.io']
   });
   assert.equal(ready.ready,true);
   assert.equal(ready.pagesDomainAuthorized,true);
-  assert.equal(tool.authReadiness({signIn:{email:{enabled:false,passwordRequired:true}},authorizedDomains:['alex1122341.github.io']}).ready,false);
-  assert.equal(tool.authReadiness({signIn:{email:{enabled:true,passwordRequired:true}},authorizedDomains:['localhost']}).ready,false);
+  assert.equal(ready.passwordRequired,false);
+  assert.equal(tool.authReadiness({signIn:{email:{enabled:false,passwordRequired:false}},authorizedDomains:['alex1122341.github.io']}).ready,false);
+  assert.equal(tool.authReadiness({signIn:{email:{enabled:true,passwordRequired:false}},authorizedDomains:['localhost']}).ready,false);
 });
 
-test('configured Auth patch preserves existing domains and enables password sign-in',()=>{
+test('configured Auth patch preserves password optionality while enabling email sign-in and Pages domain',()=>{
   const patch=tool.configuredPatch({
-    signIn:{email:{enabled:false,passwordRequired:false},phoneNumber:{enabled:true}},
+    signIn:{email:{enabled:true,passwordRequired:false},phoneNumber:{enabled:true}},
     authorizedDomains:['Example.COM','localhost','example.com']
   });
-  assert.deepEqual(patch.signIn,{email:{enabled:true,passwordRequired:true}});
+  assert.deepEqual(patch.signIn,{email:{enabled:true,passwordRequired:false}});
   assert.deepEqual(patch.authorizedDomains,['alex1122341.github.io','example.com','localhost']);
 });
 
-test('Identity Toolkit client uses the lab config endpoint and update mask without leaking credentials',async()=>{
+test('Identity Toolkit client uses the lab config endpoint and update mask without leaking credentials or forcing a quota project',async()=>{
   const calls=[];
   const fetchImpl=async(url,options)=>{
     calls.push({url,options});
@@ -49,7 +50,73 @@ test('Identity Toolkit client uses the lab config endpoint and update mask witho
   assert.equal(calls[0].url,'https://identitytoolkit.googleapis.com/admin/v2/projects/vista-teaching-lab/config');
   assert.match(calls[1].url,/updateMask=signIn\.email,authorizedDomains$/);
   assert.equal(calls[0].options.headers.Authorization,'Bearer token-value');
-  assert.equal(calls[0].options.headers['X-Goog-User-Project'],'vista-teaching-lab');
+  assert.equal(calls[0].options.headers['X-Goog-User-Project'],undefined);
+});
+
+
+
+test('check treats an uninitialized Firebase Authentication project as not ready without mutating it',async()=>{
+  const calls=[];
+  const fetchImpl=async(url,options={})=>{
+    calls.push({url,method:options.method||'GET'});
+    return{
+      ok:false,status:404,
+      text:async()=>JSON.stringify({error:{status:'NOT_FOUND',message:'CONFIGURATION_NOT_FOUND'}})
+    };
+  };
+  const adminModule={cert:()=>({getAccessToken:async()=>({access_token:'token-value'})})};
+  const env={
+    FIREBASE_PROJECT_ID:'vista-teaching-lab',
+    FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({project_id:'vista-teaching-lab',client_email:'svc@example.test',private_key:'PRIVATE'})
+  };
+  const result=await tool.execute({operation:'check',confirmation:''},{env,adminModule,fetchImpl});
+  assert.equal(result.after.ready,false);
+  assert.equal(result.after.initialized,false);
+  assert.deepEqual(calls.map(row=>row.method),['GET']);
+});
+
+test('configure fails closed without billing-only Identity Platform initialization when Firebase Auth is missing',async()=>{
+  const calls=[];
+  const fetchImpl=async(url,options={})=>{
+    calls.push({url,method:options.method||'GET'});
+    return{
+      ok:false,status:404,
+      text:async()=>JSON.stringify({error:{status:'NOT_FOUND',message:'CONFIGURATION_NOT_FOUND'}})
+    };
+  };
+  const adminModule={cert:()=>({getAccessToken:async()=>({access_token:'token-value'})})};
+  const env={
+    FIREBASE_PROJECT_ID:'vista-teaching-lab',
+    FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({project_id:'vista-teaching-lab',client_email:'svc@example.test',private_key:'PRIVATE'})
+  };
+  await assert.rejects(
+    ()=>tool.execute(
+      {operation:'configure',confirmation:'CONFIGURE-AUTH:vista-teaching-lab'},
+      {env,adminModule,fetchImpl}
+    ),
+    error=>{
+      assert.equal(error.code,'FIREBASE_AUTH_CONSOLE_SETUP_REQUIRED');
+      assert.match(error.message,/Firebase Console/);
+      assert.match(error.message,/Email\/Password/);
+      return true;
+    }
+  );
+  assert.deepEqual(calls.map(row=>row.method),['GET']);
+  assert.equal(calls.some(row=>row.url.includes('identityPlatform:initializeAuth')),false);
+});
+
+test('Firebase Admin v14 modular cert export can mint an access token',async()=>{
+  const calls=[];
+  const adminModule={
+    cert(serviceAccount){
+      calls.push(serviceAccount);
+      return{getAccessToken:async()=>({access_token:'lab-access-token'})};
+    }
+  };
+  const account={project_id:'vista-teaching-lab',client_email:'svc@example.test',private_key:'PRIVATE'};
+  const token=await tool.accessTokenFor(account,{adminModule});
+  assert.equal(token,'lab-access-token');
+  assert.deepEqual(calls,[account]);
 });
 
 test('Firebase Lab Auth Setup workflow is manual, lab-only and uses the protected Admin environment',()=>{
