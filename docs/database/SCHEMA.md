@@ -246,7 +246,13 @@ interrupted import recoverable rather than permanently locking teaching writes.
 
 `session_change_log` / `faculty_change_log` shape: `action`, `override`,
 `requestId`, `sessionId`, `course`, `date`, `topic`, `instructors`, `changes`,
-`changedBy`, `changedByName`, `changedByEmail`, `changedAt`.
+`relatedFacultyIds`, `changedBy`, `changedByName`, `changedByEmail`, `changedAt`.
+
+`relatedFacultyIds` is the de-duplicated union of Faculty IDs linked to the
+session immediately before and after the event. It is audit relationship
+metadata, not a public-calendar field. It lets a Faculty/HICC/VISC account read
+its own session history even after reassignment or session deletion without a
+second rules lookup into the current `sessions` document.
 
 **A correction is a new event.** `update` and `delete` are denied on all six.
 
