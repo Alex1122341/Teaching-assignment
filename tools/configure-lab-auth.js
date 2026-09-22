@@ -48,7 +48,7 @@ function authReadiness(config={}){
     passwordRequired:email.passwordRequired===true,
     pagesDomainAuthorized:domains.includes(PAGES_DOMAIN),
     authorizedDomains:domains,
-    ready:email.enabled===true&&email.passwordRequired===true&&domains.includes(PAGES_DOMAIN)
+    ready:email.enabled===true&&domains.includes(PAGES_DOMAIN)
   };
 }
 
@@ -58,7 +58,7 @@ function configuredPatch(config={}){
     signIn:{
       email:{
         enabled:true,
-        passwordRequired:true
+        passwordRequired:config?.signIn?.email?.passwordRequired===true
       }
     },
     authorizedDomains:normalizeDomains([...currentDomains,PAGES_DOMAIN])
@@ -80,8 +80,7 @@ async function identityRequest({method='GET',accessToken,body,fetchImpl=globalTh
     method,
     headers:{
       Authorization:`Bearer ${token}`,
-      'Content-Type':'application/json',
-      'X-Goog-User-Project':LAB_PROJECT_ID
+      'Content-Type':'application/json'
     },
     body:body===undefined?undefined:JSON.stringify(body)
   });
@@ -90,7 +89,10 @@ async function identityRequest({method='GET',accessToken,body,fetchImpl=globalTh
   try{payload=raw?JSON.parse(raw):{}}catch{payload={raw:raw.slice(0,500)}}
   if(!response.ok){
     const message=text(payload?.error?.message)||`HTTP ${response.status}`;
-    throw Error(`Identity Toolkit ${method} failed: ${message}`);
+    const error=Error(`Identity Toolkit ${method} failed: ${message}`);
+    error.statusCode=response.status;
+    error.apiCode=text(payload?.error?.message||payload?.error?.status);
+    throw error;
   }
   return payload;
 }
@@ -98,16 +100,18 @@ async function identityRequest({method='GET',accessToken,body,fetchImpl=globalTh
 function loadFirebaseAdmin(){
   const root=path.resolve(__dirname,'..');
   const requireFromServer=createRequire(path.join(root,'server','package.json'));
-  try{return requireFromServer('firebase-admin')}
+  try{return requireFromServer('firebase-admin/app')}
   catch(error){
-    error.message=`firebase-admin is required. Run "npm --prefix server ci". ${error.message}`;
+    error.message=`firebase-admin is required. Run "npm --prefix server install --no-audit --no-fund". ${error.message}`;
     throw error;
   }
 }
 
 async function accessTokenFor(serviceAccount,{adminModule}={}){
   const admin=adminModule||loadFirebaseAdmin();
-  const credential=admin.credential.cert(serviceAccount);
+  const certFn=typeof admin?.cert==='function'?admin.cert:admin?.credential?.cert;
+  if(typeof certFn!=='function')throw Error('Firebase Admin SDK does not expose a compatible cert() credential factory.');
+  const credential=certFn.call(admin?.credential||admin,serviceAccount);
   const value=await credential.getAccessToken();
   const token=text(value?.access_token||value?.accessToken);
   if(!token)throw Error('Firebase Admin credential did not return a Google access token.');
@@ -118,8 +122,23 @@ async function execute(options,{env=process.env,adminModule,fetchImpl=globalThis
   const normalized=validateOptions(options,{projectId:env.FIREBASE_PROJECT_ID});
   const account=parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT_JSON);
   const accessToken=await accessTokenFor(account,{adminModule});
-  let current=await identityRequest({accessToken,fetchImpl});
-  const before=authReadiness(current);
+  let current;
+  try{
+    current=await identityRequest({accessToken,fetchImpl});
+  }catch(error){
+    if(error?.apiCode!=='CONFIGURATION_NOT_FOUND')throw error;
+    const missing={...authReadiness({}),initialized:false};
+    if(normalized.operation==='check'){
+      return{operation:'check',changed:false,before:missing,after:missing};
+    }
+    const setupError=Error(
+      'Firebase Authentication is not initialized for vista-teaching-lab. '+
+      'In Firebase Console open Authentication, click Get started, enable Email/Password, save, then rerun this workflow.'
+    );
+    setupError.code='FIREBASE_AUTH_CONSOLE_SETUP_REQUIRED';
+    throw setupError;
+  }
+  const before={...authReadiness(current),initialized:true};
 
   if(normalized.operation==='check'){
     return{operation:'check',changed:false,before,after:before};
@@ -127,7 +146,7 @@ async function execute(options,{env=process.env,adminModule,fetchImpl=globalThis
 
   const patch=configuredPatch(current);
   current=await identityRequest({method:'PATCH',accessToken,body:patch,fetchImpl});
-  const after=authReadiness(current);
+  const after={...authReadiness(current),initialized:true};
   if(!after.ready)throw Error('Firebase Authentication configuration is still not ready after the update.');
   return{operation:'configure',changed:JSON.stringify(before)!==JSON.stringify(after),before,after};
 }

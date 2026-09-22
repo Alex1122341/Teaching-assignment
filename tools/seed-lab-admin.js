@@ -1,9 +1,7 @@
 'use strict';
 
-const path=require('node:path');
-const {createRequire}=require('node:module');
 const {buildDataset}=require('./seed/dataset.js');
-const {parseServiceAccount}=require('./bootstrap-lab-user.js');
+const {parseServiceAccount,createAdminClients}=require('./bootstrap-lab-user.js');
 
 const LAB_PROJECT_ID='vista-teaching-lab';
 const MODES=new Set(['verify','seed']);
@@ -31,25 +29,9 @@ function chunkDocuments(documents=[],size=400){
   return chunks;
 }
 
-function loadFirebaseAdmin(){
-  const root=path.resolve(__dirname,'..');
-  const requireFromServer=createRequire(path.join(root,'server','package.json'));
-  try{return requireFromServer('firebase-admin')}
-  catch(error){
-    error.message=`firebase-admin is required. Run "npm --prefix server ci". ${error.message}`;
-    throw error;
-  }
-}
-
 function initializeAdmin(serviceAccount,{adminModule}={}){
-  const admin=adminModule||loadFirebaseAdmin();
-  if(!admin.apps.length){
-    admin.initializeApp({
-      projectId:LAB_PROJECT_ID,
-      credential:admin.credential.cert(serviceAccount)
-    });
-  }
-  return{admin,firestore:admin.firestore()};
+  const clients=createAdminClients(serviceAccount,{adminModule});
+  return{admin:clients.admin,firestore:clients.firestore};
 }
 
 async function verifyDataset(firestore,dataset=buildDataset()){
