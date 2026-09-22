@@ -36,6 +36,19 @@ test('pending and update-required requests still point at their unchanged base t
  }
 });
 
+test('synthetic private request records exist only for Faculty-changing swaps',()=>{
+ const map=docs();
+ for(const [path,request] of [...map.entries()].filter(([path])=>path.startsWith('change_requests/'))){
+  const id=path.slice('change_requests/'.length),privateRecord=map.get('change_request_private/'+id);
+  if(request.requestType==='faculty_swap'){
+   assert.ok(privateRecord,path+' private record');
+   assert.equal(privateRecord.requestId,id,path+' private requestId');
+  }else{
+   assert.equal(privateRecord,undefined,path+' must not have a private swap record');
+  }
+ }
+});
+
 test('approved workflow fixture is already applied to canonical session and calendar',()=>{
  const map=docs(),request=map.get('change_requests/req-003');
  assert.equal(request.status,'approved');
