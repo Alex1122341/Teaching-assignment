@@ -32,13 +32,13 @@ test('Pages demo preserves same-version local state and resets it when the seed 
   const upgraded=runtime.createStore(v2,storage);
   assert.equal(upgraded.read('sessions/s1').topic,'Seed v2');
   assert.equal(upgraded.read('sessions/s1').count,7);
-  const persisted=JSON.parse(memory.get('ucvm-pages-demo-firestore-v1'));
+  const persisted=JSON.parse(memory.get('ucvm-pages-demo-firestore-v2'));
   assert.equal(persisted.__ucvmSeedVersion,2);
   assert.equal(persisted.records['sessions/s1'].topic,'Seed v2');
 });
 
 test('Pages demo rejects legacy unversioned browser snapshots instead of reviving stale fixtures',()=>{
-  const memory=new Map([['ucvm-pages-demo-firestore-v1',JSON.stringify({'sessions/s1':{topic:'Legacy stale'}})]]);
+  const memory=new Map([['ucvm-pages-demo-firestore-v2',JSON.stringify({'sessions/s1':{topic:'Legacy stale'}})]]);
   const storage={getItem:key=>memory.get(key)||null,setItem:(key,value)=>memory.set(key,value)};
   const store=runtime.createStore({version:2,documents:[{path:'sessions/s1',data:{topic:'Current seed'}}]},storage);
   assert.equal(store.read('sessions/s1').topic,'Current seed');
