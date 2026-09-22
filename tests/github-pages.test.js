@@ -183,7 +183,7 @@ test('Pages staging changes only the supplied build directory',()=>{
   assert.ok(fs.existsSync(path.join(dir,'pages-demo-data.js')));
   const demoSeedSource=fs.readFileSync(path.join(dir,'pages-demo-data.js'),'utf8');
   const demoSeed=JSON.parse(demoSeedSource.replace(/^window\.UCVM_PAGES_DEMO_SEED=/,'').replace(/;\s*$/,''));
-  assert.equal(demoSeed.version,2);
+  assert.equal(demoSeed.version,3);
   assert.ok(fs.existsSync(path.join(dir,'.nojekyll')));
   assert.ok(fs.existsSync(path.join(dir,'faculty-dashboard.html')));
 
