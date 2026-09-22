@@ -110,7 +110,7 @@ const config=window.UCVM_FIREBASE_CONFIG;
     for(const field of ['changedBy','requesterUid','reportToUid'])await queryField('afc_audit',field,uid,'afc');
     await queryField('change_request_audit','changedBy',uid,'request');
     if(['faculty','hicc','visc'].includes(normalizedRole)){
-      const ownRequests=await db.collection('change_requests').where('requesterUid','==',uid).get();
+      const ownRequests=await db.collection('change_requests').where('requestSchema','==','office-routing-v1').where('requesterUid','==',uid).get();
       for(const d of ownRequests.docs||[]){
         const request={id:d.id,...d.data()};addEntry({...request,requestId:d.id,action:`request_${request.status||'changed'}`,changedAt:request.updatedAt||request.requestedAt},'request');
         // The public request record is the requester's relationship-based lifecycle view.
