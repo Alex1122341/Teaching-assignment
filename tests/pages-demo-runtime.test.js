@@ -18,6 +18,32 @@ test('Pages demo store supports reads, writes, merge and reset without cloud sta
   assert.equal(store.read('sessions/s1').note,undefined);
 });
 
+test('Pages demo preserves same-version local state and resets it when the seed version changes',()=>{
+  const memory=new Map();
+  const storage={getItem:key=>memory.get(key)||null,setItem:(key,value)=>memory.set(key,value)};
+  const v1={version:1,documents:[{path:'sessions/s1',data:{topic:'Seed v1',count:1}}]};
+  const first=runtime.createStore(v1,storage);
+  first.update('sessions/s1',{topic:'Local edit',count:2});
+  const same=runtime.createStore(v1,storage);
+  assert.equal(same.read('sessions/s1').topic,'Local edit');
+  assert.equal(same.read('sessions/s1').count,2);
+
+  const v2={version:2,documents:[{path:'sessions/s1',data:{topic:'Seed v2',count:7}}]};
+  const upgraded=runtime.createStore(v2,storage);
+  assert.equal(upgraded.read('sessions/s1').topic,'Seed v2');
+  assert.equal(upgraded.read('sessions/s1').count,7);
+  const persisted=JSON.parse(memory.get('ucvm-pages-demo-firestore-v1'));
+  assert.equal(persisted.__ucvmSeedVersion,2);
+  assert.equal(persisted.records['sessions/s1'].topic,'Seed v2');
+});
+
+test('Pages demo rejects legacy unversioned browser snapshots instead of reviving stale fixtures',()=>{
+  const memory=new Map([['ucvm-pages-demo-firestore-v1',JSON.stringify({'sessions/s1':{topic:'Legacy stale'}})]]);
+  const storage={getItem:key=>memory.get(key)||null,setItem:(key,value)=>memory.set(key,value)};
+  const store=runtime.createStore({version:2,documents:[{path:'sessions/s1',data:{topic:'Current seed'}}]},storage);
+  assert.equal(store.read('sessions/s1').topic,'Current seed');
+});
+
 test('Pages demo query filter helper covers timetable query operators',()=>{
   const row={date:'2027-01-11',facultyIds:['f1','f2'],year:2};
   assert.equal(runtime.filterMatches(row,'date','>=','2027-01-01'),true);
