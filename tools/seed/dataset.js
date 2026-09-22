@@ -588,20 +588,22 @@ function buildRequests(sessions, calendar) {
       });
     }
 
-    docs.push({
-      path: `change_request_private/${spec.id}`,
-      data: {
-        requestId: spec.id,
-        requesterUid: 'uid-hicc-1',
-        revision: spec.revision,
-        assignmentChange: {
-          assignmentIndex: 0,
-          from: {facultyId: d.assignments[0]?.facultyId || '', candidateKey: '', kind: ''},
-          to: spec.scopes.adfa ? {facultyId: '', candidateKey: 'cand-003', kind: ''} : {facultyId: d.assignments[0]?.facultyId || '', candidateKey: '', kind: ''}
-        },
-        updatedAt: stamp(-200 + index * 10)
-      }
-    });
+    if (spec.scopes.adfa) {
+      docs.push({
+        path: `change_request_private/${spec.id}`,
+        data: {
+          requestId: spec.id,
+          requesterUid: 'uid-hicc-1',
+          revision: spec.revision,
+          assignmentChange: {
+            assignmentIndex: 0,
+            from: {facultyId: d.assignments[0]?.facultyId || '', candidateKey: '', kind: ''},
+            to: {facultyId: '', candidateKey: 'cand-003', kind: ''}
+          },
+          updatedAt: stamp(-200 + index * 10)
+        }
+      });
+    }
 
     docs.push({
       path: `change_request_audit/${spec.id}_submitted`,
