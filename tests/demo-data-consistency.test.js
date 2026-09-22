@@ -83,7 +83,7 @@ test('update-required serial fixture records ADC push back while LAB remains pen
  assert.equal(map.get('change_request_approvals/req-002_lab').status,'pending');
 });
 
-test('synthetic HICC routed requests use the Firestore-authorized HICC scope',()=>{
+test('synthetic HICC routed requests use authorized group scope and display fields',()=>{
  const map=docs();
  for(const [path,row] of [...map.entries()].filter(([path])=>path.startsWith('change_requests/'))){
   assert.equal(row.requestSchema,'office-routing-v1',path+' schema');
@@ -91,6 +91,17 @@ test('synthetic HICC routed requests use the Firestore-authorized HICC scope',()
   assert.equal(row.scope,'hicc',path+' scope');
   assert.ok(row.groupId,path+' groupId');
   assert.ok(row.groupName,path+' groupName');
+  const group=map.get('faculty_groups/'+row.groupId),session=map.get('sessions/'+row.sessionId);
+  assert.ok(group,path+' group');
+  assert.ok(session,path+' session');
+  assert.ok(group.courseIds.includes(session.course),path+' session must be inside HICC course scope');
+  if(row.requestType==='session_edit'){
+   assert.equal(row.currentFacultyName,'',path+' currentFacultyName');
+   assert.equal(row.proposedFacultyName,'',path+' proposedFacultyName');
+  }else{
+   assert.ok(row.currentFacultyName,path+' currentFacultyName');
+   assert.ok(row.proposedFacultyName,path+' proposedFacultyName');
+  }
  }
 });
 
