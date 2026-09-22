@@ -89,7 +89,8 @@ const config=window.UCVM_FIREBASE_CONFIG;
  function normalizeEntry(raw,source){const e={...raw,source};e.changedAt=e.changedAt||e.updatedAt||e.requestedAt||e.submittedAt||null;if(source==='request'&&!e.action)e.action=e.event||(`request_${e.status||'changed'}`);e.changes=window.UCVM_AUDIT_DETAILS?.changes(e)||e.changes||[];if(e.changes.length)return e;if(source==='session'&&e.action==='swap_faculty')e.changes=[{field:'assignments',label:'Faculty',before:e.fromFaculty?.name||e.fromFaculty?.ucid||'',after:e.toFaculty?.name||e.toFaculty?.ucid||''}];else if(source==='session'&&e.action==='create')e.changes=[{field:'session',label:'Session',before:null,after:[e.course,e.date,e.topic].filter(Boolean).join(' · ')}];else if(source==='session'&&e.action==='delete')e.changes=[{field:'session',label:'Session',before:[e.course,e.date,e.topic].filter(Boolean).join(' · '),after:null}];else if(source==='faculty'&&e.action==='create')e.changes=[{field:'faculty',label:'Faculty record',before:null,after:e.facultyName||e.facultyId}];else if(source==='faculty'&&e.action==='delete')e.changes=[{field:'faculty',label:'Faculty record',before:e.facultyName||e.facultyId,after:null}];else if(source==='account')e.changes=[{field:'access',label:'Account access',before:e.beforeRole?`${e.targetName||e.targetUid} · ${label(e.beforeRole)}`:null,after:[e.targetName||e.targetUid,e.role?label(e.role):'',typeof e.active==='boolean'?(e.active?'Active':'Disabled'):''].filter(Boolean).join(' · ')}];else if(source==='afc')e.changes=[{field:'afc',label:'AFC request',before:null,after:e.status||e.action||e.requestId||'Updated'}];else if(source==='request')e.changes=[{field:'request',label:'Teaching change request',before:null,after:e.status||e.event||e.action||e.requestId||'Updated'}];return e}
  async function logs(container,{includeFaculty=false,profile=null,scope='authorized'}={}){
   includeFaculty=includeFaculty||container?.id==='faculty-audit';
-  const {auth,db}=init(),user=auth.currentUser,selfOnly=scope==='self',canReadAll=!selfOnly&&historyAll(profile),PAGE_SIZE=20;
+  const {auth,db}=init(),user=auth.currentUser,selfOnly=scope==='self',canReadAll=!selfOnly&&historyAll(profile);
+  const PAGE_SIZE=20;
   let entries=[],loading=false,selfExtrasLoaded=!selfOnly;
   const entryKeys=new Set(),cursors={session:null,faculty:null,account:null},exhausted={session:false,faculty:!includeFaculty,account:false};
   container.innerHTML='<div class="audit-toolbar"><label><span>Search loaded history</span><input id="audit-search" placeholder="Course, name, person or change"></label><label><span>Change type</span><select id="audit-kind" aria-label="Change type"><option value="">All changes</option><option value="create">Added</option><option value="delete">Deleted</option><option value="time">Time/date</option><option value="name">Name</option><option value="faculty">Faculty</option></select></label><p id="audit-status" role="status"></p></div><div class="table-scroll"><table class="audit-table"><thead><tr><th>When (Calgary)</th><th>By whom</th><th>Session / record</th><th>Action</th><th>Before → after</th></tr></thead><tbody id="audit-body"></tbody></table></div><div class="audit-footer"><button id="audit-more">Load older changes</button></div>';
@@ -112,7 +113,9 @@ const config=window.UCVM_FIREBASE_CONFIG;
       const ownRequests=await db.collection('change_requests').where('requesterUid','==',uid).get();
       for(const d of ownRequests.docs||[]){
         const request={id:d.id,...d.data()};addEntry({...request,requestId:d.id,action:`request_${request.status||'changed'}`,changedAt:request.updatedAt||request.requestedAt},'request');
-        const audit=await db.collection('change_request_audit').where('requestId','==',d.id).get();addSnapshot(audit,'request');
+        // The public request record is the requester's relationship-based lifecycle view.
+        // Internal audit events remain global-admin or actor-only so self history does
+        // not need another Firestore rule document lookup for every audit row.
       }
     }
     if(facultyId){
