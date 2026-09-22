@@ -84,15 +84,36 @@ jobs:
             });
             const auth=getAuth(app);
             const firestore=getFirestore(app);
-            const users=await auth.listUsers(1);
-            const probe=await firestore.collection('users').limit(1).get();
+            let authResult={reachable:false,errorCode:'',errorMessage:''};
+            try{
+              const users=await auth.listUsers(1);
+              authResult={reachable:true,userSampleCount:users.users.length,errorCode:'',errorMessage:''};
+            }catch(error){
+              authResult={
+                reachable:false,
+                userSampleCount:0,
+                errorCode:String(error?.code||''),
+                errorMessage:String(error?.message||'').slice(0,200)
+              };
+            }
+            let firestoreResult={reachable:false,errorCode:'',errorMessage:''};
+            try{
+              const probe=await firestore.collection('users').limit(1).get();
+              firestoreResult={reachable:true,userSampleCount:probe.size,errorCode:'',errorMessage:''};
+            }catch(error){
+              firestoreResult={
+                reachable:false,
+                userSampleCount:0,
+                errorCode:String(error?.code||''),
+                errorMessage:String(error?.message||'').slice(0,200)
+              };
+            }
             console.log(JSON.stringify({
               projectId:'vista-teaching-lab',
-              authReachable:true,
-              authUserSampleCount:users.users.length,
-              firestoreReachable:true,
-              firestoreUserSampleCount:probe.size
+              auth:authResult,
+              firestore:firestoreResult
             },null,2));
             if(typeof firestore.terminate==='function')await firestore.terminate();
+            if(!firestoreResult.reachable)process.exitCode=2;
           })().catch(error=>{console.error(error.stack||error.message);process.exit(1)});
           NODE
