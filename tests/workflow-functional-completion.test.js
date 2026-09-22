@@ -146,3 +146,74 @@ test('approval request listener follows actual officeAccess grants instead of on
   assert.doesNotMatch(listener,/currentOffice=office\(\)/);
   assert.match(listener,/byRequest=new Map\(\)/);
 });
+
+
+function rosterPlannerHarness(rawByGroup,existing={}){
+  const labGroups=require('../lab-groups.js');
+  const context={
+    window:{UCVM_LAB_GROUPS:labGroups},
+    scopedWork:{stage:'lab'},
+    selectionCapabilities:()=>({canEditLabRoster:true}),
+    captureSelectionLabRosterDrafts:()=>{},
+    selectionLabRosterDrafts:new Map(Object.entries(rawByGroup||{})),
+    labGroupDirectory:new Map([
+      ['g-a',{groupId:'g-a',groupCode:'A',course:'505'}],
+      ['g-b',{groupId:'g-b',groupCode:'B',course:'505'}]
+    ]),
+    labRosterDirectory:new Map(Object.entries(existing||{})),
+    currentUser:{uid:'uid-lab',name:'LAB Coordinator',email:'lab@example.test'}
+  };
+  vm.createContext(context);
+  vm.runInContext(sourceFunction('timetable.js','buildSelectionLabRosterPlans'),context);
+  return context;
+}
+
+test('LAB roster planner creates only private roster-shaped writes for valid student IDs',()=>{
+  const ctx=rosterPlannerHarness({'g-a':'30012345\n30012346'});
+  const result=ctx.buildSelectionLabRosterPlans([{course:'505',labGroupIds:['g-a']}],'SERVER_TIME');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.errors)),[]);
+  assert.equal(result.plans.length,1);
+  assert.equal(result.plans[0].groupId,'g-a');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.plans[0].data)),{
+    groupId:'g-a',
+    studentIds:['30012345','30012346'],
+    updatedAt:'SERVER_TIME',
+    updatedBy:'uid-lab',
+    updatedByName:'LAB Coordinator'
+  });
+  for(const forbidden of ['sessionId','course','topic','facultyIds','assignments'])assert.equal(Object.hasOwn(result.plans[0].data,forbidden),false,forbidden);
+});
+
+test('LAB roster planner blocks invalid, duplicate and cross-group student assignments',()=>{
+  const invalid=rosterPlannerHarness({'g-a':'bad\n30012345\n30012345'});
+  const invalidResult=invalid.buildSelectionLabRosterPlans([{course:'505',labGroupIds:['g-a']}],'SERVER_TIME');
+  assert.ok(invalidResult.errors.some(message=>/line 1.*6–12 digit/i.test(message)));
+  assert.ok(invalidResult.errors.some(message=>/duplicate student/i.test(message)));
+
+  const duplicate=rosterPlannerHarness(
+    {'g-a':'30012345'},
+    {'g-b':{studentIds:['30012345']}}
+  );
+  const duplicateResult=duplicate.buildSelectionLabRosterPlans([{course:'505',labGroupIds:['g-a']}],'SERVER_TIME');
+  assert.ok(duplicateResult.errors.some(message=>/both Group B and Group A|both Group A and Group B/i.test(message)));
+});
+
+test('LAB roster editor is scoped to LAB work and persists through the private roster collection',()=>{
+  const source=read('timetable.js');
+  assert.match(source,/canEditLabRoster=scopedWork\?\.stage==='lab'&&selectionCapabilities\(\)\.canEditLabRoster===true/);
+  assert.match(source,/data-selection-lab-roster=/);
+  assert.match(source,/UCVM_LAB_GROUPS/);
+  assert.match(source,/api\.parseRoster/);
+  assert.match(source,/api\.rosterFor/);
+  assert.match(source,/db\.collection\('lab_group_rosters'\)\.doc\(roster\.groupId\)/);
+  assert.match(source,/stageExtraWrites:rosterPlans\.length/);
+  assert.match(source,/await ensureLabWorkflowContext\(true\)/);
+  assert.doesNotMatch(source,/calendarFromSource:[^\n]*studentIds/);
+});
+
+test('LAB roster completion stays private from the sanitized calendar model',()=>{
+  const calendar=read('calendar-session.js');
+  assert.match(calendar,/Student IDs live only in the private roster collection/);
+  assert.doesNotMatch(calendar,/out\.studentIds\s*=/);
+  assert.doesNotMatch(calendar,/out\.roster\s*=/);
+});
