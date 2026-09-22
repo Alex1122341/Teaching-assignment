@@ -143,6 +143,37 @@ test('3b. workflow Firebase Lab config overrides the committed placeholder',()=>
   }
 });
 
+test('3c. Firebase Lab rewrites the hashed shared-auth bundle and updates HTML',()=>{
+  const directory=makeDirectory();
+  fs.rmSync(path.join(directory,'firebase-config.js'),{force:true});
+  const bundleDir=path.join(directory,'bundles');
+  fs.mkdirSync(bundleDir,{recursive:true});
+  const oldName='shared-auth.aaaaaaaaaaaa.bundle.js';
+  const oldRelative='bundles/'+oldName;
+  fs.writeFileSync(path.join(bundleDir,oldName),
+    '/* SOURCE: firebase-config.js */\n'+CONFIG_SOURCE+
+    '\n;\n/* SOURCE: faculty-access.js */\nwindow.UCVM={};\n'
+  );
+  const firebase='<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>';
+  fs.writeFileSync(path.join(directory,'index.html'),
+    '<!doctype html><html><body>'+firebase+'<script src="'+oldRelative+'"></script></body></html>'
+  );
+  const configPath=writeLabConfig(directory);
+  const result=staging.stagePagesDirectory(directory,{prNumber:0,headSha:SHA,buildSha:SHA},{mode:'lab',configPath});
+  const html=fs.readFileSync(path.join(directory,'index.html'),'utf8');
+  assert.doesNotMatch(html,/shared-auth\.aaaaaaaaaaaa\.bundle\.js/);
+  const match=html.match(/bundles\/(shared-auth\.[0-9a-f]{12}\.bundle\.js)/);
+  assert.ok(match,'staged HTML should reference a content-hashed auth bundle');
+  const relative='bundles/'+match[1];
+  assert.ok(fs.existsSync(path.join(directory,relative)));
+  assert.equal(fs.existsSync(path.join(directory,oldRelative)),false);
+  const bundle=fs.readFileSync(path.join(directory,relative),'utf8');
+  assert.match(bundle,new RegExp(FAKE_WEB_KEY));
+  assert.doesNotMatch(bundle,/apiKey:"placeholder"/);
+  assert.ok(html.indexOf(relative)<html.indexOf('firebase-lab-runtime.js'));
+  assert.ok(result.labFiles.includes(relative));
+});
+
 test('4. Firebase Lab uses Firebase Authentication',()=>{
   const runtime=read(LAB_RUNTIME);
   assert.match(runtime,/firebase\.auth\(\)/);

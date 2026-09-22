@@ -1,6 +1,7 @@
 'use strict';
 const fs=require('node:fs');
 const path=require('node:path');
+const crypto=require('node:crypto');
 const BANNER_ID='github-pages-test-site-banner';
 const BANNER_CLASS='github-pages-test-site-notice';
 const DEMO_DATA_FILE='pages-demo-data.js';
@@ -73,7 +74,10 @@ function injectLabRuntime(html){
   const source=String(html);
   if(source.includes(LAB_RUNTIME_FILE))return source;
   const tags=labScriptTags();
-  const configTag=/<script[^>]+firebase-config\.js[^>]*><\/script>/i;
+  // Source layouts load firebase-config.js directly. Lightweight deployments
+  // fold it into a content-hashed shared-auth bundle; in both cases the Lab
+  // runtime must execute after the client config/auth helpers are installed.
+  const configTag=/<script[^>]+(?:firebase-config\.js|bundles\/shared-auth(?:\.[0-9a-f]{12})?\.bundle\.js)[^>]*><\/script>/i;
   if(configTag.test(source))return source.replace(configTag,match=>match+'\n'+tags);
   const firestoreTag=/<script[^>]+firebase-firestore-compat\.js[^>]*><\/script>/i;
   if(firestoreTag.test(source))return source.replace(firestoreTag,match=>match+'\n'+tags);
@@ -110,19 +114,55 @@ function readLabConfig({configPath,allowPlaceholderConfig=false}={}){
   };
 }
 
+function rewriteFirebaseConfigSource(source,config){
+  const replacement=`const config = ${JSON.stringify(config,null,2).replace(/\n/g,'\n  ')};`;
+  const updated=String(source).replace(/const\s+config\s*=\s*\{[\s\S]*?\};/,replacement);
+  if(updated===String(source))throw Error('Could not rewrite Firebase client configuration for Firebase Lab mode.');
+  return updated;
+}
+
+function labAuthBundle(directory){
+  const bundleDir=path.join(directory,'bundles');
+  if(!fs.existsSync(bundleDir)||!fs.statSync(bundleDir).isDirectory())return null;
+  const names=fs.readdirSync(bundleDir).filter(name=>/^shared-auth(?:\.[0-9a-f]{12})?\.bundle\.js$/i.test(name));
+  if(names.length>1)throw Error('Multiple shared-auth bundles found in the Pages directory.');
+  return names.length?path.join(bundleDir,names[0]):null;
+}
+
+function rewriteLabClientConfig(directory,config){
+  const target=path.resolve(directory);
+  const standalone=path.join(target,'firebase-config.js');
+  if(fs.existsSync(standalone)){
+    fs.writeFileSync(standalone,rewriteFirebaseConfigSource(fs.readFileSync(standalone,'utf8'),config));
+    return'firebase-config.js';
+  }
+  const bundle=labAuthBundle(target);
+  if(!bundle)throw Error('Firebase client configuration is missing from the Pages directory.');
+  const updated=rewriteFirebaseConfigSource(fs.readFileSync(bundle,'utf8'),config);
+  const hash=crypto.createHash('sha256').update(updated,'utf8').digest('hex').slice(0,12);
+  const oldName=path.basename(bundle);
+  const newName=`shared-auth.${hash}.bundle.js`;
+  const next=path.join(path.dirname(bundle),newName);
+  fs.writeFileSync(next,updated);
+  if(next!==bundle)fs.rmSync(bundle);
+  const oldRelative='bundles/'+oldName;
+  const newRelative='bundles/'+newName;
+  if(oldRelative!==newRelative){
+    for(const filename of listHtmlFiles(target)){
+      const source=fs.readFileSync(filename,'utf8');
+      if(source.includes(oldRelative))fs.writeFileSync(filename,source.split(oldRelative).join(newRelative));
+    }
+  }
+  return newRelative;
+}
+
 function writeLabRuntime(directory,options={}){
   const target=path.resolve(directory);
   const config=readLabConfig(options);
   fs.copyFileSync(path.join(__dirname,LAB_DOE_FILE),path.join(target,LAB_DOE_FILE));
   fs.copyFileSync(path.join(__dirname,LAB_RUNTIME_FILE),path.join(target,LAB_RUNTIME_FILE));
-  const configFile=path.join(target,'firebase-config.js');
-  if(!fs.existsSync(configFile))throw Error('firebase-config.js is missing from the Pages directory.');
-  const source=fs.readFileSync(configFile,'utf8');
-  const replacement=`const config = ${JSON.stringify(config,null,2).replace(/\n/g,'\n  ')};`;
-  const updated=source.replace(/const\s+config\s*=\s*\{[\s\S]*?\};/,replacement);
-  if(updated===source)throw Error('Could not rewrite firebase-config.js for Firebase Lab mode.');
-  fs.writeFileSync(configFile,updated);
-  return{config:Object.assign({},config,{apiKey:'<public-web-api-key>'}),files:[LAB_DOE_FILE,LAB_RUNTIME_FILE,'firebase-config.js']};
+  const configAsset=rewriteLabClientConfig(target,config);
+  return{config:Object.assign({},config,{apiKey:'<public-web-api-key>'}),files:[LAB_DOE_FILE,LAB_RUNTIME_FILE,configAsset]};
 }
 
 function injectDemoRuntime(html){
