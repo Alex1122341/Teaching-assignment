@@ -174,13 +174,30 @@
  function listenRequests(){
   if(requestUnsub){requestUnsub();requestUnsub=null}
   if(!user)return;
-  const token=++requestLoadToken,currentOffice=office();
-  if(currentOffice==='adc'||currentOffice==='lab'){
-   const q=db.collection(APPROVALS).where('office','==',office());
+  const token=++requestLoadToken,granted=approvalOffices();
+  // Restricted ADC/LAB accounts subscribe by their actual officeAccess grants,
+  // not only by their primary role. This keeps delegated ADC<->LAB work aligned
+  // with the same role matrix used by Work Queue and Firestore rules.
+  if(!isAdfaApprover()&&granted.length){
+   const q=granted.length===1
+    ?db.collection(APPROVALS).where('office','==',granted[0])
+    :db.collection(APPROVALS).where('office','in',granted);
    requestUnsub=q.onSnapshot(async snap=>{
     try{
-     const own=snap.docs.map(d=>({id:d.id,...d.data()})),rows=[];
-     for(const approval of own){const full=await loadRoutedBundle(String(approval.requestId||''),approval);if(full)rows.push(full)}
+     const own=snap.docs.map(d=>({id:d.id,...d.data()})),byRequest=new Map();
+     for(const approval of own){
+      const requestId=String(approval.requestId||'');
+      if(!requestId)continue;
+      if(!byRequest.has(requestId))byRequest.set(requestId,[]);
+      byRequest.get(requestId).push(approval);
+     }
+     const rows=[];
+     for(const [requestId,approvals] of byRequest){
+      const full=await loadRoutedBundle(requestId);
+      if(!full)continue;
+      for(const approval of approvals)if(approval.office)full._approvals[approval.office]=approval;
+      rows.push(full);
+     }
      commitRequestRows(rows,token);
     }catch(e){if(token===requestLoadToken){requestsReady=true;console.warn('[workflow office requests]',e);injectButtons()}}
    },e=>{if(token===requestLoadToken){requestsReady=true;console.warn('[workflow office requests]',e);injectButtons()}});
