@@ -521,7 +521,7 @@ function buildRequests(sessions, calendar) {
         requesterRole: 'hicc',
         sessionId: session.path.replace('sessions/', ''),
         requestType: spec.scopes.adfa ? 'faculty_swap' : 'session_edit',
-        scope: 'group',
+        scope: 'hicc',
         groupId: 'group-neuro',
         groupName: 'Neurology Rotation',
         status: spec.status,
