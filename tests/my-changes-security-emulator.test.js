@@ -122,13 +122,12 @@ check('office actor history queries are changedBy-scoped',async()=>{
 });
 
 check('office clients cannot forge a non-empty related Faculty audience',async()=>{
- const {assertFails}=require('@firebase/rules-unit-testing');
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
  const {serverTimestamp}=require('firebase/firestore');
- const db=env.authenticatedContext('adc').firestore(),stamp=serverTimestamp(),batch=db.batch();
- batch.update(db.doc('sessions/s2'),{topic:'Office update',updatedBy:'adc',updatedByName:'ADC',updatedAt:stamp});
- batch.set(db.doc('calendar_sessions/s2'),{sessionId:'s2',course:'506',courseName:'',year:null,semester:'',week:null,date:'2027-03-23',start:'09:00',end:'10:00',timeUnknown:false,type:'LEC',topic:'Office update',room:'',instructorNames:[],instructor:''});
- batch.set(db.collection('session_change_log').doc(),{action:'update',relatedFacultyIds:['f1'],override:null,requestId:'',sessionId:'s2',course:'506',date:'2027-03-23',topic:'Office update',instructors:[],changes:[],changedBy:'adc',changedByName:'ADC',changedByEmail:'',changedAt:stamp});
- await assertFails(batch.commit());
+ const db=env.authenticatedContext('adc').firestore();
+ const row=relatedFacultyIds=>({action:'update',relatedFacultyIds,override:null,requestId:'',sessionId:'s2',course:'506',date:'2027-03-23',topic:'Office update',instructors:[],changes:[],changedBy:'adc',changedByName:'ADC',changedByEmail:'',changedAt:serverTimestamp()});
+ await assertSucceeds(db.doc('session_change_log/adc-valid-audience').set(row(['f2'])));
+ await assertFails(db.doc('session_change_log/adc-forged-audience').set(row(['f1'])));
 });
 
 check('ADFA global history authority remains unchanged',async()=>{
