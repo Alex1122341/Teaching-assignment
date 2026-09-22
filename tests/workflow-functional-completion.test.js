@@ -212,8 +212,16 @@ test('LAB roster editor is scoped to LAB work and persists through the private r
 });
 
 test('LAB roster completion stays private from the sanitized calendar model',()=>{
-  const calendar=read('calendar-session.js');
-  assert.match(calendar,/Student IDs live only in the private roster collection/);
-  assert.doesNotMatch(calendar,/out\.studentIds\s*=/);
-  assert.doesNotMatch(calendar,/out\.roster\s*=/);
+  const calendar=require('../calendar-session.js');
+  const clean=calendar.fromSource({
+    id:'lab-1',course:'505',year:3,date:'2027-03-22',start:'14:45',end:'16:15',
+    type:'LAB',topic:'Suturing',room:'Lab',instructor:'Faculty A',labGroupIds:['g-a'],
+    studentIds:['30012345'],roster:{studentIds:['30012345']},rosters:{'g-a':{studentIds:['30012345']}}
+  },'lab-1');
+  assert.deepEqual(clean.labGroupIds,['g-a']);
+  const serialized=JSON.stringify(clean);
+  assert.equal(serialized.includes('30012345'),false);
+  assert.equal(Object.hasOwn(clean,'studentIds'),false);
+  assert.equal(Object.hasOwn(clean,'roster'),false);
+  assert.equal(Object.hasOwn(clean,'rosters'),false);
 });
