@@ -77,7 +77,7 @@ function injectLabRuntime(html){
   // Source layouts load firebase-config.js directly. Lightweight deployments
   // fold it into a content-hashed shared-auth bundle; in both cases the Lab
   // runtime must execute after the client config/auth helpers are installed.
-  const configTag=/<script[^>]+(?:firebase-config\.js|bundles\/shared-auth(?:\.[0-9a-f]{12})?\.bundle\.js)[^>]*><\/script>/i;
+  const configTag=/<script[^>]+(?:firebase-config\.js|bundles\/shared-auth\.bundle(?:\.[0-9a-f]{12})?\.js)[^>]*><\/script>/i;
   if(configTag.test(source))return source.replace(configTag,match=>match+'\n'+tags);
   const firestoreTag=/<script[^>]+firebase-firestore-compat\.js[^>]*><\/script>/i;
   if(firestoreTag.test(source))return source.replace(firestoreTag,match=>match+'\n'+tags);
@@ -124,7 +124,7 @@ function rewriteFirebaseConfigSource(source,config){
 function labAuthBundle(directory){
   const bundleDir=path.join(directory,'bundles');
   if(!fs.existsSync(bundleDir)||!fs.statSync(bundleDir).isDirectory())return null;
-  const names=fs.readdirSync(bundleDir).filter(name=>/^shared-auth(?:\.[0-9a-f]{12})?\.bundle\.js$/i.test(name));
+  const names=fs.readdirSync(bundleDir).filter(name=>/^shared-auth\.bundle(?:\.[0-9a-f]{12})?\.js$/i.test(name));
   if(names.length>1)throw Error('Multiple shared-auth bundles found in the Pages directory.');
   return names.length?path.join(bundleDir,names[0]):null;
 }
@@ -141,7 +141,7 @@ function rewriteLabClientConfig(directory,config){
   const updated=rewriteFirebaseConfigSource(fs.readFileSync(bundle,'utf8'),config);
   const hash=crypto.createHash('sha256').update(updated,'utf8').digest('hex').slice(0,12);
   const oldName=path.basename(bundle);
-  const newName=`shared-auth.${hash}.bundle.js`;
+  const newName=`shared-auth.bundle.${hash}.js`;
   const next=path.join(path.dirname(bundle),newName);
   fs.writeFileSync(next,updated);
   if(next!==bundle)fs.rmSync(bundle);

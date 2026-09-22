@@ -14,6 +14,7 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 const staging=require('../tools/stage-github-pages.js');
+const staticBuild=require('../tools/build-static.js');
 const labDoe=require('../tools/doe-policy-firebase-lab.js');
 const office=require('../office-capabilities.js');
 
@@ -148,12 +149,12 @@ test('3c. Firebase Lab rewrites the hashed shared-auth bundle and updates HTML',
   fs.rmSync(path.join(directory,'firebase-config.js'),{force:true});
   const bundleDir=path.join(directory,'bundles');
   fs.mkdirSync(bundleDir,{recursive:true});
-  const oldName='shared-auth.aaaaaaaaaaaa.bundle.js';
-  const oldRelative='bundles/'+oldName;
-  fs.writeFileSync(path.join(bundleDir,oldName),
+  const bundleSource=
     '/* SOURCE: firebase-config.js */\n'+CONFIG_SOURCE+
-    '\n;\n/* SOURCE: faculty-access.js */\nwindow.UCVM={};\n'
-  );
+    '\n;\n/* SOURCE: faculty-access.js */\nwindow.UCVM={};\n';
+  const oldRelative=staticBuild.hashedBundleOutput('bundles/shared-auth.bundle.js',bundleSource);
+  const oldName=path.basename(oldRelative);
+  fs.writeFileSync(path.join(bundleDir,oldName),bundleSource);
   const firebase='<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>';
   fs.writeFileSync(path.join(directory,'index.html'),
     '<!doctype html><html><body>'+firebase+'<script src="'+oldRelative+'"></script></body></html>'
@@ -161,8 +162,8 @@ test('3c. Firebase Lab rewrites the hashed shared-auth bundle and updates HTML',
   const configPath=writeLabConfig(directory);
   const result=staging.stagePagesDirectory(directory,{prNumber:0,headSha:SHA,buildSha:SHA},{mode:'lab',configPath});
   const html=fs.readFileSync(path.join(directory,'index.html'),'utf8');
-  assert.doesNotMatch(html,/shared-auth\.aaaaaaaaaaaa\.bundle\.js/);
-  const match=html.match(/bundles\/(shared-auth\.[0-9a-f]{12}\.bundle\.js)/);
+  assert.equal(html.includes(oldRelative),false);
+  const match=html.match(/bundles\/(shared-auth\.bundle\.[0-9a-f]{12}\.js)/);
   assert.ok(match,'staged HTML should reference a content-hashed auth bundle');
   const relative='bundles/'+match[1];
   assert.ok(fs.existsSync(path.join(directory,relative)));
