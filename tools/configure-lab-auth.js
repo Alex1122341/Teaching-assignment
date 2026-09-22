@@ -48,7 +48,7 @@ function authReadiness(config={}){
     passwordRequired:email.passwordRequired===true,
     pagesDomainAuthorized:domains.includes(PAGES_DOMAIN),
     authorizedDomains:domains,
-    ready:email.enabled===true&&email.passwordRequired===true&&domains.includes(PAGES_DOMAIN)
+    ready:email.enabled===true&&domains.includes(PAGES_DOMAIN)
   };
 }
 
@@ -58,7 +58,7 @@ function configuredPatch(config={}){
     signIn:{
       email:{
         enabled:true,
-        passwordRequired:true
+        passwordRequired:config?.signIn?.email?.passwordRequired===true
       }
     },
     authorizedDomains:normalizeDomains([...currentDomains,PAGES_DOMAIN])
