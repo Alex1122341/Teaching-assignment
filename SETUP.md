@@ -106,6 +106,49 @@ Use a dedicated test-only service account for `vista-teaching-lab`. Prefer these
 
 The JSON key belongs only in the GitHub Environment secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON`; never commit it.
 
+### Firebase Lab browser mode (PAWS second test mode)
+
+PAWS supports two explicit browser test modes. They are never mixed.
+
+**1. FRONTEND DEMO (default for every pull request)**
+
+- deterministic synthetic data
+- browser-local Firebase compatibility runtime (`pages-demo-runtime.js`)
+- localStorage / in-memory writes
+- no Firebase Authentication, no cloud Firestore
+- read-only synthetic DOE Rule Book, labelled NON-AUTHORITATIVE
+- banner: `TEST SITE - GitHub Pages · Frontend Demo · synthetic browser-local data · DOE backend off`
+
+**2. FIREBASE LAB (manual only)**
+
+- real Firebase Authentication and real Cloud Firestore
+- project `vista-teaching-lab` only — never `tester-teaching`
+- real `users/{uid}` profiles resolved through the existing `faculty-access.js` authorization code
+- Firestore security rules enforced
+- real sessions, change requests, approvals, notifications and audit records
+- the synthetic compatibility runtime is **not** installed
+- banner: `FIREBASE LAB - real Firebase`
+- status bar: `Project: vista-teaching-lab · Auth · Firestore · DOE policy data: LIVE · DOE authoritative writer: OFF`
+
+Producing a Firebase Lab artifact:
+
+1. Run the **Firebase Lab Pages** workflow manually (`workflow_dispatch`).
+2. Type `FIREBASE-LAB:vista-teaching-lab` as the confirmation.
+3. The workflow runs `npm ci`, `npm test`, builds the static site, stages it with `--mode lab`, verifies no synthetic runtime or credential is present, and uploads `firebase-lab-<sha>`.
+4. Download the artifact and serve it locally, or type `PUBLISH-LAB-TO-PAGES` to publish it to the shared Pages URL. Publishing is explicit and never automatic.
+
+Firebase Lab mode requires:
+
+- the GitHub Environment `firebase-lab` with the secret `LAB_FIREBASE_WEB_CONFIG`, containing only the **public Firebase Web SDK configuration** for `vista-teaching-lab` (`apiKey`, `authDomain`, `projectId`, `storageBucket`, `messagingSenderId`, `appId`). Generate it with `npm run config:pin:lab` or `node tools/build-firebase-config.js --project vista-teaching-lab`.
+- lab test accounts created by the existing **Firebase Lab Bootstrap** workflow. Do not hard-code passwords or UIDs.
+- seeded lab data from **Firebase Lab Data Setup**.
+
+Never put a service-account or Admin credential in `LAB_FIREBASE_WEB_CONFIG`. Those remain GitHub-environment only (`FIREBASE_LAB_SERVICE_ACCOUNT_JSON`).
+
+A normal pull request never produces a Firebase Lab artifact and never turns the shared Pages URL into a cloud-writing site.
+
+Note: `Firebase Lab Pages` is a new workflow file. GitHub only offers `workflow_dispatch` for workflows that already exist on the repository default branch, so it cannot receive a real dispatch acceptance run until this change is merged into `main`. A first post-merge live workflow run remains required to prove the manual dispatch end to end.
+
 ### Firebase Lab Data Setup
 
 `.github/workflows/firebase-lab-data-setup.yml` is manual-only. It supports:
