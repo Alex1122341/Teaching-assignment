@@ -9,8 +9,8 @@ service cloud.firestore {
   function general(){return ready() && profile().role in ['developer','owner','adfa_general'];}
   function historyAll(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
   function historyReader(d){return historyAll() || (ready() && d.changedBy == request.auth.uid);}
-  function selfSessionHistory(d){let fid=profile().facultyId;let source=get(/databases/$(database)/documents/sessions/$(d.sessionId)).data;return facultyMember() && fid is string && fid.size() > 0 && d.sessionId is string && d.sessionId.size() > 0 && source.facultyIds is list && fid in source.facultyIds;}
-  function selfFacultyHistory(d){let fid=profile().facultyId;return facultyMember() && fid is string && fid.size() > 0 && d.facultyId == fid;}
+  function selfSessionHistory(d){let p=profile();return facultyMember() && p.keys().hasAny(['facultyId']) && d.keys().hasAny(['relatedFacultyIds']) && d.relatedFacultyIds is list && p.facultyId in d.relatedFacultyIds;}
+  function selfFacultyHistory(d){let p=profile();return facultyMember() && p.keys().hasAny(['facultyId']) && d.keys().hasAny(['facultyId']) && d.facultyId == p.facultyId;}
   function hicc(){return ready() && profile().role == 'hicc';}
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
   function explicitRole(r){return r in ['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
@@ -288,8 +288,8 @@ service cloud.firestore {
   function officeCalendarUpdate(id){return teachingWritesOpen() && (adc() || lab()) && pairedCalendarSource(id);}
   function adminCalendarWrite(id){return teachingWritesOpen() && admin() && pairedCalendarSource(id);}
   function officeSessionAuditCreate(){let d=request.resource.data;return (adc() || lab()) && d.changedBy == request.auth.uid && d.changedAt == request.time
-   && d.keys().hasOnly(['action','override','requestId','sessionId','course','date','topic','instructors','before','after','rowNumber','changes','changedBy','changedByName','changedByEmail','changedAt'])
-   && d.changes is list && (!d.keys().hasAny(['instructors']) || (d.instructors is list && d.instructors.size() == 0))
+   && d.keys().hasOnly(['action','override','requestId','sessionId','course','date','topic','instructors','before','after','rowNumber','changes','relatedFacultyIds','changedBy','changedByName','changedByEmail','changedAt'])
+   && d.changes is list && (!d.keys().hasAny(['relatedFacultyIds']) || (d.relatedFacultyIds is list && d.relatedFacultyIds.size() <= 64)) && (!d.keys().hasAny(['instructors']) || (d.instructors is list && d.instructors.size() == 0))
    && (!d.keys().hasAny(['before']) || (d.before is map && !d.before.keys().hasAny(['studentIds','studentNames','roster','rosters'])))
    && (!d.keys().hasAny(['after']) || (d.after is map && !d.after.keys().hasAny(['studentIds','studentNames','roster','rosters'])));}
   function privateReader(){return ready() && !restrictedOffice();}
