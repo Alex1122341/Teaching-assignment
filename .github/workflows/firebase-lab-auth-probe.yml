@@ -104,6 +104,32 @@ jobs:
           })().catch(error=>{console.error(error.stack||error.message);process.exit(1)});
           NODE
 
+      - name: Probe Firebase Auth config endpoint read-only
+        run: |
+          node - <<'NODE'
+          (async()=>{
+            const path=require('node:path');
+            const {createRequire}=require('node:module');
+            const req=createRequire(path.resolve('server/package.json'));
+            const {cert}=req('firebase-admin/app');
+            const serviceAccount=JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+            const token=(await cert(serviceAccount).getAccessToken()).access_token;
+            const res=await fetch('https://identitytoolkit.googleapis.com/admin/v2/projects/vista-teaching-lab/config',{
+              headers:{Authorization:'Bearer '+token}
+            });
+            const raw=await res.text();
+            let body={};try{body=JSON.parse(raw)}catch{body={raw:raw.slice(0,200)}}
+            console.log(JSON.stringify({
+              status:res.status,
+              emailEnabled:body?.signIn?.email?.enabled===true,
+              passwordRequired:body?.signIn?.email?.passwordRequired===true,
+              authorizedDomains:Array.isArray(body?.authorizedDomains)?body.authorizedDomains:[],
+              errorStatus:body?.error?.status||'',
+              errorMessage:String(body?.error?.message||'').slice(0,200)
+            },null,2));
+          })().catch(error=>{console.error(error.stack||error.message);process.exit(1)});
+          NODE
+
       - name: Probe Firebase Auth and Firestore read-only
         run: |
           node - <<'NODE'
