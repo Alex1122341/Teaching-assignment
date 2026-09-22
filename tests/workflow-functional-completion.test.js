@@ -226,3 +226,38 @@ test('LAB roster completion stays private from the sanitized calendar model',()=
   assert.equal(Object.hasOwn(clean,'roster'),false);
   assert.equal(Object.hasOwn(clean,'rosters'),false);
 });
+
+
+test('LAB roster audit records counts only and never student IDs',()=>{
+  const context={
+    labGroupDirectory:new Map([['g-a',{groupId:'g-a',groupCode:'A',course:'505'}]]),
+    labRosterDirectory:new Map([['g-a',{studentIds:['30012345','30012346']}]]),
+  };
+  vm.createContext(context);
+  vm.runInContext(sourceFunction('timetable.js','labRosterAuditChanges'),context);
+  const changes=context.labRosterAuditChanges([{
+    groupId:'g-a',
+    data:{groupId:'g-a',studentIds:['30012345','30012346','30012347']}
+  }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(changes)),[{
+    field:'labRoster',
+    label:'LAB roster · Group A',
+    before:'2 students',
+    after:'3 students'
+  }]);
+  assert.equal(JSON.stringify(changes).includes('30012345'),false);
+  assert.equal(JSON.stringify(changes).includes('30012347'),false);
+});
+
+test('roster-only LAB save writes a sanitized session audit alongside the private roster',()=>{
+  const source=read('timetable.js');
+  const start=source.indexOf("button.textContent='Saving LAB roster...'");
+  const end=source.indexOf('return;',start);
+  assert.ok(start>=0&&end>start);
+  const block=source.slice(start,end);
+  assert.match(block,/db\.collection\('lab_group_rosters'\)\.doc\(roster\.groupId\)/);
+  assert.match(block,/db\.collection\(SESSION_LOG_COLLECTION\)\.doc\(\)/);
+  assert.match(block,/action:'lab_roster_update'/);
+  assert.match(block,/changes:rosterAuditChanges/);
+  assert.doesNotMatch(block,/studentIds:/);
+});
