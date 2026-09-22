@@ -8,6 +8,7 @@
   const CALENDAR_SESSION_COLLECTION = 'calendar_sessions';
   const SESSION_SAVE_BATCH_ROWS = 8;
   const SESSION_LOG_COLLECTION = 'session_change_log';
+  const auditRelatedFacultyIds=(...rows)=>window.UCVM_TIMETABLE_SELECTION?.relatedFacultyIds?.(...rows)||[];
   const SPRING_BASE_MONDAY = new Date(2026, 3, 27);
   const FALL_BASE_MONDAY = new Date(2026, 7, 24);
   const WINTER_BASE_MONDAY = new Date(2027, 0, 4);
@@ -690,7 +691,7 @@
     const overrides=confirmSchedulingChanges([next]);if(overrides===null)return;
     try{
       const saved=await doeRuntime.api.saveSessionChange({academicYear:doeResult.academicYear||next.academicYear||'',sessionId:session.id,afterSession:next,trigger:'faculty_swap'}),savedNext=saved.session||next,auditChanges=doeAuditChanges(saved.doeChanges||doeResult.doeChanges);
-      await db.collection(SESSION_LOG_COLLECTION).doc().set({action:'swap_faculty',override:overrides.get(String(session.id))||null,requestId:'',sessionId:session.id,course:savedNext.course||session.course,date:savedNext.date||session.date,topic:savedNext.topic||session.topic,role:outgoing.role||session.type||'',doeCredit:swapAssignmentCredit(savedNext.assignments?.[outIndex]),oldDoeCredit:oldCredit,doeChanges:saved.doeChanges||doeResult.doeChanges,changes:auditChanges,fromFaculty:{ucid:String(outgoing.ucid||oldFaculty?.__id||''),name:oldName},toFaculty:{ucid:String(replacement.__id),name:newName},toFacultyCurrentAssignedDOE:currentNew,toFacultyProjectedAssignedDOE:projectedNew,changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      await db.collection(SESSION_LOG_COLLECTION).doc().set({action:'swap_faculty',relatedFacultyIds:auditRelatedFacultyIds(session,savedNext),override:overrides.get(String(session.id))||null,requestId:'',sessionId:session.id,course:savedNext.course||session.course,date:savedNext.date||session.date,topic:savedNext.topic||session.topic,role:outgoing.role||session.type||'',doeCredit:swapAssignmentCredit(savedNext.assignments?.[outIndex]),oldDoeCredit:oldCredit,doeChanges:saved.doeChanges||doeResult.doeChanges,changes:auditChanges,fromFaculty:{ucid:String(outgoing.ucid||oldFaculty?.__id||''),name:oldName},toFaculty:{ucid:String(replacement.__id),name:newName},toFacultyCurrentAssignedDOE:currentNew,toFacultyProjectedAssignedDOE:projectedNew,changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
       invalidateAllSessions(); await updateDerivedIndexes([{before:session,after:savedNext}]); closeModal(); toast(saved.queued?`SWAP complete: ${oldName} → ${newName}. DOE recalculation queued.`:`SWAP complete: ${oldName} → ${newName}. Faculty DOE updated.`);
     }catch(err){console.error('[faculty swap]',err);toast(`SWAP failed. ${err.message||'DOE API save is unavailable.'}`,true)}
   }
@@ -1291,7 +1292,7 @@
         const batch=db.batch(),row=rows[0]||originals[0]||{};
         for(const roster of rosterPlans)batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);
         batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{
-          action:'lab_roster_update',override:null,requestId:'',sessionId:String(row.id||activeScoped?.sessionId||''),course:String(row.course||''),date:String(row.date||'').slice(0,10),topic:String(row.topic||''),instructors:[],
+          action:'lab_roster_update',relatedFacultyIds:auditRelatedFacultyIds(row),override:null,requestId:'',sessionId:String(row.id||activeScoped?.sessionId||''),course:String(row.course||''),date:String(row.date||'').slice(0,10),topic:String(row.topic||''),instructors:[],
           changes:rosterAuditChanges,changedBy:currentUser.uid,changedByName:currentUser.name||currentUser.email||'',changedByEmail:'',changedAt:timestamp
         });
         await batch.commit();
@@ -1460,7 +1461,7 @@
         try{saved=await doeRuntime.api.saveSessionChange({academicYear:preview?.academicYear||next.academicYear||'',sessionId:next.id,afterSession:next,trigger:'session_created'})}
         catch(error){error.completedRows=completedRows;error.resumeFrom=completedRows;error.totalRows=prepared.length;throw error}
         const savedNext=saved.session||next,doeChanges=doeAuditChanges(saved.doeChanges||[]);
-        try{await db.collection(SESSION_LOG_COLLECTION).doc().set({action:'create',override:overrides.get(String(next.id))||null,sessionId:next.id,course:savedNext.course,date:savedNext.date,topic:savedNext.topic,instructors:(savedNext.assignments||[]).map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null,doePolicyVersionId:a.doePolicyVersionId||'',doeCalculationId:a.doeCalculationId||''})),changes:[{field:'session',label:'Session',before:null,after:[savedNext.course,savedNext.date,savedNext.start+'-'+savedNext.end,savedNext.topic].filter(Boolean).join(' · ')},...doeChanges],doeChanges:saved.doeChanges||[],changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()})}
+        try{await db.collection(SESSION_LOG_COLLECTION).doc().set({action:'create',relatedFacultyIds:auditRelatedFacultyIds(savedNext),override:overrides.get(String(next.id))||null,sessionId:next.id,course:savedNext.course,date:savedNext.date,topic:savedNext.topic,instructors:(savedNext.assignments||[]).map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null,doePolicyVersionId:a.doePolicyVersionId||'',doeCalculationId:a.doeCalculationId||''})),changes:[{field:'session',label:'Session',before:null,after:[savedNext.course,savedNext.date,savedNext.start+'-'+savedNext.end,savedNext.topic].filter(Boolean).join(' · ')},...doeChanges],doeChanges:saved.doeChanges||[],changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()})}
         catch(error){error.committed=true;error.partialCommit=true;error.completedRows=index+1;error.resumeFrom=index+1;error.totalRows=prepared.length;error.pendingMaintenanceIds=[String(savedNext.id||next.id)];throw error}
         completedRows=index+1;invalidateAllSessions();
         try{await updateDerivedIndexes([{before:null,after:savedNext}],{rethrow:true})}
@@ -1475,7 +1476,7 @@
           const next=prepared[index],sourceRef=db.collection(SESSION_COLLECTION).doc(next.id),calendarRef=db.collection(CALENDAR_SESSION_COLLECTION).doc(next.id),logRef=db.collection(SESSION_LOG_COLLECTION).doc();
           batch.set(sourceRef,{...firestoreSafeSession({...next,assignments:[],instructor:''}),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
           batch.set(calendarRef,window.UCVM_CALENDAR_SESSION.fromSource(next,next.id));
-          batch.set(logRef,{action:'create',override:null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:[],changes:[{field:'session',label:'Session',before:null,after:[next.course,next.date,next.start+'-'+next.end,next.topic].filter(Boolean).join(' · ')}],doeChanges:[],changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
+          batch.set(logRef,{action:'create',relatedFacultyIds:auditRelatedFacultyIds(next),override:null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:[],changes:[{field:'session',label:'Session',before:null,after:[next.course,next.date,next.start+'-'+next.end,next.topic].filter(Boolean).join(' · ')}],doeChanges:[],changedBy:currentUser.uid,changedByName:currentUser.name,changedAt:firebase.firestore.FieldValue.serverTimestamp()});
         }
         try{await batch.commit()}catch(error){error.completedRows=completedRows;error.resumeFrom=completedRows;error.totalRows=prepared.length;throw error}
         completedRows=end;invalidateAllSessions();if(typeof options.onProgress==='function')options.onProgress({completedRows,totalRows:prepared.length});
@@ -1601,13 +1602,13 @@
           const saved=await doeRuntime.api.saveSessionChange({academicYear:doeResult.academicYear||next.academicYear||'',sessionId:next.id,afterSession:next,trigger:existing?'session_updated':'session_created'});
           savedNext=saved.session||next;
           const auditChanges=[...UCVM_AUDIT_DETAILS.diff(existing,savedNext,'session'),...doeAuditChanges(saved.doeChanges||[])];
-          await db.collection(SESSION_LOG_COLLECTION).doc().set({action:existing?'update':'create',override:overrides.get(String(next.id))||null,sessionId:next.id,course:savedNext.course,date:savedNext.date,topic:savedNext.topic,instructors:(savedNext.assignments||[]).map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null,doePolicyVersionId:a.doePolicyVersionId||'',doeCalculationId:a.doeCalculationId||''})),changes:auditChanges,doeChanges:saved.doeChanges||[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:currentUser.email||'',changedAt:timestamp});
+          await db.collection(SESSION_LOG_COLLECTION).doc().set({action:existing?'update':'create',relatedFacultyIds:auditRelatedFacultyIds(existing,savedNext),override:overrides.get(String(next.id))||null,sessionId:next.id,course:savedNext.course,date:savedNext.date,topic:savedNext.topic,instructors:(savedNext.assignments||[]).map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null,doePolicyVersionId:a.doePolicyVersionId||'',doeCalculationId:a.doeCalculationId||''})),changes:auditChanges,doeChanges:saved.doeChanges||[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:currentUser.email||'',changedAt:timestamp});
         }else{
           const ref=db.collection(SESSION_COLLECTION).doc(next.id),calendarRef=db.collection(CALENDAR_SESSION_COLLECTION).doc(next.id),batch=db.batch();
           if(existing)batch.update(ref,{date:next.date,week:next.week,semester:next.semester,year:next.year,course:next.course,courseName:next.courseName,type:next.type,topic:next.topic,room:next.room,start:next.start,end:next.end,timeUnknown:next.timeUnknown,updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
           else batch.set(ref,{...firestoreSafeSession({...next,assignments:[],instructor:''}),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
           batch.set(calendarRef,window.UCVM_CALENDAR_SESSION.fromSource(next,next.id));
-          batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{action:existing?'update':'create',override:null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:[],changes:UCVM_AUDIT_DETAILS.diff(existing,next,'session'),doeChanges:[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:'',changedAt:timestamp});
+          batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{action:existing?'update':'create',relatedFacultyIds:auditRelatedFacultyIds(existing,next),override:null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:[],changes:UCVM_AUDIT_DETAILS.diff(existing,next,'session'),doeChanges:[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:'',changedAt:timestamp});
           if(existing){const queueRef=db.collection('doe_recalculation_requests').doc();batch.set(queueRef,queuedDoeRequestData(next,queueRef.id,'office_session_updated',timestamp,existing));}
           await batch.commit();
         }
@@ -1639,7 +1640,7 @@
       batch.delete(db.collection(SESSION_COLLECTION).doc(id));
       batch.delete(db.collection(CALENDAR_SESSION_COLLECTION).doc(id));
       const logRef=db.collection(SESSION_LOG_COLLECTION).doc();
-      batch.set(logRef,{action:'delete',sessionId:id,course:s.course,date:s.date,topic:s.topic,changes:UCVM_AUDIT_DETAILS.diff(s,null,'session'),changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:currentUser.email||'',changedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      batch.set(logRef,{action:'delete',relatedFacultyIds:auditRelatedFacultyIds(s),sessionId:id,course:s.course,date:s.date,topic:s.topic,changes:UCVM_AUDIT_DETAILS.diff(s,null,'session'),changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:currentUser.email||'',changedAt:firebase.firestore.FieldValue.serverTimestamp()});
       await batch.commit(); invalidateAllSessions(); await updateDerivedIndexes([{before:s,after:null}]); closeModal(); toast('Live session deleted.');
     } catch(err) { console.error(err); toast('Delete failed. Check Firestore session write rules.', true); }
   }
@@ -1962,11 +1963,12 @@
 
   function updateAuthUI() {
     const b = $('account-toggle');
-    const accessRole=UCVM.role(currentUser?.role),isAdmin=UCVM.admin(currentUser),facultySelfService=roleIsFaculty(currentUser),selfHistory=facultySelfService||accessRole==='other_office';
+    const accessRole=UCVM.role(currentUser?.role),isAdmin=UCVM.admin(currentUser),facultySelfService=roleIsFaculty(currentUser),selfHistory=Boolean(currentUser);
     // System/admin authority and faculty self-service are separate surfaces. Every
     // administrative account keeps the Admin tools menu even when it has no
     // delegated scheduling office, while Faculty/HICC/VISC alone receive the
-    // teaching/AFC self-service controls. ADC and HICC get role-labelled tool
+    // teaching/AFC self-service controls. My Change History is self-only and is
+    // available to every signed-in role. ADC and HICC get role-labelled tool
     // menus for their own operational/group actions rather than being presented
     // as generic administrators.
     const showTools=isAdmin||accessRole==='adc'||accessRole==='hicc';

@@ -727,6 +727,7 @@ function buildAuditLogs(sessions) {
         override: false,
         requestId: '',
         sessionId: session.path.replace('sessions/', ''),
+        relatedFacultyIds: [...(session.data.facultyIds || [])],
         course: session.data.course,
         date: session.data.date,
         topic: session.data.topic,
