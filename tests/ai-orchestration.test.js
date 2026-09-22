@@ -29,7 +29,16 @@ test('IDs reject traversal, zero, fractional and unsafe integers',()=>{
  assert.equal(id('72'),'72');
 });
 
-const {verify,summarize,cleanEnv}=require('../tools/ai/verify.js');
+const {verify,summarize,cleanEnv,profiles}=require('../tools/ai/verify.js');
+// Captured build-static output shape; test data, not a production success emitter.
+const BUILD_OUTPUT=JSON.stringify({output:'/fixture/.deploy-static',files:32,bytes:3224057,
+ metadataPath:'.deploy-metadata/deployment-assets.json',metadataBytes:9534,deployedJs:20,bundles:12})+'\n';
+const TAP_OUTPUT='TAP version 13\nok 1 - fixture assertion\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n';
+const BROWSER_OUTPUT='Browser smoke passed 4/4 pages in emulator mode.\n';
+const DEMO_OUTPUT='Browser smoke passed 4/4 pages in Pages Frontend Demo mode.\n';
+const OWNER_OUTPUT='Authenticated owner smoke passed 3/3 protected pages: index.html, faculty-admin.html, user-management.html.\n';
+const RULEBOOK_OUTPUT='Rule Book smoke checkpoint: recalculation completed.\n';
+const PASSWORD_OUTPUT='Password reset browser smoke passed: signed-out page stayed accessible, reset submitted, privacy-safe confirmation rendered, and Auth emulator recorded the reset request.\n';
 function review(root,stage='adversarial',model='deepseek'){
  return {issue:72,stage,model,...ai.context(root,72),criteria:[{id:'AC1',result:'PASS',evidence:'Synthetic test fixture only; not a real model review'}],
  blocking_findings:[],warnings:[],remaining_risk:[],human_checks:['Human merge only'],reviewed_at:new Date().toISOString()};
@@ -39,7 +48,7 @@ test('complete synthetic handoff reaches readiness, then code changes invalidate
  ai.advance(root,72,'implementation');ai.advance(root,72,'review');
  ai.write(root,72,'review.json',review(root));
  ai.advance(root,72,'verification');
- const report=verify(root,72,['build'],{run:()=>({status:0,stdout:'built',stderr:''})});
+ const report=verify(root,72,['build'],{run:()=>({status:0,stdout:BUILD_OUTPUT,stderr:''})});
  assert.equal(report.checks[0].result,'PASS');
  ai.advance(root,72,'final_review');
  ai.write(root,72,'final-review.json',review(root,'final','sol'));
@@ -208,7 +217,7 @@ test('blocking reviews can reach integration but never final review or readiness
  ai.advance(root,72,'implementation');ai.advance(root,72,'review');
  const record=review(root);record.blocking_findings=['Fix required'];record.criteria[0].result='FAIL';ai.write(root,72,'review.json',record);
  const status=ai.read(root,72,'STATUS.json');status.blocking_findings=['Fix required'];ai.write(root,72,'STATUS.json',status);
- ai.advance(root,72,'verification');verify(root,72,['build'],{run:()=>({status:0})});
+ ai.advance(root,72,'verification');verify(root,72,['build'],{run:()=>({status:0,stdout:BUILD_OUTPUT})});
  assert.throws(()=>ai.advance(root,72,'final_review'),/blocking/);
  status.current_stage='verification';status.review_status='complete';status.blocking_findings=[];ai.write(root,72,'STATUS.json',status);
  assert.throws(()=>ai.advance(root,72,'final_review'),/blocking|failing/);
@@ -217,7 +226,8 @@ test('blocking reviews can reach integration but never final review or readiness
 });
 
 test('staging and committing a deletion preserve the same source digest',t=>{
- const root=fixture(t);fs.unlinkSync(path.join(root,'app.js'));const digest=ai.fingerprint(root);
+ const root=fixture(t),before=ai.fingerprint(root);fs.unlinkSync(path.join(root,'app.js'));const digest=ai.fingerprint(root);
+ assert.notEqual(digest,before,'deleting working-tree content changes the digest');
  assert.equal(spawnSync('git',['add','-u'],{cwd:root}).status,0);
  assert.equal(ai.fingerprint(root),digest);
  assert.equal(spawnSync('git',['commit','-qm','delete fixture'],{cwd:root}).status,0);
@@ -228,6 +238,92 @@ test('an additional failing check cannot be hidden by passing required profiles'
  const root=fixture(t),s=spec(root);s.required_tests=['build'];ai.write(root,72,'spec.json',s);
  ai.advance(root,72,'implementation');ai.advance(root,72,'review');ai.write(root,72,'review.json',review(root));
  ai.advance(root,72,'verification');let calls=0;
- verify(root,72,['build','server'],{run:()=>({status:calls++===0?0:1})});
+ const result=verify(root,72,['build','server'],{run:()=>calls++===0?{status:0,stdout:BUILD_OUTPUT}:{status:1,stdout:'failed'}});
+ assert.deepEqual(result.checks.map(check=>check.result),['PASS','FAIL']);
  assert.throws(()=>ai.advance(root,72,'final_review'),/verification|check/i);
+});
+
+test('removing only the index entry keeps the working-file source digest',t=>{
+ const root=fixture(t),before=ai.fingerprint(root);
+ assert.equal(spawnSync('git',['rm','--cached','app.js'],{cwd:root}).status,0);
+ assert.equal(fs.readFileSync(path.join(root,'app.js'),'utf8'),'original\n');
+ assert.equal(ai.fingerprint(root),before);
+});
+
+const FAILED_TAP=TAP_OUTPUT.replace('ok 1','not ok 1').replace('# pass 1','# pass 0').replace('# fail 0','# fail 1');
+const SKIPPED_TAP=TAP_OUTPUT.replace('fixture assertion','fixture assertion # SKIP unavailable').replace('# pass 1','# pass 0').replace('# skipped 0','# skipped 1');
+const evidenceCases=[
+ ['unit empty output','unit','','NOT RUN'],
+ ['unit arbitrary text','unit','arbitrary non-test text','NOT RUN'],
+ ['unit not ok without completion','unit','not ok 1 - failed','FAIL'],
+ ['unit complete TAP','unit',TAP_OUTPUT,'PASS'],
+ ['server complete TAP','server',TAP_OUTPUT,'PASS'],
+ ['unit failing TAP','unit',FAILED_TAP,'FAIL'],
+ ['unit skipped TAP','unit',SKIPPED_TAP,'NOT RUN'],
+ ['unit CRLF TAP','unit',TAP_OUTPUT.replace(/\n/g,'\r\n'),'PASS'],
+ ['unit summary without execution','unit',TAP_OUTPUT.replace('ok 1 - fixture assertion\n',''),'NOT RUN'],
+ ['unit incomplete summary','unit',TAP_OUTPUT.replace('# skipped 0\n',''),'NOT RUN'],
+ ['unit contradictory summary','unit',TAP_OUTPUT.replace('# tests 1','# tests 2'),'NOT RUN'],
+ ['unit zero tests','unit','TAP version 13\n1..0\n# tests 0\n# pass 0\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n','NOT RUN'],
+ ['unit bailout','unit',TAP_OUTPUT+'Bail out! interrupted\n','FAIL'],
+ ['unit hidden not ok after summary','unit',TAP_OUTPUT+'not ok 2 - late failure\n','FAIL'],
+ ['unit cancelled tests','unit',TAP_OUTPUT.replace('# pass 1','# pass 0').replace('# cancelled 0','# cancelled 1'),'FAIL'],
+ ['unit todo tests','unit',TAP_OUTPUT.replace('# pass 1','# pass 0').replace('# todo 0','# todo 1'),'NOT RUN'],
+ ['emulator both commands complete','emulator',TAP_OUTPUT+'emulator log\n'+TAP_OUTPUT,'PASS'],
+ ['emulator only first command','emulator',TAP_OUTPUT,'NOT RUN'],
+ ['emulator partial second command','emulator',TAP_OUTPUT+'TAP version 13\nok 1 - unfinished\n','NOT RUN'],
+ ['emulator second command fails','emulator',TAP_OUTPUT+FAILED_TAP,'FAIL'],
+ ['emulator second command skips','emulator',TAP_OUTPUT+SKIPPED_TAP,'NOT RUN'],
+ ['build real output shape','build',BUILD_OUTPUT,'PASS'],
+ ['build empty output','build','','NOT RUN'],
+ ['build arbitrary JSON','build','{"success":true}\n','NOT RUN'],
+ ['build truncated JSON','build',BUILD_OUTPUT.slice(0,-3),'NOT RUN'],
+ ['browser completion','browser',BROWSER_OUTPUT,'PASS'],
+ ['browser no completion','browser','Browser started','NOT RUN'],
+ ['browser wrong mode','browser',DEMO_OUTPUT,'NOT RUN'],
+ ['browser partial pages','browser',BROWSER_OUTPUT.replace('4/4','3/4'),'NOT RUN'],
+ ['demo completion','demo',DEMO_OUTPUT,'PASS'],
+ ['demo wrong mode','demo',BROWSER_OUTPUT,'NOT RUN'],
+ ['demo missing completion','demo',BUILD_OUTPUT,'NOT RUN'],
+ ['authenticated full completion','authenticated',BROWSER_OUTPUT+RULEBOOK_OUTPUT+OWNER_OUTPUT+PASSWORD_OUTPUT,'PASS'],
+ ['authenticated owner only','authenticated',BROWSER_OUTPUT+RULEBOOK_OUTPUT+OWNER_OUTPUT,'NOT RUN'],
+ ['authenticated password only','authenticated',PASSWORD_OUTPUT,'NOT RUN'],
+ ['authenticated missing Rule Book','authenticated',BROWSER_OUTPUT+OWNER_OUTPUT+PASSWORD_OUTPUT,'NOT RUN']
+];
+const registry=profiles(path.join(__dirname,'..'));
+for(const [name,profile,stdout,expected]of evidenceCases){
+ test('profile evidence: '+name,()=>{
+  const result=summarize({status:0,stdout,stderr:''},registry[profile].evidence);
+  assert.equal(result.result,expected);
+  if(expected==='NOT RUN')assert.ok(result.reason,'incomplete evidence needs an explanation');
+ });
+}
+test('process failures override valid evidence for every profile',()=>{
+ for(const [profile,command]of Object.entries(registry)){
+  const stdout=profile==='emulator'?TAP_OUTPUT+TAP_OUTPUT:profile==='build'?BUILD_OUTPUT:
+   profile==='demo'?DEMO_OUTPUT:profile==='browser'?BROWSER_OUTPUT:profile==='authenticated'?BROWSER_OUTPUT+RULEBOOK_OUTPUT+OWNER_OUTPUT+PASSWORD_OUTPUT:TAP_OUTPUT;
+  assert.equal(summarize({status:1,stdout},command.evidence).result,'FAIL',profile);
+  assert.equal(summarize({status:null,error:Object.assign(Error('missing'),{code:'ENOENT'}),stdout},command.evidence).result,'NOT RUN',profile);
+  assert.equal(summarize({status:null,error:Object.assign(Error('timeout'),{code:'ETIMEDOUT'}),stdout},command.evidence).result,'FAIL',profile);
+ }
+});
+test('verification stores profile-specific missing-evidence failures instead of PASS',t=>{
+ const root=fixture(t);spec(root);
+ for(const profile of Object.keys(registry)){
+  const result=verify(root,72,[profile],{run:()=>({status:0,stdout:'',stderr:''})});
+  assert.equal(result.checks[0].result,'NOT RUN',profile);
+  assert.equal(ai.read(root,72,'verification.json').checks[0].result,'NOT RUN');
+ }
+});
+
+test('isolated demonstration verifies the note through real Node TAP execution',t=>{
+ const root=path.resolve(__dirname,'..');
+ const result=require('../tools/ai/demo.js').demonstrate(root);
+ assert.equal(path.dirname(result.output),path.join(root,'.ai/generated'));
+ t.after(()=>fs.rmSync(result.output,{recursive:true,force:true}));
+ const record=JSON.parse(fs.readFileSync(path.join(result.output,'tasks/900001/verification.json'),'utf8'));
+ assert.equal(record.checks[0].profile,'unit');
+ assert.equal(record.checks[0].result,'PASS');
+ const log=fs.readFileSync(path.join(result.output,'generated/900001/unit.log'),'utf8');
+ assert.equal(summarize({status:0,stdout:log},registry.unit.evidence).result,'PASS');
 });

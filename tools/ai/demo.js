@@ -15,11 +15,11 @@ function demonstrate(root = path.resolve(__dirname, '../..')) {
   for (const name of ['templates', 'policies', 'prompts', 'schemas']) {
    fs.cpSync(safePath(root, '.ai', name), path.join(temporary, '.ai', name), {recursive: true});
   }
-  fs.mkdirSync(path.join(temporary, 'tools'), {recursive: true});
+  fs.mkdirSync(path.join(temporary, 'tests'), {recursive: true});
   fs.writeFileSync(path.join(temporary, 'demo-note.md'), '# Fixture note\n');
-  // The fixed build profile executes a real assertion in this isolated fixture.
-  fs.writeFileSync(path.join(temporary, 'tools/build-static.js'),
-   "const fs=require('node:fs');require('node:assert/strict').match(fs.readFileSync('demo-note.md','utf8'),/Human merge only/);console.log('Fixture documentation check passed');\n");
+  // The fixed unit profile uses Node's real TAP reporter, not a fake build marker.
+  fs.writeFileSync(path.join(temporary, 'tests/documentation.test.js'),
+   "const fs=require('node:fs');require('node:test')('fixture note keeps human approval',()=>{require('node:assert/strict').match(fs.readFileSync('demo-note.md','utf8'),/Human merge only/)});\n");
   for (const args of [['init', '-q'], ['config', 'user.name', 'Synthetic demo'],
    ['config', 'user.email', 'demo@example.test'], ['add', '.'], ['commit', '-qm', 'Synthetic baseline']]) git(args);
   const sample = name => JSON.parse(fs.readFileSync(safePath(root, '.ai', 'examples', 'documentation-demo', name), 'utf8'));

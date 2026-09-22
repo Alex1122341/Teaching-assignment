@@ -21,7 +21,7 @@
     }
   ],
   "required_tests": [
-    "build"
+    "unit"
   ],
   "forbidden_changes": [
     "No production changes",

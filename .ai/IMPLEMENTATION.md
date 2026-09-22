@@ -27,7 +27,63 @@ PAWS is the product name; existing infrastructure identifiers remain unchanged.
   verification and unmistakably simulated model reviews.
 - Owner quick start, audit, routing and WorkBuddy cost/entitlement research.
 
-## Verification evidence (local, 2026-09-21)
+## Bounded final-review fixes: F1/F2 (2026-09-22 UTC)
+
+This follow-up updates the same PR #63 / feature/ai-orchestration-v1 from
+764a0c5cbc5e0fb2887ba62c2a9096b7d8615ab3. The prior DeepSeek review applies
+only to that earlier head, not these changes. A fresh focused review is required.
+
+F1: the fixed verification registry now supplies profile-specific evidence rules.
+Successful exit is necessary, but insufficient:
+
+- unit/server require one complete Node TAP report, a nonzero executed test count,
+  a matching top-level plan/test points and consistent summary totals.
+- emulator requires both root and server TAP reports. Incomplete/empty output
+  cannot pass; failures, cancellation and bailout fail; skips/TODO remain NOT RUN.
+- build requires the existing build-static JSON completion record with its output,
+  metadata path and positive asset/byte counts.
+- browser/demo require their existing completion markers in the correct mode,
+  with nonzero matching completed/expected page counts.
+- authenticated requires the normal page smoke, authenticated protected-page
+  completion, Rule Book recalculation checkpoint AND password-reset completion.
+
+Missing evidence is NOT RUN with a reason. Missing executables remain NOT RUN;
+timeouts/nonzero exits remain FAIL. Additional failing checks still block readiness.
+No application script was changed to manufacture success output. The isolated
+documentation demo now runs a real Node unit test/TAP reporter instead of its old
+plain-text pseudo-build assertion; only its fixture spec and explanation changed.
+
+F2: removed the unreachable deleted-file fallback and clarified fingerprint
+comments. Regression coverage preserves working-file deletion changing the digest,
+index-only removal preserving it, and staging/committing being content-independent.
+
+Fresh local verification of these changes:
+
+| Check | Result |
+| --- | --- |
+| Focused orchestration suite, including PR-style branch environment | 64 passed; 0 failed/skipped |
+| npm test | 1,070 total: 958 passed, 112 emulator-only skips; 0 failed |
+| Actual fixed unit profile | NOT RUN as intended: 112 skips, not a false full PASS |
+| Actual fixed server profile | PASS: 119 tests, 0 failed/skipped |
+| Actual fixed emulator profile | PASS: root 1,070 + server 119, 0 failed/skipped |
+| Actual fixed build profile | PASS: existing build JSON, 32 files / 20 JS / 12 bundles |
+| Actual fixed browser / demo profiles | PASS: 4/4 pages in each correct mode |
+| Actual fixed authenticated profile | PASS: 4/4 base pages, 3/3 protected pages, Rule Book and password reset |
+| Real isolated lifecycle demonstration | PASS with Node-generated TAP |
+| ai:validate / git diff --check | PASS |
+
+The focused suite increased from 24 to 64 tests. Before the fix, 25 of the new
+evidence checks failed against the old exit-code-only logic; the demo compatibility
+regression also failed before it was converted to real Node test execution.
+Original assertions were retained and success fixtures updated to valid evidence.
+Local logs are ignored under .ai/generated/f1-*.log. New-head CI is recorded in
+PR #63 Checks, not inferred from previous-head success.
+
+Scope remains F1/F2 only. No runtime/permission/workflow/infrastructure/API/merge
+changes. F3 branding cleanup is deferred; F4/F5/F6 documented residual risks
+remain intentionally unchanged under the owner's explicit scope instructions.
+
+## Original implementation verification (764a0c5, 2026-09-21)
 
 Environment: Windows, Node 24.19.0, Java 21, Chrome; existing CI uses Node 22.
 Dependencies installed using the existing lockfile, with no dependency changes.

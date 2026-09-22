@@ -47,19 +47,18 @@ function init(root,issue){
  return dir;
 }
 function fingerprint(root){
- // Tracked + nonignored source, including dirty files. Task evidence cannot hash itself.
+ // Hash existing tracked + nonignored working files, independent of index staging.
+ // Task evidence cannot hash itself.
  const files=git(root,['ls-files','-c','-o','--exclude-standard','-z']).split('\0').filter(Boolean);
  const h=crypto.createHash('sha256');
  for(const name of [...new Set(files)].sort()){
   if(/^\.ai\/(?:tasks|generated|examples)\//.test(name))continue;
   const p=safePath(root,name);
-  if(!fs.existsSync(p))continue; // Staging a deletion must not change its digest.
+  if(!fs.existsSync(p))continue; // A missing working file contributes nothing, staged or not.
   h.update(name+'\0');
-  if(fs.existsSync(p)){
-   const bytes=fs.readFileSync(p),text=bytes.toString('utf8');
-   // Git checkout may convert line endings on Windows. Preserve binary bytes.
-   h.update(!bytes.includes(0)&&Buffer.from(text,'utf8').equals(bytes)?text.replace(/\r\n/g,'\n'):bytes);
-  }else h.update('<deleted>');
+  const bytes=fs.readFileSync(p),text=bytes.toString('utf8');
+  // Git checkout may convert line endings on Windows. Preserve binary bytes.
+  h.update(!bytes.includes(0)&&Buffer.from(text,'utf8').equals(bytes)?text.replace(/\r\n/g,'\n'):bytes);
   h.update('\0');
  }
  return h.digest('hex');
