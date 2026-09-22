@@ -21,10 +21,11 @@ before(async()=>{
   await db.doc('sessions/s1').set({course:'505',date:'2027-03-22',facultyIds:['f1'],assignments:[{ucid:'f1'}]});
   await db.doc('sessions/s2').set({course:'506',date:'2027-03-23',facultyIds:['f2'],assignments:[{ucid:'f2'}]});
 
-  await db.doc('session_change_log/related-s1').set({sessionId:'s1',course:'505',changedBy:'adfa',changedByName:'ADFA',changedAt:new Date(),changes:[]});
-  await db.doc('session_change_log/unrelated-s2').set({sessionId:'s2',course:'506',changedBy:'adfa',changedByName:'ADFA',changedAt:new Date(),changes:[]});
-  await db.doc('session_change_log/adc-own').set({sessionId:'s2',course:'506',changedBy:'adc',changedByName:'ADC',changedAt:new Date(),changes:[]});
-  await db.doc('session_change_log/lab-own').set({sessionId:'s2',course:'506',changedBy:'lab',changedByName:'LAB',changedAt:new Date(),changes:[]});
+  await db.doc('session_change_log/related-s1').set({sessionId:'s1',relatedFacultyIds:['f1'],course:'505',changedBy:'adfa',changedByName:'ADFA',changedAt:new Date(),changes:[]});
+  await db.doc('session_change_log/related-deleted').set({sessionId:'deleted-s1',relatedFacultyIds:['f1'],course:'505',changedBy:'adfa',changedByName:'ADFA',changedAt:new Date(),changes:[]});
+  await db.doc('session_change_log/unrelated-s2').set({sessionId:'s2',relatedFacultyIds:['f2'],course:'506',changedBy:'adfa',changedByName:'ADFA',changedAt:new Date(),changes:[]});
+  await db.doc('session_change_log/adc-own').set({sessionId:'s2',relatedFacultyIds:['f2'],course:'506',changedBy:'adc',changedByName:'ADC',changedAt:new Date(),changes:[]});
+  await db.doc('session_change_log/lab-own').set({sessionId:'s2',relatedFacultyIds:['f2'],course:'506',changedBy:'lab',changedByName:'LAB',changedAt:new Date(),changes:[]});
 
   await db.doc('faculty_change_log/f1-related').set({facultyId:'f1',changedBy:'adfa',changedByName:'ADFA',changedAt:new Date(),changes:[]});
   await db.doc('faculty_change_log/f2-unrelated').set({facultyId:'f2',changedBy:'adfa',changedByName:'ADFA',changedAt:new Date(),changes:[]});
@@ -59,6 +60,7 @@ check('faculty may read session and faculty history related to their current lin
  const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
  const db=env.authenticatedContext('faculty').firestore();
  await assertSucceeds(db.doc('session_change_log/related-s1').get());
+ await assertSucceeds(db.doc('session_change_log/related-deleted').get());
  await assertFails(db.doc('session_change_log/unrelated-s2').get());
  await assertSucceeds(db.doc('faculty_change_log/f1-related').get());
  await assertFails(db.doc('faculty_change_log/f2-unrelated').get());
@@ -94,13 +96,13 @@ check('requester sees their public request lifecycle while internal audit stays 
 check('self-history query shapes are rule-authorized only for the signed-in relationship',async()=>{
  const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
  const faculty=env.authenticatedContext('faculty').firestore();
- await assertSucceeds(faculty.collection('session_change_log').where('sessionId','==','s1').get());
- await assertFails(faculty.collection('session_change_log').where('sessionId','==','s2').get());
+ await assertSucceeds(faculty.collection('session_change_log').where('relatedFacultyIds','array-contains','f1').get());
+ await assertFails(faculty.collection('session_change_log').where('relatedFacultyIds','array-contains','f2').get());
  await assertSucceeds(faculty.collection('faculty_change_log').where('facultyId','==','f1').get());
  await assertFails(faculty.collection('faculty_change_log').where('facultyId','==','f2').get());
  await assertSucceeds(faculty.collection('account_audit').where('targetUid','==','faculty').get());
  await assertSucceeds(faculty.collection('afc_audit').where('requesterUid','==','faculty').get());
- await assertSucceeds(faculty.collection('change_requests').where('requesterUid','==','faculty').get());
+ await assertSucceeds(faculty.collection('change_requests').where('requestSchema','==','office-routing-v1').where('requesterUid','==','faculty').get());
  const adc=env.authenticatedContext('adc').firestore();
  await assertSucceeds(adc.collection('session_change_log').where('changedBy','==','adc').get());
  await assertSucceeds(adc.collection('change_request_audit').where('changedBy','==','adc').get());
