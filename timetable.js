@@ -1962,11 +1962,12 @@
 
   function updateAuthUI() {
     const b = $('account-toggle');
-    const accessRole=UCVM.role(currentUser?.role),isAdmin=UCVM.admin(currentUser),facultySelfService=roleIsFaculty(currentUser),selfHistory=facultySelfService||accessRole==='other_office';
+    const accessRole=UCVM.role(currentUser?.role),isAdmin=UCVM.admin(currentUser),facultySelfService=roleIsFaculty(currentUser),selfHistory=Boolean(currentUser);
     // System/admin authority and faculty self-service are separate surfaces. Every
     // administrative account keeps the Admin tools menu even when it has no
     // delegated scheduling office, while Faculty/HICC/VISC alone receive the
-    // teaching/AFC self-service controls. ADC and HICC get role-labelled tool
+    // teaching/AFC self-service controls. My Change History is self-only and is
+    // available to every signed-in role. ADC and HICC get role-labelled tool
     // menus for their own operational/group actions rather than being presented
     // as generic administrators.
     const showTools=isAdmin||accessRole==='adc'||accessRole==='hicc';
