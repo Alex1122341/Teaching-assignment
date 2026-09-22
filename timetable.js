@@ -1213,6 +1213,12 @@
     }
     return{plans,errors:[...new Set(errors)]};
   }
+  function labRosterAuditChanges(plans=[]){
+    return plans.map(plan=>{
+      const id=String(plan.groupId||''),group=labGroupDirectory.get(id)||{},code=String(group.groupCode||id),before=(labRosterDirectory.get(id)?.studentIds||[]).length,after=(plan.data?.studentIds||[]).length;
+      return{field:'labRoster',label:`LAB roster · Group ${code}`,before:`${before} student${before===1?'':'s'}`,after:`${after} student${after===1?'':'s'}`};
+    });
+  }
   function selectionRole(){if(scopedWork?.stage)return scopedWork.stage;const role=UCVM.role(currentUser?.role);return role==='developer'?'developer':hasOfficeAccess('adc')?'adc':role;}
   function selectionCapabilities(){const role=selectionRole();return role==='developer'?capabilities():capabilities(role);}
   function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session);}
@@ -1268,11 +1274,12 @@
     if(scoped&&(rows.length!==1||String(rows[0].id)!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     await ensureSessionsForDates(rows.map(row=>row.date),true);
     if(scoped){if(activeScoped.stage==='lab')await ensureLabWorkflowContext(true);const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,workflowContext());const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
-    const rosterResult=buildSelectionLabRosterPlans(rows,timestamp),rosterPlans=rosterResult.plans;
+    const rosterResult=buildSelectionLabRosterPlans(rows,timestamp),rosterPlans=rosterResult.plans,rosterAuditChanges=labRosterAuditChanges(rosterPlans);
     if(rosterResult.errors.length){errorBox.innerHTML=rosterResult.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
     const doePrepared=new Map(),doeRuntime=canEditFaculty?getTimetableDoeRuntime():null,originalById=new Map(originals.map(row=>[String(row.id),row]));
     if(canEditFaculty)rows=await Promise.all(rows.map(async row=>{const prepared=await doeRuntime.adapter.prepareSession(originalById.get(String(row.id))||null,row,{trigger:'multi_session_edit'});doePrepared.set(String(row.id),prepared);return prepared.session}));
     const plan=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,{role:selectionRole()});
+    if(rosterAuditChanges.length&&plan.logs.length===1)plan.logs[0].changes=[...(plan.logs[0].changes||[]),...rosterAuditChanges];
     if(canEditFaculty){
       for(const log of plan.logs){const prepared=doePrepared.get(String(log.sessionId));const changes=doeAuditChanges(prepared?.doeChanges);if(changes.length){log.changes.push(...changes);log.doeChanges=prepared.doeChanges}}
     }
@@ -1281,8 +1288,12 @@
     if(!plan.updates.length&&rosterPlans.length){
       button.disabled=true;button.textContent='Saving LAB roster...';
       try{
-        const batch=db.batch();
+        const batch=db.batch(),row=rows[0]||originals[0]||{};
         for(const roster of rosterPlans)batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);
+        batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{
+          action:'lab_roster_update',override:null,requestId:'',sessionId:String(row.id||activeScoped?.sessionId||''),course:String(row.course||''),date:String(row.date||'').slice(0,10),topic:String(row.topic||''),instructors:[],
+          changes:rosterAuditChanges,changedBy:currentUser.uid,changedByName:currentUser.name||currentUser.email||'',changedByEmail:'',changedAt:timestamp
+        });
         await batch.commit();
         await ensureLabWorkflowContext(true);
         cancelSessionSelection();
