@@ -383,7 +383,7 @@
   const faculty=view.faculty.proposedName?`<div class="workflow-approval-change${officeContext&&!isDeveloper()&&!granted.includes('adfa')?' role-locked-field':''}"><strong>Faculty Assignment</strong>${view.faculty.currentName?`${esc(view.faculty.currentName)} → `:''}${esc(view.faculty.proposedName)}${officeContext?` <span class="workflow-pill">ADFA: ${esc(officeStatusText(r,'adfa'))}</span>`:''}</div>`:'';
   return rows+faculty;
  }
-function routedOfficeActionHtml(r,currentOffice){
+ function routedOfficeActionHtml(r,currentOffice){
   const own=r?._approvals?.[currentOffice];if(!own||own.status!=='pending'||r.status!=='pending')return'';
   // Approvals are strictly serial: ADC -> LAB -> ADFA. An office whose earlier
   // required offices are still pending sees a waiting note instead of Approve.
