@@ -64,6 +64,46 @@ jobs:
             exit 1
           fi
 
+      - name: Probe Firebase project identity and Auth REST
+        run: |
+          node - <<'NODE'
+          (async()=>{
+            const path=require('node:path');
+            const {createRequire}=require('node:module');
+            const req=createRequire(path.resolve('server/package.json'));
+            const {cert}=req('firebase-admin/app');
+            const raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+            if(!raw)throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON missing');
+            const serviceAccount=JSON.parse(raw);
+            const token=(await cert(serviceAccount).getAccessToken()).access_token;
+            const headers={Authorization:'Bearer '+token};
+            const projectRes=await fetch('https://firebase.googleapis.com/v1beta1/projects/vista-teaching-lab',{headers});
+            const projectText=await projectRes.text();
+            let projectBody={};
+            try{projectBody=JSON.parse(projectText)}catch{projectBody={raw:projectText.slice(0,300)}}
+            const authRes=await fetch('https://identitytoolkit.googleapis.com/v1/projects/vista-teaching-lab/accounts:batchGet?maxResults=1',{headers});
+            const authText=await authRes.text();
+            let authBody={};
+            try{authBody=JSON.parse(authText)}catch{authBody={raw:authText.slice(0,300)}}
+            console.log(JSON.stringify({
+              serviceAccountProjectId:serviceAccount.project_id,
+              firebaseProject:{
+                status:projectRes.status,
+                projectId:projectBody.projectId||'',
+                projectNumber:projectBody.projectNumber||'',
+                displayName:projectBody.displayName||'',
+                state:projectBody.state||''
+              },
+              identityToolkit:{
+                status:authRes.status,
+                errorStatus:authBody?.error?.status||'',
+                errorMessage:String(authBody?.error?.message||'').slice(0,200),
+                userCount:Array.isArray(authBody.users)?authBody.users.length:0
+              }
+            },null,2));
+          })().catch(error=>{console.error(error.stack||error.message);process.exit(1)});
+          NODE
+
       - name: Probe Firebase Auth and Firestore read-only
         run: |
           node - <<'NODE'
