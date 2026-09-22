@@ -130,6 +130,9 @@ jobs:
           })().catch(error=>{console.error(error.stack||error.message);process.exit(1)});
           NODE
 
+      - name: Configure GitHub Pages authorized domain
+        run: node tools/configure-lab-auth.js --operation configure --confirmation CONFIGURE-AUTH:vista-teaching-lab
+
       - name: Probe Firebase Auth and Firestore read-only
         run: |
           node - <<'NODE'
