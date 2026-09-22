@@ -492,7 +492,13 @@ function publicSessionMap(session) {
 function buildRequests(sessions, calendar) {
   const random = mulberry32(4242);
   const docs = [];
-  const targets = sessions.filter(s => s.data.type === 'LAB').slice(0, 3);
+  const requestGroup = buildGroups().find(row => row.path === 'faculty_groups/group-neuro');
+  if (!requestGroup) throw new Error('Missing group-neuro fixture for routed HICC requests.');
+  const requestGroupId = requestGroup.path.replace('faculty_groups/', '');
+  const requestGroupName = requestGroup.data.name;
+  const requestGroupCourses = new Set(requestGroup.data.courseIds || []);
+  const targets = sessions.filter(s => s.data.type === 'LAB' && requestGroupCourses.has(s.data.course)).slice(0, 3);
+  if (targets.length < 3) throw new Error('Not enough LAB sessions in group-neuro course scope for routed request fixtures.');
 
   const specs = [
     {id: 'req-001', status: 'pending', offices: ['lab'], scopes: {lab: ['topic']}, fields: ['topic'], editableFields: [], revision: 1, lab: true},
@@ -522,13 +528,13 @@ function buildRequests(sessions, calendar) {
         sessionId: session.path.replace('sessions/', ''),
         requestType: spec.scopes.adfa ? 'faculty_swap' : 'session_edit',
         scope: 'hicc',
-        groupId: 'group-neuro',
-        groupName: 'Neurology Rotation',
+        groupId: requestGroupId,
+        groupName: requestGroupName,
         status: spec.status,
         revision: spec.revision,
         basePublic: base,
         patchPublic: patch,
-        currentFacultyName: spec.scopes.adfa ? (d.assignments[0]?.name || '') : d.instructor,
+        currentFacultyName: spec.scopes.adfa ? (d.assignments[0]?.name || '') : '',
         proposedFacultyName: spec.scopes.adfa ? 'Mira Okonkwo' : '',
         editableFields: spec.editableFields || [],
         requesterMessage: spec.status === 'update_required' ? 'Please revise the rotation date.' : '',
