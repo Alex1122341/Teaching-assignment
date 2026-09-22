@@ -9,11 +9,12 @@ on:
         type: choice
         options:
           - verify-data
+          - repair-data
           - seed-data
           - deploy-firestore
           - provision
       confirmation:
-        description: SEED:vista-teaching-lab, DEPLOY-FIRESTORE:vista-teaching-lab, or PROVISION:vista-teaching-lab
+        description: REPAIR:vista-teaching-lab, SEED:vista-teaching-lab, DEPLOY-FIRESTORE:vista-teaching-lab, or PROVISION:vista-teaching-lab
         required: false
         type: string
 
@@ -76,6 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           case "${{ inputs.operation }}" in
+            repair-data) expected="REPAIR:vista-teaching-lab" ;;
             seed-data) expected="SEED:vista-teaching-lab" ;;
             deploy-firestore) expected="DEPLOY-FIRESTORE:vista-teaching-lab" ;;
             provision) expected="PROVISION:vista-teaching-lab" ;;
@@ -89,6 +91,10 @@ jobs:
       - name: Verify synthetic lab data
         if: inputs.operation == 'verify-data'
         run: node tools/seed-lab-admin.js --mode verify
+
+      - name: Repair missing synthetic lab fixture data
+        if: inputs.operation == 'repair-data'
+        run: node tools/seed-lab-admin.js --mode repair
 
       - name: Seed and verify synthetic lab data
         if: inputs.operation == 'seed-data' || inputs.operation == 'provision'
