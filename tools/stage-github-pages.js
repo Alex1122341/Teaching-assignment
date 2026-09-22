@@ -135,7 +135,7 @@ function injectDemoRuntime(html){
 
 function writeDemoRuntime(directory){
   const dataset=buildDataset();
-  const payload={version:1,generatedFrom:dataset.generatedFrom,counts:dataset.counts,documents:dataset.documents};
+  const payload={version:2,generatedFrom:dataset.generatedFrom,counts:dataset.counts,documents:dataset.documents};
   fs.writeFileSync(path.join(directory,DEMO_DATA_FILE),'window.UCVM_PAGES_DEMO_SEED='+JSON.stringify(payload)+';\n');
   fs.copyFileSync(path.join(__dirname,DEMO_RUNTIME_FILE),path.join(directory,DEMO_RUNTIME_FILE));
   return dataset.documents.length;
