@@ -15,23 +15,24 @@ test('Auth setup is hard-locked to the Firebase lab project and configure needs 
   assert.equal(tool.validateOptions({operation:'configure',confirmation:'CONFIGURE-AUTH:vista-teaching-lab'},{projectId:'vista-teaching-lab'}).operation,'configure');
 });
 
-test('Auth readiness requires email password sign-in and the GitHub Pages domain',()=>{
+test('Auth readiness requires email sign-in and the GitHub Pages domain but does not require password-only mode',()=>{
   const ready=tool.authReadiness({
-    signIn:{email:{enabled:true,passwordRequired:true}},
+    signIn:{email:{enabled:true,passwordRequired:false}},
     authorizedDomains:['localhost','alex1122341.github.io']
   });
   assert.equal(ready.ready,true);
   assert.equal(ready.pagesDomainAuthorized,true);
-  assert.equal(tool.authReadiness({signIn:{email:{enabled:false,passwordRequired:true}},authorizedDomains:['alex1122341.github.io']}).ready,false);
-  assert.equal(tool.authReadiness({signIn:{email:{enabled:true,passwordRequired:true}},authorizedDomains:['localhost']}).ready,false);
+  assert.equal(ready.passwordRequired,false);
+  assert.equal(tool.authReadiness({signIn:{email:{enabled:false,passwordRequired:false}},authorizedDomains:['alex1122341.github.io']}).ready,false);
+  assert.equal(tool.authReadiness({signIn:{email:{enabled:true,passwordRequired:false}},authorizedDomains:['localhost']}).ready,false);
 });
 
-test('configured Auth patch preserves existing domains and enables password sign-in',()=>{
+test('configured Auth patch preserves password optionality while enabling email sign-in and Pages domain',()=>{
   const patch=tool.configuredPatch({
-    signIn:{email:{enabled:false,passwordRequired:false},phoneNumber:{enabled:true}},
+    signIn:{email:{enabled:true,passwordRequired:false},phoneNumber:{enabled:true}},
     authorizedDomains:['Example.COM','localhost','example.com']
   });
-  assert.deepEqual(patch.signIn,{email:{enabled:true,passwordRequired:true}});
+  assert.deepEqual(patch.signIn,{email:{enabled:true,passwordRequired:false}});
   assert.deepEqual(patch.authorizedDomains,['alex1122341.github.io','example.com','localhost']);
 });
 
