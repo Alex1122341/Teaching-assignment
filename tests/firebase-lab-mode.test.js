@@ -123,6 +123,26 @@ test('3. Firebase Lab targets only vista-teaching-lab',()=>{
   assert.match(read(LAB_WORKFLOW),/FIREBASE-LAB:vista-teaching-lab/);
 });
 
+test('3b. workflow Firebase Lab config overrides the committed placeholder',()=>{
+  const previous=process.env.UCVM_LAB_FIREBASE_WEB_CONFIG;
+  process.env.UCVM_LAB_FIREBASE_WEB_CONFIG=JSON.stringify({
+    apiKey:FAKE_WEB_KEY,
+    authDomain:LAB_PROJECT_ID+'.firebaseapp.com',
+    projectId:LAB_PROJECT_ID,
+    storageBucket:LAB_PROJECT_ID+'.firebasestorage.app',
+    messagingSenderId:'123456789012',
+    appId:'1:123456789012:web:abcdef0123456789'
+  });
+  try{
+    const config=staging.readLabConfig();
+    assert.equal(config.apiKey,FAKE_WEB_KEY);
+    assert.equal(config.projectId,LAB_PROJECT_ID);
+  }finally{
+    if(previous===undefined)delete process.env.UCVM_LAB_FIREBASE_WEB_CONFIG;
+    else process.env.UCVM_LAB_FIREBASE_WEB_CONFIG=previous;
+  }
+});
+
 test('4. Firebase Lab uses Firebase Authentication',()=>{
   const runtime=read(LAB_RUNTIME);
   assert.match(runtime,/firebase\.auth\(\)/);

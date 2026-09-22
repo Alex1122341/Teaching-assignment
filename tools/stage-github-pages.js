@@ -82,11 +82,14 @@ function injectLabRuntime(html){
 
 function readLabConfig({configPath,allowPlaceholderConfig=false}={}){
   const file=configPath?path.resolve(configPath):path.join(__dirname,LAB_CONFIG_FILE);
+  const envConfig=String(process.env.UCVM_LAB_FIREBASE_WEB_CONFIG||'').trim();
   let raw='';
-  if(fs.existsSync(file))raw=fs.readFileSync(file,'utf8');
-  if(!String(raw||'').trim()&&process.env.UCVM_LAB_FIREBASE_WEB_CONFIG){
-    raw=String(process.env.UCVM_LAB_FIREBASE_WEB_CONFIG);
-  }
+  // An explicitly supplied config path is authoritative for local/test callers.
+  // Otherwise a workflow-provided environment config must override the
+  // committed placeholder file used only as a safe local default.
+  if(configPath&&fs.existsSync(file))raw=fs.readFileSync(file,'utf8');
+  else if(envConfig)raw=envConfig;
+  else if(fs.existsSync(file))raw=fs.readFileSync(file,'utf8');
   if(!String(raw||'').trim())throw Error('Firebase Lab web configuration is missing. Provide tools/'+LAB_CONFIG_FILE+' or UCVM_LAB_FIREBASE_WEB_CONFIG.');
   let config;
   try{config=JSON.parse(raw);}
