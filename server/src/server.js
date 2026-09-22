@@ -42,20 +42,36 @@ function firebaseAdminOptionsFromEnv(env=process.env){
 
 function createProductionDependencies({adminModule,env=process.env}={}){
   let admin=adminModule;
-  try{if(!admin)admin=require('firebase-admin')}
-  catch(error){
+  try{
+    if(!admin)admin={
+      app:require('firebase-admin/app'),
+      auth:require('firebase-admin/auth'),
+      firestore:require('firebase-admin/firestore')
+    };
+  }catch(error){
     error.message=`firebase-admin is required to start the DOE API: ${error.message}`;
     throw error;
   }
   const config=firebaseAdminOptionsFromEnv(env);
-  if(!admin.apps.length){
+  let firestore,adminAuth;
+  if(admin?.app&&admin?.auth&&admin?.firestore&&typeof admin.app.getApps==='function'){
     const options={};
     if(config.projectId)options.projectId=config.projectId;
-    if(config.serviceAccount)options.credential=admin.credential.cert(config.serviceAccount);
-    admin.initializeApp(options);
-  }
-  const firestore=admin.firestore();
-  const adminAuth=admin.auth();
+    if(config.serviceAccount)options.credential=admin.app.cert(config.serviceAccount);
+    const apps=admin.app.getApps();
+    const app=apps.length?apps[0]:admin.app.initializeApp(options);
+    firestore=admin.firestore.getFirestore(app);
+    adminAuth=admin.auth.getAuth(app);
+  }else if(Array.isArray(admin?.apps)&&typeof admin.initializeApp==='function'){
+    if(!admin.apps.length){
+      const options={};
+      if(config.projectId)options.projectId=config.projectId;
+      if(config.serviceAccount)options.credential=admin.credential.cert(config.serviceAccount);
+      admin.initializeApp(options);
+    }
+    firestore=admin.firestore();
+    adminAuth=admin.auth();
+  }else throw Error('Firebase Admin SDK shape is unsupported.');
   return{authProvider:createFirebaseAuthProvider({adminAuth,firestore}),firestore};
 }
 

@@ -39,7 +39,8 @@ test('DOE admin workflow is manual, lab-scoped and does not depend on Azure',()=
   assert.match(workflow,/name:\s*firebase-lab-admin/);
   assert.match(workflow,/FIREBASE_PROJECT_ID:\s*vista-teaching-lab/);
   assert.match(workflow,/secrets\.FIREBASE_LAB_SERVICE_ACCOUNT_JSON/);
-  assert.match(workflow,/npm --prefix server ci/);
+  assert.match(workflow,/npm --prefix server install --no-audit --no-fund/);
+  assert.doesNotMatch(workflow,/npm --prefix server ci/);
   assert.match(workflow,/npm run test:all/);
   assert.match(workflow,/recalculate-queue/);
   assert.match(workflow,/PROCESS-QUEUE/);

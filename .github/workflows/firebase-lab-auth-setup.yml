@@ -41,11 +41,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: server/package-lock.json
 
       - name: Install Firebase Admin dependency
-        run: npm --prefix server ci
+        run: npm --prefix server install --no-audit --no-fund
 
       - name: Verify Auth setup contract
         run: node --test tests/firebase-lab-auth-setup.test.js tests/firebase-lab-bootstrap.test.js

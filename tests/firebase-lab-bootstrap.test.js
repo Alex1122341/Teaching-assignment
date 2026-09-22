@@ -43,6 +43,30 @@ test('service account validation requires the isolated lab project',()=>{
   assert.throws(()=>tool.parseServiceAccount(''),/required/);
 });
 
+
+test('Firebase Admin v14 modular exports create Auth and Firestore clients',()=>{
+  const serviceAccount={project_id:'vista-teaching-lab',client_email:'svc@example.test',private_key:'PRIVATE'};
+  const appObject={name:'lab-app'};
+  const authClient={kind:'auth'};
+  const firestoreClient={kind:'firestore'};
+  const adminModule={
+    app:{
+      getApps:()=>[],
+      cert:account=>({account}),
+      initializeApp:options=>{assert.equal(options.projectId,'vista-teaching-lab');assert.equal(options.credential.account,serviceAccount);return appObject}
+    },
+    auth:{getAuth:app=>{assert.equal(app,appObject);return authClient}},
+    firestore:{
+      getFirestore:app=>{assert.equal(app,appObject);return firestoreClient},
+      FieldValue:{delete:()=>({delete:true})}
+    }
+  };
+  const clients=tool.createAdminClients(serviceAccount,{adminModule});
+  assert.equal(clients.auth,authClient);
+  assert.equal(clients.firestore,firestoreClient);
+  assert.equal(typeof clients.FieldValue.delete,'function');
+});
+
 test('profile builder emits only known role-appropriate account fields',()=>{
   const now=new Date('2026-09-20T00:00:00Z');
   const office=tool.buildProfile({email:'lab@ucalgary.ca',displayName:'LAB Test',role:'lab',facultyId:'',officeName:'UCVM LAB'},{actor:{uid:'actor',name:'Actor'},now});
@@ -64,6 +88,8 @@ test('bootstrap workflow is manual, passwordless and uses only the lab admin env
   assert.match(source,/name:\s*firebase-lab-admin/);
   assert.match(source,/FIREBASE_PROJECT_ID:\s*vista-teaching-lab/);
   assert.match(source,/secrets\.FIREBASE_LAB_SERVICE_ACCOUNT_JSON/);
+  assert.match(source,/npm --prefix server install --no-audit --no-fund/);
+  assert.doesNotMatch(source,/server\/package-lock\.json|npm --prefix server ci/);
   assert.match(source,/node tools\/bootstrap-lab-user\.js/);
   assert.doesNotMatch(source,/password:/i);
   assert.doesNotMatch(source,/tester-teaching/);
