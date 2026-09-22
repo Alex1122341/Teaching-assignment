@@ -297,6 +297,7 @@
   const sessionSelection = window.UCVM_TIMETABLE_SELECTION.create(200);
   const selectionViewFlow = window.UCVM_TIMETABLE_SELECTION.createViewFlow();
   const selectedSessionOriginals = new Map();
+  const selectionLabRosterDrafts = new Map();
   let selectionMode = false;
   let reviewingSelection = false;
   let scopedWork = null;
@@ -1073,13 +1074,13 @@
 
   async function startSessionSelection(){
     if(!canSelectSessions())return;
-    scopedWork=null;
+    scopedWork=null;selectionLabRosterDrafts.clear();
     if(capabilities().canEditInstructor)await ensureFacultyDirectory();
     selectionViewFlow.begin(viewMode);
     selectionMode=true;reviewingSelection=false;document.body.classList.add('session-selection-mode');updateSelectionControls();render();
   }
   function cancelSessionSelection(){
-    viewMode=selectionViewFlow.finish();selectionMode=false;reviewingSelection=false;scopedWork=null;sessionSelection.clear();selectedSessionOriginals.clear();document.body.classList.remove('session-selection-mode');updateSelectionControls();setViewButtons();refreshSessionScope();
+    viewMode=selectionViewFlow.finish();selectionMode=false;reviewingSelection=false;scopedWork=null;selectionLabRosterDrafts.clear();sessionSelection.clear();selectedSessionOriginals.clear();document.body.classList.remove('session-selection-mode');updateSelectionControls();setViewButtons();refreshSessionScope();
   }
   function updateSelectionControls(){
     const active=$('selection-active-actions');
@@ -1122,7 +1123,7 @@
       if(position){selectedSemester=position.semester;selectedWeek=position.week}
     }
     if(capabilities(stage).canEditInstructor)await ensureFacultyDirectory();
-    scopedWork={sessionId:id,stage};
+    scopedWork={sessionId:id,stage};selectionLabRosterDrafts.clear();
     selectionViewFlow.begin(viewMode);
     selectionMode=true;reviewingSelection=false;
     document.body.classList.add('session-selection-mode');
@@ -1153,6 +1154,65 @@
     if(summary)summary.textContent=checked.length?`${checked.length} LAB group${checked.length===1?'':'s'} selected`:'Choose LAB group';
     if(chips)chips.innerHTML=checked.map(input=>{const group=labGroupDirectory.get(String(input.value));return `<span>Group ${escapeHtml(group?.groupCode||input.value)}</span>`}).join('');
   }
+  function captureSelectionLabRosterDrafts(){
+    document.querySelectorAll('[data-selection-lab-roster]').forEach(input=>{
+      const id=String(input.dataset.selectionLabRoster||'').trim();
+      if(id)selectionLabRosterDrafts.set(id,String(input.value||''));
+    });
+  }
+  function selectedLabGroupIdsFromEditor(){
+    return[...new Set([...document.querySelectorAll('[data-selection-lab-group-option]:checked')].map(input=>String(input.value||'').trim()).filter(Boolean))];
+  }
+  function renderSelectionLabRosters(){
+    const host=$('selection-lab-rosters');
+    if(!host)return;
+    captureSelectionLabRosterDrafts();
+    const ids=selectedLabGroupIdsFromEditor();
+    if(!ids.length){host.innerHTML='<div class="selection-faculty-readonly">Choose at least one LAB group to edit its roster.</div>';return}
+    host.innerHTML=`<div class="login-cheatsheet"><strong>LAB group rosters</strong><br>Student IDs stay in the private roster collection and are never copied to the public calendar or session audit.</div>`
+      +ids.map(id=>{
+        const group=labGroupDirectory.get(id)||{},code=String(group.groupCode||id),existing=labRosterDirectory.get(id)?.studentIds||[];
+        const value=selectionLabRosterDrafts.has(id)?selectionLabRosterDrafts.get(id):existing.join('\n');
+        return `<label class="form-field"><span class="form-label">Group ${escapeHtml(code)} roster</span><textarea class="form-input" rows="6" spellcheck="false" data-selection-lab-roster="${escapeHtml(id)}" placeholder="One student ID per line">${escapeHtml(value)}</textarea><small>One student ID per line. Invalid or duplicate rows block the save.</small></label>`;
+      }).join('');
+  }
+  function buildSelectionLabRosterPlans(rows,timestamp){
+    if(scopedWork?.stage!=='lab'||selectionCapabilities().canEditLabRoster!==true)return{plans:[],errors:[]};
+    const api=window.UCVM_LAB_GROUPS;
+    if(!api?.parseRoster||!api?.rosterFor)return{plans:[],errors:['LAB roster tools are unavailable. Reload the page before saving.']};
+    captureSelectionLabRosterDrafts();
+    const row=rows?.[0]||{},ids=[...new Set((row.labGroupIds||[]).map(value=>String(value||'').trim()).filter(Boolean))],errors=[],drafts=new Map();
+    for(const id of ids){
+      const group=labGroupDirectory.get(id);
+      if(!group){errors.push(`LAB group ${id} is unavailable. Reopen the Work Queue item.`);continue}
+      const code=String(group.groupCode||id).toUpperCase(),raw=selectionLabRosterDrafts.has(id)?selectionLabRosterDrafts.get(id):(labRosterDirectory.get(id)?.studentIds||[]).join('\n');
+      const parsed=api.parseRoster(raw,{defaultGroupCode:code});
+      for(const invalid of parsed.invalid||[])errors.push(`Group ${code}, line ${invalid.line}: enter a 6–12 digit student ID.`);
+      for(const duplicate of parsed.duplicates||[])errors.push(`Group ${code}, line ${duplicate.line}: duplicate student ID.`);
+      for(const entry of parsed.entries||[])if(String(entry.groupCode||'').toUpperCase()!==code)errors.push(`Group ${code}, line ${entry.line}: roster rows in this box must belong to Group ${code}.`);
+      const studentIds=(parsed.entries||[]).map(entry=>String(entry.studentId||'').trim()).filter(Boolean);
+      if(!studentIds.length)errors.push(`Group ${code}: add at least one student ID before saving.`);
+      drafts.set(id,studentIds);
+    }
+    const course=String(row.course||''),relevant=[...labGroupDirectory.values()].filter(group=>String(group.course||'')===course||ids.includes(String(group.groupId||'')));
+    const owners=new Map();
+    for(const group of relevant){
+      const id=String(group.groupId||''),code=String(group.groupCode||id).toUpperCase(),studentIds=drafts.has(id)?drafts.get(id):(labRosterDirectory.get(id)?.studentIds||[]);
+      for(const raw of studentIds){
+        const studentId=String(raw||'').trim();if(!studentId)continue;
+        const previous=owners.get(studentId);
+        if(previous&&previous.id!==id)errors.push(`Student ${studentId} cannot be assigned to both Group ${previous.code} and Group ${code}.`);
+        else owners.set(studentId,{id,code});
+      }
+    }
+    const plans=[];
+    for(const [id,studentIds] of drafts){
+      const before=(labRosterDirectory.get(id)?.studentIds||[]).map(String);
+      if(JSON.stringify(before)===JSON.stringify(studentIds))continue;
+      plans.push({groupId:id,data:api.rosterFor(id,{studentIds,updatedAt:timestamp,updatedBy:currentUser.uid,updatedByName:currentUser.name||currentUser.email||''})});
+    }
+    return{plans,errors:[...new Set(errors)]};
+  }
   function selectionRole(){if(scopedWork?.stage)return scopedWork.stage;const role=UCVM.role(currentUser?.role);return role==='developer'?'developer':hasOfficeAccess('adc')?'adc':role;}
   function selectionCapabilities(){const role=selectionRole();return role==='developer'?capabilities():capabilities(role);}
   function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session);}
@@ -1162,7 +1222,7 @@
     const data=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids());
     renderedSessions=data;
     $('cal-label').textContent=`Review ${data.length} selected session${data.length===1?'':'s'}`;
-    const canEditFaculty=selectionCapabilities().canEditInstructor;
+    const canEditFaculty=selectionCapabilities().canEditInstructor,canEditLabRoster=scopedWork?.stage==='lab'&&selectionCapabilities().canEditLabRoster===true;
     const rows=data.map(s=>{const policy=selectionPolicy(s),field=name=>lockedAttr(policy.fields[name]);return `<tr data-selection-row data-session-edit-id="${escapeHtml(s.id)}">
       <td><input type="date" data-selection-field="date" value="${escapeHtml(s.date)}" ${field('date')}></td>
       <td><select data-selection-field="year" ${field('year')}>${[1,2,3,4].map(year=>`<option ${Number(s.year)===year?'selected':''}>${year}</option>`).join('')}</select></td>
@@ -1176,9 +1236,10 @@
       <td>${policy.fields.faculty?`<details class="selection-faculty-picker" data-selection-field="faculty"><summary>Choose faculty</summary><div class="selection-faculty-menu"><div class="selection-faculty-options">${selectionFacultyOptions(s)}</div></div></details><div class="selection-faculty-chips"></div>`:`<div class="role-locked-field selection-faculty-readonly">${escapeHtml(s.instructor||'TBD')}</div>`}</td>
     </tr>`}).join('');
     const note=canEditFaculty?'Open Faculty to choose one or more people; authoritative DOE is recalculated by the trusted backend after save when the HTTP DOE API is unavailable.':'Grey fields are context only; your office can edit only its assigned fields.';
-    $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>LAB Groups</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div><div class="selection-save-bar"><span>${note}</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
+    $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>LAB Groups</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div>${canEditLabRoster?'<div id="selection-lab-rosters" class="selection-lab-rosters"></div>':''}<div class="selection-save-bar"><span>${note}</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
     document.querySelectorAll('.selection-faculty-picker:not(.selection-lab-group-picker)').forEach(picker=>{picker.querySelectorAll('[data-selection-faculty-option]').forEach(input=>input.onchange=()=>updateSelectionFacultyPicker(picker));updateSelectionFacultyPicker(picker)});
-    document.querySelectorAll('.selection-lab-group-picker').forEach(picker=>{picker.querySelectorAll('[data-selection-lab-group-option]').forEach(input=>input.onchange=()=>updateSelectionLabGroupPicker(picker));updateSelectionLabGroupPicker(picker)});
+    document.querySelectorAll('.selection-lab-group-picker').forEach(picker=>{picker.querySelectorAll('[data-selection-lab-group-option]').forEach(input=>input.onchange=()=>{updateSelectionLabGroupPicker(picker);renderSelectionLabRosters()});updateSelectionLabGroupPicker(picker)});
+    if(canEditLabRoster)renderSelectionLabRosters();
     $('selection-back-btn').onclick=()=>{const wasScoped=Boolean(scopedWork);reviewingSelection=false;viewMode=selectionViewFlow.finish();setViewButtons();render();refreshSessionScope();if(wasScoped)cancelSessionSelection()};
     $('selection-save-btn').onclick=saveSelectedChanges;
   }
@@ -1207,6 +1268,8 @@
     if(scoped&&(rows.length!==1||String(rows[0].id)!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     await ensureSessionsForDates(rows.map(row=>row.date),true);
     if(scoped){if(activeScoped.stage==='lab')await ensureLabWorkflowContext(true);const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,workflowContext());const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
+    const rosterResult=buildSelectionLabRosterPlans(rows,timestamp),rosterPlans=rosterResult.plans;
+    if(rosterResult.errors.length){errorBox.innerHTML=rosterResult.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
     const doePrepared=new Map(),doeRuntime=canEditFaculty?getTimetableDoeRuntime():null,originalById=new Map(originals.map(row=>[String(row.id),row]));
     if(canEditFaculty)rows=await Promise.all(rows.map(async row=>{const prepared=await doeRuntime.adapter.prepareSession(originalById.get(String(row.id))||null,row,{trigger:'multi_session_edit'});doePrepared.set(String(row.id),prepared);return prepared.session}));
     const plan=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,{role:selectionRole()});
@@ -1214,7 +1277,23 @@
       for(const log of plan.logs){const prepared=doePrepared.get(String(log.sessionId));const changes=doeAuditChanges(prepared?.doeChanges);if(changes.length){log.changes.push(...changes);log.doeChanges=prepared.doeChanges}}
     }
     if(plan.errors.length){errorBox.innerHTML=plan.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
-    if(!plan.updates.length){toast('No selected session values changed.');return}
+    if(!plan.updates.length&&!rosterPlans.length){toast('No selected session or LAB roster values changed.');return}
+    if(!plan.updates.length&&rosterPlans.length){
+      button.disabled=true;button.textContent='Saving LAB roster...';
+      try{
+        const batch=db.batch();
+        for(const roster of rosterPlans)batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);
+        await batch.commit();
+        await ensureLabWorkflowContext(true);
+        cancelSessionSelection();
+        toast(`${rosterPlans.length} LAB roster${rosterPlans.length===1?'':'s'} saved.`);
+      }catch(error){
+        console.error('[LAB roster save]',error);
+        errorBox.textContent='Nothing was saved. Check the roster values, connection, or permissions, then try again.';
+        errorBox.classList.remove('hidden');button.disabled=false;button.textContent='Save selected changes';
+      }
+      return;
+    }
     const overrides=canEditFaculty?confirmSchedulingChanges(plan.logs.map(log=>({id:log.sessionId,...log.after}))):new Map();if(overrides===null)return;
     for(const log of plan.logs)log.override=overrides.get(String(log.sessionId))||null;
     plan.updates=plan.updates.map(update=>({...update,data:{...firestoreSafeSessionPatch(update.data),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp}}));
@@ -1236,9 +1315,10 @@
         }
         result={committed:true,completedRows,errors:[]};
       }else{
-        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),queueRef:()=>db.collection('doe_recalculation_requests').doc(),queueData:(update,log,ref)=>queuedDoeRequestData(update.after||log.after,ref.id,'office_multi_session_edit',update.data.updatedAt||log.changedAt,log.before),onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
+        let rosterWritesStaged=false;
+        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),queueRef:()=>db.collection('doe_recalculation_requests').doc(),queueData:(update,log,ref)=>queuedDoeRequestData(update.after||log.after,ref.id,'office_multi_session_edit',update.data.updatedAt||log.changedAt,log.before),stageExtraWrites:rosterPlans.length?({batch})=>{if(rosterWritesStaged)return 0;for(const roster of rosterPlans)batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);rosterWritesStaged=true;return rosterPlans.length}:null,onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(activeScoped?.stage==='lab'&&rosterPlans.length)await ensureLabWorkflowContext(true);if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
       }
-      const count=result.completedRows;delete button.dataset.resumeFrom;delete button.dataset.planKey;cancelSessionSelection();toast(`${count} session${count===1?'':'s'} updated with audit history.`);
+      const count=result.completedRows;delete button.dataset.resumeFrom;delete button.dataset.planKey;cancelSessionSelection();toast(`${count} session${count===1?'':'s'} updated with audit history${rosterPlans.length?` and ${rosterPlans.length} LAB roster${rosterPlans.length===1?'':'s'} saved`:''}.`);
     }catch(error){console.error('[multi-session save]',error);const completed=Number(error.completedRows||0);button.dataset.resumeFrom=String(completed);errorBox.textContent=completed?`${completed} of ${plan.updates.length} sessions were saved. The remaining rows were not saved. Check the connection or permissions, then click Resume save.`:error.committed?'The first batch was saved, but follow-up maintenance failed. Keep this review open and ask an administrator to verify indexes.':'Nothing was saved. Check your connection and permissions, then try again.';errorBox.classList.remove('hidden');button.disabled=false;button.textContent=completed?'Resume save':'Save selected changes'}
   }
 
