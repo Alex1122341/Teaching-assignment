@@ -82,11 +82,28 @@ check('AFC audit is visible only when the user is requester report-to actor or g
  await assertFails(faculty.doc('afc_audit/afc-other').get());
 });
 
-check('requester may read the lifecycle audit for their own routed request while unrelated request audit stays private',async()=>{
+check('requester sees their public request lifecycle while internal audit stays actor/admin scoped',async()=>{
  const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
  const db=env.authenticatedContext('faculty').firestore();
- await assertSucceeds(db.doc('change_request_audit/r1-event').get());
+ await assertSucceeds(db.doc('change_requests/r1').get());
+ await assertFails(db.doc('change_requests/r2').get());
+ await assertFails(db.doc('change_request_audit/r1-event').get());
  await assertFails(db.doc('change_request_audit/r2-event').get());
+});
+
+check('self-history query shapes are rule-authorized only for the signed-in relationship',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
+ const faculty=env.authenticatedContext('faculty').firestore();
+ await assertSucceeds(faculty.collection('session_change_log').where('sessionId','==','s1').get());
+ await assertFails(faculty.collection('session_change_log').where('sessionId','==','s2').get());
+ await assertSucceeds(faculty.collection('faculty_change_log').where('facultyId','==','f1').get());
+ await assertFails(faculty.collection('faculty_change_log').where('facultyId','==','f2').get());
+ await assertSucceeds(faculty.collection('account_audit').where('targetUid','==','faculty').get());
+ await assertSucceeds(faculty.collection('afc_audit').where('requesterUid','==','faculty').get());
+ await assertSucceeds(faculty.collection('change_requests').where('requesterUid','==','faculty').get());
+ const adc=env.authenticatedContext('adc').firestore();
+ await assertSucceeds(adc.collection('session_change_log').where('changedBy','==','adc').get());
+ await assertSucceeds(adc.collection('change_request_audit').where('changedBy','==','adc').get());
 });
 
 check('ADFA global history authority remains unchanged',async()=>{
