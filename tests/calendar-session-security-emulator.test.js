@@ -28,9 +28,19 @@ check('ADC and LAB can get and query sanitized calendar but not private source s
  const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
  for(const uid of ['adc','lab']){const db=env.authenticatedContext(uid).firestore();await assertSucceeds(db.doc('calendar_sessions/s1').get());await assertSucceeds(db.collection('calendar_sessions').where('date','==','2027-03-22').get());await assertFails(db.doc('sessions/s1').get());await assertFails(db.collection('sessions').get());}
 });
-check('office accounts are denied private data even when legacy actor or requester IDs match',async()=>{
+check('office accounts remain denied private source data even when legacy actor or requester IDs match',async()=>{
  const {assertFails}=require('@firebase/rules-unit-testing');
- for(const uid of ['adc','lab']){const db=env.authenticatedContext(uid).firestore();for(const path of ['faculty/f1','settings/faculty_swap_index','settings/faculty_swap_map','settings/faculty_index','public_schedule/ccc_events',`faculty_groups/${uid}-group`,`afc_requests/${uid}-legacy`,`change_requests/${uid}-legacy`,`change_request_private/${uid}-private`,...['session_change_log','faculty_change_log','afc_audit','account_audit','audit_events'].map(c=>`${c}/${uid}-legacy`)])await assertFails(db.doc(path).get());}
+ for(const uid of ['adc','lab']){const db=env.authenticatedContext(uid).firestore();for(const path of ['faculty/f1','settings/faculty_swap_index','settings/faculty_swap_map','settings/faculty_index','public_schedule/ccc_events',`faculty_groups/${uid}-group`,`afc_requests/${uid}-legacy`,`change_requests/${uid}-legacy`,`change_request_private/${uid}-private`])await assertFails(db.doc(path).get());}
+});
+check('office accounts may read only audit entries they personally changed',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
+ for(const uid of ['adc','lab']){
+  const db=env.authenticatedContext(uid).firestore();
+  for(const collection of ['session_change_log','faculty_change_log','account_audit','audit_events'])await assertSucceeds(db.doc(`${collection}/${uid}-legacy`).get());
+  await assertSucceeds(db.doc(`afc_audit/${uid}-legacy`).get());
+  const other=uid==='adc'?'lab':'adc';
+  await assertFails(db.doc(`session_change_log/${other}-legacy`).get());
+ }
 });
 check('ADFA and Faculty keep their existing reads',async()=>{
  const {assertSucceeds}=require('@firebase/rules-unit-testing');for(const uid of ['adfa','owner','faculty']){const db=env.authenticatedContext(uid).firestore();await assertSucceeds(db.doc('sessions/s1').get());await assertSucceeds(db.doc('faculty/f1').get());}
