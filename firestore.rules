@@ -8,9 +8,9 @@ service cloud.firestore {
   function admin(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
   function general(){return ready() && profile().role in ['developer','owner','adfa_general'];}
   function historyAll(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
-  function historyReader(d){return historyAll() || (ready() && d.get('changedBy','') == request.auth.uid);}
-  function selfSessionHistory(d){let id=d.get('sessionId','');let fid=profile().get('facultyId','');return facultyMember() && fid is string && fid.size() > 0 && id is string && id.size() > 0 && exists(/databases/$(database)/documents/sessions/$(id)) && fid in get(/databases/$(database)/documents/sessions/$(id)).data.get('facultyIds',[]);}
-  function selfFacultyHistory(d){let fid=profile().get('facultyId','');return facultyMember() && fid is string && fid.size() > 0 && d.get('facultyId','') == fid;}
+  function historyReader(d){return historyAll() || (ready() && d.changedBy == request.auth.uid);}
+  function selfSessionHistory(d){let fid=profile().facultyId;let source=get(/databases/$(database)/documents/sessions/$(d.sessionId)).data;return facultyMember() && fid is string && fid.size() > 0 && d.sessionId is string && d.sessionId.size() > 0 && source.facultyIds is list && fid in source.facultyIds;}
+  function selfFacultyHistory(d){let fid=profile().facultyId;return facultyMember() && fid is string && fid.size() > 0 && d.facultyId == fid;}
   function hicc(){return ready() && profile().role == 'hicc';}
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
   function explicitRole(r){return r in ['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
@@ -523,7 +523,7 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /change_request_audit/{id} {
-   allow read: if admin() || (ready() && (resource.data.get('changedBy','') == request.auth.uid || (resource.data.get('requestId','') is string && resource.data.get('requestId','').size() > 0 && exists(requestPublicPath(resource.data.requestId)) && get(requestPublicPath(resource.data.requestId)).data.get('requesterUid','') == request.auth.uid)));
+   allow read: if admin() || (ready() && resource.data.changedBy == request.auth.uid);
    allow create: if teachingWritesOpen() && validRoutedAuditCreate();
    allow update,delete: if false;
   }
@@ -666,7 +666,7 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /account_audit/{id} {
-   allow read: if historyReader(resource.data) || (ready() && resource.data.get('targetUid','') == request.auth.uid);
+   allow read: if historyReader(resource.data) || (ready() && resource.data.targetUid == request.auth.uid);
    allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time && (general() || (hicc() && request.resource.data.action == 'group_members_updated' && get(/databases/$(database)/documents/faculty_groups/$(request.resource.data.groupId)).data.ownerUid == request.auth.uid));
    allow update,delete: if false;
   }
@@ -682,7 +682,7 @@ service cloud.firestore {
     allow update,delete: if false;
    }
   }
-  match /afc_audit/{id} {allow read: if ready() && (historyAll() || resource.data.get('changedBy','') == request.auth.uid || resource.data.get('requesterUid','') == request.auth.uid || resource.data.get('reportToUid','') == request.auth.uid); allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time; allow update,delete: if false;}
+  match /afc_audit/{id} {allow read: if ready() && (historyAll() || resource.data.changedBy == request.auth.uid || resource.data.requesterUid == request.auth.uid || resource.data.reportToUid == request.auth.uid); allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time; allow update,delete: if false;}
   match /lab_groups/{id} {
    allow read: if ready() && (officeName() != '' || facultyMember() || general());
    allow create,update: if teachingWritesOpen() && labGroupWrite(id);
