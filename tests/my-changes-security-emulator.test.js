@@ -93,19 +93,32 @@ check('requester sees their public request lifecycle while internal audit stays 
  await assertFails(db.doc('change_request_audit/r2-event').get());
 });
 
-check('self-history query shapes are rule-authorized only for the signed-in relationship',async()=>{
- const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing');
- const faculty=env.authenticatedContext('faculty').firestore();
- await assertSucceeds(faculty.collection('session_change_log').where('relatedFacultyIds','array-contains','f1').get());
- await assertFails(faculty.collection('session_change_log').where('relatedFacultyIds','array-contains','f2').get());
- await assertSucceeds(faculty.collection('faculty_change_log').where('facultyId','==','f1').get());
- await assertFails(faculty.collection('faculty_change_log').where('facultyId','==','f2').get());
- await assertSucceeds(faculty.collection('account_audit').where('targetUid','==','faculty').get());
- await assertSucceeds(faculty.collection('afc_audit').where('requesterUid','==','faculty').get());
- await assertSucceeds(faculty.collection('change_requests').where('requestSchema','==','office-routing-v1').where('requesterUid','==','faculty').get());
- const adc=env.authenticatedContext('adc').firestore();
- await assertSucceeds(adc.collection('session_change_log').where('changedBy','==','adc').get());
- await assertSucceeds(adc.collection('change_request_audit').where('changedBy','==','adc').get());
+check('Faculty session-history array query is authorized only for its linked Faculty ID',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing'),db=env.authenticatedContext('faculty').firestore();
+ await assertSucceeds(db.collection('session_change_log').where('relatedFacultyIds','array-contains','f1').get());
+ await assertFails(db.collection('session_change_log').where('relatedFacultyIds','array-contains','f2').get());
+});
+check('Faculty-record history equality query is self-only',async()=>{
+ const {assertSucceeds,assertFails}=require('@firebase/rules-unit-testing'),db=env.authenticatedContext('faculty').firestore();
+ await assertSucceeds(db.collection('faculty_change_log').where('facultyId','==','f1').get());
+ await assertFails(db.collection('faculty_change_log').where('facultyId','==','f2').get());
+});
+check('account target history query is self-only',async()=>{
+ const {assertSucceeds}=require('@firebase/rules-unit-testing'),db=env.authenticatedContext('faculty').firestore();
+ await assertSucceeds(db.collection('account_audit').where('targetUid','==','faculty').get());
+});
+check('AFC relationship history query is requester-scoped',async()=>{
+ const {assertSucceeds}=require('@firebase/rules-unit-testing'),db=env.authenticatedContext('faculty').firestore();
+ await assertSucceeds(db.collection('afc_audit').where('requesterUid','==','faculty').get());
+});
+check('routed request lifecycle query is requester-scoped',async()=>{
+ const {assertSucceeds}=require('@firebase/rules-unit-testing'),db=env.authenticatedContext('faculty').firestore();
+ await assertSucceeds(db.collection('change_requests').where('requestSchema','==','office-routing-v1').where('requesterUid','==','faculty').get());
+});
+check('office actor history queries are changedBy-scoped',async()=>{
+ const {assertSucceeds}=require('@firebase/rules-unit-testing'),db=env.authenticatedContext('adc').firestore();
+ await assertSucceeds(db.collection('session_change_log').where('changedBy','==','adc').get());
+ await assertSucceeds(db.collection('change_request_audit').where('changedBy','==','adc').get());
 });
 
 check('ADFA global history authority remains unchanged',async()=>{
