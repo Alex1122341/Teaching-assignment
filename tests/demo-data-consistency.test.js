@@ -57,10 +57,14 @@ test('approved workflow fixture is already applied to canonical session and cale
  const session=map.get('sessions/'+request.sessionId),calendar=map.get('calendar_sessions/'+request.sessionId);
  assert.equal(session.approvalRequestId,'req-003');
  assert.equal(session.approvalRevision,request.revision);
- for(const field of PUBLIC_FIELDS){
+ for(const field of PUBLIC_FIELDS.filter(field=>field!=='instructor')){
   assert.deepEqual(session[field],request.patchPublic[field],field);
   assert.deepEqual(calendar[field],session[field],field+' calendar');
  }
+ assert.equal(request.patchPublic.instructor,request.proposedFacultyName);
+ assert.equal(request.currentFacultyName,request.basePublic.instructor.split(/[,;]/)[0].trim());
+ assert.equal(session.instructor,session.assignments.map(row=>row.name).filter(Boolean).join('; '));
+ assert.equal(calendar.instructor,session.instructor);
  assert.deepEqual(calendar.instructorNames,session.instructorNames);
  assert.equal(session.facultyIds[0],'fac-003');
  assert.deepEqual(session.assignments.map(row=>row.facultyId),session.facultyIds);
