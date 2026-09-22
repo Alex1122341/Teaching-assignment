@@ -195,8 +195,8 @@
     // Work Queue reuses the real Select Sessions editor, and a role without
     // unrestricted selection (LAB) still reaches the session it owns.
     if(typeof page.openScopedEditor==='function'){
-     const opened=await page.openScopedEditor(sessionId,{stage,date:targetDate});
-     if(opened)return;
+     await page.openScopedEditor(sessionId,{stage,date:targetDate});
+     return;
     }
     const dateValue=targetDate;
     if(dateValue&&typeof page.ensureSessionsForRange==='function')await page.ensureSessionsForRange(dateValue,dateValue);
