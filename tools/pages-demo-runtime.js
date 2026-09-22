@@ -139,14 +139,14 @@
     const seedRows=Array.isArray(seed?.documents)?seed.documents:[];
     const seedMap=Object.fromEntries(seedRows.map(row=>[String(row.path),dehydrate(row.data)]));
     const seedVersion=Number(seed?.version)||1;
-    let records;
+    let records,resetStoredSnapshot=false;
     try{
       const saved=storage?.getItem(STORAGE_KEY),parsed=saved?JSON.parse(saved):null;
-      records=parsed&&parsed.__ucvmSeedVersion===seedVersion&&parsed.records&&typeof parsed.records==='object'
-        ? parsed.records
-        : clone(seedMap);
-    }catch(_){records=clone(seedMap)}
+      if(parsed&&parsed.__ucvmSeedVersion===seedVersion&&parsed.records&&typeof parsed.records==='object')records=parsed.records;
+      else{records=clone(seedMap);resetStoredSnapshot=Boolean(saved)}
+    }catch(_){records=clone(seedMap);resetStoredSnapshot=true}
     const persist=()=>{try{storage?.setItem(STORAGE_KEY,JSON.stringify({__ucvmSeedVersion:seedVersion,records}))}catch(_){}};
+    if(resetStoredSnapshot)persist();
     const notify=()=>{for(const callback of subscribers){try{callback()}catch(error){console.error('[Pages demo subscriber]',error)}}};
     const read=path=>Object.prototype.hasOwnProperty.call(records,path)?clone(records[path]):undefined;
     const write=(path,data,options={})=>{
