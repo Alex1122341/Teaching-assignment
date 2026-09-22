@@ -104,7 +104,7 @@ const config=window.UCVM_FIREBASE_CONFIG;
   async function page(collection,key){if(exhausted[key])return;let q=db.collection(collection);if(!canReadAll)q=q.where('changedBy','==',user.uid);q=q.orderBy('changedAt','desc').limit(PAGE_SIZE);if(cursors[key])q=q.startAfter(cursors[key]);const snap=await q.get();addSnapshot(snap,key);cursors[key]=snap.docs.at(-1)||cursors[key];if(snap.size<PAGE_SIZE)exhausted[key]=true}
   async function queryField(collection,field,value,source,operator='=='){if(value===undefined||value===null||value==='')return;const snap=await db.collection(collection).where(field,operator,value).get();addSnapshot(snap,source)}
   async function loadSelfExtras(){
-    if(!selfOnly||selfExtrasLoaded||!user)return;selfExtrasLoaded=true;
+    if(!selfOnly||selfExtrasLoaded||!user)return;
     const uid=String(user.uid||''),normalizedRole=role(profile?.role),facultyId=String(profile?.facultyId||'').trim();
     await queryField('account_audit','targetUid',uid,'account');
     for(const field of ['changedBy','requesterUid','reportToUid'])await queryField('afc_audit',field,uid,'afc');
@@ -122,6 +122,7 @@ const config=window.UCVM_FIREBASE_CONFIG;
       await queryField('faculty_change_log','facultyId',facultyId,'faculty');
       await queryField('session_change_log','relatedFacultyIds',facultyId,'session','array-contains');
     }
+    selfExtrasLoaded=true;
   }
   async function more(){if(loading)return;loading=true;$('audit-more').disabled=true;$('audit-status').textContent='Loading changes…';try{await page('session_change_log','session');if(includeFaculty)await page('faculty_change_log','faculty');await page('account_audit','account');await loadSelfExtras();entries.sort((a,b)=>{const at=a.changedAt?.toMillis?a.changedAt.toMillis():new Date(a.changedAt||0).getTime()||0,bt=b.changedAt?.toMillis?b.changedAt.toMillis():new Date(b.changedAt||0).getTime()||0;return bt-at});render();$('audit-more').hidden=exhausted.session&&exhausted.faculty&&exhausted.account;$('audit-status').textContent=`${entries.length} changes loaded · ${canReadAll?'all authorized users':selfOnly?'your own and related records':'your changes only'}.` }catch(e){$('audit-status').textContent='Could not load history: '+e.message}finally{loading=false;$('audit-more').disabled=false}}
   $('audit-search').oninput=render;$('audit-kind').onchange=render;$('audit-more').onclick=more;await more()
