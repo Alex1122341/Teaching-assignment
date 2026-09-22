@@ -56,7 +56,7 @@
     if (view === 'history') {
       title.textContent = 'My Change History';
       content.innerHTML = '';
-      UCVM.logs(content, { includeFaculty: true, profile: window.UCVM_PAGE_DATA?.profile?.() || {} });
+      UCVM.logs(content, { includeFaculty: true, profile: window.UCVM_PAGE_DATA?.profile?.() || {}, scope: 'self' });
     } else {
       title.textContent = 'AFC Request';
       const event = new Event('ucvm:afc-open');
