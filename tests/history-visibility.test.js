@@ -39,7 +39,7 @@ test('self history aggregates actor account AFC request and related teaching rec
 test('Firestore self history permits own actors and related records without granting global history', () => {
   const rules = read('firestore.rules');
   assert.match(rules, /function historyAll\(\)/);
-  assert.match(rules, /function historyReader\(d\)\{return historyAll\(\) \|\| \(ready\(\) && d\.changedBy == request\.auth\.uid\);\}/);
+  assert.match(rules, /function historyReader\(d\)[\s\S]*d\.keys\(\)\.hasAny\(\['changedBy'\]\)[\s\S]*d\.changedBy == request\.auth\.uid/);
   assert.match(rules, /function selfSessionHistory\(d\)[\s\S]*relatedFacultyIds/);
   assert.match(rules, /function selfFacultyHistory\(d\)/);
   assert.match(rules, /resource\.data\.targetUid == request\.auth\.uid/);
