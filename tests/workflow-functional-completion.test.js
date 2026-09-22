@@ -74,7 +74,8 @@ test('mounted Work Queue passes a known date to page.openScopedEditor so an evic
   const source=read('work-queue.js');
   assert.match(source,/openScopedEditor\(sessionId,\{stage,date:targetDate\}\)/);
   assert.match(source,/const targetDate=String\(date\|\|session\?\.date\|\|''\)\.slice\(0,10\)/);
-  assert.match(source,/if\(opened\)return/);
+  assert.match(source,/await page\.openScopedEditor\(sessionId,\{stage,date:targetDate\}\);\s*return;/);
+  assert.doesNotMatch(source,/const opened=await page\.openScopedEditor/);
 });
 
 function approvalActionHarness(granted=['lab']){
