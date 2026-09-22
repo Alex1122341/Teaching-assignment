@@ -102,7 +102,7 @@ const config=window.UCVM_FIREBASE_CONFIG;
   function addSnapshot(snapshot,source){for(const d of snapshot.docs||[])addEntry({id:d.id,...d.data()},source)}
   function render(){const q=$('audit-search').value.toLowerCase(),kind=$('audit-kind').value;const rows=entries.filter(e=>(!q||JSON.stringify(e).toLowerCase().includes(q))&&kindMatch(e,kind));$('audit-body').innerHTML=rows.map(e=>`<tr><td>${esc(time(e))}</td><td>${esc(e.changedByName||e.changedBy||e.requesterName||'Unknown')}<small>${esc(e.changedByEmail||'')}</small></td><td>${esc([e.course,e.date,e.topic].filter(Boolean).join(' · ')||e.facultyName||e.facultyId||e.targetName||e.targetUid||e.sessionId||e.requestId||e.recordId||'Record')}</td><td>${esc(actionLabel(e.action))}</td><td>${changeCell(e)}</td></tr>`).join('')||'<tr><td colspan="5">No matching changes.</td></tr>'}
   async function page(collection,key){if(exhausted[key])return;let q=db.collection(collection);if(!canReadAll)q=q.where('changedBy','==',user.uid);q=q.orderBy('changedAt','desc').limit(PAGE_SIZE);if(cursors[key])q=q.startAfter(cursors[key]);const snap=await q.get();addSnapshot(snap,key);cursors[key]=snap.docs.at(-1)||cursors[key];if(snap.size<PAGE_SIZE)exhausted[key]=true}
-  async function queryField(collection,field,value,source){if(value===undefined||value===null||value==='')return;const snap=await db.collection(collection).where(field,'==',value).get();addSnapshot(snap,source)}
+  async function queryField(collection,field,value,source,operator='=='){if(value===undefined||value===null||value==='')return;const snap=await db.collection(collection).where(field,operator,value).get();addSnapshot(snap,source)}
   async function loadSelfExtras(){
     if(!selfOnly||selfExtrasLoaded||!user)return;selfExtrasLoaded=true;
     const uid=String(user.uid||''),normalizedRole=role(profile?.role),facultyId=String(profile?.facultyId||'').trim();
@@ -120,8 +120,7 @@ const config=window.UCVM_FIREBASE_CONFIG;
     }
     if(facultyId){
       await queryField('faculty_change_log','facultyId',facultyId,'faculty');
-      const teaching=await db.collection('sessions').where('facultyIds','array-contains',facultyId).get();
-      for(const d of teaching.docs||[]){const audit=await db.collection('session_change_log').where('sessionId','==',d.id).get();addSnapshot(audit,'session')}
+      await queryField('session_change_log','relatedFacultyIds',facultyId,'session','array-contains');
     }
   }
   async function more(){if(loading)return;loading=true;$('audit-more').disabled=true;$('audit-status').textContent='Loading changes…';try{await page('session_change_log','session');if(includeFaculty)await page('faculty_change_log','faculty');await page('account_audit','account');await loadSelfExtras();entries.sort((a,b)=>{const at=a.changedAt?.toMillis?a.changedAt.toMillis():new Date(a.changedAt||0).getTime()||0,bt=b.changedAt?.toMillis?b.changedAt.toMillis():new Date(b.changedAt||0).getTime()||0;return bt-at});render();$('audit-more').hidden=exhausted.session&&exhausted.faculty&&exhausted.account;$('audit-status').textContent=`${entries.length} changes loaded · ${canReadAll?'all authorized users':selfOnly?'your own and related records':'your changes only'}.` }catch(e){$('audit-status').textContent='Could not load history: '+e.message}finally{loading=false;$('audit-more').disabled=false}}
