@@ -248,11 +248,14 @@ interrupted import recoverable rather than permanently locking teaching writes.
 `requestId`, `sessionId`, `course`, `date`, `topic`, `instructors`, `changes`,
 `relatedFacultyIds`, `changedBy`, `changedByName`, `changedByEmail`, `changedAt`.
 
-`relatedFacultyIds` is the de-duplicated union of Faculty IDs linked to the
-session immediately before and after the event. It is audit relationship
-metadata, not a public-calendar field. It lets a Faculty/HICC/VISC account read
-its own session history even after reassignment or session deletion without a
-second rules lookup into the current `sessions` document.
+`relatedFacultyIds`, when the writer has private Faculty relationship
+context, is the de-duplicated union of Faculty IDs linked to the session
+immediately before and after the event. It is audit relationship metadata, not a
+public-calendar field. It lets a Faculty/HICC/VISC account read stable related
+session history even after reassignment or session deletion without a second
+rules lookup into the current `sessions` document. ADC/LAB clients must not
+receive private Faculty IDs; their remaining audience-propagation gap is tracked
+separately until a trusted backend or opaque audience-key design is available.
 
 **A correction is a new event.** `update` and `delete` are denied on all six.
 
