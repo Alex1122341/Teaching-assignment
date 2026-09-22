@@ -31,7 +31,7 @@ test('self history aggregates actor account AFC request and related teaching rec
   assert.match(source, /queryField\('afc_audit',field,uid,'afc'\)/);
   assert.match(source, /queryField\('change_request_audit','changedBy',uid,'request'\)/);
   assert.match(source, /where\('requesterUid','==',uid\)/);
-  assert.match(source, /where\('facultyIds','array-contains',facultyId\)/);
+  assert.match(source, /queryField\('session_change_log','relatedFacultyIds',facultyId,'session','array-contains'\)/);
   assert.match(source, /action:\`request_\$\{request\.status\|\|'changed'\}\`/);
   assert.match(source, /queryField\('faculty_change_log','facultyId',facultyId,'faculty'\)/);
 });
@@ -40,7 +40,7 @@ test('Firestore self history permits own actors and related records without gran
   const rules = read('firestore.rules');
   assert.match(rules, /function historyAll\(\)/);
   assert.match(rules, /function historyReader\(d\)\{return historyAll\(\) \|\| \(ready\(\) && d\.changedBy == request\.auth\.uid\);\}/);
-  assert.match(rules, /function selfSessionHistory\(d\)/);
+  assert.match(rules, /function selfSessionHistory\(d\)[\s\S]*relatedFacultyIds/);
   assert.match(rules, /function selfFacultyHistory\(d\)/);
   assert.match(rules, /resource\.data\.targetUid == request\.auth\.uid/);
   assert.match(rules, /match \/afc_audit\/\{id\} \{allow read: if ready\(\)/);
