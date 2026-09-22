@@ -46,3 +46,9 @@ test('Firestore self history permits own actors and related records without gran
   assert.match(rules, /match \/afc_audit\/\{id\} \{allow read: if ready\(\)/);
   assert.match(rules, /match \/change_request_audit\/\{id\}[\s\S]*resource\.data\.changedBy == request\.auth\.uid/);
 });
+
+test('routed workflow apply stamps stable related Faculty IDs on its session audit', () => {
+  const source = read('approval-workflow.js');
+  assert.match(source, /const auditRelatedFacultyIds=.*auditFacultyIds/);
+  assert.match(source, /tx\.set\(logRef,\{[^}]*relatedFacultyIds:auditRelatedFacultyIds\(before,after\)/s);
+});
