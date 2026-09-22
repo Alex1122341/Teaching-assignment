@@ -74,7 +74,10 @@ function injectLabRuntime(html){
   const source=String(html);
   if(source.includes(LAB_RUNTIME_FILE))return source;
   const tags=labScriptTags();
-  const configTag=/<script[^>]+firebase-config\.js[^>]*><\/script>/i;
+  // Source layouts load firebase-config.js directly. Lightweight deployments
+  // fold it into a content-hashed shared-auth bundle; in both cases the Lab
+  // runtime must execute after the client config/auth helpers are installed.
+  const configTag=/<script[^>]+(?:firebase-config\.js|bundles\/shared-auth(?:\.[0-9a-f]{12})?\.bundle\.js)[^>]*><\/script>/i;
   if(configTag.test(source))return source.replace(configTag,match=>match+'\n'+tags);
   const firestoreTag=/<script[^>]+firebase-firestore-compat\.js[^>]*><\/script>/i;
   if(firestoreTag.test(source))return source.replace(firestoreTag,match=>match+'\n'+tags);
