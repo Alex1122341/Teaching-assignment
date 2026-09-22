@@ -66,6 +66,17 @@ test('update-required serial fixture records ADC push back while LAB remains pen
  assert.equal(map.get('change_request_approvals/req-002_lab').status,'pending');
 });
 
+test('synthetic HICC routed requests use the Firestore-authorized HICC scope',()=>{
+ const map=docs();
+ for(const [path,row] of [...map.entries()].filter(([path])=>path.startsWith('change_requests/'))){
+  assert.equal(row.requestSchema,'office-routing-v1',path+' schema');
+  assert.equal(row.requesterRole,'hicc',path+' requester role');
+  assert.equal(row.scope,'hicc',path+' scope');
+  assert.ok(row.groupId,path+' groupId');
+  assert.ok(row.groupName,path+' groupName');
+ }
+});
+
 test('synthetic approval records use the canonical routed-approval schema',()=>{
  const map=docs();
  for(const [path,row] of [...map.entries()].filter(([path])=>path.startsWith('change_request_approvals/'))){
