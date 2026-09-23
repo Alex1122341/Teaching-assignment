@@ -275,8 +275,6 @@ Historical audit/doc text may still contain the string. Future offices must rece
 
 ## 7. Faculty suggestions
 
-## 7. Faculty suggestions
-
 Suggestions are advisory only.
 
 Requirements:
@@ -739,8 +737,6 @@ The implementation must prove these with code-level and Firestore emulator tests
 
 ## 16. Existing modules to preserve or extend
 
-## 16. Existing modules to preserve or extend
-
 Prefer extension over rewrite.
 
 Preserve or reuse:
@@ -818,8 +814,6 @@ The approved implementation sequence is:
 12. T12 — schema/docs/fixtures, explicit approval regression, publication security regression, static/server/emulator/browser verification
 
 T7, T8 and T9 are the publication-critical implementation tasks. Do not start them from the pre-P3 plan text.
-
-## 19. Out of scope
 
 ## 19. Out of scope
 
