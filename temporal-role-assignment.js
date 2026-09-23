@@ -42,6 +42,30 @@
   const map=Object.fromEntries(parts.map(part=>[part.type,part.value]));
   return `${map.year}-${map.month}-${map.day}`;
  }
+ function dateTimeParts(value,timeZone='America/Edmonton'){
+  const date=value instanceof Date?value:new Date(value);
+  if(Number.isNaN(date.getTime()))throw Error('A valid instant is required.');
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(date);
+  const map=Object.fromEntries(parts.map(part=>[part.type,part.value]));
+  return{year:Number(map.year),month:Number(map.month),day:Number(map.day),hour:Number(map.hour),minute:Number(map.minute),second:Number(map.second)};
+ }
+ function dateBoundaryInstant(value,timeZone='America/Edmonton'){
+  const target=dateParts(value);
+  if(!target)throw Error('Date boundary must use a valid YYYY-MM-DD date.');
+  const targetUtc=Date.UTC(target.year,target.month-1,target.day,0,0,0);
+  let guess=targetUtc;
+  for(let i=0;i<4;i++){
+   const local=dateTimeParts(new Date(guess),timeZone);
+   const localAsUtc=Date.UTC(local.year,local.month-1,local.day,local.hour,local.minute,local.second);
+   const delta=localAsUtc-targetUtc;
+   if(delta===0)return new Date(guess);
+   guess-=delta;
+  }
+  const check=dateTimeParts(new Date(guess),timeZone);
+  if(check.year!==target.year||check.month!==target.month||check.day!==target.day||check.hour!==0||check.minute!==0||check.second!==0)throw Error('Could not resolve local date boundary.');
+  return new Date(guess);
+ }
+ function dateBoundaryIso(value,timeZone='America/Edmonton'){return dateBoundaryInstant(value,timeZone).toISOString()}
  function statusAt(input={},asOfDate){
   if(input.active===false)return'inactive';
   const asOf=dateParts(asOfDate);
@@ -82,5 +106,5 @@
   const current=normalizeWindow({...input,academicYear:sourceYear}),delta=targetStart-sourceStart;
   return{activeDate:shiftDateYears(current.activeDate,delta),expirationDate:shiftDateYears(current.expirationDate,delta)};
  }
- return Object.freeze({dateParts,dateInTimeZone,startYear,defaultWindow,normalizeWindow,statusAt,isActiveAt,normalizeDoeOverride,effectiveDoe,shiftDateYears,shiftWindow});
+ return Object.freeze({dateParts,dateInTimeZone,dateBoundaryInstant,dateBoundaryIso,startYear,defaultWindow,normalizeWindow,statusAt,isActiveAt,normalizeDoeOverride,effectiveDoe,shiftDateYears,shiftWindow});
 });

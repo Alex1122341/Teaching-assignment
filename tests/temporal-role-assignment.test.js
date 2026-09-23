@@ -40,3 +40,10 @@ test('Calgary business date controls temporal role rollover instead of UTC date'
  assert.equal(roles.dateInTimeZone(new Date('2027-03-01T05:30:00Z')),'2027-02-28');
  assert.equal(roles.dateInTimeZone(new Date('2027-03-01T07:30:00Z')),'2027-03-01');
 });
+
+test('Calgary date boundaries resolve local midnight correctly across DST',()=>{
+ assert.equal(roles.dateBoundaryIso('2027-01-15'),'2027-01-15T07:00:00.000Z');
+ assert.equal(roles.dateBoundaryIso('2027-07-15'),'2027-07-15T06:00:00.000Z');
+ assert.equal(roles.dateBoundaryIso('2027-03-14'),'2027-03-14T07:00:00.000Z');
+ assert.equal(roles.dateBoundaryIso('2027-11-07'),'2027-11-07T06:00:00.000Z');
+});
