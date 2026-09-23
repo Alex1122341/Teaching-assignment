@@ -30,9 +30,9 @@
 
 1. **Malformed or stale academic scope data** — an empty, unknown, or malformed `academicScopes` value must fail closed rather than broadening HICC/VISC authority. Task 2 adds explicit malformed-scope tests.
 2. **Course/Subject normalization edge cases** — authorization may trim and canonicalize course/Subject keys, but it must never fall back to substring matching. Task 2 tests short-string and cross-Subject attacks.
-3. **Concurrent contributor writes** — ADC/LAB/HICC/VISC contributions must live in actor/source-specific documents so one save cannot overwrite another contributor's suggestions or note. Task 4 pins document identity and coexistence.
-4. **Missing coarse workload policy** — candidate workload must render `Needs Review` without exposing exact DOE when no approved threshold policy is configured. Task 9 tests this fail-closed display.
-5. **Non-scoped session types** — QUIZ/MIDTERM/OSCE/EXAM and unknown types must retain current behavior and receive no invented HICC/VISC workflow. Task 3 keeps explicit regression coverage.
+3. **Concurrent contributor writes** — ADC/LAB/HICC/VISC contributions must live in actor/source-specific documents so one save cannot overwrite another contributor's suggestions or note. Task 5 pins document identity and coexistence.
+4. **Missing coarse workload policy** — candidate workload must render `Needs Review` without exposing exact DOE when no approved threshold policy is configured. Task 10 tests this fail-closed display.
+5. **Non-scoped session types** — QUIZ/MIDTERM/OSCE/EXAM and unknown types must retain current behavior and receive no invented HICC/VISC workflow. Task 4 keeps explicit regression coverage.
 
 ---
 
@@ -228,7 +228,137 @@ git commit -m "feat: add scoped academic responsibilities"
 
 ---
 
-### Task 3: Parallel Field-Based Preparation Readiness
+### Task 3: Canonical Subject Catalog and Optional Session Classification
+
+**Files:**
+- Create: `subject-catalog.js`
+- Create: `tests/subject-catalog.test.js`
+- Create: `tests/subject-catalog-security-emulator.test.js`
+- Modify: `faculty-admin.html`
+- Modify: `faculty-admin.js`
+- Modify: `timetable.js`
+- Modify: `timetable-selection.js`
+- Modify: `firestore.rules`
+- Modify: `tools/static-assets.json`
+- Modify: `tools/runtime-bundles.json`
+
+**Interfaces:**
+- Consumes: administrator-maintained Subject records and existing session objects.
+- Produces:
+  - `teaching_subjects/{subjectKey}` records with `{key,label,active,updatedBy,updatedAt}`
+  - `subject-catalog.normalizeKey(value) -> string`
+  - `subject-catalog.validateRecord(record, expectedKey) -> boolean`
+  - `subject-catalog.activeOptions(rows) -> Array<{key,label}>`
+  - optional session field `subjectKey`
+- Security invariant: scoped HICC/VISC users may consume `subjectKey` for authorization but may not change it, preventing self-escalation.
+
+- [ ] **Step 1: Write RED pure-model tests**
+
+```js
+test('catalog normalizes stable keys and returns active options only',()=>{
+ const api=load();
+ const rows=[
+  {key:'surgery',label:'Surgery',active:true},
+  {key:'anesthesia',label:'Anesthesia',active:false}
+ ];
+ assert.equal(api.normalizeKey(' Surgery '),'surgery');
+ assert.deepEqual(api.activeOptions(rows),[{key:'surgery',label:'Surgery'}]);
+});
+
+test('catalog rejects mismatched document identity',()=>{
+ const api=load();
+ assert.throws(()=>api.validateRecord({key:'surgery',label:'Surgery',active:true},'anesthesia'));
+});
+```
+
+- [ ] **Step 2: Run pure-model test and verify RED**
+
+```bash
+node --test tests/subject-catalog.test.js
+```
+
+Expected: FAIL because `subject-catalog.js` does not exist.
+
+- [ ] **Step 3: Implement the minimal Subject catalog helper**
+
+Use a stable lowercase key and a human-readable label. Reject blank keys, blank labels, keys containing whitespace, and document-key mismatches.
+
+A valid record shape is:
+
+```js
+{key:'surgery',label:'Surgery',active:true}
+```
+
+Do not attach DOE percentages, curriculum stage, or policy-version data to the Teaching Assignment Subject catalog.
+
+- [ ] **Step 4: Add RED Firestore emulator tests**
+
+Pin:
+
+```js
+await assertSucceeds(db('faculty').doc('teaching_subjects/surgery').get());
+await assertFails(db('faculty').doc('teaching_subjects/surgery').set({key:'surgery',label:'Surgery',active:true}));
+await assertSucceeds(db('administrator').doc('teaching_subjects/surgery').set({
+ key:'surgery',label:'Surgery',active:true,updatedBy:'administrator',updatedAt:serverTimestamp()
+}));
+```
+
+Also assert a write where document id and `key` differ is denied.
+
+- [ ] **Step 5: Add Firestore catalog rules**
+
+Add `match /teaching_subjects/{subjectKey}`:
+- read: `ready()`
+- create/update: existing administrator authority only
+- delete: existing administrator authority only
+- write shape: exact `key == subjectKey`, non-empty `label`, boolean `active`, standard update metadata
+
+Do not read DOE Subject mappings from the browser to populate this catalog.
+
+- [ ] **Step 6: Add administrator catalog UI**
+
+Add a focused Subject Catalog panel to the existing Faculty Dashboard administrative area. It must allow authorized administrators to:
+- list Subject key/label/status
+- add a Subject
+- rename the display label without changing the stable key
+- activate/deactivate a Subject
+
+Do not add DOE configuration controls here.
+
+- [ ] **Step 7: Add optional Subject selection to session editing**
+
+ADC may optionally classify a session with `subjectKey` using only active catalog options. High-trust admin repair paths may also set it.
+
+Rules/UI must enforce:
+- `subjectKey` is optional and is not an ADFA readiness gate
+- HICC/VISC cannot change `subjectKey`
+- Topic remains a separate free-text field
+- changing Subject alone does not create authoritative DOE
+
+- [ ] **Step 8: Add static/runtime assets in deterministic order**
+
+Load `subject-catalog.js` before `timetable.js` and before the admin UI consumer. Update `tools/static-assets.json` and `tools/runtime-bundles.json` consistently.
+
+- [ ] **Step 9: Run focused, static, and emulator tests**
+
+```bash
+node --test tests/subject-catalog.test.js tests/timetable-selection.test.js
+npm run test:static
+npm run test:emulator
+```
+
+Expected: PASS.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add subject-catalog.js tests/subject-catalog.test.js tests/subject-catalog-security-emulator.test.js faculty-admin.html faculty-admin.js timetable.js timetable-selection.js firestore.rules tools/static-assets.json tools/runtime-bundles.json
+git commit -m "feat: add canonical teaching subject catalog"
+```
+
+---
+
+### Task 4: Parallel Field-Based Preparation Readiness
 
 **Files:**
 - Modify: `session-workflow.js`
@@ -342,7 +472,7 @@ git commit -m "feat: make teaching preparation readiness parallel"
 
 ---
 
-### Task 4: Four-Source Suggestions and Actor-Scoped Contributions
+### Task 5: Four-Source Suggestions and Actor-Scoped Contributions
 
 **Files:**
 - Modify: `faculty-suggestions.js`
@@ -452,7 +582,7 @@ git commit -m "feat: add scoped teaching contributions"
 
 ---
 
-### Task 5: Scoped Capabilities and Topic Editing Policy
+### Task 6: Scoped Capabilities and Topic Editing Policy
 
 **Files:**
 - Modify: `office-capabilities.js`
@@ -536,7 +666,7 @@ git commit -m "feat: enforce course subject teaching scopes"
 
 ---
 
-### Task 6: Firestore Authorization for Academic Scopes, Contributions, Notes, and Roster Reads
+### Task 7: Firestore Authorization for Academic Scopes, Contributions, Notes, and Roster Reads
 
 **Files:**
 - Modify: `firestore.rules`
@@ -695,7 +825,7 @@ git commit -m "feat: secure scoped teaching contributions"
 
 ---
 
-### Task 7: Work Queue and Timetable UI for HICC/VISC Contributions
+### Task 8: Work Queue and Timetable UI for HICC/VISC Contributions
 
 **Files:**
 - Modify: `work-queue.js`
@@ -785,13 +915,13 @@ git commit -m "feat: add scoped contributor work queue"
 
 ---
 
-### Task 8: ADFA Suggestion Review and Explicit Approve & Submit
+### Task 9: ADFA Suggestion Review and Explicit Approve & Submit
 
 **Files:**
 - Modify: `timetable.js`
 - Modify: `faculty-assignment.js` only if a small source/provenance helper is needed
 - Modify: `tests/faculty-assignment.test.js`
-- Create or modify: `tests/adfa-assignment-submit.test.js`
+- Create: `tests/adfa-assignment-submit.test.js`
 - Modify: `tests/workflow-functional-completion.test.js`
 
 **Interfaces:**
@@ -868,13 +998,13 @@ git commit -m "feat: add adfa suggestion review submit"
 
 ---
 
-### Task 9: Safe Availability and Coarse Workload Projection
+### Task 10: Safe Availability and Coarse Workload Projection
 
 **Files:**
 - Modify: `data-index.js`
 - Modify: `index-maintenance.js`
 - Modify: `tests/data-index.test.js`
-- Modify or create: `tests/index-maintenance.test.js`
+- Modify: `tests/index-maintenance.test.js`
 - Modify: `firestore.rules`
 - Create: `tests/faculty-capacity-security-emulator.test.js`
 - Modify: `timetable.js`
@@ -962,11 +1092,11 @@ git commit -m "feat: add safe faculty capacity projection"
 
 ---
 
-### Task 10: DOE Regression Guards for Subject and Scoped Roles
+### Task 11: DOE Regression Guards for Subject and Scoped Roles
 
 **Files:**
 - Modify: `server/test/calculation-service.test.js`
-- Modify: `server/test/workflow-preview-service.test.js` if present; otherwise add the equivalent case to the existing workflow-preview server test file
+- Modify: `server/test/workflow-preview-service.test.js`
 - Modify: `tests/doe-reconciliation.test.js`
 - Modify: `tests/timetable-multi-edit-ui.test.js`
 - Production DOE engine files should remain unchanged unless a regression test exposes a real bug.
@@ -1019,7 +1149,7 @@ git commit -m "test: protect scoped role doe behavior"
 
 ---
 
-### Task 11: Explicit Approval Regression, Schema Docs, Demo Fixtures, and Full Verification
+### Task 12: Explicit Approval Regression, Schema Docs, Demo Fixtures, and Full Verification
 
 **Files:**
 - Modify: `docs/database/SCHEMA.md`
