@@ -39,7 +39,7 @@
  function createResponsibility(input={}){
   const id=responsibilityId(input.id),kind=text(input.kind).toLowerCase();
   if(!TYPES.includes(kind))throw Error('Teaching responsibility kind must be hicc or visc.');
-  const groupId=responsibilityId(input.groupId,'groupId'),label=text(input.label);
+  const groupId=kind==='hicc'?responsibilityId(input.groupId,'groupId'):'',label=text(input.label);
   if(label.length>120)throw Error('Teaching responsibility label exceeds 120 characters.');
   const scopes=[...new Set((Array.isArray(input.academicScopeTokens)?input.academicScopeTokens:[]).map(canonicalHiccToken))];
   if(kind==='hicc'&&!scopes.length)throw Error('HICC responsibility requires at least one exact Course/Subject scope.');

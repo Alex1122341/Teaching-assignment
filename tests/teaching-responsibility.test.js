@@ -55,3 +55,9 @@ test('VISC responsibility is group leadership and carries no HICC Course Subject
 test('assignee Firestore path is directly resolvable from responsibility year and authenticated UID',()=>{
  assert.equal(responsibility.assigneePath('hicc-vtmd204','2026-27','uid-lisa'),'teaching_responsibilities/hicc-vtmd204/years/2026-27/assignees/uid-lisa');
 });
+
+test('VISC responsibility may be reused by multiple explicitly configured groups',()=>{
+ const visc=responsibility.createResponsibility({id:'visc-shared',kind:'visc',label:'Shared VISC'});
+ assert.equal(visc.groupId,'');
+ assert.deepEqual(visc.academicScopeTokens,[]);
+});

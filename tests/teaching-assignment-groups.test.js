@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const groups=require('../teaching-assignment-groups.js');
 
 const responsibilities=[
- {id:'visc-bovine',kind:'visc',groupId:'bovine',label:'Bovine VISC'},
+ {id:'visc-bovine',kind:'visc',label:'Bovine VISC'},
  {id:'hicc-bovine-medicine',kind:'hicc',groupId:'bovine',label:'Bovine Medicine HICC',academicScopeTokens:['hicc|VTMD 506|medicine']},
  {id:'hicc-bovine-surgery',kind:'hicc',groupId:'bovine',label:'Bovine Surgery HICC',academicScopeTokens:['hicc|VTMD 506|surgery']}
 ];
@@ -57,4 +57,12 @@ test('VISC may explicitly lead multiple groups without broad implicit authority'
  ];
  assert.deepEqual(groups.groupsLedByViscResponsibility(rows,'visc-bovine').map(row=>row.id),['bovine','equine']);
  assert.deepEqual(groups.groupsLedByViscResponsibility(rows,'VISc-Bovine'),[]);
+});
+
+test('same VISC responsibility can lead multiple groups only through explicit group configuration',()=>{
+ const visc={id:'visc-shared',kind:'visc',label:'Shared VISC'};
+ const bovineResp=[visc,{id:'hicc-bovine',kind:'hicc',groupId:'bovine',label:'Bovine HICC',academicScopeTokens:['hicc|VTMD 506|*']}];
+ const equineResp=[visc,{id:'hicc-equine',kind:'hicc',groupId:'equine',label:'Equine HICC',academicScopeTokens:['hicc|VTMD 507|*']}];
+ assert.doesNotThrow(()=>groups.validateGroupResponsibilities({id:'bovine',name:'Bovine',leaderViscResponsibilityId:'visc-shared',hiccResponsibilityIds:['hicc-bovine']},{responsibilities:bovineResp}));
+ assert.doesNotThrow(()=>groups.validateGroupResponsibilities({id:'equine',name:'Equine',leaderViscResponsibilityId:'visc-shared',hiccResponsibilityIds:['hicc-equine']},{responsibilities:equineResp}));
 });

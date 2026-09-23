@@ -42,7 +42,7 @@
    byId.set(normalized.id,normalized);
   }
   const leader=byId.get(g.leaderViscResponsibilityId);
-  if(!leader||leader.kind!=='visc'||leader.groupId!==g.id)throw Error('Group leader must be an active VISC responsibility belonging to the group.');
+  if(!leader||leader.kind!=='visc')throw Error('Group leader must be an active VISC responsibility.');
   if(leader.active===false)throw Error('Group leader VISC responsibility is inactive.');
   for(const id of g.hiccResponsibilityIds){
    const row=byId.get(id);
