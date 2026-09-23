@@ -39,6 +39,7 @@
   "subject-catalog.js",
   "subject-catalog-admin.js",
   "teaching-assignment-review.js",
+  "assignment-contributions.js",
   "office-capabilities.js",
   "faculty-account-planner.js",
   "account-profile.js",

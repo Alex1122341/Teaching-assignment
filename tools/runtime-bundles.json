@@ -81,6 +81,7 @@
       "sources": [
         "teaching-assignment-review.js",
         "subject-catalog.js",
+        "assignment-contributions.js",
         "academic-responsibility.js",
         "office-capabilities.js",
         "workflow-notifications.js",
