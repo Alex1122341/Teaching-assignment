@@ -14,6 +14,7 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 const staging=require('../tools/stage-github-pages.js');
+const staticBuild=require('../tools/build-static.js');
 const labDoe=require('../tools/doe-policy-firebase-lab.js');
 const office=require('../office-capabilities.js');
 
@@ -121,6 +122,57 @@ test('3. Firebase Lab targets only vista-teaching-lab',()=>{
   const other=writeLabConfig(directory,{projectId:'tester-teaching'});
   assert.throws(()=>staging.readLabConfig({configPath:other}),/must target vista-teaching-lab/);
   assert.match(read(LAB_WORKFLOW),/FIREBASE-LAB:vista-teaching-lab/);
+});
+
+test('3b. workflow Firebase Lab config overrides the committed placeholder',()=>{
+  const previous=process.env.UCVM_LAB_FIREBASE_WEB_CONFIG;
+  process.env.UCVM_LAB_FIREBASE_WEB_CONFIG=JSON.stringify({
+    apiKey:FAKE_WEB_KEY,
+    authDomain:LAB_PROJECT_ID+'.firebaseapp.com',
+    projectId:LAB_PROJECT_ID,
+    storageBucket:LAB_PROJECT_ID+'.firebasestorage.app',
+    messagingSenderId:'123456789012',
+    appId:'1:123456789012:web:abcdef0123456789'
+  });
+  try{
+    const config=staging.readLabConfig();
+    assert.equal(config.apiKey,FAKE_WEB_KEY);
+    assert.equal(config.projectId,LAB_PROJECT_ID);
+  }finally{
+    if(previous===undefined)delete process.env.UCVM_LAB_FIREBASE_WEB_CONFIG;
+    else process.env.UCVM_LAB_FIREBASE_WEB_CONFIG=previous;
+  }
+});
+
+test('3c. Firebase Lab rewrites the hashed shared-auth bundle and updates HTML',()=>{
+  const directory=makeDirectory();
+  fs.rmSync(path.join(directory,'firebase-config.js'),{force:true});
+  const bundleDir=path.join(directory,'bundles');
+  fs.mkdirSync(bundleDir,{recursive:true});
+  const bundleSource=
+    '/* SOURCE: firebase-config.js */\n'+CONFIG_SOURCE+
+    '\n;\n/* SOURCE: faculty-access.js */\nwindow.UCVM={};\n';
+  const oldRelative=staticBuild.hashedBundleOutput('bundles/shared-auth.bundle.js',bundleSource);
+  const oldName=path.basename(oldRelative);
+  fs.writeFileSync(path.join(bundleDir,oldName),bundleSource);
+  const firebase='<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>';
+  fs.writeFileSync(path.join(directory,'index.html'),
+    '<!doctype html><html><body>'+firebase+'<script src="'+oldRelative+'"></script></body></html>'
+  );
+  const configPath=writeLabConfig(directory);
+  const result=staging.stagePagesDirectory(directory,{prNumber:0,headSha:SHA,buildSha:SHA},{mode:'lab',configPath});
+  const html=fs.readFileSync(path.join(directory,'index.html'),'utf8');
+  assert.equal(html.includes(oldRelative),false);
+  const match=html.match(/bundles\/(shared-auth\.bundle\.[0-9a-f]{12}\.js)/);
+  assert.ok(match,'staged HTML should reference a content-hashed auth bundle');
+  const relative='bundles/'+match[1];
+  assert.ok(fs.existsSync(path.join(directory,relative)));
+  assert.equal(fs.existsSync(path.join(directory,oldRelative)),false);
+  const bundle=fs.readFileSync(path.join(directory,relative),'utf8');
+  assert.match(bundle,new RegExp(FAKE_WEB_KEY));
+  assert.doesNotMatch(bundle,/apiKey:"placeholder"/);
+  assert.ok(html.indexOf(relative)<html.indexOf('firebase-lab-runtime.js'));
+  assert.ok(result.labFiles.includes(relative));
 });
 
 test('4. Firebase Lab uses Firebase Authentication',()=>{

@@ -19,7 +19,8 @@
     "lab:auth:configure": "node tools/configure-lab-auth.js --operation configure --confirmation CONFIGURE-AUTH:vista-teaching-lab",
     "lab:data:verify": "node tools/seed-lab-admin.js --mode verify",
     "lab:data:seed": "node tools/seed-lab-admin.js --mode seed",
-    "pages:stage:lab": "node tools/stage-github-pages.js --mode lab"
+    "pages:stage:lab": "node tools/stage-github-pages.js --mode lab",
+    "lab:data:repair": "node tools/seed-lab-admin.js --mode repair"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
