@@ -1,4 +1,4 @@
-# PAWS Scoped Parallel Teaching Assignment Workflow — Design Spec
+# PAWS P3.1 Grouped HICC/VISC Teaching Assignment Workflow — Design Spec
 
 Date: 2026-09-22  
 Status: Approved design baseline — P3.1 architecture lock (grouped HICC/VISC review + versioned timetable publication)  
