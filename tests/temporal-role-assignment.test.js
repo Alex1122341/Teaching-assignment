@@ -35,3 +35,8 @@ test('annual copy shifts custom windows by Academic Year and clamps leap day saf
  assert.deepEqual(roles.shiftWindow({academicYear:'2026-27',activeDate:'2026-09-01',expirationDate:'2027-03-01'},'2026-27','2027-28'),{activeDate:'2027-09-01',expirationDate:'2028-03-01'});
  assert.equal(roles.shiftDateYears('2028-02-29',1),'2029-02-28');
 });
+
+test('Calgary business date controls temporal role rollover instead of UTC date',()=>{
+ assert.equal(roles.dateInTimeZone(new Date('2027-03-01T05:30:00Z')),'2027-02-28');
+ assert.equal(roles.dateInTimeZone(new Date('2027-03-01T07:30:00Z')),'2027-03-01');
+});

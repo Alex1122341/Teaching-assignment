@@ -35,6 +35,13 @@
   if(end.ms<=start.ms)throw Error('Expiration date must be later than active date.');
   return{activeDate:start.raw,expirationDate:end.raw};
  }
+ function dateInTimeZone(value=new Date(),timeZone='America/Edmonton'){
+  const date=value instanceof Date?value:new Date(value);
+  if(Number.isNaN(date.getTime()))throw Error('A valid instant is required.');
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
+  const map=Object.fromEntries(parts.map(part=>[part.type,part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+ }
  function statusAt(input={},asOfDate){
   if(input.active===false)return'inactive';
   const asOf=dateParts(asOfDate);
@@ -75,5 +82,5 @@
   const current=normalizeWindow({...input,academicYear:sourceYear}),delta=targetStart-sourceStart;
   return{activeDate:shiftDateYears(current.activeDate,delta),expirationDate:shiftDateYears(current.expirationDate,delta)};
  }
- return Object.freeze({dateParts,startYear,defaultWindow,normalizeWindow,statusAt,isActiveAt,normalizeDoeOverride,effectiveDoe,shiftDateYears,shiftWindow});
+ return Object.freeze({dateParts,dateInTimeZone,startYear,defaultWindow,normalizeWindow,statusAt,isActiveAt,normalizeDoeOverride,effectiveDoe,shiftDateYears,shiftWindow});
 });

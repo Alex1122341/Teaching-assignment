@@ -90,6 +90,33 @@ test('Teaching Summary uses the authoritative bulk DOE list instead of the legac
 });
 
 
+test('DOE role editor exposes dated responsibility windows and negative manual overrides without automatic proration',()=>{
+ const source=read('faculty-admin-enhancements.js'),helper=read('temporal-role-assignment.js');
+ assert.match(source,/ucvm-role-active-date/);
+ assert.match(source,/ucvm-role-expiration-date/);
+ assert.match(source,/ucvm-role-doe-override/);
+ assert.doesNotMatch(source,/ucvm-role-doe-override[^\n]*min="0"/);
+ assert.match(source,/effectiveDoe\(result\.resultDoe,facts\.doeOverride\)/);
+ assert.match(helper,/half-open|\[activeDate, expirationDate\)/i);
+});
+
+test('Roles and Appointments exposes temporal status filtering notes and server role history',()=>{
+ const html=read('faculty-admin.html'),enhancement=read('faculty-admin-enhancements.js'),core=read('faculty-admin.js');
+ assert.match(html,/role-status-filter/);
+ for(const label of ['Active','Scheduled','Expired','Inactive \/ deactivated'])assert.match(html,new RegExp(label));
+ assert.match(enhancement,/roleAssignmentRecords/);
+ assert.match(enhancement,/r\.notes/);
+ assert.match(core,/roleAssignmentRecords/);
+ assert.match(core,/statusAt/);
+});
+
+test('Current HICC and VISC KPI counts are temporal rather than annual-role counts',()=>{
+ const source=read('faculty-admin.js'),start=source.indexOf('function updateKpis'),end=source.indexOf('function unique',start),fn=source.slice(start,end);
+ assert.match(fn,/roleAssignmentRecords/);
+ assert.match(fn,/statusAt/);
+ assert.match(fn,/===['"]active['"]/);
+});
+
 test('DOE role editor loads, updates, and deactivates authoritative server assignments',()=>{
  const client=read('doe-api-client.js');
  assert.match(client,/listRoleAssignments/);

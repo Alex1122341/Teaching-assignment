@@ -124,7 +124,12 @@ function updateKpis(){
  const authoritative=doeApiConfigured()&&doeListLoaded&&doeListYear===selectedDoeYear()?[...doeListByFaculty.values()]:null;
  if(authoritative){
   $('kpi-doe').textContent=authoritative.filter(row=>numeric(row.assignedTeachingDoe)!==null).length;
-  const facultyWithRole=needle=>new Set(authoritative.filter(row=>(row.roleAssignments||[]).some(role=>norm(role.roleType).includes(needle))).map(row=>String(row.facultyId||''))).size;
+  const temporal=window.UCVM_TEMPORAL_ROLE_ASSIGNMENT,asOf=temporal?.dateInTimeZone?.(new Date())||new Date().toISOString().slice(0,10);
+  const facultyWithRole=needle=>new Set(authoritative.filter(row=>(row.roleAssignmentRecords||row.roleAssignments||[]).some(role=>{
+   if(!norm(role.roleType).includes(needle))return false;
+   if(!temporal)return role.active!==false;
+   try{return temporal.statusAt({academicYear:row.academicYear||selectedDoeYear(),...role},asOf)==='active'}catch(_){return false}
+  })).map(row=>String(row.facultyId||''))).size;
   $('kpi-hicc').textContent=facultyWithRole('hicc');$('kpi-visc').textContent=facultyWithRole('visc');
  }else{
   const pending=doeApiConfigured()?'…':'—';$('kpi-doe').textContent=pending;$('kpi-hicc').textContent=pending;$('kpi-visc').textContent=pending;
@@ -179,21 +184,27 @@ function rolePolicyHtml(r,role){
  return`<div class="role-policy-line"><span class="policy-tag">Server</span> ${esc(match.ruleKey||match.ruleId||'Rule unavailable')}<div class="policy-ref">${esc(window.UCVM_DOE_WORKSHEET_VIEW.referenceText(match.reference||{})||'Reference unavailable')}</div></div>`;
 }
 function serverRoleRows(r){
- const worksheet=cachedDoeWorksheet(r),lines=Array.isArray(worksheet?.lines)?worksheet.lines.filter(line=>norm(line.category)==='role'&&norm(line.sourceEntityType)==='doe_assignment'):[];
+ const worksheet=cachedDoeWorksheet(r),summary=doeListByFaculty.get(String(r?.__id||''));
+ const records=Array.isArray(worksheet?.roleAssignmentRecords)?worksheet.roleAssignmentRecords:Array.isArray(summary?.roleAssignmentRecords)?summary.roleAssignmentRecords:[];
+ if(records.length)return records.map(row=>({...row,sourceEntityType:'doe_assignment',sourceEntityId:row.assignmentFactId||'',category:'role'}));
+ const lines=Array.isArray(worksheet?.lines)?worksheet.lines.filter(line=>norm(line.category)==='role'&&norm(line.sourceEntityType)==='doe_assignment'):[];
  if(lines.length)return lines;
- const summary=doeListByFaculty.get(String(r?.__id||''));
  return(Array.isArray(summary?.roleAssignments)?summary.roleAssignments:[]).map(row=>({...row,sourceEntityType:'doe_assignment',sourceEntityId:row.assignmentFactId||'',category:'role'}));
 }
 function rolesHtml(r,s){
- const current=serverRoleRows(r),source=Array.isArray(s?.roles)?s.roles:[];
+ const current=serverRoleRows(r),source=Array.isArray(s?.roles)?s.roles:[],temporal=window.UCVM_TEMPORAL_ROLE_ASSIGNMENT,asOf=temporal?.dateInTimeZone?.(new Date())||new Date().toISOString().slice(0,10),year=selectedDoeYear();
  if(!current.length&&!source.length)return'<div class="no-source">No current server role assignments or source-summary roles are recorded for this faculty member.</div>';
  const currentRows=current.map(line=>{
-  const assignment=line.courseCode||line.subjectKey||line.label||'—',status=norm(line.status),result=numeric(line.resultDoe),credit=result===null||['needs_review','error'].includes(status)?'<span class="doe-status-pill needs_review">Needs Review</span>':`<strong>${esc(window.UCVM_DOE_WORKSHEET_VIEW.percent(result))}</strong>`;
-  const ref=window.UCVM_DOE_WORKSHEET_VIEW.referenceText(line.reference||{}),policy=[line.ruleKey||line.ruleId,line.policyVersionId,ref].filter(Boolean).map(esc).join('<br>');
-  return`<tr><td><span class="role-chip">${esc(line.roleType||'Role')}</span><div class="muted">Current server</div></td><td>${esc(assignment)}</td><td>Authoritative assignment</td><td>${credit}</td><td>${policy||'<span class="muted">Needs Review</span>'}</td><td>${esc(line.calculationId||line.assignmentFactId||line.sourceEntityId||'—')}</td></tr>`;
+  const assignment=line.courseCode||line.subjectKey||line.label||'—';let temporalStatus=line.active===false?'inactive':'active';
+  if(temporal)try{temporalStatus=temporal.statusAt({academicYear:line.academicYear||year,...line},asOf)}catch(_){temporalStatus='inactive'}
+  const result=numeric(line.resultDoe??line.doeCredit),calculated=numeric(line.calculatedDoe??line.doeCalculatedCredit),override=numeric(line.overrideDoe??line.doeOverride);
+  const credit=result===null?'<span class="doe-status-pill needs_review">Needs Review</span>':`<strong>${esc(window.UCVM_DOE_WORKSHEET_VIEW.percent(result))}</strong>${override!==null?`<div class="muted">Map ${esc(window.UCVM_DOE_WORKSHEET_VIEW.percent(calculated))} → override ${esc(window.UCVM_DOE_WORKSHEET_VIEW.percent(override))}</div>`:''}`;
+  const dateText=[line.activeDate?`from ${prettyDate(line.activeDate)}`:'',line.expirationDate?`until ${prettyDate(line.expirationDate)}`:''].filter(Boolean).join(' · ');
+  const policy=[line.ruleKey||line.doeRuleKey||line.ruleId||line.doeRuleId,line.policyVersionId||line.doePolicyVersionId].filter(Boolean).map(esc).join('<br>');
+  return`<tr><td><span class="role-chip">${esc(line.roleType||'Role')}</span><div class="muted">Server · ${esc(temporalStatus)}</div></td><td>${esc(assignment)}</td><td><strong>${esc(temporalStatus)}</strong>${dateText?`<div class="muted">${esc(dateText)}</div>`:''}</td><td>${credit}</td><td>${policy||'<span class="muted">Needs Review</span>'}</td><td>${esc([line.notes,line.assignmentFactId||line.sourceEntityId].filter(Boolean).join(' · ')||'—')}</td></tr>`;
  }).join('');
- const sourceRows=source.map(x=>`<tr><td><span class="role-chip">${esc(x.type)}</span><div class="muted">Source evidence</div></td><td>${esc(x.assignment||'—')}</td><td>${esc(roleAmount(x))}</td><td><span class="muted">Not current authority</span></td><td><span class="muted">Legacy/source summary · current DOE is shown by the server Worksheet</span></td><td>${esc(roleDetails(x))}</td></tr>`).join('');
- return`<section class="section wide"><div class="section-title">Roles & appointments · current server + source evidence</div><div class="assignment-wrap"><table class="role-table"><thead><tr><th>Role type</th><th>Assignment</th><th>Workload amount</th><th>DOE credit</th><th>Policy / basis</th><th>Details</th></tr></thead><tbody>${currentRows}${sourceRows}</tbody></table></div></section>`;
+ const sourceRows=source.map(x=>`<tr><td><span class="role-chip">${esc(x.type)}</span><div class="muted">Source evidence</div></td><td>${esc(x.assignment||'—')}</td><td><span class="muted">Legacy/source evidence · no dated status</span></td><td><span class="muted">Not current authority</span></td><td><span class="muted">Legacy/source summary · current DOE is shown by the server Worksheet</span></td><td>${esc(roleDetails(x))}</td></tr>`).join('');
+ return`<section class="section wide"><div class="section-title">Roles & appointments · server timeline + source evidence</div><div class="assignment-wrap"><table class="role-table"><thead><tr><th>Role type</th><th>Assignment</th><th>Status / dates</th><th>DOE credit</th><th>Policy / basis</th><th>Details</th></tr></thead><tbody>${currentRows}${sourceRows}</tbody></table></div></section>`;
 }
 function activityAssignmentId(x){
  const sessionId=String(x?.session?.id||x?.session?.sessionId||'').trim(),explicit=String(x?.assignment?.assignmentId||'').trim();

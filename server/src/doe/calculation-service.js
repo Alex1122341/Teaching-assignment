@@ -221,7 +221,7 @@ function createCalculationService({repository,engine,idFactory=()=>`calc-${crypt
     const faculty=text(facultyId),year=text(academicYear);
     if(!faculty)throw new ApiError('FACULTY_ID_REQUIRED','Faculty ID is required.',422);
     if(!year)throw new ApiError('ACADEMIC_YEAR_REQUIRED','Academic Year is required.',422);
-    const rows=await repository.listFacultyRoleAssignments(faculty,year),asOf=clock().toISOString().slice(0,10);
+    const rows=await repository.listFacultyRoleAssignments(faculty,year),asOf=temporalRoles.dateInTimeZone(clock());
     return rows.map(row=>({...row,effectiveStatus:temporalRoles.statusAt({academicYear:year,...row},asOf)}));
   }
 
