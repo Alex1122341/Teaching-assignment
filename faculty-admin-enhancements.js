@@ -291,8 +291,31 @@
   window.addEventListener('ucvm:admin-faculty-updated',syncFaculty);window.addEventListener('ucvm:admin-sessions-updated',syncSessions);window.addEventListener('ucvm:admin-doe-list-updated',syncDoe);
   facultyUnsub=()=>{window.removeEventListener('ucvm:admin-faculty-updated',syncFaculty);window.removeEventListener('ucvm:admin-doe-list-updated',syncDoe)};sessionUnsub=()=>window.removeEventListener('ucvm:admin-sessions-updated',syncSessions);syncFaculty();syncSessions();syncDoe()
  }
+ function previousAcademicYear(year){
+  const start=window.UCVM_TEMPORAL_ROLE_ASSIGNMENT?.startYear?.(year);
+  if(start===null||start===undefined)throw Error('Select a valid Academic Year first.');
+  return`${start-1}-${String(start%100).padStart(2,'0')}`;
+ }
+ function announceRoleCopy(message,error=false){
+  const t=$('toast');if(t){t.textContent=message;t.classList.add('show');t.classList.toggle('error',error)}
+ }
+ function wireRoleYearCopy(){
+  const button=$('role-copy-previous-year');if(!button||button.dataset.wired==='1')return;button.dataset.wired='1';
+  button.onclick=async()=>{
+   const target=doeListAcademicYear();let source;
+   try{source=previousAcademicYear(target)}catch(error){announceRoleCopy(error.message,true);return}
+   if(!window.confirm(`Copy all active DOE role assignments from ${source} into ${target}?\n\nDates will shift by one Academic Year. Manual DOE overrides and special notes will NOT be copied. Target-year DOE will be recalculated from the ${target} Rule Book.`))return;
+   button.disabled=true;const original=button.textContent;button.textContent='Copying…';
+   try{
+    const result=await window.UCVM_DOE_API.copyRoleAssignmentsYear(source,target);
+    serverDoeLoaded=false;serverDoeRows=[];await loadDoeList({force:true});queueManagedRoles();
+    announceRoleCopy(`Copied ${Number(result?.copied)||0} DOE role assignment(s) from ${source} to ${target}.`);
+   }catch(error){announceRoleCopy(error?.message||'Role assignment copy failed.',true)}
+   finally{button.disabled=false;button.textContent=original}
+  };
+ }
  function watchDom(){
-  const inspect=()=>{ensureDoeView();ensureReconciliationView();renameDashboard();const form=$('edit-form');if(form&&form.children.length&&form.elements?.namedItem('ucid'))enhanceEditor(form)};inspect();
+  const inspect=()=>{ensureDoeView();ensureReconciliationView();renameDashboard();wireRoleYearCopy();const form=$('edit-form');if(form&&form.children.length&&form.elements?.namedItem('ucid'))enhanceEditor(form)};inspect();
   new MutationObserver(inspect).observe(document.documentElement,{childList:true,subtree:true});
   document.addEventListener('submit',ev=>{const form=ev.target;if(form?.id!=='edit-form'||!form.querySelector('#ucvm-doe-role-section'))return;let after;try{after=readEditorExtras(form)}catch(error){ev.preventDefault();ev.stopPropagation();const t=$('toast');if(t){t.textContent=error.message||'Role assignment dates are invalid.';t.classList.add('show','error')}return}const id=String(form.elements.namedItem('ucid')?.value||'').trim(),f=facultyById.get(id)||{};pendingExtra={id,name:String(form.elements.namedItem('preferredFullName')?.value||facultyName(f)||id),before:{roles:managedRoles(f),override:form._ucvmDoeBeforeOverride??null},after};waitForEditorSave(pendingExtra)},true)
  }

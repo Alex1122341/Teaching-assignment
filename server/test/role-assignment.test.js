@@ -56,3 +56,33 @@ test('non-admin cannot save a role assignment',async()=>{
  const service=createCalculationService({repository:repository(),engine:ENGINE});
  await assert.rejects(()=>service.saveRoleAssignment({actor:{uid:'f1',role:'faculty'},academicYear:'2027-28',facultyId:'f1',facts:{roleType:'HICC',courseCode:'VTMD 204'}}),error=>error.code==='FORBIDDEN');
 });
+
+test('annual role copy shifts dates recalculates target DOE and clears case-specific override and notes',async()=>{
+ const repo=repository();
+ repo.listRoleAssignmentsForYear=async year=>year==='2026-27'?[{
+  assignmentFactId:'old-role',academicYear:'2026-27',facultyId:'f1',category:'role',roleType:'HICC',courseCode:'VTMD 204',
+  activeDate:'2026-09-15',expirationDate:'2027-03-01',doeCalculatedCredit:12,doeOverride:-2,doeCredit:-2,notes:'RSL acting coverage',
+  facts:{roleType:'HICC',courseCode:'VTMD 204',activeDate:'2026-09-15',expirationDate:'2027-03-01',doeOverride:-2,notes:'RSL acting coverage',responsibilityId:'hicc-vtmd204'}
+ }]:[];
+ const service=createCalculationService({repository:repo,engine:ENGINE,idFactory:()=> 'calc-copy',assignmentIdFactory:()=> 'role-copy',clock:()=>new Date('2027-06-01T12:00:00Z')});
+ const result=await service.copyRoleAssignmentsYear({actor:general,sourceYear:'2026-27',targetYear:'2027-28'});
+ assert.equal(result.copied,1);
+ const row=result.assignments[0];
+ assert.equal(row.activeDate,'2027-09-15');
+ assert.equal(row.expirationDate,'2028-03-01');
+ assert.equal(row.doeCalculatedCredit,12);
+ assert.equal(row.doeOverride,null);
+ assert.equal(row.doeCredit,12);
+ assert.equal(row.notes,'');
+ assert.equal(row.responsibilityId,'hicc-vtmd204');
+ assert.equal(row.copiedFromAssignmentFactId,'old-role');
+ assert.equal(row.copiedFromAcademicYear,'2026-27');
+});
+
+test('annual role copy refuses a nonempty target and is general-admin only',async()=>{
+ const repo=repository();
+ repo.listRoleAssignmentsForYear=async year=>year==='2027-28'?[{assignmentFactId:'existing',academicYear:year,facultyId:'f1',category:'role',active:true}]:[];
+ const service=createCalculationService({repository:repo,engine:ENGINE});
+ await assert.rejects(()=>service.copyRoleAssignmentsYear({actor:general,sourceYear:'2026-27',targetYear:'2027-28'}),error=>error.code==='ROLE_COPY_TARGET_NOT_EMPTY');
+ await assert.rejects(()=>service.copyRoleAssignmentsYear({actor:{uid:'r',role:'adfa_regular'},sourceYear:'2026-27',targetYear:'2027-28'}),error=>error.code==='FORBIDDEN');
+});

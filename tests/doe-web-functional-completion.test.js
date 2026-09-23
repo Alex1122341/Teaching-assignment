@@ -90,6 +90,15 @@ test('Teaching Summary uses the authoritative bulk DOE list instead of the legac
 });
 
 
+test('annual role-copy control uses the authoritative DOE API and clears case-specific carryover',()=>{
+ const html=read('faculty-admin.html'),source=read('faculty-admin-enhancements.js'),client=read('doe-api-client.js');
+ assert.match(html,/role-copy-previous-year/);
+ assert.match(source,/copyRoleAssignmentsYear/);
+ assert.match(source,/Manual DOE overrides and special notes will NOT be copied/);
+ assert.match(client,/role-assignment-years/);
+ assert.match(client,/copyRoleAssignmentsYear/);
+});
+
 test('DOE role editor exposes dated responsibility windows and negative manual overrides without automatic proration',()=>{
  const source=read('faculty-admin-enhancements.js'),helper=read('temporal-role-assignment.js');
  assert.match(source,/ucvm-role-active-date/);
