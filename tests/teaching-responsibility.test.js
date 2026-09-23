@@ -61,3 +61,14 @@ test('VISC responsibility may be reused by multiple explicitly configured groups
  assert.equal(visc.groupId,'');
  assert.deepEqual(visc.academicScopeTokens,[]);
 });
+
+test('safe assignee projection excludes DOE leave reasons and private notes while adding Calgary timestamps',()=>{
+ const row=responsibility.safeAssigneeProjection({
+  responsibilityId:'hicc-vtmd204',academicYearKey:'2026-27',assigneeUid:'lisa',facultyId:'f-lisa',enabled:true,
+  windows:[{activeDate:'2026-09-01',expirationDate:'2027-03-01',sourceDoeAssignmentFactId:'doe-lisa'}],
+  doeCredit:12,doeOverride:-2,notes:'RSL private note',afcReason:'private'
+ });
+ assert.equal(row.windows[0].activeAtIso,'2026-09-01T06:00:00.000Z');
+ assert.equal(row.windows[0].expiresAtIso,'2027-03-01T07:00:00.000Z');
+ for(const key of ['doeCredit','doeOverride','notes','afcReason'])assert.equal(Object.hasOwn(row,key),false,key);
+});

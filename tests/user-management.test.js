@@ -86,3 +86,34 @@ test('HICC people-index fallback normalizes missing office arrays before account
 });
 
 test('Owner User Management exposes audited ADC LAB and ADFA office access checkboxes',()=>{const html=read('user-management.html'),source=read('user-management.js');for(const office of ['adc','lab','adfa'])assert.match(html,new RegExp(`name=\"office-access\" value=\"${office}\"`));assert.match(html,/Operational office access/);assert.match(source,/selectedOfficeAccess/);assert.match(source,/beforeOfficeAccess/);assert.match(source,/officeAccess:fields\.officeAccess/);});
+
+test('Teaching Assignment responsibilities are managed separately from legacy Faculty groups',()=>{
+ const html=read('user-management.html'),source=read('user-management.js');
+ assert.match(html,/Teaching Assignment Groups/);
+ assert.match(html,/ta-responsibility-form/);
+ assert.match(html,/ta-assignment-year/);
+ assert.match(source,/teaching_assignment_groups/);
+ assert.match(source,/teaching_responsibilities/);
+ assert.match(source,/validateGroupResponsibilities/);
+ assert.match(source,/validateResponsibilitySchedule/);
+ assert.match(source,/safeAssigneeProjection/);
+ assert.match(source,/activeAt:firebase\.firestore\.Timestamp/);
+ assert.match(source,/expiresAt:firebase\.firestore\.Timestamp/);
+ assert.match(source,/db\.collection\('faculty_groups'\)/);
+});
+
+test('dated Teaching responsibility projection does not write DOE or private leave notes',()=>{
+ const source=read('user-management.js');
+ const start=source.indexOf('async function saveTaSchedule');
+ const end=source.indexOf(" $('ta-group-picker')",start);
+ const fn=source.slice(start,end);
+ assert.match(fn,/safeAssigneeProjection/);
+ assert.doesNotMatch(fn,/doeOverride|doeCredit|RSL|afcReason|special notes/i);
+});
+
+test('Teaching Assignment admin degrades safely before T7 rules without breaking existing User Management',()=>{
+ const source=read('user-management.js');
+ assert.match(source,/optionalCollection/);
+ assert.match(source,/permission-denied/);
+ assert.match(source,/taAdminReady/);
+});

@@ -147,6 +147,10 @@
     {
       "output": "bundles/user-management.bundle.js",
       "sources": [
+        "temporal-role-assignment.js",
+        "academic-responsibility.js",
+        "teaching-responsibility.js",
+        "teaching-assignment-groups.js",
         "account-profile.js",
         "user-management.js"
       ],

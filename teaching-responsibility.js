@@ -92,6 +92,23 @@
   if(active.length>1)throw Error('Teaching responsibility has ambiguous overlapping assignees.');
   return active[0]||null;
  }
+ function safeAssigneeProjection(input={}){
+  const schedule=normalizeAssigneeSchedule(input);
+  return Object.freeze({
+   responsibilityId:schedule.responsibilityId,
+   academicYearKey:schedule.academicYearKey,
+   assigneeUid:schedule.assigneeUid,
+   facultyId:schedule.facultyId,
+   enabled:schedule.enabled,
+   windows:Object.freeze(schedule.windows.map(window=>Object.freeze({
+    activeDate:window.activeDate,
+    expirationDate:window.expirationDate,
+    activeAtIso:temporal.dateBoundaryIso(window.activeDate),
+    expiresAtIso:temporal.dateBoundaryIso(window.expirationDate),
+    sourceDoeAssignmentFactId:window.sourceDoeAssignmentFactId
+   })))
+  });
+ }
  function scopeProfile(responsibility){
   const row=createResponsibility(responsibility);
   return row.kind==='hicc'?{role:'hicc',academicScopeTokens:[...row.academicScopeTokens]}:{role:'visc',academicScopeTokens:[]};
@@ -104,5 +121,5 @@
   return id;
  }
  return Object.freeze({TYPES,createResponsibility,normalizeAssigneeSchedule,validateResponsibilitySchedule,
-  assigneePath,scheduleActiveAt,effectiveAssignee,scopeProfile,submissionDocumentId});
+  assigneePath,scheduleActiveAt,effectiveAssignee,safeAssigneeProjection,scopeProfile,submissionDocumentId});
 });
