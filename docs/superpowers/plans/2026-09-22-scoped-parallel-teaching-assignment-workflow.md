@@ -32,7 +32,7 @@
 - HICC remains exact Course/Subject scoped.
 - VISC review authority comes from Teaching Assignment group leadership, not a VISC Course/Subject token.
 - Use a dedicated `teaching_assignment_groups` model; do not repurpose existing `faculty_groups`.
-- Working sessions carry trusted `teachingAssignmentGroupId` and `responsibleHiccUid`; HICC/VISC cannot self-edit these ownership fields.
+- Working sessions carry trusted `teachingAssignmentGroupId`, `responsibleHiccUid`, and internal `teachingAssignmentSubmissionId`; HICC/VISC cannot self-edit these ownership/package-locator fields.
 - HICC package review state is stored separately from explicit Change Request state.
 - ADFAD queue entry requires VISC approval of the current package revision plus HICC Final Submit.
 - Any review-relevant Working edit after VISC approval invalidates that approval for Final Submit.
@@ -51,7 +51,7 @@
 1. **HICC ownership** — HICC must be both `responsibleHiccUid` and exact Course/Subject authorized.
 2. **VISC group boundary** — VISC may review every HICC package in groups it leads, and no package outside those groups.
 3. **VISC review-only semantics** — approval/push-back does not grant Topic editing, Final Submit, final Faculty assignment, or Publish.
-4. **Revision safety** — HICC Final Submit must fail if Working data changed after VISC approved the reviewed fingerprint.
+4. **Revision safety** — HICC Final Submit must fail unless the server-enforced current `workingRevision` still equals the submitted and VISC-approved Working revisions; fingerprint equality is an additional consistency check, not the sole authorization proof.
 5. **ADFAD queue gating** — content readiness alone never creates an ADFAD queue item.
 6. **LAB independence** — roster/group incompleteness remains visible to LAB but never blocks the HICC/VISC/ADFAD chain.
 7. **Working-data leakage** — ordinary Faculty remain denied Working collections.
