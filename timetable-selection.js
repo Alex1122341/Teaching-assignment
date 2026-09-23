@@ -9,13 +9,14 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
  const clone=value=>JSON.parse(JSON.stringify(value??null));
  const canonical=value=>{if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])]));return value};
  const equal=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
- const AUDIT_FIELDS={date:'Date',year:'Year',course:'Course',subjectKey:'Subject',type:'Type',start:'Start time',end:'End time',topic:'Topic',room:'Room',labGroupIds:'LAB groups'};
- const EDIT_FIELDS=['date','year','course','subjectKey','type','start','end','topic','room','faculty','labGroups'];
+ const AUDIT_FIELDS={date:'Date',year:'Year',course:'Course',subjectKey:'Subject',type:'Type',start:'Start time',end:'End time',topic:'Topic',room:'Room',labGroupIds:'LAB groups',teachingAssignmentGroupId:'Teaching Assignment group',responsibleHiccResponsibilityId:'Responsible HICC responsibility',teachingAssignmentSubmissionId:'Teaching Assignment package'};
+ const OWNERSHIP_FIELDS=['teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId'];
+ const EDIT_FIELDS=['date','year','course','subjectKey','type','start','end','topic','room','faculty','labGroups','teachingAssignmentGroupId','responsibleHiccResponsibilityId'];
  // Field ownership comes from the canonical modules only. This function must not
  // invent a second, contradictory scope definition: office capabilities decide
  // which fields an office may edit, and the canonical workflow engine decides
  // what type of session is being edited.
- function editPolicy(role,row={}){
+ function editPolicy(role,row={},options={}){
   role=text(role).toLowerCase();
   const fields=Object.fromEntries(EDIT_FIELDS.map(field=>[field,false]));
   if(isReadOnlySynthetic(row))return{canSelect:false,fields};
@@ -24,12 +25,13 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   if(!caps||!workflow)return{canSelect:false,fields};
   const access=caps.forRole(role),sessionType=workflow.sessionType(row);
   if(access.canEditCourseFields)for(const field of ['date','year','course','subjectKey','type','start','end','room'])fields[field]=true;
+  if(options.allowTeachingAssignmentOwnership===true){fields.teachingAssignmentGroupId=true;fields.responsibleHiccResponsibilityId=true}
   // ADC owns Topic for LEC / SRL. LAB owns Topic for LAB sessions only.
   fields.topic=sessionType==='LAB'?Boolean(access.canEditLabTopic):Boolean(access.canEditCourseFields);
   // Only ADFA (and Developer) may make the official Faculty assignment.
   fields.faculty=Boolean(access.canEditInstructor);
   fields.labGroups=sessionType==='LAB'&&Boolean(access.canEditLabGroups);
-  return{canSelect:Boolean(access.canSelectSessions),fields};
+  return{canSelect:Boolean(access.canSelectSessions||options.allowTeachingAssignmentOwnership===true),fields};
  }
  const assignmentNames=row=>(row?.assignments||[]).map(item=>text(item?.name)||facultyId(item)).filter(Boolean);
  function auditChanges(before,after){
@@ -53,11 +55,29 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
    return{...assignment,ucid:id||null,facultyId:id||null,name:text(assignment.name),role:text(assignment.role||row?.type)};
   });
   const instructor=assignments.map(item=>item.name).filter(Boolean).join('; ')||text(row?.instructor);
-  return{date:text(row?.date),week:Number(row?.week),semester:text(row?.semester),year:Number(row?.year),course:text(row?.course),courseName:text(row?.courseName),subjectKey:text(row?.subjectKey),type:text(row?.type),start:text(row?.start),end:text(row?.end),topic:text(row?.topic),room:text(row?.room),timeUnknown:Boolean(row?.timeUnknown),assignments,facultyIds:ids,instructor,labDetails:Array.isArray(row?.labDetails)?clone(row.labDetails):[],labGroupIds:[...new Set((Array.isArray(row?.labGroupIds)?row.labGroupIds:[]).map(text).filter(Boolean))]};
+  return{date:text(row?.date),week:Number(row?.week),semester:text(row?.semester),year:Number(row?.year),course:text(row?.course),courseName:text(row?.courseName),subjectKey:text(row?.subjectKey),type:text(row?.type),start:text(row?.start),end:text(row?.end),topic:text(row?.topic),room:text(row?.room),timeUnknown:Boolean(row?.timeUnknown),assignments,facultyIds:ids,instructor,labDetails:Array.isArray(row?.labDetails)?clone(row.labDetails):[],labGroupIds:[...new Set((Array.isArray(row?.labGroupIds)?row.labGroupIds:[]).map(text).filter(Boolean))],teachingAssignmentGroupId:text(row?.teachingAssignmentGroupId),responsibleHiccResponsibilityId:text(row?.responsibleHiccResponsibilityId),teachingAssignmentSubmissionId:text(row?.teachingAssignmentSubmissionId)};
  }
  function onlySubjectChanged(before,after){
   const oldFields=editable(before),newFields=editable(after);
   return oldFields.subjectKey!==newFields.subjectKey&&Object.keys(oldFields).every(field=>field==='subjectKey'||equal(oldFields[field],newFields[field]));
+ }
+ function onlyNonDoeMetadataChanged(before,after){
+  const oldFields=editable(before),newFields=editable(after),safe=new Set(['subjectKey',...OWNERSHIP_FIELDS]),changed=Object.keys(oldFields).filter(field=>!equal(oldFields[field],newFields[field]));
+  return changed.length>0&&changed.every(field=>safe.has(field));
+ }
+ function validatedOwnership(row,options={}){
+  const groupId=text(row?.teachingAssignmentGroupId),hiccId=text(row?.responsibleHiccResponsibilityId);
+  if(!groupId&&!hiccId)return{teachingAssignmentGroupId:'',responsibleHiccResponsibilityId:'',teachingAssignmentSubmissionId:''};
+  if(!groupId||!hiccId)throw Error('Teaching Assignment group and responsible HICC responsibility must be set together.');
+  const groupsApi=window.UCVM_TEACHING_ASSIGNMENT_GROUPS;
+  if(!groupsApi)throw Error('Teaching Assignment group policy is unavailable.');
+  const groups=Array.isArray(options.teachingAssignmentGroups)?options.teachingAssignmentGroups:[],responsibilities=Array.isArray(options.teachingResponsibilities)?options.teachingResponsibilities:[];
+  const group=groups.find(item=>text(item?.id)===groupId);
+  if(!group)throw Error('Choose an active Teaching Assignment group.');
+  groupsApi.validateGroupResponsibilities(group,{responsibilities});
+  const academicYear=academicYearForSession(row),ownership=groupsApi.sessionOwnership({academicYear,teachingAssignmentGroupId:groupId,responsibleHiccResponsibilityId:hiccId});
+  if(!groupsApi.ownershipMatchesGroup(group,{academicYear,...ownership}))throw Error('Responsible HICC responsibility does not belong to the selected Teaching Assignment group.');
+  return ownership;
  }
  function create(max=200){
   const selected=new Set();
@@ -88,7 +108,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   const workflow=window.UCVM_SESSION_WORKFLOW;
   const roleLabel={adc:'ADC',lab:'LAB',adfa:'ADFA'}[workflow?.stageForRole?.(role)]||role.toUpperCase();
   (rows||[]).forEach((row,index)=>{
-   const policy=role?editPolicy(role,row):{canSelect:true,fields:{faculty:true}};
+   const policy=role?editPolicy(role,row,{allowTeachingAssignmentOwnership:options.allowTeachingAssignmentOwnership===true}):{canSelect:true,fields:{faculty:true,teachingAssignmentGroupId:true,responsibleHiccResponsibilityId:true}};
    const original=originalById.get(text(row.id));
    // LAB works from the Work Queue on LAB sessions only. General selection is not
    // the gate; the session type is.
@@ -111,6 +131,13 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
      if(role==='adc'&&field==='topic'&&text(row.type).toUpperCase()==='LAB')continue;
      if(field==='subjectKey' ? text(original[field])!==text(row[field]) : !equal(original[field],row[field]))attempted.push(field);
     }
+    for(const field of OWNERSHIP_FIELDS){
+     const trusted=field!=='teachingAssignmentSubmissionId'&&policy.fields[field]===true;
+     if(!trusted&&text(original[field])!==text(row[field]))attempted.push(field);
+    }
+    if(policy.fields.teachingAssignmentGroupId&&policy.fields.responsibleHiccResponsibilityId){
+     try{validatedOwnership(row,options)}catch(error){errors.push(`Row ${index+1}: ${error.message}`)}
+    }
     if(policy.fields.subjectKey&&!equal(text(original.subjectKey),text(row.subjectKey))){
      const catalog=window.UCVM_SUBJECT_CATALOG,key=text(row.subjectKey),active=Array.isArray(options.activeSubjectKeys)?options.activeSubjectKeys:[];
      if(key&&(!catalog||catalog.normalizeKey(key)!==key||!active.includes(key)))errors.push(`Row ${index+1}: choose an active Subject from the catalog.`);
@@ -121,7 +148,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   if(errors.length)return{updates:[],logs:[],errors};
   const updates=[],logs=[];
   for(const [index,row] of (rows||[]).entries()){
-   const original=originalById.get(text(row.id)),before=editable(original),candidate=editable(row),policy=role?editPolicy(role,candidate):null;
+   const original=originalById.get(text(row.id)),before=editable(original),candidate=editable(row),policy=role?editPolicy(role,candidate,{allowTeachingAssignmentOwnership:options.allowTeachingAssignmentOwnership===true}):null;
    let after=candidate,data=candidate;
    if(policy){
     after={...before};
@@ -131,6 +158,10 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
     if(policy.fields.course)after.courseName=candidate.courseName;
     if(policy.fields.faculty)for(const field of facultyFields)after[field]=candidate[field];
     if(policy.fields.labGroups)after.labGroupIds=candidate.labGroupIds;
+    if(policy.fields.teachingAssignmentGroupId&&policy.fields.responsibleHiccResponsibilityId){
+     const ownership=validatedOwnership(candidate,options);
+     for(const field of OWNERSHIP_FIELDS)after[field]=ownership[field];
+    }
     if(role==='adc'){
      if(text(after.type).toUpperCase()==='LAB'&&text(before.type).toUpperCase()!=='LAB')after.topic='TBD';
      after.instructor=before.instructor;
@@ -141,6 +172,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
     for(const field of derivedFields)if(!equal(before[field],after[field]))data[field]=after[field];
     if(policy.fields.faculty)for(const field of facultyFields)if(!equal(before[field],after[field]))data[field]=after[field];
     if(policy.fields.labGroups&&!equal(before.labGroupIds,after.labGroupIds))data.labGroupIds=after.labGroupIds;
+    if(policy.fields.teachingAssignmentGroupId&&policy.fields.responsibleHiccResponsibilityId)for(const field of OWNERSHIP_FIELDS)if(!equal(before[field],after[field]))data[field]=after[field];
    }
    if(equal(before,after))continue;
    updates.push({id:text(row.id),data,after});
@@ -161,7 +193,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
     batch.update(store.sessionRef(update.id),update.data);operations++;
     if(store.calendarRef&&store.calendarFromSource){batch.set(store.calendarRef(update.id),store.calendarFromSource(update.after||update.data,update.id));operations++}
     batch.set(store.logRef(),log);operations++;
-    if(!onlySubjectChanged(log.before,log.after)&&typeof store.queueRef==='function'&&typeof store.queueData==='function'){
+    if(!onlyNonDoeMetadataChanged(log.before,log.after)&&typeof store.queueRef==='function'&&typeof store.queueData==='function'){
      const queueRef=store.queueRef(update,log),queueData=queueRef?store.queueData(update,log,queueRef):null;
      if(queueRef&&queueData){batch.set(queueRef,queueData);operations++}
     }
@@ -299,5 +331,5 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   }
   return Object.freeze({prepareSession,academicYearForSession,bundleForYear});
  }
- return{create,createViewFlow,editPolicy,validateRow,selectedRows,planChanges,commitPlan,onlySubjectChanged,createDoeAdapter,createDoeApiAdapter,academicYearForSession};
+ return{create,createViewFlow,editPolicy,validateRow,selectedRows,planChanges,commitPlan,onlySubjectChanged,onlyNonDoeMetadataChanged,validatedOwnership,createDoeAdapter,createDoeApiAdapter,academicYearForSession};
 })();
