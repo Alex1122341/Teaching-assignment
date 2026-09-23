@@ -61,8 +61,6 @@
 
 ### Task 1: Isolated Worktree, Main Merge, and Baseline Gate
 
-### Task 1: Isolated Worktree, Main Merge, and Baseline Gate
-
 **Files:**
 - No product-code changes in this task.
 - Verify: `package.json`
@@ -237,8 +235,6 @@ git push origin feature/scoped-parallel-assignment-workflow
 Stop after T2. Do not start T3 automatically.
 
 ---
-
-### Task 3: Canonical Subject Catalog and Optional Session Classification
 
 ### Task 3: Canonical Subject Catalog and Optional Session Classification
 
@@ -904,8 +900,6 @@ git commit -m "feat: add adfad assignment and timetable publication"
 
 ### Task 10: Safe Availability and Coarse Workload Projection
 
-### Task 10: Safe Availability and Coarse Workload Projection
-
 **Files:**
 - Modify: `data-index.js`
 - Modify: `index-maintenance.js`
@@ -998,53 +992,50 @@ git commit -m "feat: add safe faculty capacity projection"
 
 ---
 
-### Task 11: DOE Regression Guards for Subject and Scoped Roles
+### Task 11: DOE Regression Guards for Subject, HICC/VISC Review, and Scoped Roles
 
 **Files:**
 - Modify: `server/test/calculation-service.test.js`
 - Modify: `server/test/workflow-preview-service.test.js`
 - Modify: `tests/doe-reconciliation.test.js`
 - Modify: `tests/timetable-multi-edit-ui.test.js`
-- Verify production DOE engine files remain unchanged; if a regression test exposes a pre-existing engine bug, stop and report it before modifying DOE production code.
+- Verify DOE production engine files remain unchanged unless a regression exposes a separately reviewed pre-existing bug.
 
-**Interfaces:**
-- Consumes: existing DOE calculation service, policy engine, course mappings, Subject mappings, workflow preview.
-- Produces: regression evidence that the Teaching Assignment redesign does not change DOE semantics.
+- [ ] **Step 1: Subject-only regression**
 
-- [ ] **Step 1: Add a test that Subject-only session changes do not force Teaching DOE recalculation when no active teaching rule declares Subject relevance**
+Subject-only Teaching Assignment change does not force Teaching DOE recalculation unless the active Rule Book explicitly declares Subject relevance.
 
-Construct before/after assignment facts identical except `subjectKey`. Use an active teaching bundle whose relevant fields do not include `subjectKey`.
+- [ ] **Step 2: HICC/VISC review actions never trigger DOE**
 
-Expected: workflow preview reports no Teaching DOE delta/recalculation requirement solely from the Subject change.
+Assert no authoritative DOE preparation/request from:
+- HICC Submit for VISC Review
+- VISC Approve
+- VISC Push Back
+- HICC Final Submit
+- contribution-only suggestion/note saves
+- release build/validate/seal
+- active release pointer switch
+- republish/restore-release creation.
 
-- [ ] **Step 2: Add tests that contribution and publication actions never call DOE preparation**
+- [ ] **Step 3: Positive final-assignment regression**
 
-In timetable/source tests, assert:
-- contribution-only suggestion/note save does not call `createDoeAdapter().prepareSession`
-- contribution-only save creates no `doe_recalculation_requests`
-- release build/validate/seal creates no DOE work
-- active release pointer switch creates no DOE work
-- republish/restore-release creation creates no DOE work
+ADFAD authoritative final assignment continues to invoke the existing DOE path when Rule Book-relevant facts changed.
 
-Keep the positive regression that authoritative final assignment still invokes the existing DOE path when Rule Book-relevant facts changed.
+- [ ] **Step 4: HICC role DOE stays per-course/year**
 
-- [ ] **Step 3: Add HICC per-course DOE tests**
+Two HICC role assignments for the same Faculty may produce different DOE results when mappings/rules differ by course/year.
 
-Use two HICC role assignments with the same Faculty and role but different `courseCode` values and distinct active `doe_course_mappings`/rules.
+Never copy a prior course result.
 
-Expected: each line is calculated from its own course mapping; no result is copied from the other course.
+- [ ] **Step 5: VISC role DOE stays independent from review authority**
 
-- [ ] **Step 4: Add VISC per-Subject/course/year DOE tests**
+Teaching Assignment group leadership does not itself determine DOE.
 
-Use VISC role assignments with distinct `subjectKey` mappings and, where the Rule Book distinguishes them, distinct course/year context.
+VISC DOE remains calculated from existing Rule Book role/course/Subject/year mappings.
 
-Expected:
-- each assignment resolves its own mapping
-- results may differ
-- missing Subject mapping throws/returns `SUBJECT_MAPPING_REQUIRED`
-- ambiguous mapping fails closed
+Missing/ambiguous Subject mapping fails closed.
 
-- [ ] **Step 5: Run DOE suites**
+- [ ] **Step 6: Run DOE suites**
 
 ```bash
 npm run test:server
@@ -1053,166 +1044,167 @@ node --test tests/doe-reconciliation.test.js tests/timetable-multi-edit-ui.test.
 
 Expected: PASS without hardcoding new HICC/VISC percentages.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add server/test tests/doe-reconciliation.test.js tests/timetable-multi-edit-ui.test.js
-git commit -m "test: protect scoped role doe behavior"
+git commit -m "test: protect grouped review doe boundaries"
 ```
 
 ---
 
-### Task 12: Schema, Explicit Approval and Publication Regression, Demo Fixtures, and Full Verification
+### Task 12: Schema, Grouped Review, Explicit Approval, Publication Regression, Demo Fixtures, and Full Verification
 
 **Files:**
 - Modify: `docs/database/SCHEMA.md`
 - Modify: `tools/seed/dataset.js`
 - Modify: `tests/seed-dataset.test.js`
 - Modify: `tools/browser-smoke.js`
-- Modify/add tests only as needed to reflect the approved architecture; do not relax explicit approval/security assertions.
+- Modify/add tests only as needed to reflect the approved P3.1 architecture; do not relax explicit approval/security assertions.
 
-**Interfaces:**
-- Consumes: all T1-T11 outputs.
-- Produces: documented schema, deterministic demo fixtures, release/security regression evidence, browser proof, and a remote feature branch ready for independent acceptance review.
-
-- [ ] **Step 1: Document the final schema contracts**
+- [ ] **Step 1: Document final schema**
 
 Document:
-- `academicScopeTokens` grammar
+- HICC `academicScopeTokens`
 - canonical `subjectKey`
+- trusted session `teachingAssignmentGroupId`
+- trusted session `responsibleHiccUid`
+- `teaching_assignment_groups`
+- `teaching_assignment_submissions`
+- submission lifecycle:
+  `draft -> visc_review -> changes_requested|visc_approved -> submitted_to_adfad -> adfad_finalized`
+- review fingerprint / VISC-approved fingerprint rules
 - `session_assignment_contributions`
-- temporary all-ready-user LAB roster read policy
+- temporary roster-read policy
 - `faculty_capacity_index`
-- Working semantics of `sessions` and `calendar_sessions`
-- `timetable_publications/{academicYearKey}` active pointer
-- release metadata lifecycle `building -> validated -> sealed`
-- immutable release-session snapshot shape
-- one-complete-Academic-Year release scope
-- publication authority and separation from ADFAD final assignment
-- Faculty Published-only surfaces
-- Change Request `baseReleaseId`/base-session provenance
-- DOE non-trigger from publication
-- deprecated `other_office` target-runtime removal
+- Working `sessions` / `calendar_sessions`
+- versioned timetable publication schema
+- Published-only Faculty views
+- Change Request `baseReleaseId`
+- no DOE from HICC/VISC review/Publish
+- user-facing ADFAD / ADC-DVM terminology with unchanged internal technical keys
+- deprecated `other_office` removal.
 
-- [ ] **Step 2: Update deterministic demo fixtures**
+- [ ] **Step 2: Demo fixtures**
 
-Include:
+Include a deterministic Bovine-style example:
+- one active Teaching Assignment group
+- one VISC leader
+- multiple HICC members
 - HICC course-wide scope
-- HICC course+Subject scope
-- VISC course+Subject scope
-- multiple responsibilities on one user
+- HICC Course+Subject scope
+- HICC Working sessions with trusted ownership fields
+- one package in `visc_review`
+- one VISC Push Back example
+- one package `visc_approved`
+- one package `submitted_to_adfad`
 - LAB group/roster
-- ADFAD-ready session with incomplete roster
-- one sealed active Published release
-- newer Working changes not present in that release
-- one safe no-release Academic Year fixture
-- no supported `other_office` runtime fixture
+- one sealed Published release
+- newer Working changes absent from Published release
+- no supported `other_office` runtime fixture.
 
 Do not seed live Firebase.
 
-- [ ] **Step 3: Add/retain explicit Change Request regression**
+- [ ] **Step 3: Grouped-review regression**
+
+Must prove:
+- HICC sees only own assigned exact scope
+- VISC sees every HICC package in led group
+- VISC sees no package outside led groups
+- VISC can Approve/Push Back
+- VISC cannot edit HICC content directly
+- VISC cannot Final Submit
+- HICC Final Submit requires the exact VISC-approved fingerprint
+- post-approval review-relevant edit invalidates Final Submit
+- only HICC Final Submit creates ADFAD queue eligibility
+- LAB roster does not block this chain.
+
+- [ ] **Step 4: Explicit Change Request regression**
 
 Must remain true:
 - later offices cannot approve before earlier applicable offices
 - Reject, Push Back, resubmit/revision behavior remains intact
-- normal contribution saves create no `change_request*` documents
+- Teaching Assignment package review creates no `change_request*` documents
 - Published-origin request preserves `baseReleaseId`
 - stale Working base prevents final apply
-- routing/order is unchanged by publication provenance
+- routing/order remains ADC/DVM -> LAB -> ADFAD where applicable.
 
-- [ ] **Step 4: Add publication security/integrity regression matrix**
+- [ ] **Step 5: Publication/security regression**
 
 Pin:
-- Faculty direct Working get/query denied
-- Faculty direct Working calendar get/query denied
+- Faculty direct Working reads denied
 - active sealed release allowed
-- guessed inactive release denied
-- building/failed/unsealed release denied
-- sealed snapshot immutable
-- active release delete denied
+- inactive/building/failed/unsealed release denied
+- sealed release immutable
 - unauthorized pointer update denied
 - invalid/missing pointer fails closed
-- no fallback to Working
-- strict Published allowlist excludes note/suggestion/roster/DOE/HR/private IDs
+- no Working fallback
+- strict Published allowlist excludes notes/review comments/suggestions/roster/DOE/HR/private IDs
 - Working edits after publish do not mutate active release
-- republish creates a new version
+- republish creates new version
 - concurrent publisher loser conflicts
 - inactive/password-change-required user denied
-- `other_office` grants no active runtime authority
+- `other_office` grants no runtime authority.
 
-- [ ] **Step 5: Extend browser smoke**
-
-Pin end-to-end paths:
+- [ ] **Step 6: Browser smoke**
 
 Internal Working:
 1. ADC/DVM skeleton exists.
-2. HICC/VISC scoped Topic work is visible only in scope.
-3. suggestions/notes coexist.
-4. normal active authenticated user can read LAB roster.
-5. ADFAD ready from skeleton + Topic even with incomplete roster.
-6. ADFAD submits multiple Faculty.
-7. Working view reflects final assignment.
+2. HICC sees own package only.
+3. HICC submits for VISC review.
+4. VISC sees all HICC packages in led group.
+5. VISC Push Back returns work to HICC.
+6. HICC revises/resubmits.
+7. VISC approves current fingerprint.
+8. HICC Final Submit creates ADFAD queue item.
+9. LAB roster may remain incomplete.
+10. ADFAD assigns multiple Faculty and finalizes Working assignment.
 
 Published:
-8. before Publish, ordinary Faculty still sees prior active release.
-9. high-trust publisher builds/validates/seals/activates a new release.
-10. Faculty Timetable switches as one release.
-11. My Teaching filters the same active release.
-12. Faculty Dashboard self-mode uses the same Published source.
-13. later Working edit remains invisible until republish.
-14. no-release/corrupt-pointer states show controlled fail-closed UI.
-15. routed Change Request browser smoke still passes with serial approval.
+11. Faculty still sees prior release before Publish.
+12. high-trust publisher builds/validates/seals/activates new release.
+13. Faculty Timetable, My Teaching, and Faculty Dashboard self-mode use that Published source.
+14. later Working edit remains invisible until republish.
+15. no-release/corrupt-pointer states fail closed.
+16. explicit Change Request browser smoke remains serial.
 
-- [ ] **Step 6: Run all non-emulator suites**
+- [ ] **Step 7: Run all suites**
 
 ```bash
 npm test
 npm run test:static
 npm run test:server
+npm run test:emulator
+node --test tests/rules-evaluation-budget.test.js
 ```
 
 Expected: PASS.
 
-- [ ] **Step 7: Run authoritative emulator suite**
-
-```bash
-npm run test:emulator
-```
-
-Expected: PASS with all new security tests executed.
-
-- [ ] **Step 8: Run static build and browser smoke**
+- [ ] **Step 8: Build and browser smoke**
 
 ```bash
 node tools/build-static.js
 node tools/browser-smoke.js --demo
 ```
 
-Expected: PASS, including Published release switch and existing routed approval path.
+Expected: PASS.
 
-- [ ] **Step 9: Re-run Firestore rules budget guard**
-
-```bash
-node --test tests/rules-evaluation-budget.test.js
-```
-
-Expected: PASS without raising a ceiling solely to accommodate the feature.
-
-- [ ] **Step 10: Search for forbidden runtime residue**
+- [ ] **Step 9: Search final runtime residue**
 
 ```bash
 git grep -n "other_office" -- ':!docs/**'
-git grep -n "calendar_sessions" timetable.js faculty-admin.js
+git grep -n "ADFA" -- '*.html' '*.js' ':!tests/**'
+git grep -n ">ADC<" -- '*.html'
 git grep -n "activeReleaseId" .
 ```
 
-Expected:
-- no active runtime authorization/provisioning support for `other_office`
-- historical/migration test text may remain only where intentionally asserting denial
-- ordinary Faculty source paths do not use Working `calendar_sessions`
-- publication pointer use is explicit and reviewable
+Interpretation:
+- `other_office` may remain only in intentional denial/migration tests or historical artifacts
+- user-facing production UI should use ADFAD and ADC/DVM
+- lowercase/internal `adfa*` and `adc` technical identifiers are allowed
+- publication pointer use remains explicit.
 
-- [ ] **Step 11: Inspect final diff for protected subsystems**
+- [ ] **Step 10: Inspect protected subsystem diff**
 
 ```bash
 git diff origin/main...HEAD --stat
@@ -1220,41 +1212,41 @@ git diff origin/main...HEAD -- firestore.rules approval-lifecycle.js approval-ro
 ```
 
 Expected:
-- publication/scoped rule changes are intentional
-- approval-request/finalizer changes are limited to approved provenance/stale-base protection
-- approval routing/order semantics are unchanged
-- DOE formulas/rates are not redesigned
-- no deployment configuration changed unintentionally
+- grouped review/publication rule changes intentional
+- explicit Change Request routing/order not redesigned
+- DOE formulas/rates not redesigned
+- no deployment config changed unintentionally.
 
-- [ ] **Step 12: Commit documentation/fixture/smoke changes**
+- [ ] **Step 11: Commit docs/fixture/smoke**
 
 ```bash
 git add docs/database/SCHEMA.md tools/seed/dataset.js tests/seed-dataset.test.js tools/browser-smoke.js tests
-git commit -m "test: complete publication and scoped workflow acceptance coverage"
+git commit -m "test: complete grouped workflow acceptance coverage"
 ```
 
-- [ ] **Step 13: Push the verified feature branch**
+- [ ] **Step 12: Push verified feature branch**
 
 ```bash
 git status --short
 git push origin feature/scoped-parallel-assignment-workflow
 ```
 
-Expected: clean worktree and updated remote.
-
-- [ ] **Step 14: Produce implementation handoff report**
+- [ ] **Step 13: Produce implementation handoff report**
 
 Report:
 - final HEAD
 - commits by task
 - tests/results
 - rules-budget before/after
-- publication schema and active release ID used in demo
-- any approved design deviations
-- remaining known limitations
+- grouped review states/fixtures
+- publication schema
+- approved deviations/known limitations
 - confirmation no live Firebase/DOE/Azure write/deploy occurred
 - confirmation explicit Change Request approval order remained intact
-- confirmation ordinary Faculty have no Working timetable read path
-- confirmation `other_office` no longer grants active runtime authority
+- confirmation Faculty have no Working timetable read path
+- confirmation `other_office` no longer grants runtime authority
+- confirmation user-facing terminology is ADFAD and ADC/DVM.
+
+---
 
 ---
