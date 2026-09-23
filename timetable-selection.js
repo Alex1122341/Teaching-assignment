@@ -25,7 +25,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   if(!caps||!workflow)return{canSelect:false,fields};
   const access=caps.forRole(role),sessionType=workflow.sessionType(row);
   if(access.canEditCourseFields)for(const field of ['date','year','course','subjectKey','type','start','end','room'])fields[field]=true;
-  if(options.allowTeachingAssignmentOwnership===true){fields.teachingAssignmentGroupId=true;fields.responsibleHiccResponsibilityId=true}
+  if(role==='developer'||options.allowTeachingAssignmentOwnership===true){fields.teachingAssignmentGroupId=true;fields.responsibleHiccResponsibilityId=true}
   // ADC owns Topic for LEC / SRL. LAB owns Topic for LAB sessions only.
   fields.topic=sessionType==='LAB'?Boolean(access.canEditLabTopic):Boolean(access.canEditCourseFields);
   // Only ADFA (and Developer) may make the official Faculty assignment.
