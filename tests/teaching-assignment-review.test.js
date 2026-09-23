@@ -67,6 +67,14 @@ test('included sessions and safe Faculty suggestions are review-relevant', () =>
     assert.notEqual(review.reviewFingerprint([session()],[suggestion(patch)]), base);
   }
 });
+test('review fingerprint requires explicit safe suggestion provenance', () => {
+  const missingSource = {sessionId:'s1',candidateKey:'opaque-a',displayName:'Faculty A'};
+  assert.throws(() => review.reviewFingerprint([session()],[missingSource]), /source role|suggestions require/i);
+  for (const sourceRole of ['adc','lab','hicc']) {
+    assert.doesNotThrow(() => review.reviewFingerprint([session()],[suggestion({sourceRole})]));
+  }
+});
+
 test('private and volatile fields never enter a fingerprint', () => {
   const privateData = {contributorNote:'PRIVATE NOTE',viscReviewComment:'PRIVATE REVIEW',
     studentIds:['SECRET STUDENT'],labGroupIds:['group'],rosters:{group:['student']},

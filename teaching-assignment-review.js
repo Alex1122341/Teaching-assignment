@@ -62,7 +62,7 @@
     const safeSuggestions = suggestions.map(row => {
       if (!object(row)) throw Error('Invalid safe Faculty suggestion.');
       const sessionId = reviewText(row.sessionId), candidateKey = reviewText(row.candidateKey),
-        displayName = reviewText(row.displayName), sourceRole = reviewText(row.sourceRole || 'hicc').toLowerCase();
+        displayName = reviewText(row.displayName), sourceRole = reviewText(row.sourceRole).toLowerCase();
       if (!ids.has(sessionId) || !candidateKey || !displayName || !['hicc','adc','lab'].includes(sourceRole)) {
         throw Error('Suggestions require an included session, opaque candidate key, display name and source role.');
       }

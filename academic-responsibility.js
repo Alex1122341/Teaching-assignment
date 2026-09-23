@@ -10,7 +10,7 @@
 
   const RESPONSIBILITIES = new Set(['hicc', 'rotation_coordinator']);
   const COURSE = /^[A-Z]{2,10} [0-9]{3,4}[A-Z]?$/;
-  const SUBJECT = /^[a-z0-9][a-z0-9 _-]*$/;
+  // Match the canonical Teaching Subject key grammar from subject-catalog.js.\n  const SUBJECT = /^[a-z][a-z0-9_-]{0,63}$/;
 
   function normalizeCourse(value) {
     return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').toUpperCase() : '';

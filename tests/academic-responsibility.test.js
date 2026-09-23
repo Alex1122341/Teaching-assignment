@@ -16,6 +16,14 @@ test('normalization produces canonical Course and Subject keys', () => {
   assert.equal(scopes.scopeToken('hicc', 'VTMD 505'), 'hicc|VTMD 505|*');
 });
 
+test('Subject-limited scope tokens use the canonical Teaching Subject key grammar', () => {
+  assert.equal(scopes.scopeToken('hicc', 'VTMD 505', 'small animal'), '');
+  assert.equal(scopes.scopeToken('hicc', 'VTMD 505', '1surgery'), '');
+  assert.equal(scopes.scopeToken('hicc', 'VTMD 505', 'surgery_core'), 'hicc|VTMD 505|surgery_core');
+  assert.equal(scopes.scopeToken('hicc', 'VTMD 505', 'surgery-core'), 'hicc|VTMD 505|surgery-core');
+  assert.equal(scopes.hasScope(hicc(['hicc|VTMD 505|small animal']), 'hicc', {course:'VTMD 505',subjectKey:'small animal'}), false);
+});
+
 test('a course-wide HICC token covers Subjects in only that exact course', () => {
   const profile = hicc(['hicc|VTMD 505|*']);
   for (const subjectKey of ['surgery', 'anesthesia', '']) {
