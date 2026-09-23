@@ -28,7 +28,7 @@
 
 ## Review Focus
 
-1. **Malformed or stale academic scope data** — an empty, unknown, or malformed `academicScopes` value must fail closed rather than broadening HICC/VISC authority. Task 2 adds explicit malformed-scope tests.
+1. **Malformed or stale academic scope data** — an empty, unknown, or malformed `academicScopeTokens` value must fail closed rather than broadening HICC/VISC authority. Task 2 adds explicit malformed-scope tests.
 2. **Course/Subject normalization edge cases** — authorization may trim and canonicalize course/Subject keys, but it must never fall back to substring matching. Task 2 tests short-string and cross-Subject attacks.
 3. **Concurrent contributor writes** — ADC/LAB/HICC/VISC contributions must live in actor/source-specific documents so one save cannot overwrite another contributor's suggestions or note. Task 5 pins document identity and coexistence.
 4. **Missing coarse workload policy** — candidate workload must render `Needs Review` without exposing exact DOE when no approved threshold policy is configured. Task 10 tests this fail-closed display.
@@ -115,11 +115,11 @@ Expected: the remote feature branch contains the merged baseline and no unrelate
 - Modify later in this task only if required by browser load order: `index.html`
 
 **Interfaces:**
-- Consumes: a user/profile object whose optional `academicScopes` map contains arrays keyed by responsibility.
+- Consumes: a user/profile object whose optional `academicScopeTokens` list contains exact scope tokens such as `hicc|VTMD 505|*` and `visc|VTMD 521|imaging`.
 - Produces:
   - `normalizeCourse(value) -> string`
   - `normalizeSubjectKey(value) -> string`
-  - `scopesFor(profile, responsibility) -> Array<{course:string,subjectKey:string}>`
+  - `scopeToken(responsibility, course, subjectKey='*') -> string`\n  - `scopesFor(profile, responsibility) -> Array<{course:string,subjectKey:string}>`
   - `hasScope(profile, responsibility, resource) -> boolean`
   - `responsibilitiesFor(profile, resource) -> string[]`
   - `canEditTopic(profile, resource) -> boolean`
@@ -131,13 +131,13 @@ Add tests that pin the canonical contract:
 
 ```js
 test('course-wide scope authorizes every Subject in the exact course',()=>{
- const api=load(),profile={role:'faculty',academicScopes:{hicc:[{course:'VTMD 505'}]}};
+ const api=load(),profile={role:'faculty',academicScopeTokens:['hicc|VTMD 505|*']};
  assert.equal(api.hasScope(profile,'hicc',{course:'VTMD 505',subjectKey:'surgery'}),true);
  assert.equal(api.hasScope(profile,'hicc',{course:'VTMD 506',subjectKey:'surgery'}),false);
 });
 
 test('Subject-limited scope requires exact course and exact Subject',()=>{
- const api=load(),profile={role:'faculty',academicScopes:{hicc:[{course:'VTMD 506',subjectKey:'surgery'}]}};
+ const api=load(),profile={role:'faculty',academicScopeTokens:['hicc|VTMD 506|surgery']};
  assert.equal(api.hasScope(profile,'hicc',{course:'VTMD 506',subjectKey:'surgery'}),true);
  assert.equal(api.hasScope(profile,'hicc',{course:'VTMD 506',subjectKey:'anesthesia'}),false);
 });
@@ -146,15 +146,15 @@ test('Subject-limited scope requires exact course and exact Subject',()=>{
 - [ ] **Step 2: Add RED tests for malformed scopes and substring attacks**
 
 ```js
-test('malformed academicScopes fail closed',()=>{
+test('malformed academicScopeTokens fail closed',()=>{
  const api=load();
- for(const academicScopes of [null,[],{hicc:'VTMD 505'},{hicc:[{}]},{hicc:[{course:'5'}]}]){
-  assert.equal(api.hasScope({role:'hicc',academicScopes},'hicc',{course:'VTMD 505',subjectKey:'surgery'}),false);
+ for(const academicScopeTokens of [null,[],{hicc:'VTMD 505'},{hicc:[{}]},{hicc:[{course:'5'}]}]){
+  assert.equal(api.hasScope({role:'hicc',academicScopeTokens},'hicc',{course:'VTMD 505',subjectKey:'surgery'}),false);
  }
 });
 
 test('scope matching never uses substring matching',()=>{
- const api=load(),profile={academicScopes:{hicc:[{course:'VTMD 505',subjectKey:'surgery'}]}};
+ const api=load(),profile={academicScopeTokens:['hicc|VTMD 505|surgery']};
  assert.equal(api.hasScope(profile,'hicc',{course:'VTMD 5050',subjectKey:'surgery'}),false);
  assert.equal(api.hasScope(profile,'hicc',{course:'VTMD 505',subjectKey:'surgery-core'}),false);
 });
@@ -176,14 +176,23 @@ Implement exact normalized matching:
 const normalizeCourse=value=>String(value??'').trim().toUpperCase();
 const normalizeSubjectKey=value=>String(value??'').trim().toLowerCase();
 
+const RESPONSIBILITIES=new Set(['hicc','visc','rotation_coordinator']);
+
+function scopeToken(responsibility,course,subjectKey='*'){
+ const role=String(responsibility||'').trim().toLowerCase();
+ const code=normalizeCourse(course);
+ const subject=subjectKey==='*'?'*':normalizeSubjectKey(subjectKey);
+ if(!RESPONSIBILITIES.has(role)||code.length<4||(!subject&&subject!=='*'))return'';
+ return `${role}|${code}|${subject||'*'}`;
+}
+
 function scopesFor(profile,responsibility){
- const rows=profile?.academicScopes?.[String(responsibility||'').trim().toLowerCase()];
- return (Array.isArray(rows)?rows:[])
-  .map(row=>({
-   course:normalizeCourse(row?.course),
-   subjectKey:normalizeSubjectKey(row?.subjectKey)
-  }))
-  .filter(row=>row.course.length>=4);
+ const role=String(responsibility||'').trim().toLowerCase();
+ return (Array.isArray(profile?.academicScopeTokens)?profile.academicScopeTokens:[])
+  .map(value=>String(value||'').split('|'))
+  .filter(parts=>parts.length===3&&parts[0]===role)
+  .map(([,course,subjectKey])=>({course:normalizeCourse(course),subjectKey:subjectKey==='*'?'':normalizeSubjectKey(subjectKey)}))
+  .filter(scope=>scope.course.length>=4);
 }
 
 function hasScope(profile,responsibility,resource){
@@ -317,7 +326,7 @@ Do not read DOE Subject mappings from the browser to populate this catalog.
 
 - [ ] **Step 6: Add administrator catalog UI**
 
-Add a focused Subject Catalog panel to the existing Faculty Dashboard administrative area. It must allow authorized administrators to:
+Implement the Subject Catalog panel in the focused `subject-catalog-admin.js` module and mount it from `faculty-admin.html`. It must allow authorized administrators to:
 - list Subject key/label/status
 - add a Subject
 - rename the display label without changing the stable key
@@ -352,7 +361,7 @@ Expected: PASS.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add subject-catalog.js tests/subject-catalog.test.js tests/subject-catalog-security-emulator.test.js faculty-admin.html faculty-admin.js timetable.js timetable-selection.js firestore.rules tools/static-assets.json tools/runtime-bundles.json
+git add subject-catalog.js subject-catalog-admin.js tests/subject-catalog.test.js tests/subject-catalog-admin.test.js tests/subject-catalog-security-emulator.test.js faculty-admin.html timetable.js timetable-selection.js firestore.rules tools/static-assets.json tools/runtime-bundles.json
 git commit -m "feat: add canonical teaching subject catalog"
 ```
 
@@ -582,7 +591,7 @@ git commit -m "feat: add scoped teaching contributions"
 
 ---
 
-### Task 6: Scoped Capabilities and Topic Editing Policy
+### Task 6: Scoped Capabilities, User-Management Scope Assignment, and Topic Editing Policy
 
 **Files:**
 - Modify: `office-capabilities.js`
@@ -603,7 +612,7 @@ git commit -m "feat: add scoped teaching contributions"
 ```js
 test('HICC/VISC scoped powers require a matching academic scope',()=>{
  const api=load();
- const profile={role:'faculty',academicScopes:{hicc:[{course:'VTMD 505',subjectKey:'surgery'}]}};
+ const profile={role:'faculty',academicScopeTokens:{hicc:[{course:'VTMD 505',subjectKey:'surgery'}]}};
  const allowed=api.forProfile(profile,{course:'VTMD 505',subjectKey:'surgery',responsibilityApi:scopeApi});
  const denied=api.forProfile(profile,{course:'VTMD 505',subjectKey:'anesthesia',responsibilityApi:scopeApi});
  assert.equal(allowed.canEditScopedTopic,true);
@@ -627,9 +636,36 @@ Expected: FAIL because the new capability flags are absent.
 
 `OFFICES` remains `['adc','lab','adfa']`.
 
-In `forProfile(profile, options)`, after operational office flags, evaluate the injected/global academic-responsibility helper against `options.course` and `options.subjectKey`. Set only `canEditScopedTopic` and `canSuggestFacultyScoped`; do not set `canEditCourseFields`, `canEditInstructor`, or LAB roster/group write permissions.
+Make `office-capabilities.js` consume `academic-responsibility.js` as a module dependency. In `forProfile(profile, options)`, after operational office flags, evaluate that helper against `options.course` and `options.subjectKey`. Set only `canEditScopedTopic` and `canSuggestFacultyScoped`; do not set `canEditCourseFields`, `canEditInstructor`, or LAB roster/group write permissions.
 
-- [ ] **Step 4: Update timetable field policy**
+- [ ] **Step 4: Add academic responsibility assignment to User Management**
+
+Extend the existing User Management editor so high-trust user managers can add/remove exact academic scope rows:
+
+```text
+Responsibility: HICC
+Course: VTMD 505
+Subject: All Subjects
+=> hicc|VTMD 505|*
+
+Responsibility: VISC
+Course: VTMD 521
+Subject: Imaging
+=> visc|VTMD 521|imaging
+```
+
+Requirements:
+- course is required
+- Subject dropdown comes from active `teaching_subjects`
+- `All Subjects` serializes as `*`
+- duplicate tokens are rejected
+- unknown responsibility values are rejected
+- ordinary Faculty cannot edit their own scope tokens
+- removing a token immediately removes authority on the next authorization check
+
+Add `tests/user-management.test.js` assertions for render, normalization, duplicate rejection, and persistence payload.
+
+- [ ] **Step 5: Update timetable field policy**
 
 In `timetable-selection.editPolicy`:
 - ADC may edit Topic for LEC/SRL through existing course-field authority.
@@ -638,7 +674,7 @@ In `timetable-selection.editPolicy`:
 - scoped HICC/VISC may not edit course/date/time/type/room/final Faculty assignment.
 - Subject selection itself is administrator-managed catalog data; scoped roles consume the canonical key and do not create arbitrary Subject values.
 
-- [ ] **Step 5: Add selection-policy tests**
+- [ ] **Step 6: Add selection-policy tests**
 
 Pin:
 - HICC VTMD 505/Surgery Topic edit allowed.
@@ -649,7 +685,7 @@ Pin:
 - ADC LEC/SRL Topic remains allowed.
 - LAB LAB Topic remains allowed.
 
-- [ ] **Step 6: Run focused suites**
+- [ ] **Step 7: Run focused suites**
 
 ```bash
 node --test tests/office-capabilities.test.js tests/timetable-multi-edit-ui.test.js
@@ -677,7 +713,7 @@ git commit -m "feat: enforce course subject teaching scopes"
 
 **Interfaces:**
 - Consumes:
-  - `users/{uid}.academicScopes`
+  - `users/{uid}.academicScopeTokens`
   - session `course` and optional `subjectKey`
   - contribution `course`, `subjectKey`, `sourceRole`, `actorUid`
 - Produces Firestore permissions for scoped Topic writes and contribution documents.
@@ -694,7 +730,7 @@ await assertFails(hicc505.doc('sessions/s505-anesthesia').update({topic:'Denied'
 await assertFails(hicc505.doc('sessions/s506').update({topic:'Denied',updatedBy:'hicc505',updatedAt:serverTimestamp()}));
 ```
 
-Also assert `role:'hicc'` with no matching `academicScopes` is denied.
+Also assert `role:'hicc'` with no matching `academicScopeTokens` is denied.
 
 - [ ] **Step 2: Add RED emulator tests for contribution-note privacy**
 
@@ -727,9 +763,9 @@ npm run test:emulator
 
 Expected: new scoped/contribution/roster-read tests fail under old rules.
 
-- [ ] **Step 5: Extend the user profile shape for `academicScopes`**
+- [ ] **Step 5: Extend the user profile shape for `academicScopeTokens`**
 
-Update user create/update validation so `academicScopes` may be persisted by existing high-trust user-management paths.
+Update user create/update validation so `academicScopeTokens` may be persisted by existing high-trust user-management paths.
 
 Rules must validate:
 - map shape
@@ -738,21 +774,13 @@ Rules must validate:
 - each scope contains a non-empty course and optional string Subject key
 - HICC/VISC role alone does not grant scope
 
-Keep legacy profiles without `academicScopes` valid but with no scoped authority.
+Keep legacy profiles without `academicScopeTokens` valid but with no scoped authority.
 
 - [ ] **Step 6: Add exact-match rule helpers using the already-loaded profile**
 
-Use `profile().academicScopes`; do not add a derived authorization cache.
+Use `profile().academicScopeTokens`; do not add a derived authorization cache.
 
-Create rule helpers conceptually equivalent to:
-
-```text
-hasAcademicCourseScope(responsibility, course)
-hasAcademicSubjectScope(responsibility, course, subjectKey)
-hasAcademicScope(responsibility, course, subjectKey)
-```
-
-Firestore rules cannot iterate arbitrary nested maps freely, so choose a bounded representation that the emulator proves fits rule limits. If the map-of-lists representation cannot be validated/evaluated within Firestore Rules constraints, use a bounded flat token list on the same user profile, for example:
+The canonical stored representation for this implementation is a bounded profile-local token list:
 
 ```text
 academicScopeTokens:
@@ -761,7 +789,15 @@ academicScopeTokens:
   visc|VTMD 521|imaging
 ```
 
-The authoritative contract remains exact course + optional Subject; the executor may choose this profile-local encoding only if the emulator proves it safer and the schema docs are updated in the same commit.
+Create rule helpers equivalent to:
+
+```text
+hasAcademicCourseScope(responsibility, course)
+hasAcademicSubjectScope(responsibility, course, subjectKey)
+hasAcademicScope(responsibility, course, subjectKey)
+```
+
+Use exact token membership after the same normalization defined by `academic-responsibility.js`. Do not query `faculty_groups` for authorization and do not create a derived authorization cache.
 
 - [ ] **Step 7: Add scoped Topic update rule**
 
@@ -1099,7 +1135,7 @@ git commit -m "feat: add safe faculty capacity projection"
 - Modify: `server/test/workflow-preview-service.test.js`
 - Modify: `tests/doe-reconciliation.test.js`
 - Modify: `tests/timetable-multi-edit-ui.test.js`
-- Production DOE engine files should remain unchanged unless a regression test exposes a real bug.
+- Verify production DOE engine files remain unchanged; if a regression test exposes a pre-existing engine bug, stop and report it before modifying DOE production code.
 
 **Interfaces:**
 - Consumes: existing DOE calculation service, policy engine, course mappings, Subject mappings, workflow preview.
@@ -1165,7 +1201,7 @@ git commit -m "test: protect scoped role doe behavior"
 - [ ] **Step 1: Document the new schema contracts**
 
 Add exact documentation for:
-- user academic scope representation
+- user `academicScopeTokens` representation and exact token grammar
 - canonical `subjectKey`
 - `session_assignment_contributions`
 - temporary all-active-user LAB roster read policy
