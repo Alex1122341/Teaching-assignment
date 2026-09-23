@@ -449,7 +449,7 @@ calendar_sessions
 
 Do not repurpose `calendar_sessions` as Published data. Existing paired-write, bulk-import, repair, timetable-editing and DOE persistence paths depend on its Working-layer semantics.
 
-Use a separate versioned release family. The implementation plan may refine field names, but the contract is:
+Use the following versioned release family as the canonical first implementation:
 
 ```text
 timetable_publications/{academicYearKey}
