@@ -1,17 +1,29 @@
 # PAWS Scoped Parallel Teaching Assignment Workflow — Design Spec
 
 Date: 2026-09-22  
-Status: Approved design baseline — P3 architecture lock (parallel workflow + versioned timetable publication)  
+Status: Approved design baseline — P3.1 architecture lock (grouped HICC/VISC review + versioned timetable publication)  
 Repository: `Alex1122341/Teaching-assignment`  
 Implementation branch: `feature/scoped-parallel-assignment-workflow`
 
 ## 1. Purpose
 
-Replace the current serial Teaching Assignment preparation model with a scoped, parallel contribution model while preserving the existing explicit Change Request approval lifecycle.
+Replace the old serial office-gating model with a Teaching Assignment workflow that has three clear layers:
 
-Add a separate Working-versus-Published timetable boundary so internal Teaching Assignment changes can continue without exposing unfinished work to ordinary Faculty. The existing `sessions` + `calendar_sessions` pair remains the internal Working layer; Faculty consume only the active, versioned Published release.
+1. parallel Working preparation by ADC/DVM, LAB and the responsible HICC;
+2. a HICC-owned review chain in which the HICC submits to its group VISC, the VISC approves or pushes back, and the HICC performs the final submit to ADFAD;
+3. a separate versioned timetable publication boundary so unfinished Working changes never leak to ordinary Faculty.
 
-This design does not weaken the routed Change Request approval flow, does not redesign DOE formulas, and does not treat ADFA session finalization as timetable publication.
+The explicit Change Request workflow remains separate and serial.
+
+The existing `sessions` + `calendar_sessions` pair remains the internal Working layer. Faculty consume only the active Published release.
+
+Terminology is updated for all user-facing text and documentation:
+- `ADFAD` -> `ADFAD`
+- `ADC/DVM` -> `ADC/DVM`
+
+Existing technical keys such as `adfa`, `adfa_general`, `adfa_regular`, and `adc` remain unchanged in this phase to avoid an unnecessary data/rules migration.
+
+This design does not redesign DOE formulas and does not treat ADFAD session finalization as timetable publication.
 
 ## 2. Repository and branch baseline
 
@@ -30,40 +42,51 @@ The company-computer WIP was preserved on `handoff/pr67-phase-a-wip` at checkpoi
 - D2 serial readiness is superseded and must not be continued.
 - D3 added no reusable local implementation.
 
-In particular, a referenced LAB group that does not exist must fail closed, while LAB group/roster completion remains independent from ADFA readiness.
+In particular, a referenced LAB group that does not exist must fail closed, while LAB group/roster completion remains independent from HICC/VISC review and ADFAD assignment readiness.
 
-## 3. Separate the two workflows
+## 3. Separate the lifecycles
 
-### 3.1 Normal Teaching Assignment preparation
+### 3.1 Normal Teaching Assignment preparation and grouped review
 
 The target flow is:
 
 ```text
-ADC creates session skeleton
-        |
-        v
-course/date/start/end/type available
-        |
-        +----------------+----------------+----------------+
-        |                |                |                |
-       ADC              LAB             HICC             VISC
-  contributions    contributions    contributions    contributions
-        |                |                |                |
-        +----------------+----------------+----------------+
-                         |
-                 required Topic complete
-                         |
-                         v
-                     ADFA READY
-                         |
-                         v
-               final Faculty assignment
-                         |
-                         v
-                  Approve & Submit
+ADC/DVM creates the session skeleton
+          |
+          +----------------------+
+          |                      |
+         LAB              responsible HICC
+ operational work        prepares own package
+          |                      |
+          +-----------> HICC Submit for VISC Review
+                                 |
+                                 v
+                           VISC REVIEW
+                           /          \
+                    Push Back        Approve
+                       |                |
+                       v                v
+                  HICC revise      VISC Approved
+                       \                /
+                        \              /
+                         HICC Final Submit
+                                 |
+                                 v
+                              ADFAD
+                    final review / Faculty assignment
+                                 |
+                                 v
+                        ADFAD Approve & Submit
 ```
 
-ADC, LAB, HICC and VISC are contributors, not approval stages.
+The responsibility chain is intentionally asymmetric:
+
+- HICC owns the Teaching Assignment package for its assigned course/Subject scope.
+- VISC is the leader/reviewer for a Teaching Assignment group and can review all HICC packages in that group.
+- VISC approves or pushes back; VISC does not perform the final submit to ADFAD.
+- HICC performs the final submit to ADFAD after the current package revision has VISC approval.
+- ADFAD performs final Faculty assignment and authoritative submission.
+- LAB work stays operational and parallel; LAB roster completion does not block this review chain.
 
 ### 3.2 Explicit Change Request approval
 
@@ -71,30 +94,32 @@ The existing routed Change Request flow remains separate and serial:
 
 ```text
 Change Request
-  -> ADC approval when required
+  -> ADC/DVM approval when required
   -> LAB approval when required
-  -> ADFA approval when required
+  -> ADFAD approval when required
   -> Apply
 ```
 
-Existing approval lifecycle, routing, order enforcement, push-back, reject, resubmit, and finalizer behavior must remain intact unless a separate approved design explicitly changes them.
+Existing approval lifecycle, routing, order enforcement, push-back, reject, resubmit, and finalizer behavior remain intact unless a separate approved design changes them.
 
-A Change Request created from a Published release must retain publication provenance such as `baseReleaseId` plus the existing/public base-session evidence. Final apply must revalidate the current Working session and fail closed when the reviewed base is stale. Publication provenance strengthens stale-write protection; it does not change the ADC/LAB/ADFA approval order.
+A Change Request created from a Published release retains publication provenance such as `baseReleaseId` plus existing/public base-session evidence. Final apply revalidates current Working state and fails closed when the reviewed base is stale.
+
+The HICC/VISC Teaching Assignment package review is not a Change Request and must not create `change_request*` records.
 
 ### 3.3 Working versus Published timetable boundary
 
-Normal Teaching Assignment preparation and timetable publication are separate lifecycles:
+Normal Teaching Assignment review and timetable publication are separate:
 
 ```text
 INTERNAL WORKING LAYER
 sessions
   -> calendar_sessions (sanitized Working projection)
-  -> ADC / LAB / scoped HICC / scoped VISC / ADFA / Developer-Owner
-  -> ADFA Approve & Submit
+  -> ADC/DVM / LAB / HICC / VISC review / ADFAD / Developer-Owner
+  -> ADFAD Approve & Submit
   -> finalized Working assignment
 
 EXPLICIT PUBLICATION
-  -> build complete Academic-Year release candidate
+  -> build complete Academic-Year release
   -> validate
   -> seal
   -> atomically switch activeReleaseId
@@ -103,17 +128,17 @@ FACULTY-FACING PUBLISHED LAYER
   -> active sealed release only
 ```
 
-`ADFA Approve & Submit` is session-level final assignment authority. It must not publish the timetable.
+`ADFAD Approve & Submit` is session-level final assignment authority. It does not publish the timetable.
 
-`Publish Timetable` is timetable-level release authority. It must not create or change final assignments and must not trigger DOE.
+`Publish Timetable` is timetable-level release authority. It does not create/change final assignments and does not trigger DOE.
 
 Working edits after a release is active do not change what Faculty see until a later explicit Publish.
 
-## 4. Session skeleton and readiness
+## 4. Session skeleton, ownership, and readiness
 
-### 4.1 ADC skeleton
+### 4.1 ADC/DVM skeleton
 
-ADC owns the base session skeleton:
+ADC/DVM owns the base scheduling skeleton:
 
 - course
 - date
@@ -121,29 +146,42 @@ ADC owns the base session skeleton:
 - end
 - session type
 
-Year/semester/week may remain derived or stored according to the existing canonical session model, but they are not additional ADFA readiness gates unless required by an existing canonical invariant.
+Year/semester/week may remain derived or stored under the existing canonical session model.
 
-Room is not an ADFA readiness gate.
+Room is not a review or ADFAD readiness gate.
 
-### 4.2 Topic
+### 4.2 Teaching Assignment ownership fields
+
+Each HICC-owned Working session carries trusted ownership metadata:
+
+```text
+teachingAssignmentGroupId
+responsibleHiccUid
+```
+
+These fields are assigned through trusted administration/group configuration.
+
+HICC and VISC cannot change either field themselves.
+
+### 4.3 Topic
 
 For LEC and SRL:
 
-- ADC may create or edit Topic.
-- Scoped HICC may create or edit Topic within their authorized scope.
-- Scoped VISC may create or edit Topic within their authorized scope.
+- responsible HICC may create/edit Topic within exact authorized course/Subject scope.
+- ADC/DVM may continue approved scheduling/content support where existing policy permits.
 
 For LAB:
 
-- LAB may create or edit Topic.
-- Scoped HICC/VISC may create or edit Topic within their authorized scope.
-- ADC is not the primary LAB Topic editor.
+- LAB may create/edit LAB Topic.
+- responsible HICC may review the package content within its assigned scope.
 
-Topic edits use the existing audit model and do not create a separate Topic approval step.
+VISC is a reviewer, not a direct Topic editor. If VISC requires a change, VISC uses Push Back with a review comment; the HICC changes and resubmits.
 
-### 4.3 ADFA readiness
+Topic edits continue to use audit logging and do not create a separate Topic approval record.
 
-ADFA is ready when all of these are complete:
+### 4.4 Content readiness
+
+A HICC package is content-ready for VISC review when every included session has:
 
 - course
 - valid date
@@ -152,73 +190,83 @@ ADFA is ready when all of these are complete:
 - session type
 - valid Topic
 
-The following do not block ADFA readiness:
+The following do not block VISC review or later ADFAD assignment:
 
+- room
 - Faculty suggestions
 - contributor notes
 - LAB group completion
 - LAB roster completion
-- ADC approval
-- LAB approval
-- HICC approval
-- VISC approval
 
-Derived UI states should distinguish:
+### 4.5 Review and handoff readiness
 
-- session skeleton incomplete
-- Topic incomplete
-- ready for ADFA assignment
-- final assignment present
+The package lifecycle is:
 
-Do not create a second persistent approval state machine for normal Teaching Assignment preparation.
+```text
+draft
+ -> HICC Submit for VISC Review
+visc_review
+ -> VISC Push Back -> changes_requested -> HICC revise/resubmit
+ -> VISC Approve   -> visc_approved
+visc_approved
+ -> HICC Final Submit -> submitted_to_adfad
+submitted_to_adfad
+ -> ADFAD final Faculty assignment
+ -> adfad_finalized
+```
 
-## 5. Parallel contributions
+ADFAD must not receive a normal Teaching Assignment package merely because Topic/content fields are complete.
 
-ADC, LAB, HICC and VISC may contribute independently after the base session exists.
+ADFAD queue entry requires:
+- latest HICC package content is content-ready;
+- VISC approved the same current review revision/fingerprint;
+- HICC performed Final Submit after that approval.
+
+Any review-relevant Working change after VISC approval invalidates that approval and requires HICC resubmission for VISC review before another Final Submit.
+
+## 5. Parallel Working contributions
+
+ADC/DVM, LAB and the responsible HICC may contribute independently while the package is in an editable Working state.
 
 A contributor may:
+- suggest one or more Faculty where permitted;
+- maintain their own internal Teaching Assignment note;
+- edit only the fields allowed by their role/scope.
 
-- suggest one or more Faculty
-- maintain their own Teaching Assignment note
-- perform the fields permitted by their operational or scoped role
+One contributor's save must not overwrite another contributor's suggestion or note.
 
-One contributor's work must not overwrite another contributor's suggestions or note.
+VISC is not a peer contributor in this model. VISC review actions and review comments belong to the HICC package review record, not to the actor contribution document.
 
-## 6. Academic responsibility and scope
+HICC owns the final package handoff to ADFAD.
 
-### 6.1 Base identity versus scoped responsibilities
+## 6. HICC scope and VISC group leadership
 
-Base identity, operational office access, and academic responsibilities are separate concepts.
+### 6.1 Base identity, operational access, and academic responsibility
 
-Effective authority is derived from:
+Base identity, operational office access, HICC academic scope, and VISC group leadership are separate concepts.
 
-`user + responsibility + resource scope`
+Do not grant authority solely because `role == 'hicc'` or `role == 'visc'`.
 
-Do not grant global academic powers merely because `role == 'hicc'` or `role == 'visc'`.
+### 6.2 HICC Course and optional Subject scope
 
-### 6.2 Course and optional Subject scope
+HICC scope supports:
 
-Academic scope supports two levels:
-
-1. Course-wide scope
-2. Course + Subject scope
+1. Course-wide
+2. Course + Subject
 
 Examples:
 
 ```text
-HICC -> VTMD 505                  // whole course
-HICC -> VTMD 506 / Surgery       // subject-limited
-HICC -> VTMD 506 / Anesthesia    // subject-limited
-VISC -> VTMD 521 / Imaging
+HICC -> VTMD 505
+HICC -> VTMD 506 / Surgery
+HICC -> VTMD 506 / Anesthesia
 ```
 
-Authorization rules:
-
-- A course-wide scope authorizes all sessions in that course.
-- If no course-wide scope exists, a course + Subject scope authorizes only sessions whose course and Subject both match.
-- Course matching is exact.
-- Subject matching is exact by stable key.
-- Never use substring matching on course, Subject, group name, tag, or Topic text for authorization.
+Rules:
+- course-wide scope covers all Subjects in that exact course;
+- Subject-limited scope requires exact course + exact `subjectKey`;
+- no substring/fuzzy matching;
+- Topic text is never authorization evidence.
 
 ### 6.3 Canonical Subject model
 
@@ -232,87 +280,101 @@ subjectKey: "surgery"
 topic:      "Pre-operative Management"
 ```
 
-Subject must come from an administrator-maintained canonical Subject catalog.
+Subject comes from the administrator-maintained canonical Subject catalog.
 
-Use a stable `subjectKey` plus a display label. HICC/VISC do not create arbitrary free-text Subjects as authorization keys.
+HICC does not create arbitrary authorization Subjects. VISC does not change Subject to broaden review authority.
 
-Topic remains free instructional content and must never be used as the authorization key.
+### 6.4 HICC authorization storage
 
-### 6.4 Authorization storage
-
-The canonical implementation uses a bounded profile-local token list so Firestore rules can evaluate exact scope membership through the already-required user profile read.
-
-Canonical shape:
+Use bounded profile-local exact tokens:
 
 ```text
 academicScopeTokens:
   hicc|VTMD 505|*
   hicc|VTMD 506|surgery
-  visc|VTMD 521|imaging
   rotation_coordinator|VTMD 590|*
 ```
 
 Rules:
+- grammar is exactly `responsibility|COURSE|subjectKey`;
+- `*` means course-wide;
+- matching is exact after normalization;
+- malformed/legacy missing tokens fail closed;
+- no derived `user_scopes/{uid}` cache;
+- HICC role name alone grants no academic authority.
 
-- token grammar is exactly `responsibility|COURSE|subjectKey`
-- `*` means course-wide authority
-- responsibility, course and Subject components are bounded
-- components may not contain `|`
-- matching is exact after canonical normalization
-- legacy profiles without tokens remain valid but gain no scoped authority
-- do not create a derived `user_scopes/{uid}` authorization cache
-- `faculty_groups` remains group/member administration, not the sole authorization source
+VISC review authority is not represented by a course/Subject token. It comes from Teaching Assignment group leadership.
 
-### 6.5 Deprecated `other_office` role
+### 6.5 Teaching Assignment groups
+
+Use a dedicated collection; do not repurpose the existing HICC-owned `faculty_groups` swap/member model.
+
+Canonical collection:
+
+`teaching_assignment_groups/{groupId}`
+
+Conceptual record:
+
+```js
+{
+  name: "Bovine",
+  leaderViscUid: "uid-visc-bovine",
+  hiccUids: ["uid-hicc-a","uid-hicc-b","uid-hicc-c"],
+  active: true,
+  updatedBy,
+  updatedAt
+}
+```
+
+Rules:
+- one VISC leads a group in the first implementation;
+- a VISC may lead more than one group;
+- a HICC may belong only to groups explicitly assigned by trusted administration;
+- VISC may review all HICC packages/sessions in groups they lead;
+- HICC remains limited to its own `responsibleHiccUid` sessions plus exact course/Subject scope;
+- HICC/VISC cannot change group leadership or membership;
+- group membership is not DOE evidence.
+
+### 6.6 Deprecated `other_office` role
 
 `other_office` is not part of the target PAWS role model.
 
-It receives no new parallel-workflow, Working-timetable, contribution, publication, or final-assignment capability.
+It receives no new Teaching Assignment, review, Working timetable, publication, or final-assignment capability.
 
-During Task 6 implementation, perform a read-only dependency check using existing safe tooling. If an active account still depends on `other_office`, stop and report the migration requirement before removing runtime acceptance. If no active account depends on it, remove `other_office` from active role enums, capability maps, provisioning choices, Firestore authorization, demo fixtures, and runtime tests.
+During Task 6, perform a read-only dependency check before removing runtime acceptance. If an active account depends on it, stop and report the migration requirement.
 
-Historical audit/doc text may still contain the string. Future offices must receive explicit capabilities/scopes tied to real business requirements; do not introduce another generic placeholder role.
+Future offices receive explicit capabilities/scopes based on real business requirements; do not create another generic placeholder role.
 
 ## 7. Faculty suggestions
 
 Suggestions are advisory only.
 
 Requirements:
+- ADC/DVM, LAB and responsible HICC may suggest Faculty where permitted.
+- multiple Faculty may be suggested;
+- contributor provenance is retained;
+- suggestions never automatically become final assignments;
+- VISC reviews the HICC package but does not directly convert/edit suggestions as a peer contributor;
+- ADFAD may accept any subset, remove suggestions, or manually select other Faculty;
+- authoritative assignment occurs only on explicit ADFAD Approve & Submit.
 
-- ADC, LAB, HICC and VISC may suggest Faculty.
-- Multiple Faculty may be suggested.
-- Multiple contributor sources may coexist.
-- Suggestion provenance must be retained.
-- Suggestions must not overwrite another contributor's suggestions.
-- Suggestions must never automatically become final assignments.
-- Accepting suggestions in the ADFA UI only populates an editable final selection.
-- Authoritative assignment occurs only on explicit ADFA Approve & Submit.
-
-Reuse the existing privacy-safe candidate model:
-
+Safe suggestion payload:
 - opaque `candidateKey`
 - display name
 - source/provenance
 - no UCID
-- no raw Faculty ID when avoidable
 - no email
 - no exact DOE
 - no AFC reason
-- no HR/private fields
+- no HR/private fields.
 
-Keep the current fail-closed principle that a suggestion is not an assignment.
+## 8. Contribution and package-review storage
 
-## 8. Contribution storage
+### 8.1 Actor-scoped contributions
 
-Use a contribution-oriented persistence model so suggestions and notes share the same actor/source boundary and do not race in one shared document.
+Use:
 
-Preferred collection:
-
-`session_assignment_contributions`
-
-Preferred document identity:
-
-`{sessionId}__{sourceRole}__{actorUid}`
+`session_assignment_contributions/{sessionId}__{sourceRole}__{actorUid}`
 
 Conceptual document:
 
@@ -321,51 +383,87 @@ Conceptual document:
   sessionId,
   course,
   subjectKey,
-  sourceRole,          // adc | lab | hicc | visc | future scoped role
+  sourceRole,          // adc | lab | hicc | future approved contributor
   actorUid,
   actorDisplayName,
-  suggestions: [
-    { candidateKey, displayName }
-  ],
+  suggestions: [{ candidateKey, displayName }],
   note,
   updatedAt
 }
 ```
 
-Each contributor owns their own document. ADFA reads all applicable contribution documents for a session.
+Each contributor owns their own document.
 
-Do not place Teaching Assignment notes in `sessions` or `calendar_sessions`.
+VISC review is not stored here.
 
-## 9. Teaching Assignment notes
+### 8.2 HICC Teaching Assignment submission package
 
-Notes are more restricted than roster data.
+Use:
+
+`teaching_assignment_submissions/{submissionId}`
+
+A submission represents one HICC's Teaching Assignment package for one Academic Year and one Teaching Assignment group.
+
+Conceptual fields:
+
+```js
+{
+  academicYearKey,
+  groupId,
+  hiccUid,
+  viscUid,
+  status,                    // draft | visc_review | changes_requested |
+                             // visc_approved | submitted_to_adfad | adfad_finalized
+  revision,
+  reviewFingerprint,
+  viscApprovedFingerprint,
+  viscReviewComment,
+  submittedForReviewAt,
+  viscReviewedAt,
+  finalSubmittedAt,
+  updatedAt
+}
+```
+
+The package covers all current Working sessions where:
+- Academic Year matches;
+- `teachingAssignmentGroupId == groupId`;
+- `responsibleHiccUid == hiccUid`;
+- session course/Subject is within the HICC's exact authorized scope.
+
+Review-relevant edits produce a new revision/fingerprint.
+
+A VISC approval is valid only for the exact reviewed fingerprint.
+
+HICC Final Submit is allowed only while current fingerprint equals `viscApprovedFingerprint`.
+
+The package review record is separate from explicit Change Request records.
+
+## 9. Teaching Assignment and review notes
+
+Contributor notes are internal.
 
 Readable by:
-
-- ADFA
-- Teaching Assignment offices such as ADC and LAB
-- HICC
-- VISC
-- future explicitly approved scoped Teaching Assignment roles
-- Developer/Owner/administrative roles according to existing high-trust policy
+- ADFAD
+- ADC/DVM and LAB where needed for Teaching Assignment work
+- responsible HICC
+- VISC when reviewing a package in a group they lead
+- Developer/Owner/high-trust administration
 
 Not readable by:
+- ordinary Faculty without Teaching Assignment responsibility
+- Student-facing users
 
-- ordinary Faculty without a Teaching Assignment responsibility
-- Student
+VISC Push Back/review comments live on the package review record and are visible to the responsible HICC and ADFAD/high-trust users.
 
-The deprecated `other_office` role receives no target runtime access.
-
-A Teaching Assignment role may see the Teaching Assignment notes needed for that workflow. Scoped academic roles still remain course/Subject-scoped for any write or workflow action.
-
-Notes must not leak into:
-
-- public calendar projection
+Notes/review comments never enter:
+- Working calendar projection
+- Published timetable release
 - ordinary Faculty self-view
 - Student-facing projection
-- broad public audit text
+- broad audit text
 
-Audit may record that a note changed without copying note content if an audit record is required.
+Audit may record safe facts such as "Teaching Assignment note updated", "VISC approved package", or "VISC requested changes" without copying private note/comment bodies.
 
 ## 10. LAB groups and roster
 
@@ -389,67 +487,97 @@ This temporary read rule must be isolated so a future Student-facing design can 
 
 ### 10.2 Readiness
 
-LAB group or roster incompleteness never blocks ADFA Faculty-assignment readiness.
+LAB group or roster incompleteness never blocks ADFAD Faculty-assignment readiness.
 
 LAB outstanding work remains independently visible to LAB.
 
-## 11. ADFA final assignment
+## 11. HICC/VISC package review, ADFAD final assignment, and publication
 
-ADFA is the final Faculty assignment authority for normal Teaching Assignment preparation.
+### 11.1 HICC Submit for VISC Review
 
-ADFA sees:
+Responsible HICC may submit its current package for VISC review only when:
+- package content is ready;
+- every included session is owned by that HICC and exact-scope authorized;
+- current package fingerprint is recorded.
 
-- session fields
-- Topic
-- safe LAB group/roster information
-- all contributor suggestions with provenance
-- all Teaching Assignment notes
-- safe candidate availability/workload summaries
+While in `visc_review`, VISC reviews all HICC package sessions in the group.
 
-ADFA may:
+### 11.2 VISC Approve / Push Back
 
-- accept any subset of suggestions into an editable final selection
-- remove accepted suggestions before save
-- manually add different Faculty
-- assign multiple Faculty to one session
+VISC may:
+- Approve the reviewed fingerprint;
+- Push Back with an internal review comment.
+
+VISC may not:
+- directly edit HICC Topic as part of review;
+- change HICC scope/group ownership;
+- Final Submit to ADFAD;
+- assign Faculty authoritatively.
+
+Push Back returns the package to HICC for revision/resubmission.
+
+### 11.3 HICC Final Submit to ADFAD
+
+After VISC approval, the HICC performs Final Submit.
+
+Final Submit succeeds only if:
+- package status is `visc_approved`;
+- current review fingerprint still equals `viscApprovedFingerprint`.
+
+If review-relevant Working data changed after approval, Final Submit fails closed and the package requires VISC re-review.
+
+Final Submit moves the package to `submitted_to_adfad`.
+
+### 11.4 ADFAD final Faculty assignment
+
+ADFAD is the final Faculty assignment authority.
+
+ADFAD may:
+- review package/session fields;
+- review contributor suggestions/provenance;
+- review internal notes and VISC outcome;
+- select one or multiple Faculty;
+- remove suggested candidates;
+- manually choose different Faculty.
 
 Reuse the existing multi-Faculty assignment model. Do not duplicate sessions per Faculty.
 
-### 11.1 Approve & Submit
+### 11.5 ADFAD Approve & Submit
 
-Accepting a suggestion is not an authoritative write.
-
-The desired UI flow is:
+The authoritative session-level flow is:
 
 ```text
-review suggestions
- -> build/edit final Faculty selection
+submitted_to_adfad package
+ -> ADFAD final selection
  -> Approve & Submit
- -> authoritative session assignment write
- -> sanitized calendar projection
+ -> Working session assignments[]
+ -> derived facultyIds/instructor
+ -> sanitized Working calendar projection
  -> audit
- -> DOE recalculation request when relevant
+ -> DOE recalculation request when Rule Book-relevant facts changed
 ```
 
-Do not create a redundant `adfaSubmittedAt` state solely to represent the same fact if the authoritative assignment write already provides the canonical evidence.
+Do not create a redundant `adfadSubmittedAt`/technical mirror state solely to duplicate assignment evidence.
 
-Approve & Submit changes the authoritative Working session only. It must not create a timetable release and must not change an active release pointer.
+ADFAD Approve & Submit does not publish the timetable.
 
-### 11.2 Versioned timetable publication
+HICC Submit, VISC Approve/Push Back, and HICC Final Submit do not trigger authoritative DOE.
 
-Keep the current source/mirror split as the internal Working layer:
+### 11.6 Versioned timetable publication
+
+Keep:
 
 ```text
 sessions
-  = authoritative Working session source
+  = authoritative Working source
 
 calendar_sessions
   = sanitized Working projection
 ```
 
-Do not repurpose `calendar_sessions` as Published data. Existing paired-write, bulk-import, repair, timetable-editing and DOE persistence paths depend on its Working-layer semantics.
+Do not repurpose `calendar_sessions` as Published data.
 
-Use the following versioned release family as the canonical first implementation:
+Canonical release family:
 
 ```text
 timetable_publications/{academicYearKey}
@@ -459,14 +587,14 @@ timetable_publications/{academicYearKey}/releases/{releaseId}
   release metadata
 
 timetable_publications/{academicYearKey}/releases/{releaseId}/sessions/{sessionId}
-  immutable Faculty-facing session snapshots
+  immutable Faculty-facing snapshots
 ```
 
 A release covers the complete timetable for one Academic Year in this phase.
 
-### 11.3 Release lifecycle
+### 11.7 Release lifecycle
 
-A candidate release progresses conceptually through:
+Candidate lifecycle:
 
 ```text
 building -> validated -> sealed
@@ -474,84 +602,67 @@ building -> validated -> sealed
 
 Only a sealed release may become active.
 
-Building and validation occur while the prior release remains active. The Faculty-visible publication event is one atomic pointer transaction that changes `activeReleaseId`.
+Faculty-visible publication is one atomic `activeReleaseId` pointer switch.
 
-If first publication has no active release yet, Faculty see a controlled "Timetable has not yet been published" state.
+If no release exists, Faculty see "Timetable has not yet been published."
 
-If build, validation, seal, or activation fails, the prior active release remains unchanged.
+Failure leaves the prior active release unchanged.
 
-### 11.4 Release immutability and republish
+### 11.8 Release immutability, republish, and concurrency
 
 A sealed release is immutable.
 
-Working changes after publication never mutate a sealed release.
+Working edits never mutate a sealed release.
 
-Republish creates a new release version, validates and seals it, then atomically switches the pointer.
+Republish creates a new release.
 
-Rollback, when needed, is represented as a new release copied from a prior sealed snapshot and published forward. Do not move the pointer backward to an old release as the normal rollback mechanism.
+Restore/rollback creates a new forward release copied from a prior sealed snapshot; do not normally move the pointer backward.
 
-### 11.5 Publication concurrency
+Concurrent publishers must transactionally compare the candidate's expected prior `activeReleaseId`; a loser must rebuild rather than blindly retry activation.
 
-Each candidate records the active release it was based on and a deterministic fingerprint of the Working source snapshot used to build it.
-
-Before activation:
-
-- recompute/validate the Working source fingerprint
-- verify the candidate is complete and sealed
-- transactionally verify the active pointer still equals the candidate's expected prior value
-
-If another publisher wins first, the losing candidate is not activated and must be rebuilt from current Working state.
-
-### 11.6 Publication authority
+### 11.9 Publication authority
 
 Initial Publish authority is limited to:
-
 - Developer
-- Owner / ADFA General-equivalent high-trust authority
+- Owner / ADFAD General-equivalent high-trust authority
 
-ADFA Regular, ADC, LAB, HICC, VISC and ordinary Faculty cannot publish.
+ADFAD Regular, ADC/DVM, LAB, HICC, VISC and ordinary Faculty cannot publish.
 
-Final-assignment capability and publication capability are separate.
+Final-assignment capability and Publish capability remain separate.
 
-### 11.7 Faculty-facing visibility
+### 11.10 Faculty-facing visibility
 
 Ordinary Faculty:
+- cannot read Working `sessions`;
+- cannot read Working `calendar_sessions`;
+- can read only the complete active Published release;
+- see no inactive release history in the first implementation.
 
-- cannot read `sessions`
-- cannot read `calendar_sessions`
-- can read the complete active Published timetable for the selected Academic Year
-- see only the active release, not inactive release history
+Main Timetable may display the complete active release.
 
-The main Timetable may display the whole active Published timetable.
+`My Teaching` filters that same release.
 
-`My Teaching` is a convenience filter over that same active release. It is not the authorization boundary.
+Faculty Dashboard self-mode and other Faculty self-service surfaces use Published data only.
 
-Faculty Dashboard self-mode and other Faculty self-service surfaces must also use Published data only. No Faculty-facing path may silently fall back to Working collections.
+HICC/VISC normal Faculty view also uses Published data. Their Teaching Assignment tools use separate authorized Working queries:
+- HICC -> own assigned scope/package;
+- VISC -> all packages/sessions in groups they lead.
 
-HICC/VISC have two distinct surfaces:
+### 11.11 Published snapshot privacy
 
-- normal Faculty timetable view -> active Published release
-- scoped Teaching Assignment work tools -> exact-scope Working queries only
+Release session documents use an explicit allowlist.
 
-ADC/LAB/ADFA/Developer-Owner continue to use the Working layer for authorized internal work.
-
-### 11.8 Published snapshot privacy
-
-Release session documents use an explicit allowlist. Never spread/copy a Working session object wholesale.
-
-Published snapshots may contain approved scheduling display fields such as course, Subject, date, time, type, Topic, room, instructor display names and non-private LAB group identifiers.
-
-Published snapshots must not contain:
-
+Never publish:
 - contributor notes
+- VISC review comments
 - suggestions
 - roster/student data
-- exact DOE, target, variance or formula data
+- exact DOE/target/variance/formula
 - HR/AFC private details
 - private Faculty identifiers
-- internal approval/audit payloads
+- internal review/audit bodies
 
-A missing or corrupt active pointer, missing release metadata, or incomplete/unsealed release fails closed. Faculty clients must never guess the newest release or fall back to Working data.
+Missing/corrupt publication state fails closed and never falls back to Working data.
 
 ## 12. Candidate availability and workload
 
@@ -681,59 +792,68 @@ The existing authoritative final-assignment path remains the only Teaching Assig
 
 ## 14. Work Queue behavior
 
-The Work Queue must stop representing normal Teaching Assignment preparation as a serial ADC -> LAB -> ADFA chain.
+The normal Teaching Assignment Work Queue follows responsibility, not the old ADC/DVM -> LAB -> ADFAD serial office gate.
 
-Desired behavior:
+Desired queues:
 
-- ADC sees incomplete skeleton work.
-- LAB sees LAB-specific outstanding work.
-- HICC/VISC receive scoped Topic work when required Topic is missing in their authorized course/Subject scope.
-- Optional Faculty suggestions do not create blocking work.
-- Optional notes do not create blocking work.
-- ADFA receives the session when skeleton + Topic are complete.
-- LAB roster outstanding may remain visible to LAB even after ADFA becomes ready or final assignment is saved.
+- **ADC/DVM:** incomplete base scheduling skeleton.
+- **LAB:** LAB-specific operational work; independent from HICC/VISC review.
+- **HICC:** own package draft work, VISC push-backs, and VISC-approved packages awaiting HICC Final Submit.
+- **VISC:** packages submitted for review from every HICC in groups the VISC leads.
+- **ADFAD:** only packages that have VISC approval and were Final Submitted by HICC.
 
-HICC/VISC may still open their authorized session after required Topic work is complete to update their own suggestion or note, but optional work should not leave a permanent blocking/red Work Queue item.
+Optional suggestions/notes do not create permanent blocking queue items.
+
+LAB roster outstanding may remain after HICC/VISC review or ADFAD final assignment.
+
+A content-ready HICC package does not enter ADFAD queue automatically.
+
+Explicit Change Request queue remains separate and keeps existing routed approval semantics.
 
 ## 15. Security invariants
 
-The implementation must prove these with code-level and Firestore emulator tests:
+The implementation must prove:
 
-1. `role == 'hicc'` alone does not grant all-course authority.
-2. `role == 'visc'` alone does not grant all-course authority.
-3. Course and Subject authorization are exact-match.
-4. Cross-course HICC/VISC Working reads and Topic writes are denied.
-5. Cross-Subject HICC/VISC Working reads and Topic writes are denied when Subject scope is present.
-6. Scoped contributors cannot change `course` or `subjectKey` to expand authority.
-7. Topic text never establishes authorization.
-8. Suggestions cannot contain private Faculty/DOE/AFC/HR fields.
-9. Suggestions cannot silently become assignments.
-10. Notes are denied to ordinary Faculty and Student-facing users.
-11. Notes never enter Working calendar or Published projections.
-12. Roster read is temporarily allowed to every active, password-complete PAWS user.
-13. Roster write remains role-restricted.
-14. Missing referenced LAB group fails closed for integrity.
-15. LAB roster completion does not block ADFA readiness.
-16. Existing explicit routed approval order remains enforced.
-17. Normal Teaching Assignment preparation creates no Change Request approval records.
-18. DOE suggestion/preview data never becomes authoritative DOE without the trusted final-assignment/DOE path.
-19. Ordinary Faculty are denied direct reads of Working `sessions`.
-20. Ordinary Faculty are denied direct reads of Working `calendar_sessions`.
-21. Faculty-visible timetable data comes only from the active sealed release.
-22. Inactive/building/validated-but-unsealed/failed release sessions are not Faculty-readable.
-23. Release session documents use a strict public-field allowlist.
-24. Sealed release metadata and session snapshots are immutable.
-25. The active release cannot be deleted or modified in place.
-26. Working writes never mutate an existing sealed release.
-27. Missing/corrupt publication state never falls back to Working data.
-28. Publication authority is narrower than final-assignment authority.
-29. Approve & Submit never changes `activeReleaseId`.
-30. Publish never changes final assignments and never triggers DOE.
-31. Concurrent publish attempts cannot create mixed-version Faculty views.
-32. Change Requests preserve Published-base provenance and final apply fails closed on stale Working state.
-33. `other_office` grants no target runtime authority after the approved T6 removal gate.
-34. Inactive, anonymous, and password-change-required accounts are denied Working, Published and roster reads.
-35. Firestore rules, not UI hiding, enforce the boundary.
+1. HICC role alone grants no course/Subject authority.
+2. HICC exact Course/Subject scope is enforced.
+3. HICC can act only on sessions/packages where `responsibleHiccUid == request.auth.uid`.
+4. HICC cannot change `teachingAssignmentGroupId` or `responsibleHiccUid`.
+5. VISC role alone grants no global review authority.
+6. VISC can read/review all HICC packages in groups they lead.
+7. VISC cannot read/review packages from groups they do not lead.
+8. VISC review authority does not grant Topic/suggestion/final-assignment edit authority.
+9. VISC cannot Final Submit to ADFAD.
+10. HICC cannot Final Submit unless current fingerprint equals the latest VISC-approved fingerprint.
+11. A review-relevant edit after VISC approval invalidates Final Submit until re-review.
+12. ADFAD normal queue contains only HICC Final Submitted packages.
+13. Normal Teaching Assignment package review creates no `change_request*` documents.
+14. Explicit Change Request routed approval order remains enforced separately.
+15. Suggestions cannot contain private Faculty/DOE/AFC/HR fields.
+16. Suggestions never silently become authoritative assignments.
+17. Internal notes/review comments are denied to ordinary Faculty and Student-facing users.
+18. Notes/review comments never enter Working calendar or Published projections.
+19. Roster read is temporarily allowed to every active, password-complete PAWS user.
+20. Roster write remains restricted.
+21. Missing referenced LAB group fails closed.
+22. LAB roster completion does not block HICC/VISC review or ADFAD assignment.
+23. HICC submit, VISC approve/push-back, and HICC Final Submit do not trigger authoritative DOE.
+24. Authoritative ADFAD assignment remains the Teaching Assignment event that may trigger DOE when Rule Book-relevant facts changed.
+25. Ordinary Faculty are denied direct Working `sessions` and `calendar_sessions` reads.
+26. Faculty-visible timetable data comes only from the active sealed release.
+27. Inactive/building/unsealed/failed releases are not Faculty-readable.
+28. Release snapshots use a strict public-field allowlist.
+29. Sealed releases are immutable.
+30. Working writes never mutate sealed releases.
+31. Missing/corrupt publication state never falls back to Working.
+32. Publish authority is narrower than final-assignment authority.
+33. ADFAD Approve & Submit never changes `activeReleaseId`.
+34. Publish never changes final assignments and never triggers DOE.
+35. Concurrent publish attempts cannot create mixed-version Faculty views.
+36. Published-origin Change Requests retain base provenance and fail closed on stale Working state.
+37. `other_office` grants no target runtime authority after the T6 removal gate.
+38. Anonymous/inactive/password-change-required users are denied protected reads.
+39. Firestore rules, not UI hiding, enforce access boundaries.
+40. Technical keys `adfa*` and `adc` may remain internally, but user-facing labels must render ADFAD and ADC/DVM.
 
 ## 16. Existing modules to preserve or extend
 
@@ -754,66 +874,58 @@ The implementation may change normal Teaching Assignment readiness consumers, Wo
 
 ## 17. Testing strategy
 
-Implementation must follow TDD.
+Implementation follows TDD.
 
 At minimum cover:
-
-- parallel readiness
-- LAB roster not blocking ADFA
-- room not blocking ADFA
-- Topic required
-- ADC LEC/SRL Topic edit
-- LAB LAB-Topic edit
-- scoped HICC/VISC Topic edit
-- course-wide scope
-- course + Subject scope
-- exact-match cross-scope denial
-- one user with multiple responsibilities
-- four-source Faculty suggestions
-- suggestion provenance
-- multi-Faculty final assignment
-- notes visibility matrix
-- temporary roster read visibility for all active authenticated PAWS users
-- roster write restrictions
-- candidate privacy
-- DOE non-trigger from suggestion/note/Subject-only changes
-- HICC/VISC DOE independent per course/Subject/year
-- explicit approval regression
-- Firestore rules expression-budget regression
-- browser smoke regression
-- direct Faculty denial for Working `sessions` and `calendar_sessions`
-- exact-scope HICC/VISC Working queries
+- ADC/DVM skeleton readiness
+- HICC content readiness
+- HICC Submit for VISC Review
+- VISC group-wide visibility
+- VISC cross-group denial
+- VISC Approve
+- VISC Push Back
+- HICC revision/resubmit
+- VISC approval fingerprint
+- post-approval edit invalidates Final Submit
+- HICC Final Submit to ADFAD
+- VISC cannot Final Submit
+- ADFAD queue gating
+- LAB roster not blocking package review/ADFAD
+- exact HICC Course/Subject scope
+- Teaching Assignment group ownership
+- VISC review-only capability
+- actor-scoped suggestions/notes
+- multi-Faculty ADFAD final assignment
+- DOE non-trigger from HICC/VISC review actions
+- DOE remains authoritative only through existing trusted assignment path
+- explicit Change Request approval regression
+- Faculty Working-read denial
 - active-release-only Faculty reads
-- inactive release ID guessing denial
-- strict Published-session allowlist
-- no-release and corrupt-pointer fail-closed behavior
 - sealed release immutability
-- atomic pointer activation and concurrent publisher conflict
+- Publish concurrency
 - Working edits after publish remain invisible until republish
-- Approve & Submit does not publish
-- Publish does not assign or trigger DOE
-- Faculty Timetable and Faculty Dashboard self-mode use Published data only
-- Change Request `baseReleaseId`/base-session stale protection
-- deprecated `other_office` runtime removal regression
+- Faculty Timetable/My Teaching/Dashboard Published-only sourcing
+- `other_office` removal regression
+- ADFAD / ADC/DVM-DVM user-facing terminology regression
+- Firestore rules-budget regression
+- browser smoke regression
 
 ## 18. Implementation sequence
 
-The approved implementation sequence is:
-
-1. T1 — isolated worktree, merge latest main, clean baseline gate
-2. T2 — exact academic Course/Subject scope helper
+1. T1 — isolated worktree, latest main merge, clean baseline gate **(completed)**
+2. T2 — canonical HICC Course/Subject scope helper
 3. T3 — canonical Subject catalog and `subjectKey` Working projection
-4. T4 — parallel field-based preparation readiness
-5. T5 — four-source suggestions and actor-scoped contributions
-6. T6 — scoped capabilities, User Management scope assignment, Topic policy, publication capability, and `other_office` retirement
-7. T7 — Firestore authorization for scoped Working data, contributions/notes/roster, and the versioned publication boundary
-8. T8 — Work Queue plus role-correct Working/Published UI and scoped HICC/VISC Working queries
-9. T9 — ADFA suggestion review/Approve & Submit plus explicit versioned Publish Timetable and Change Request publication provenance
-10. T10 — safe availability and coarse workload projection
-11. T11 — DOE regression guards including no-DOE-on-publish
-12. T12 — schema/docs/fixtures, explicit approval regression, publication security regression, static/server/emulator/browser verification
+4. T4 — HICC package readiness + VISC review state/revision model
+5. T5 — ADC/DVM/LAB/HICC actor-scoped contributions and safe package fingerprinting
+6. T6 — Teaching Assignment groups, VISC leader/HICC membership, User Management, role capabilities, terminology update, `other_office` retirement
+7. T7 — Firestore security for HICC ownership, VISC group review, submissions, contributions/notes/roster, and publication boundary
+8. T8 — Work Queue/UI for HICC submit -> VISC approve/push-back -> HICC Final Submit -> ADFAD queue, plus Published-only Faculty views
+9. T9 — ADFAD final assignment/Approve & Submit, explicit timetable Publish, and Published-base Change Request stale protection
+10. T10 — safe candidate availability/coarse workload
+11. T11 — DOE regression guards, including no DOE from HICC/VISC review or Publish
+12. T12 — schema/docs/fixtures, terminology/security/review-flow regression, emulator/static/server/browser verification
 
-T7, T8 and T9 are the publication-critical implementation tasks. Do not start them from the pre-P3 plan text.
+T4-T9 are P3.1-critical. Do not execute them from the pre-P3.1 plan text.
 
 ## 19. Out of scope
 
@@ -833,3 +945,8 @@ This design does not:
 - implement pointer-backward rollback; restoration is a new forward release
 - redesign `calendar_sessions` into the Published store
 - create a generic replacement for the deprecated `other_office` role
+- migrate internal technical identifiers `adfa`, `adfa_general`, `adfa_regular`, or `adc` solely for the terminology update
+- make VISC a direct HICC content editor
+- let VISC Final Submit a HICC package to ADFAD
+- make LAB roster completion a HICC/VISC/ADFAD gate
+- merge the existing `faculty_groups` swap/member model into the new Teaching Assignment group model
