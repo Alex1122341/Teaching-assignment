@@ -12,12 +12,39 @@ function bundle(){return{
 };}
 function repository(){const writes=[];return{writes,getActivePolicyBundle:async()=>bundle(),async saveDoeAssignmentCalculation(payload){writes.push(structuredClone(payload));return payload.assignment;}}}
 
+
+test('role assignment dates are independent from DOE and a manual override may be negative',async()=>{
+ const repo=repository();
+ const service=createCalculationService({repository:repo,engine:ENGINE,idFactory:()=> 'calc-override',assignmentIdFactory:()=> 'role-override',clock:()=>new Date('2026-09-19T12:00:00Z')});
+ const result=await service.saveRoleAssignment({actor:general,academicYear:'2027-28',facultyId:'f1',facts:{roleType:'HICC',courseCode:'VTMD 204',activeDate:'2027-09-15',expirationDate:'2028-03-01',doeOverride:-2.5,notes:'Acting coverage'}});
+ assert.equal(result.calculation.calculatedDoe,12);
+ assert.equal(result.calculation.overrideDoe,-2.5);
+ assert.equal(result.calculation.resultDoe,-2.5);
+ assert.equal(result.assignment.doeCalculatedCredit,12);
+ assert.equal(result.assignment.doeOverride,-2.5);
+ assert.equal(result.assignment.doeCredit,-2.5);
+ assert.equal(result.assignment.activeDate,'2027-09-15');
+ assert.equal(result.assignment.expirationDate,'2028-03-01');
+ assert.equal(repo.writes[0].calculationRecord.resultDoe,-2.5);
+ assert.equal(repo.writes[0].calculationRecord.policyCalculatedDoe,12);
+ assert.match(repo.writes[0].calculationRecord.calculationText,/manual role override/i);
+});
+
+test('role assignment rejects an expiration date that is not later than the active date',async()=>{
+ const service=createCalculationService({repository:repository(),engine:ENGINE});
+ await assert.rejects(()=>service.saveRoleAssignment({actor:general,academicYear:'2027-28',facultyId:'f1',facts:{roleType:'HICC',courseCode:'VTMD 204',activeDate:'2028-03-01',expirationDate:'2028-03-01'}}),error=>error.code==='ROLE_DATE_WINDOW_INVALID');
+});
+
 test('saveRoleAssignment calculates DOE server-side and atomically persists facts plus evidence',async()=>{
  const repo=repository();
  const service=createCalculationService({repository:repo,engine:ENGINE,idFactory:()=> 'calc-1',assignmentIdFactory:()=> 'role-1',clock:()=>new Date('2026-09-19T12:00:00Z')});
  const result=await service.saveRoleAssignment({actor:general,academicYear:'2027-28',facultyId:'f1',facts:{roleType:'HICC',courseCode:'VTMD 204',doeCredit:99}});
  assert.equal(result.assignment.assignmentFactId,'role-1');
  assert.equal(result.assignment.doeCredit,12);
+ assert.equal(result.assignment.doeCalculatedCredit,12);
+ assert.equal(result.assignment.doeOverride,null);
+ assert.equal(result.assignment.activeDate,'2027-09-01');
+ assert.equal(result.assignment.expirationDate,'2028-05-01');
  assert.equal(result.assignment.doeRuleKey,'role.hicc.development');
  assert.equal(Object.hasOwn(result.assignment.facts,'doeCredit'),false);
  assert.equal(repo.writes.length,1);

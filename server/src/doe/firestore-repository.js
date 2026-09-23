@@ -345,8 +345,8 @@ function createRepository(db){
     const id=text(facultyId),year=text(academicYear);
     if(!id||!year)return[];
     const rows=await listWhere('assignments','academicYear',year,'assignmentFactId');
-    return rows.filter(row=>text(row.facultyId)===id&&text(row.category).toLowerCase()==='role'&&row.active!==false)
-      .sort((a,b)=>text(a.roleType||a.teachingRole).localeCompare(text(b.roleType||b.teachingRole))||text(a.assignmentFactId).localeCompare(text(b.assignmentFactId)));
+    return rows.filter(row=>text(row.facultyId)===id&&text(row.category).toLowerCase()==='role')
+      .sort((a,b)=>text(a.roleType||a.teachingRole).localeCompare(text(b.roleType||b.teachingRole))||text(a.activeDate).localeCompare(text(b.activeDate))||text(a.assignmentFactId).localeCompare(text(b.assignmentFactId)));
   }
 
   async function deactivateDoeAssignment({assignmentFactId,auditRecord={}}={}){
@@ -428,6 +428,7 @@ function createRepository(db){
     return{
       lineId:text(lineId),category:text(evidence?.category||row?.category||category),label:text(row?.label||label),
       sourceEntityType:text(sourceEntityType),sourceEntityId:text(sourceEntityId),assignmentFactId:text(row?.assignmentFactId),roleType:text(row?.roleType),courseCode:text(row?.courseCode||row?.course),subjectKey:text(row?.subjectKey||row?.subject),teachingRole:text(row?.teachingRole),
+      activeDate:text(row?.activeDate),expirationDate:text(row?.expirationDate),notes:text(row?.notes||row?.facts?.notes),calculatedDoe:finite(row?.doeCalculatedCredit),overrideDoe:finite(row?.doeOverride),
       resultDoe,policyVersionId,ruleId:text(row?.doeRuleId||row?.ruleId||evidence?.ruleId),ruleKey:text(row?.doeRuleKey||row?.ruleKey||evidence?.ruleKey),
       exceptionId:text(row?.exceptionId||evidence?.exceptionId),calculationId,
       quantity:quantity.quantity,quantityUnit:quantity.quantityUnit,calculationText:text(evidence?.calculationText),
@@ -454,6 +455,7 @@ function createRepository(db){
       target={targetId:'',facultyId:id,academicYear:year,contractTeachingDoe:contract,overrideDoe,overrideReason:text(legacy?.reason),overrideNotes:text(legacy?.notes),effectiveTargetDoe:overrideDoe!==null?overrideDoe:contract,source:overrideDoe!==null?'legacy_override':'legacy_contract',policyVersionId:''};
     }
     target=target||{};
+    const facultyRoleAssignments=assignmentRows.filter(row=>text(row.facultyId)===id&&text(row.category).toLowerCase()==='role').map(row=>({...row}));
     const evidenceById=new Map(calculationRows.filter(row=>text(row.facultyId)===id).map(row=>[text(row.calculationId),row]));
     const lines=[];
     for(const row of assignmentRows.filter(row=>text(row.facultyId)===id&&row?.active!==false)){
@@ -482,7 +484,7 @@ function createRepository(db){
     }
     return{
       facultyId:id,academicYear:year,displayName:text(faculty.preferredFullName||faculty.hrFirstLast||faculty.hrFullName||faculty.name||id),
-      stream:text(faculty.academicStream||faculty.stream||faculty.appointmentStream),policyStatus,reservePolicy,
+      stream:text(faculty.academicStream||faculty.stream||faculty.appointmentStream),policyStatus,reservePolicy,roleAssignmentRecords:facultyRoleAssignments,
       target:{
         targetId:text(target.targetId),contractTeachingDoe:finite(target.contractTeachingDoe??target.contractTeachingDOE),
         overrideDoe:finite(target.overrideDoe),overrideReason:text(target.overrideReason),overrideNotes:text(target.overrideNotes),

@@ -157,7 +157,8 @@ test('bulk DOE summary carries current role assignments without full worksheet d
  const rows=await createWorksheetService({repository}).listFacultyDoe({academicYear:'2027-28'});
  assert.equal(rows[0].roleAssignmentCount,1);
  assert.deepEqual(rows[0].roleAssignments,[{
-  assignmentFactId:'role-1',roleType:'HICC',courseCode:'VTMD 204',subjectKey:'',resultDoe:12,status:'calculated',ruleKey:'role.hicc',ruleId:'',reference:null
+  assignmentFactId:'role-1',roleType:'HICC',courseCode:'VTMD 204',subjectKey:'',resultDoe:12,status:'calculated',ruleKey:'role.hicc',ruleId:'',reference:null,
+  activeDate:'',expirationDate:'',notes:'',calculatedDoe:null,overrideDoe:null
  }]);
  assert.equal(Object.hasOwn(rows[0].roleAssignments[0],'calculationRecord'),false);
 });

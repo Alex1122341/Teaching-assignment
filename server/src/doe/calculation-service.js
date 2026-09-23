@@ -1,11 +1,12 @@
 'use strict';
 const crypto=require('node:crypto');
 const {ApiError}=require('../http/errors.js');
+const temporalRoles=require('../../../temporal-role-assignment.js');
 
 const text=value=>String(value??'').trim();
 const own=(object,key)=>Object.prototype.hasOwnProperty.call(object||{},key);
 const blockedFactKeys=new Set([
-  'doeCredit','resultDoe','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId',
+  'doeCredit','resultDoe','doeCalculatedCredit','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId',
   'calculationId','policyVersionId','ruleId','ruleKey','parameters','ruleSnapshot'
 ]);
 const persistRoles=new Set(['developer','owner','administrator','admin','adfa_general','adfa_regular']);
@@ -176,23 +177,38 @@ function createCalculationService({repository,engine,idFactory=()=>`calc-${crypt
     if(!year)throw new ApiError('ACADEMIC_YEAR_REQUIRED','Academic Year is required.',422);
     if(!faculty)throw new ApiError('FACULTY_ID_REQUIRED','Faculty ID is required.',422);
     const cleanRoleFacts=cleanFacts(facts),assignmentFactId=text(cleanRoleFacts.assignmentFactId)||text(assignmentIdFactory());
-    const calculationFacts={...cleanRoleFacts,assignmentFactId,academicYear:year,facultyId:faculty,category:'role',assignmentId:assignmentFactId,sourceEntityType:'doe_assignment',sourceEntityId:assignmentFactId,trigger:'role_assignment_save'};
+    let window;
+    try{window=temporalRoles.normalizeWindow({academicYear:year,activeDate:cleanRoleFacts.activeDate,expirationDate:cleanRoleFacts.expirationDate})}
+    catch(error){throw new ApiError('ROLE_DATE_WINDOW_INVALID',error.message,422)}
+    let doeOverride;
+    try{doeOverride=temporalRoles.normalizeDoeOverride(cleanRoleFacts.doeOverride)}
+    catch(error){throw new ApiError('ROLE_DOE_OVERRIDE_INVALID',error.message,422)}
+    const policyFacts={...cleanRoleFacts};
+    for(const field of ['assignmentFactId','activeDate','expirationDate','doeOverride'])delete policyFacts[field];
+    const calculationFacts={...policyFacts,assignmentFactId,academicYear:year,facultyId:faculty,category:'role',assignmentId:assignmentFactId,sourceEntityType:'doe_assignment',sourceEntityId:assignmentFactId,trigger:'role_assignment_save'};
     const prepared=await prepareAssignmentCalculation({actor,academicYear:year,facts:calculationFacts,trigger:'role_assignment_save'});
-    const computed={publicResult:prepared.calculation};
+    const policyCalculatedDoe=Number(prepared.calculation.resultDoe);
+    const appliedDoe=temporalRoles.effectiveDoe(policyCalculatedDoe,doeOverride);
+    const calculationText=doeOverride===null?prepared.calculation.calculationText:`${prepared.calculation.calculationText}; manual role override = ${Number(appliedDoe).toFixed(2)}%`;
+    const computed={publicResult:{...prepared.calculation,calculatedDoe:policyCalculatedDoe,overrideDoe:doeOverride,resultDoe:appliedDoe,calculationText}};
     const calculationId=text(prepared.calculation.calculationId),calculatedAt=text(prepared.calculation.calculatedAt);
-    const calculationRecord=prepared.calculationRecord;
+    const calculationRecord={...prepared.calculationRecord,resultDoe:appliedDoe,policyCalculatedDoe,overrideDoe:doeOverride,calculationText,
+      factsSnapshot:{...prepared.calculationRecord.factsSnapshot,activeDate:window.activeDate,expirationDate:window.expirationDate,doeOverride}};
     const persistedFacts=cleanFacts(cleanRoleFacts);
     delete persistedFacts.assignmentFactId;
+    persistedFacts.activeDate=window.activeDate;persistedFacts.expirationDate=window.expirationDate;persistedFacts.doeOverride=doeOverride;
     const assignment={
       assignmentFactId,academicYear:year,facultyId:faculty,category:'role',...persistedFacts,facts:structuredClone(persistedFacts),active:true,
-      doeCredit:computed.publicResult.resultDoe,doePolicyVersionId:computed.publicResult.policyVersionId,
+      activeDate:window.activeDate,expirationDate:window.expirationDate,doeCalculatedCredit:policyCalculatedDoe,doeOverride,
+      doeCredit:appliedDoe,doePolicyVersionId:computed.publicResult.policyVersionId,
       doeRuleId:computed.publicResult.ruleId,doeRuleKey:computed.publicResult.ruleKey,doeCalculationId:calculationId,
       updatedBy:text(actor.uid),updatedByName:text(actor.name),updatedByEmail:text(actor.email),updatedAt:calculatedAt
     };
     const auditRecord={
       auditId:`role-save-${assignmentFactId}-${calculationId}`,policyVersionId:computed.publicResult.policyVersionId,
       action:'doe_assignment_saved',entityType:'doe_assignment',entityId:assignmentFactId,academicYear:year,facultyId:faculty,
-      resultDoe:computed.publicResult.resultDoe,ruleId:computed.publicResult.ruleId,ruleKey:computed.publicResult.ruleKey,
+      activeDate:window.activeDate,expirationDate:window.expirationDate,calculatedDoe:policyCalculatedDoe,overrideDoe:doeOverride,
+      resultDoe:appliedDoe,ruleId:computed.publicResult.ruleId,ruleKey:computed.publicResult.ruleKey,
       changedBy:text(actor.uid),changedByName:text(actor.name),changedByEmail:text(actor.email),changedAt:calculatedAt
     };
     await repository.saveDoeAssignmentCalculation({assignment,calculationRecord,auditRecord});
@@ -205,7 +221,8 @@ function createCalculationService({repository,engine,idFactory=()=>`calc-${crypt
     const faculty=text(facultyId),year=text(academicYear);
     if(!faculty)throw new ApiError('FACULTY_ID_REQUIRED','Faculty ID is required.',422);
     if(!year)throw new ApiError('ACADEMIC_YEAR_REQUIRED','Academic Year is required.',422);
-    return repository.listFacultyRoleAssignments(faculty,year);
+    const rows=await repository.listFacultyRoleAssignments(faculty,year),asOf=clock().toISOString().slice(0,10);
+    return rows.map(row=>({...row,effectiveStatus:temporalRoles.statusAt({academicYear:year,...row},asOf)}));
   }
 
   async function deactivateRoleAssignment({actor={},assignmentFactId}={}){
