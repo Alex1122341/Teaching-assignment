@@ -79,6 +79,7 @@
     {
       "output": "bundles/timetable-app.bundle.js",
       "sources": [
+        "subject-catalog.js",
         "academic-responsibility.js",
         "office-capabilities.js",
         "workflow-notifications.js",
@@ -119,6 +120,8 @@
         "bulk-import-backup.js",
         "bulk-import-firestore.js",
         "bulk-import-controller.js",
+        "subject-catalog.js",
+        "subject-catalog-admin.js",
         "faculty-admin.js"
       ],
       "pages": [

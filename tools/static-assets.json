@@ -36,6 +36,8 @@
   "faculty-assignment.js",
   "lab-groups.js",
   "academic-responsibility.js",
+  "subject-catalog.js",
+  "subject-catalog-admin.js",
   "office-capabilities.js",
   "faculty-account-planner.js",
   "account-profile.js",

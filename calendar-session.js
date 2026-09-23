@@ -17,6 +17,8 @@
    start:text(source.start),end:text(source.end),timeUnknown:source.timeUnknown===true,
    type:text(source.type),topic:text(source.topic),room:text(source.room),instructorNames,instructor
   };
+  // Subject is an optional catalog key, separate from descriptive Topic.
+  if(typeof source.subjectKey==='string'&&/^[a-z][a-z0-9_-]{0,63}$/.test(source.subjectKey))out.subjectKey=source.subjectKey;
   // LAB group IDs are operational scheduling metadata, not roster data. Mirror
   // only normalized scalar IDs; student IDs remain private in lab_group_rosters.
   if(Array.isArray(source.labGroupIds))out.labGroupIds=[...new Set(source.labGroupIds.map(text).filter(Boolean))].slice(0,8);

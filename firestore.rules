@@ -232,13 +232,22 @@ service cloud.firestore {
     && after.readBy.toSet().difference(before.readBy.toSet()).hasOnly([request.auth.uid])));}
   function calendarPath(id){return /databases/$(database)/documents/calendar_sessions/$(id);}
   function sessionPath(id){return /databases/$(database)/documents/sessions/$(id);}
+  function teachingSubjectPath(key){return /databases/$(database)/documents/teaching_subjects/$(key);}
+  function canonicalTeachingSubjectKey(key){return key is string && key.matches('^[a-z][a-z0-9_-]{0,63}$');}
+  function activeTeachingSubject(key){return canonicalTeachingSubjectKey(key) && exists(teachingSubjectPath(key)) && get(teachingSubjectPath(key)).data.active == true;}
+  function subjectKeyCreateValid(){let d=request.resource.data;let key=d.keys().hasAny(['subjectKey']) ? d.subjectKey : '';return key == '' || activeTeachingSubject(key);}
+  function subjectKeyUpdateValid(){let after=request.resource.data;let before=resource.data;let key=after.keys().hasAny(['subjectKey']) ? after.subjectKey : '';let old=before.keys().hasAny(['subjectKey']) ? before.subjectKey : '';return key == old || key == '' || activeTeachingSubject(key);}
+  function teachingSubjectRecordValid(id){let d=request.resource.data;return canonicalTeachingSubjectKey(id)
+   && d.keys().hasOnly(['key','label','active','updatedBy','updatedAt']) && d.keys().hasAll(['key','label','active','updatedBy','updatedAt'])
+   && d.key == id && d.label is string && d.label.size() > 0 && d.label.size() <= 100 && d.label.matches('.*\\S.*')
+   && d.active is bool && d.updatedBy == request.auth.uid && d.updatedAt == request.time;}
   function calendarLabGroupIds(d){return d.keys().hasAny(['labGroupIds']) ? d.labGroupIds : [];}
-  function calendarKeysValid(d){let groups=calendarLabGroupIds(d);return d.keys().hasOnly(['sessionId','course','courseName','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructorNames','instructor','labGroupIds']) && d.instructorNames is list && groups is list && groups.size() <= 8;}
+  function calendarKeysValid(d){let groups=calendarLabGroupIds(d);return d.keys().hasOnly(['sessionId','course','courseName','subjectKey','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructorNames','instructor','labGroupIds']) && (!d.keys().hasAny(['subjectKey']) || canonicalTeachingSubjectKey(d.subjectKey)) && d.instructorNames is list && groups is list && groups.size() <= 8;}
   function calendarMatchesSourceAfter(id){
    let source=getAfter(sessionPath(id)).data;
    let calendar=getAfter(calendarPath(id)).data;
    return calendarKeysValid(calendar) && calendar.sessionId == id
-    && calendar.course == source.get('course','') && calendar.courseName == source.get('courseName','')
+    && calendar.course == source.get('course','') && calendar.courseName == source.get('courseName','') && calendar.get('subjectKey','') == source.get('subjectKey','')
     && calendar.year == source.get('year',null) && calendar.semester == source.get('semester','') && calendar.week == source.get('week',null)
     && calendar.date == source.get('date','') && calendar.start == source.get('start','') && calendar.end == source.get('end','')
     && calendar.timeUnknown == source.get('timeUnknown',false) && calendar.type == source.get('type','') && calendar.topic == source.get('topic','')
@@ -249,7 +258,7 @@ service cloud.firestore {
    let source=get(sessionPath(id)).data;
    let calendar=request.resource.data;
    return calendarKeysValid(calendar) && calendar.sessionId == id
-    && calendar.course == source.get('course','') && calendar.courseName == source.get('courseName','')
+    && calendar.course == source.get('course','') && calendar.courseName == source.get('courseName','') && calendar.get('subjectKey','') == source.get('subjectKey','')
     && calendar.year == source.get('year',null) && calendar.semester == source.get('semester','') && calendar.week == source.get('week',null)
     && calendar.date == source.get('date','') && calendar.start == source.get('start','') && calendar.end == source.get('end','')
     && calendar.timeUnknown == source.get('timeUnknown',false) && calendar.type == source.get('type','') && calendar.topic == source.get('topic','')
@@ -263,6 +272,7 @@ service cloud.firestore {
   function generalCalendarRepair(id){return general() && teachingWritesOpen() && exists(sessionPath(id)) && calendarMatchesCurrentSource(id);}
   function generalCalendarDelete(id){return general() && teachingWritesOpen() && !exists(sessionPath(id));}
   function adcSessionCreate(id){return adc() && teachingWritesOpen() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
+   && subjectKeyCreateValid()
    && request.resource.data.get('instructor','') == '' && request.resource.data.get('assignments',[]) is list && request.resource.data.get('assignments',[]).size() == 0
    && request.resource.data.get('facultyIds',[]) is list && request.resource.data.get('facultyIds',[]).size() == 0
    && (!request.resource.data.keys().hasAny(['awayFromCampusRecords']) && (request.resource.data.get('type','') != 'LAB' || request.resource.data.get('topic','') == 'TBD'))
@@ -270,7 +280,8 @@ service cloud.firestore {
   function adcSessionUpdate(id){
    let changed=request.resource.data.diff(resource.data).affectedKeys();
    return adc() && teachingWritesOpen() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
-    && changed.hasOnly(['course','courseName','year','semester','week','date','start','end','timeUnknown','type','room','topic','updatedBy','updatedByName','updatedAt'])
+    && changed.hasOnly(['course','courseName','subjectKey','year','semester','week','date','start','end','timeUnknown','type','room','topic','updatedBy','updatedByName','updatedAt'])
+    && subjectKeyUpdateValid()
     && (!changed.hasAny(['topic']) || request.resource.data.get('type','') != 'LAB' || (resource.data.get('type','') != 'LAB' && request.resource.data.get('topic','') == 'TBD'))
     && calendarMatchesSourceAfter(id);
   }
@@ -474,6 +485,11 @@ service cloud.firestore {
    allow update: if generalGroupWrite() || hiccMemberUpdate();
    allow delete: if general();
   }
+  match /teaching_subjects/{subjectKey} {
+   allow read: if ready();
+   allow create,update: if admin() && teachingSubjectRecordValid(subjectKey);
+   allow delete: if admin();
+  }
   match /calendar_sessions/{id} {
    allow read: if ready();
    // General/Owner repair is checked first so a direct sanitized projection repair
@@ -485,8 +501,8 @@ service cloud.firestore {
   }
   match /sessions/{id} {
    allow read: if privateReader();
-   allow create: if adcSessionCreate(id) || (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
-   allow update: if sessionApprovalMarkerChanged() ? routedSessionApply(id) : (adcSessionUpdate(id) || labSessionUpdate(id) || (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || doeRecalculationSessionWrite() || maintenanceSessionWrite(id));
+   allow create: if adcSessionCreate(id) || (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && subjectKeyCreateValid() && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
+   allow update: if sessionApprovalMarkerChanged() ? routedSessionApply(id) : (adcSessionUpdate(id) || labSessionUpdate(id) || (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && subjectKeyUpdateValid() && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || doeRecalculationSessionWrite() || maintenanceSessionWrite(id));
    allow delete: if (teachingWritesOpen() && admin() && !existsAfter(calendarPath(id))) || maintenanceSessionDelete(id);
   }
   match /faculty/{id} {

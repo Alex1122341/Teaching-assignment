@@ -9,8 +9,8 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
  const clone=value=>JSON.parse(JSON.stringify(value??null));
  const canonical=value=>{if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])]));return value};
  const equal=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
- const AUDIT_FIELDS={date:'Date',year:'Year',course:'Course',type:'Type',start:'Start time',end:'End time',topic:'Topic',room:'Room',labGroupIds:'LAB groups'};
- const EDIT_FIELDS=['date','year','course','type','start','end','topic','room','faculty','labGroups'];
+ const AUDIT_FIELDS={date:'Date',year:'Year',course:'Course',subjectKey:'Subject',type:'Type',start:'Start time',end:'End time',topic:'Topic',room:'Room',labGroupIds:'LAB groups'};
+ const EDIT_FIELDS=['date','year','course','subjectKey','type','start','end','topic','room','faculty','labGroups'];
  // Field ownership comes from the canonical modules only. This function must not
  // invent a second, contradictory scope definition: office capabilities decide
  // which fields an office may edit, and the canonical workflow engine decides
@@ -23,7 +23,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   // Fail closed when the canonical policy modules are unavailable.
   if(!caps||!workflow)return{canSelect:false,fields};
   const access=caps.forRole(role),sessionType=workflow.sessionType(row);
-  if(access.canEditCourseFields)for(const field of ['date','year','course','type','start','end','room'])fields[field]=true;
+  if(access.canEditCourseFields)for(const field of ['date','year','course','subjectKey','type','start','end','room'])fields[field]=true;
   // ADC owns Topic for LEC / SRL. LAB owns Topic for LAB sessions only.
   fields.topic=sessionType==='LAB'?Boolean(access.canEditLabTopic):Boolean(access.canEditCourseFields);
   // Only ADFA (and Developer) may make the official Faculty assignment.
@@ -53,7 +53,11 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
    return{...assignment,ucid:id||null,facultyId:id||null,name:text(assignment.name),role:text(assignment.role||row?.type)};
   });
   const instructor=assignments.map(item=>item.name).filter(Boolean).join('; ')||text(row?.instructor);
-  return{date:text(row?.date),week:Number(row?.week),semester:text(row?.semester),year:Number(row?.year),course:text(row?.course),courseName:text(row?.courseName),type:text(row?.type),start:text(row?.start),end:text(row?.end),topic:text(row?.topic),room:text(row?.room),timeUnknown:Boolean(row?.timeUnknown),assignments,facultyIds:ids,instructor,labDetails:Array.isArray(row?.labDetails)?clone(row.labDetails):[],labGroupIds:[...new Set((Array.isArray(row?.labGroupIds)?row.labGroupIds:[]).map(text).filter(Boolean))]};
+  return{date:text(row?.date),week:Number(row?.week),semester:text(row?.semester),year:Number(row?.year),course:text(row?.course),courseName:text(row?.courseName),subjectKey:text(row?.subjectKey),type:text(row?.type),start:text(row?.start),end:text(row?.end),topic:text(row?.topic),room:text(row?.room),timeUnknown:Boolean(row?.timeUnknown),assignments,facultyIds:ids,instructor,labDetails:Array.isArray(row?.labDetails)?clone(row.labDetails):[],labGroupIds:[...new Set((Array.isArray(row?.labGroupIds)?row.labGroupIds:[]).map(text).filter(Boolean))]};
+ }
+ function onlySubjectChanged(before,after){
+  const oldFields=editable(before),newFields=editable(after);
+  return oldFields.subjectKey!==newFields.subjectKey&&Object.keys(oldFields).every(field=>field==='subjectKey'||equal(oldFields[field],newFields[field]));
  }
  function create(max=200){
   const selected=new Set();
@@ -101,11 +105,15 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
      if(facultyChanged)attempted.push('faculty assignment');
     }
     if(!policy.fields.labGroups&&!equal(original.labGroupIds||[],row.labGroupIds||[]))attempted.push('LAB groups');
-    for(const field of ['date','year','course','type','start','end','room','topic']){
+    for(const field of ['date','year','course','subjectKey','type','start','end','room','topic']){
      if(policy.fields[field])continue;
      // ADC converting a session to LAB forces Topic to TBD, so that is not an attempt.
      if(role==='adc'&&field==='topic'&&text(row.type).toUpperCase()==='LAB')continue;
      if(!equal(original[field],row[field]))attempted.push(field);
+    }
+    if(policy.fields.subjectKey&&!equal(text(original.subjectKey),text(row.subjectKey))){
+     const catalog=window.UCVM_SUBJECT_CATALOG,key=text(row.subjectKey),active=Array.isArray(options.activeSubjectKeys)?options.activeSubjectKeys:[];
+     if(key&&(!catalog||catalog.normalizeKey(key)!==key||!active.includes(key)))errors.push(`Row ${index+1}: choose an active Subject from the catalog.`);
     }
     if(attempted.length)errors.push(`Row ${index+1}: ${roleLabel} cannot change ${attempted.join(', ')}.`);
    }
@@ -117,7 +125,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
    let after=candidate,data=candidate;
    if(policy){
     after={...before};
-    const publicFields=['date','year','course','type','start','end','topic','room'],derivedFields=['week','semester','courseName','timeUnknown'],facultyFields=['assignments','facultyIds','instructor','labDetails'];
+    const publicFields=['date','year','course','subjectKey','type','start','end','topic','room'],derivedFields=['week','semester','courseName','timeUnknown'],facultyFields=['assignments','facultyIds','instructor','labDetails'];
     for(const field of publicFields)if(policy.fields[field])after[field]=candidate[field];
     if(policy.fields.date||policy.fields.start||policy.fields.end){after.week=candidate.week;after.semester=candidate.semester;after.timeUnknown=candidate.timeUnknown}
     if(policy.fields.course)after.courseName=candidate.courseName;
@@ -153,7 +161,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
     batch.update(store.sessionRef(update.id),update.data);operations++;
     if(store.calendarRef&&store.calendarFromSource){batch.set(store.calendarRef(update.id),store.calendarFromSource(update.after||update.data,update.id));operations++}
     batch.set(store.logRef(),log);operations++;
-    if(typeof store.queueRef==='function'&&typeof store.queueData==='function'){
+    if(!onlySubjectChanged(log.before,log.after)&&typeof store.queueRef==='function'&&typeof store.queueData==='function'){
      const queueRef=store.queueRef(update,log),queueData=queueRef?store.queueData(update,log,queueRef):null;
      if(queueRef&&queueData){batch.set(queueRef,queueData);operations++}
     }
@@ -291,5 +299,5 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   }
   return Object.freeze({prepareSession,academicYearForSession,bundleForYear});
  }
- return{create,createViewFlow,editPolicy,validateRow,selectedRows,planChanges,commitPlan,createDoeAdapter,createDoeApiAdapter,academicYearForSession};
+ return{create,createViewFlow,editPolicy,validateRow,selectedRows,planChanges,commitPlan,onlySubjectChanged,createDoeAdapter,createDoeApiAdapter,academicYearForSession};
 })();

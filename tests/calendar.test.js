@@ -46,6 +46,15 @@ test('calendar sanitizer exposes exactly the public scheduling schema and names'
  assert.deepEqual(input,before);
  for(const forbidden of ['facultyIds','assignments','ucid','doeCredit','awayFromCampusRecords','private-id','private@example.test','private-reason','hidden@example.test'])assert.equal(JSON.stringify(clean).includes(forbidden),false,forbidden);
 });
+test('calendar sanitizer carries only a canonical optional Subject key, never Topic-derived or private fields',()=>{
+ const fromSource=load().fromSource;
+ const classified=fromSource({...source(),subjectKey:'surgery',topic:'Pre-operative Management'},'classified');
+ assert.equal(classified.subjectKey,'surgery');
+ assert.equal(classified.topic,'Pre-operative Management');
+ for(const forbidden of ['facultyIds','assignments','awayFromCampusRecords','extraPrivate'])assert.equal(Object.hasOwn(classified,forbidden),false,forbidden);
+ assert.equal(Object.hasOwn(fromSource({...source(),topic:'Surgery'},'legacy'),'subjectKey'),false);
+ assert.equal(Object.hasOwn(fromSource({...source(),subjectKey:{private:'value'}},'bad'),'subjectKey'),false);
+});
 test('calendar sanitizer mirrors bounded LAB group IDs without copying roster-shaped data',()=>{
  const clean=load().fromSource({...source(),labGroupIds:['g-a','g-a','g-b',{studentIds:['30012345']}]},'lab-groups');
  assert.deepEqual(clean.labGroupIds,['g-a','g-b']);

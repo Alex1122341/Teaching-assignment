@@ -12,11 +12,40 @@ function load(){
  // Field ownership is derived from the canonical modules, so the harness must load them.
  vm.runInNewContext(fs.readFileSync(path.join(root,'office-capabilities.js'),'utf8'),context);
  vm.runInNewContext(fs.readFileSync(path.join(root,'session-workflow.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'subject-catalog.js'),'utf8'),context);
  vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
  return context.window.UCVM_TIMETABLE_SELECTION;
 }
 const plain=value=>JSON.parse(JSON.stringify(value));
 const baseSession={id:'s1',date:'2026-10-07',year:1,course:'204',type:'LEC',start:'08:30',end:'09:30',topic:'Passports',room:'A101',assignments:[{ucid:'1001',name:'Alex Faculty',role:'Lecture'}],facultyIds:['1001']};
+
+test('only ADC scheduling authority can classify a selected session with an active Subject',()=>{
+ const api=load(),original={...baseSession,subjectKey:''},actor={uid:'adc',role:'adc'};
+ assert.equal(api.editPolicy('adc',original).fields.subjectKey,true);
+ for(const role of ['lab','hicc','visc','faculty'])assert.equal(api.editPolicy(role,original).fields.subjectKey,false,role);
+ const row={...original,subjectKey:'surgery'};
+ const allowed=plain(api.planChanges([original],[row],actor,123,undefined,{role:'adc',activeSubjectKeys:['surgery']}));
+ assert.deepEqual(allowed.errors,[]);
+ assert.deepEqual(allowed.updates[0].data,{subjectKey:'surgery'});
+ assert.equal(allowed.logs[0].after.topic,'Passports');
+ const arbitrary=api.planChanges([original],[row],actor,123,undefined,{role:'adc',activeSubjectKeys:['anesthesia']});
+ assert.ok(arbitrary.errors.some(error=>/active subject/i.test(error)));
+ const labOriginal={...original,type:'LAB',topic:'TBD'};
+ const denied=api.planChanges([labOriginal],[{...labOriginal,subjectKey:'surgery'}],{uid:'lab',role:'lab'},123,undefined,{role:'lab',activeSubjectKeys:['surgery']});
+ assert.ok(denied.errors.some(error=>/cannot change subjectKey/i.test(error)));
+});
+
+test('a Subject-only selection update does not request DOE recalculation',async()=>{
+ const api=load(),original={...baseSession,subjectKey:''},row={...original,subjectKey:'surgery'};
+ assert.equal(api.onlySubjectChanged(original,row),true);
+ assert.equal(api.onlySubjectChanged(original,{...row,topic:'Changed'}),false);
+ const plan=api.planChanges([original],[row],{uid:'adc',role:'adc'},123,undefined,{role:'adc',activeSubjectKeys:['surgery']});
+ assert.deepEqual(plain(plan.errors),[]);
+ const writes=[],store={batch:()=>({update:(ref,data)=>writes.push(['update',ref,data]),set:(ref,data)=>writes.push(['set',ref,data]),commit:async()=>{}}),sessionRef:id=>'sessions/'+id,
+  calendarRef:id=>'calendar_sessions/'+id,calendarFromSource:(data,id)=>({sessionId:id,subjectKey:data.subjectKey}),logRef:()=> 'logs/a',queueRef:()=> 'doe/q',queueData:()=>({trigger:'subject-only'})};
+ await api.commitPlan(plan,store);
+ assert.equal(writes.some(write=>write[1]==='doe/q'),false);
+});
 
 test('selection module requires the canonical scheduling core',()=>{
  const context={window:{},Date};

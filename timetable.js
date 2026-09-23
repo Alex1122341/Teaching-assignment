@@ -25,6 +25,7 @@
   let authSettings = loadAuthSettings();
   let auth = null;
   let db = null;
+  let subjectOptions = [];
   let timetableDoeRuntime = null;
   let authInitialized = false;
   let recaptchaVerifier = null;
@@ -82,6 +83,17 @@
   function canSelectSessions(){return capabilities().canSelectSessions;}
   function canEdit(){const c=capabilities();return c.canEditCourseFields||c.canEditInstructor;}
   function hasOfficeAccess(stage){return window.UCVM_OFFICE_CAPABILITIES.hasOfficeAccess(currentUser?.profile||{role:currentUser?.role||''},stage);}
+  async function loadSubjectOptions(){
+    const catalog=window.UCVM_SUBJECT_CATALOG;
+    if(!db||!catalog){subjectOptions=[];return subjectOptions}
+    try{const snapshot=await db.collection('teaching_subjects').get();subjectOptions=catalog.activeOptions(snapshot.docs.map(doc=>({id:doc.id,...doc.data()})));return subjectOptions}
+    catch(error){console.error('[Teaching Subjects]',error);subjectOptions=[];toast('Teaching Subjects could not be loaded; classification is unavailable.',true);return subjectOptions}
+  }
+  function subjectChoices(current=''){
+    const key=String(current||''),known=subjectOptions.some(option=>option.key===key);
+    return `<option value="">No Subject</option>${key&&!known?`<option value="${escapeHtml(key)}" selected>${escapeHtml(key)} (existing; unavailable)</option>`:''}`+
+      subjectOptions.map(option=>`<option value="${escapeHtml(option.key)}" ${option.key===key?'selected':''}>${escapeHtml(option.label)}</option>`).join('');
+  }
   function sessionCollection(){const role=UCVM.role(currentUser?.role);return role==='other_office'||(['adc','lab'].includes(role)&&!hasOfficeAccess('adfa'))?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;}
   function getTimetableDoeRuntime(){
     if(timetableDoeRuntime&&timetableDoeRuntime.db===db)return timetableDoeRuntime;
@@ -1093,6 +1105,7 @@
     if(!selectionMode||!sessionSelection.size)return;
     if(selectionCapabilities().canEditInstructor)await ensureFacultyDirectory();
     if(selectionCapabilities().canEditLabGroups)await ensureLabWorkflowContext();
+    if(selectionCapabilities().canEditCourseFields)await loadSubjectOptions();
     reviewingSelection=true;viewMode=selectionViewFlow.review();setViewButtons();render();
   }
 
@@ -1233,6 +1246,7 @@
       <td><input type="date" data-selection-field="date" value="${escapeHtml(s.date)}" ${field('date')}></td>
       <td><select data-selection-field="year" ${field('year')}>${[1,2,3,4].map(year=>`<option ${Number(s.year)===year?'selected':''}>${year}</option>`).join('')}</select></td>
       <td><input data-selection-field="course" value="${escapeHtml(s.course)}" ${field('course')}></td>
+      <td><select data-selection-field="subjectKey" ${field('subjectKey')}>${subjectChoices(s.subjectKey)}</select></td>
       <td><input data-selection-field="type" value="${escapeHtml(s.type)}" ${field('type')}></td>
       <td><input type="time" data-selection-field="start" value="${escapeHtml(s.start)}" ${field('start')}></td>
       <td><input type="time" data-selection-field="end" value="${escapeHtml(s.end)}" ${field('end')}></td>
@@ -1242,7 +1256,7 @@
       <td>${policy.fields.faculty?`<details class="selection-faculty-picker" data-selection-field="faculty"><summary>Choose faculty</summary><div class="selection-faculty-menu"><div class="selection-faculty-options">${selectionFacultyOptions(s)}</div></div></details><div class="selection-faculty-chips"></div>`:`<div class="role-locked-field selection-faculty-readonly">${escapeHtml(s.instructor||'TBD')}</div>`}</td>
     </tr>`}).join('');
     const note=canEditFaculty?'Open Faculty to choose one or more people; authoritative DOE is recalculated by the trusted backend after save when the HTTP DOE API is unavailable.':'Grey fields are context only; your office can edit only its assigned fields.';
-    $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>LAB Groups</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div>${canEditLabRoster?'<div id="selection-lab-rosters" class="selection-lab-rosters"></div>':''}<div class="selection-save-bar"><span>${note}</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
+    $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Subject</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>LAB Groups</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div>${canEditLabRoster?'<div id="selection-lab-rosters" class="selection-lab-rosters"></div>':''}<div class="selection-save-bar"><span>${note}</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
     document.querySelectorAll('.selection-faculty-picker:not(.selection-lab-group-picker)').forEach(picker=>{picker.querySelectorAll('[data-selection-faculty-option]').forEach(input=>input.onchange=()=>updateSelectionFacultyPicker(picker));updateSelectionFacultyPicker(picker)});
     document.querySelectorAll('.selection-lab-group-picker').forEach(picker=>{picker.querySelectorAll('[data-selection-lab-group-option]').forEach(input=>input.onchange=()=>{updateSelectionLabGroupPicker(picker);renderSelectionLabRosters()});updateSelectionLabGroupPicker(picker)});
     if(canEditLabRoster)renderSelectionLabRosters();
@@ -1260,7 +1274,7 @@
       const position=academicPositionForDate(parseYmd(date)),originalIds=[...(original.facultyIds||[]),...(original.assignments||[]).map(a=>a.ucid||a.facultyId)].filter(Boolean).map(String),assignmentChanged=policy.fields.faculty&&(ids.join('|')!==[...new Set(originalIds)].join('|')||type!==String(original.type||'')||start!==String(original.start||'')||end!==String(original.end||'')||topic!==String(original.topic||''));
       const assignments=assignmentChanged?ids.map(facultyId=>{const faculty=facultyDirectory.find(f=>String(f.__id)===facultyId),previous=(original.assignments||[]).find(a=>String(a.ucid||a.facultyId||'')===facultyId)||{},role=previous.role||defaultTeachingRole(type),hours=swapNumeric(previous.creditedHours)??blockHours(start,end,{timeUnknown:original.timeUnknown===true&&start===String(original.start||'')&&end===String(original.end||'')});return{...previous,ucid:facultyId,facultyId,name:swapFacultyName(faculty),role,topic,creditedHours:hours,source:'Multi-session timetable edit'}}):(original.assignments||[]);
       const course=value('course');
-      return{...original,id,date,week:position.week,semester:position.semester,year:Number(value('year')),course,courseName:course===String(original.course||'')?original.courseName:(COURSES.find(c=>String(c.code)===course)?.name||''),type,start,end,topic,room:value('room'),timeUnknown:start===String(original.start||'')&&end===String(original.end||'')?Boolean(original.timeUnknown):false,assignments,facultyIds:ids,instructor:assignments.length?assignments.map(a=>a.name).filter(Boolean).join('; '):String(original.instructor||''),labDetails:assignmentChanged?labDetailsFromAssignments(type,assignments,topic):original.labDetails,labGroupIds};
+      return{...original,id,date,week:position.week,semester:position.semester,year:Number(value('year')),course,courseName:course===String(original.course||'')?original.courseName:(COURSES.find(c=>String(c.code)===course)?.name||''),subjectKey:value('subjectKey'),type,start,end,topic,room:value('room'),timeUnknown:start===String(original.start||'')&&end===String(original.end||'')?Boolean(original.timeUnknown):false,assignments,facultyIds:ids,instructor:assignments.length?assignments.map(a=>a.name).filter(Boolean).join('; '):String(original.instructor||''),labDetails:assignmentChanged?labDetailsFromAssignments(type,assignments,topic):original.labDetails,labGroupIds};
     });
   }
   async function saveSelectedChanges(){
@@ -1273,14 +1287,21 @@
     let rows=readSelectionRows();
     if(scoped&&(rows.length!==1||String(rows[0].id)!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     await ensureSessionsForDates(rows.map(row=>row.date),true);
-    if(scoped){if(activeScoped.stage==='lab')await ensureLabWorkflowContext(true);const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,workflowContext());const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
+    if(scoped){if(activeScoped.stage==='lab')await ensureLabWorkflowContext(true);const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,workflowContext());const before=originals[0],keys=['date','year','course','subjectKey','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
     const rosterResult=buildSelectionLabRosterPlans(rows,timestamp),rosterPlans=rosterResult.plans,rosterAuditChanges=labRosterAuditChanges(rosterPlans);
     if(rosterResult.errors.length){errorBox.innerHTML=rosterResult.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
-    const doePrepared=new Map(),doeRuntime=canEditFaculty?getTimetableDoeRuntime():null,originalById=new Map(originals.map(row=>[String(row.id),row]));
-    if(canEditFaculty)rows=await Promise.all(rows.map(async row=>{const prepared=await doeRuntime.adapter.prepareSession(originalById.get(String(row.id))||null,row,{trigger:'multi_session_edit'});doePrepared.set(String(row.id),prepared);return prepared.session}));
-    const plan=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,{role:selectionRole()});
+    const originalById=new Map(originals.map(row=>[String(row.id),row]));
+    const selectionOptions={role:selectionRole(),activeSubjectKeys:subjectOptions.map(option=>option.key)};
+    const preflight=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,selectionOptions);
+    if(preflight.errors.length){errorBox.innerHTML=preflight.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
+    const subjectOnlyCount=preflight.logs.filter(log=>window.UCVM_TIMETABLE_SELECTION.onlySubjectChanged(log.before,log.after)).length;
+    if(canEditFaculty&&subjectOnlyCount&&subjectOnlyCount!==preflight.updates.length){errorBox.textContent='Save Subject-only rows separately from other scheduling or faculty changes.';errorBox.classList.remove('hidden');return}
+    const needsDoe=canEditFaculty&&preflight.updates.length>0&&subjectOnlyCount===0;
+    const doePrepared=new Map(),doeRuntime=needsDoe?getTimetableDoeRuntime():null;
+    if(needsDoe)rows=await Promise.all(rows.map(async row=>{const prepared=await doeRuntime.adapter.prepareSession(originalById.get(String(row.id))||null,row,{trigger:'multi_session_edit'});doePrepared.set(String(row.id),prepared);return prepared.session}));
+    const plan=needsDoe?window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,selectionOptions):preflight;
     if(rosterAuditChanges.length&&plan.logs.length===1)plan.logs[0].changes=[...(plan.logs[0].changes||[]),...rosterAuditChanges];
-    if(canEditFaculty){
+    if(needsDoe){
       for(const log of plan.logs){const prepared=doePrepared.get(String(log.sessionId));const changes=doeAuditChanges(prepared?.doeChanges);if(changes.length){log.changes.push(...changes);log.doeChanges=prepared.doeChanges}}
     }
     if(plan.errors.length){errorBox.innerHTML=plan.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
@@ -1305,7 +1326,7 @@
       }
       return;
     }
-    const overrides=canEditFaculty?confirmSchedulingChanges(plan.logs.map(log=>({id:log.sessionId,...log.after}))):new Map();if(overrides===null)return;
+    const overrides=needsDoe?confirmSchedulingChanges(plan.logs.map(log=>({id:log.sessionId,...log.after}))):new Map();if(overrides===null)return;
     for(const log of plan.logs)log.override=overrides.get(String(log.sessionId))||null;
     plan.updates=plan.updates.map(update=>({...update,data:{...firestoreSafeSessionPatch(update.data),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp}}));
     const resumeComparable=data=>{const copy=JSON.parse(JSON.stringify(data||{}));if(Array.isArray(copy.assignments))for(const assignment of copy.assignments)delete assignment.doeCalculationId;return copy};
@@ -1313,7 +1334,7 @@
     button.dataset.planKey=planKey;button.disabled=true;button.textContent=resumeFrom?`Resuming ${resumeFrom}/${plan.updates.length}...`:'Saving...';
     try{
       let result;
-      if(canEditFaculty){
+      if(needsDoe){
         let completedRows=resumeFrom;
         for(let index=resumeFrom;index<plan.updates.length;index++){
           const update=plan.updates[index],log=plan.logs[index];
@@ -1506,12 +1527,14 @@
     if (existing ? !(canEditCourseFields||canEditInstructor) : !canAddOneSession()) { toast('This account cannot use the single-session editor.', true); return; }
     if (!liveScheduleAvailable()) { toast('The live Firestore timetable is unavailable. Sync it from Faculty Dashboard first.', true); return; }
     if(canEditInstructor)await ensureFacultyDirectory();
+    if(canEditCourseFields)await loadSubjectOptions();
     const s = existing || {
       id: '', date: ymd(weekStart(selectedWeek, selectedSemester)), week: selectedWeek, semester:selectedSemester, year:1,
       course:'200', type:'LEC', topic:'New Session', instructor:'', room:'', start:'09:00', end:'10:00', assignments:[]
     };
     let editorAssignments=sessionAssignmentsForSwap(s).map((a,i)=>({...a,__editorKey:`existing-${i}-${Date.now()}`}));
     if(!editorAssignments.length&&canEditInstructor) editorAssignments=[];
+    const initialEditorAssignments=JSON.stringify(editorAssignments);
     const renderInstructorEditor=()=>{
       const host=$('instructor-lines'); if(!host)return;
       const isAdmin=canEditInstructor;
@@ -1543,6 +1566,7 @@
         ${input('date','Date','date',s.date)}
         ${select('year','Year',[1,2,3,4],s.year)}
         ${select('course','Course',courseCodes(),s.course)}
+        <div class="form-field"><label class="form-label" for="subjectKey">Subject</label><select class="form-select" id="subjectKey" name="subjectKey" ${canEditCourseFields?'':'disabled'}>${subjectChoices(s.subjectKey)}</select></div>
         ${select('type','Type',['LEC','LAB','SRL','Quiz/Midterm','OSCE','Exam'],s.type)}
         ${input('start','Start','time',s.start,'',!s.timeUnknown)}
         ${input('end','End','time',s.end,'',!s.timeUnknown)}
@@ -1559,7 +1583,7 @@
     // rather than left editable.
     const lockSchedulingFields=()=>{
       if(canEditCourseFields)return;
-      for(const id of ['date','year','course','type','start','end','topic','room']){const el=$(id);if(!el)continue;el.disabled=true;el.classList.add('role-locked-field')}
+      for(const id of ['date','year','course','subjectKey','type','start','end','topic','room']){const el=$(id);if(!el)continue;el.disabled=true;el.classList.add('role-locked-field')}
     };
     lockSchedulingFields();
     syncTopicOwnership();if($('type'))$('type').addEventListener('change',syncTopicOwnership);
@@ -1576,6 +1600,8 @@
       const form = new FormData(e.target), date=String(form.get('date')||'');
       const topic=String(form.get('topic')||'').trim(), type=String(form.get('type')||'').trim(), start=String(form.get('start')||''), end=String(form.get('end')||'');
       const timeUnknown=existing?.timeUnknown===true&&start===String(existing.start||'')&&end===String(existing.end||'');
+      const subjectKey=canEditCourseFields?String(form.get('subjectKey')||''):String(existing?.subjectKey||'');
+      if(subjectKey!==String(existing?.subjectKey||'')&&subjectKey&&(!window.UCVM_SUBJECT_CATALOG||window.UCVM_SUBJECT_CATALOG.normalizeKey(subjectKey)!==subjectKey||!subjectOptions.some(option=>option.key===subjectKey))){toast('Choose an active Subject from the catalog.',true);return}
       if(!scheduling.normalizeDate(date)||!String(form.get('course')||'').trim()||!type||!topic||scheduling.validateInterval(start,end,{timeUnknown}).status==='invalid'){toast('Enter a valid date, course, type, topic and time range.',true);return;}
       await ensureSessionsForDates([date],true);
       const pos = academicPositionForDate(parseYmd(date));
@@ -1585,34 +1611,39 @@
         id: existing?.id || `S${Date.now()}`,
         ...(existing?.auditEventId ? {auditEventId: existing.auditEventId} : {}),
         date, week:pos.week, semester:pos.semester, year:Number(form.get('year')),
-        course:form.get('course'), courseName:(COURSES.find(c=>String(c.code)===String(form.get('course')))||{}).name||existing?.courseName||'', type, topic, instructor:preservedInstructor, room:form.get('room'),
-        start, end, timeUnknown, assignments, ...(canEditInstructor?{labDetails:labDetailsFromAssignments(type,assignments,topic)}:{}), sourceSystem:'Synchronized live timetable'
+        course:form.get('course'), courseName:(COURSES.find(c=>String(c.code)===String(form.get('course')))||{}).name||existing?.courseName||'', ...((subjectKey||existing?.subjectKey!==undefined)?{subjectKey}:{}), type, topic, instructor:preservedInstructor, room:form.get('room'),
+        start, end, timeUnknown, assignments:canEditInstructor?assignments:(existing?.assignments||[]), ...(Array.isArray(existing?.labGroupIds)?{labGroupIds:existing.labGroupIds}:{}), ...(canEditInstructor?{labDetails:labDetailsFromAssignments(type,assignments,topic)}:{}), sourceSystem:'Synchronized live timetable'
       };
+      const subjectOnly=Boolean(existing)&&JSON.stringify(editorAssignments)===initialEditorAssignments&&
+        window.UCVM_TIMETABLE_SELECTION.onlySubjectChanged(existing,{...next,assignments:existing.assignments,
+          facultyIds:existing.facultyIds,instructor:existing.instructor,labDetails:existing.labDetails,labGroupIds:existing.labGroupIds});
+      if(subjectOnly)next={...existing,subjectKey};
+      const needsDoe=canEditInstructor&&!subjectOnly;
       let doeResult={calculationRecords:[],doeChanges:[]},doeRuntime=null;
-      if(canEditInstructor){
+      if(needsDoe){
         try{doeRuntime=getTimetableDoeRuntime();doeResult=await doeRuntime.adapter.prepareSession(existing||null,next,{trigger:existing?'session_updated':'session_created'});next=doeResult.session}
         catch(error){console.error('[DOE timetable calculation]',error);toast(`Session save blocked: ${error.message||'DOE calculation is unavailable.'}`,true);return}
       }
-      const overrides=canEditInstructor?confirmSchedulingChanges([next]):new Map();if(overrides===null)return;
+      const overrides=needsDoe?confirmSchedulingChanges([next]):new Map();if(overrides===null)return;
       try {
         const timestamp=firebase.firestore.FieldValue.serverTimestamp();
         let savedNext=next;
-        if(canEditInstructor){
+        if(needsDoe){
           const saved=await doeRuntime.api.saveSessionChange({academicYear:doeResult.academicYear||next.academicYear||'',sessionId:next.id,afterSession:next,trigger:existing?'session_updated':'session_created'});
           savedNext=saved.session||next;
           const auditChanges=[...UCVM_AUDIT_DETAILS.diff(existing,savedNext,'session'),...doeAuditChanges(saved.doeChanges||[])];
           await db.collection(SESSION_LOG_COLLECTION).doc().set({action:existing?'update':'create',override:overrides.get(String(next.id))||null,sessionId:next.id,course:savedNext.course,date:savedNext.date,topic:savedNext.topic,instructors:(savedNext.assignments||[]).map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null,doePolicyVersionId:a.doePolicyVersionId||'',doeCalculationId:a.doeCalculationId||''})),changes:auditChanges,doeChanges:saved.doeChanges||[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:currentUser.email||'',changedAt:timestamp});
         }else{
           const ref=db.collection(SESSION_COLLECTION).doc(next.id),calendarRef=db.collection(CALENDAR_SESSION_COLLECTION).doc(next.id),batch=db.batch();
-          if(existing)batch.update(ref,{date:next.date,week:next.week,semester:next.semester,year:next.year,course:next.course,courseName:next.courseName,type:next.type,topic:next.topic,room:next.room,start:next.start,end:next.end,timeUnknown:next.timeUnknown,updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
+          if(existing)batch.update(ref,{date:next.date,week:next.week,semester:next.semester,year:next.year,course:next.course,courseName:next.courseName,...(subjectKey!==String(existing.subjectKey||'')?{subjectKey}:{}),type:next.type,topic:next.topic,room:next.room,start:next.start,end:next.end,timeUnknown:next.timeUnknown,updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
           else batch.set(ref,{...firestoreSafeSession({...next,assignments:[],instructor:''}),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
           batch.set(calendarRef,window.UCVM_CALENDAR_SESSION.fromSource(next,next.id));
           batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{action:existing?'update':'create',override:null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:[],changes:UCVM_AUDIT_DETAILS.diff(existing,next,'session'),doeChanges:[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:'',changedAt:timestamp});
-          if(existing){const queueRef=db.collection('doe_recalculation_requests').doc();batch.set(queueRef,queuedDoeRequestData(next,queueRef.id,'office_session_updated',timestamp,existing));}
+          if(existing&&!subjectOnly){const queueRef=db.collection('doe_recalculation_requests').doc();batch.set(queueRef,queuedDoeRequestData(next,queueRef.id,'office_session_updated',timestamp,existing));}
           await batch.commit();
         }
         invalidateAllSessions();
-        if(canEditInstructor)await updateDerivedIndexes([{before:existing||null,after:savedNext}]);
+        if(needsDoe)await updateDerivedIndexes([{before:existing||null,after:savedNext}]);
         if(actorRole==='adc'&&existing&&String(existing.instructor||'').trim()&&['date','start','end'].some(field=>String(existing[field]||'')!==String(savedNext[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:savedNext.id,course:savedNext.course,date:savedNext.date,start:savedNext.start,end:savedNext.end,type:savedNext.type,topic:savedNext.topic,facultyDisplayName:savedNext.instructor}}))}
         closeModal();
         toast(existing?'Live session updated.':'Live session added.');

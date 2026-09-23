@@ -153,7 +153,7 @@ test('ADC multi-edit emits sanitized assignment recheck instead of opening ADFA 
  const start=js.indexOf('async function saveSelectedChanges');
  const end=js.indexOf('\n  function openSessionDetail',start);
  const fn=js.slice(start,end);
- assert.match(fn,/const overrides=canEditFaculty\?confirmSchedulingChanges/);
+ assert.match(fn,/const overrides=needsDoe\?confirmSchedulingChanges/);
  assert.match(fn,/ucvm:assignment-recheck-required/);
  assert.match(fn,/facultyDisplayName/);
 });
@@ -183,4 +183,18 @@ test('ADC Add One keeps LAB Topic locked but successful FormData includes the TB
  assert.match(fn,/topicInput\.readOnly=isLab/);
  assert.doesNotMatch(fn,/topicInput\.disabled=isLab/);
  assert.match(fn,/new FormData\(e\.target\)/);
+});
+
+test('Subject selection uses the active catalog and a Subject-only save bypasses DOE work',()=>{
+ const js=read('timetable.js');
+ assert.match(js,/db\.collection\('teaching_subjects'\)\.get\(\)/);
+ assert.match(js,/subjectOptions\.map\(option=>option\.key\)/);
+ const start=js.indexOf('async function openSessionForm');
+ const end=js.indexOf('\n  function input(',start);
+ const form=js.slice(start,end);
+ assert.match(form,/subjectChoices\(s\.subjectKey\)/);
+ assert.match(form,/Choose an active Subject from the catalog/);
+ assert.match(form,/if\(subjectOnly\)next=\{\.\.\.existing,subjectKey\}/);
+ assert.match(form,/if\(existing&&!subjectOnly\)/);
+ assert.match(form,/const needsDoe=canEditInstructor&&!subjectOnly/);
 });
