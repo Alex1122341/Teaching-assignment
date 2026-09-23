@@ -6,7 +6,7 @@ const {createCalculationService}=require('../src/doe/calculation-service.js');
 const admin={uid:'g1',name:'General',email:'g@example.test',role:'adfa_general'};
 const engine={matchRule(){return{source:'rule',rule:{}}},calculate(){return{resultDoe:1,policyVersionId:'v1',ruleId:'r1',ruleKey:'role.test',inputs:{},parameters:{},ruleSnapshot:{}}}};
 
-test('role assignment management lists active faculty facts and deactivates with audit',async()=>{
+test('role assignment management lists annual faculty role records and deactivates with audit',async()=>{
  const calls=[];
  const rows=[
   {assignmentFactId:'role-1',academicYear:'2027-28',facultyId:'f1',category:'role',roleType:'HICC',courseCode:'VTMD 204',activeDate:'2027-09-01',expirationDate:'2028-05-01',active:true},
@@ -14,7 +14,7 @@ test('role assignment management lists active faculty facts and deactivates with
  ];
  const repository={
   async getActivePolicyBundle(){return{rules:[],exceptions:[]}},
-  async listFacultyRoleAssignments(facultyId,academicYear){calls.push(['list',facultyId,academicYear]);return rows.filter(row=>row.active!==false)},
+  async listFacultyRoleAssignments(facultyId,academicYear){calls.push(['list',facultyId,academicYear]);return rows},
   async getDoeAssignment(id){calls.push(['get',id]);return rows.find(row=>row.assignmentFactId===id)||null},
   async deactivateDoeAssignment(input){calls.push(['deactivate',input]);const row=rows.find(item=>item.assignmentFactId===input.assignmentFactId);row.active=false;return{...row}}
  };

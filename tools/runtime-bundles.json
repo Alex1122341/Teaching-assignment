@@ -122,6 +122,7 @@
         "bulk-import-backup.js",
         "bulk-import-firestore.js",
         "bulk-import-controller.js",
+        "temporal-role-assignment.js",
         "subject-catalog.js",
         "subject-catalog-admin.js",
         "faculty-admin.js"
