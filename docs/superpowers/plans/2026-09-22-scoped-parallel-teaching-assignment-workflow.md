@@ -1,4 +1,4 @@
-# Scoped Parallel Teaching Assignment Workflow Implementation Plan
+# PAWS P3.1 Grouped HICC/VISC Teaching Assignment Workflow Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -258,7 +258,7 @@ Stop after T2. Do not start T3 automatically.
   - `subject-catalog.validateRecord(record, expectedKey) -> boolean`
   - `subject-catalog.activeOptions(rows) -> Array<{key,label}>`
   - optional session field `subjectKey`
-- Security invariant: scoped HICC/VISC users may consume `subjectKey` for authorization but may not change it, preventing self-escalation.
+- Security invariant: HICC uses `subjectKey` for exact Course/Subject authorization; VISC review authority comes from Teaching Assignment group leadership. Neither HICC nor VISC may change `subjectKey` through scoped/review actions.
 
 - [ ] **Step 1: Write RED pure-model tests**
 
@@ -338,10 +338,12 @@ Do not add DOE configuration controls here.
 ADC/DVM may optionally classify a session with `subjectKey` using only active catalog options. High-trust admin repair paths may also set it.
 
 Rules/UI must enforce:
-- `subjectKey` is optional and is not an ADFAD readiness gate
-- HICC/VISC cannot change `subjectKey`
+- `subjectKey` is optional and is not a HICC package content-readiness gate
+- HICC/VISC cannot change `subjectKey` through scoped/review actions
 - Topic remains a separate free-text field
-- changing Subject alone does not create authoritative DOE\n- `subjectKey` is included in the sanitized session/calendar projection because it is non-private scheduling metadata\n- ADC/DVM/admin session write allowlists and calendar source matching accept `subjectKey` without changing ADFAD readiness
+- changing Subject alone does not create authoritative DOE
+- `subjectKey` is included in the sanitized session/calendar projection because it is non-private scheduling metadata
+- ADC/DVM/admin session write allowlists and calendar source matching accept `subjectKey` without automatically advancing HICC/VISC review or ADFAD queue state
 
 - [ ] **Step 8: Add static/runtime assets in deterministic order**
 
