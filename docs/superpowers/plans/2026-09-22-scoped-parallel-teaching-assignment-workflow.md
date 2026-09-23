@@ -1084,7 +1084,7 @@ git commit -m "feat: separate working and published timetable views"
 - Modify: `faculty-assignment.js` only if a small source/provenance helper is needed
 - Modify: `approval-request.js` only for immutable Published-base provenance
 - Modify: `approval-finalizer.js` only for stale-base validation; do not alter routing/order
-- Modify: `firestore.rules` only if T7 publication/request shape needs a small companion adjustment
+- Modify: `firestore.rules` for Change Request `baseReleaseId` shape/immutability only; do not redesign T7 publication rules here
 - Modify: `tests/faculty-assignment.test.js`
 - Create: `tests/adfa-assignment-submit.test.js`
 - Create: `tests/adfa-approve-submit-not-publish.test.js`
@@ -1231,11 +1231,13 @@ Use a Firestore transaction on the Academic-Year pointer:
 
 The activation event is the only Faculty-visible cutover.
 
-- [ ] **Step 11: Implement restore-as-new-release, not pointer rollback**
+- [ ] **Step 11: Implement restore-as-new-release helper, not pointer rollback**
 
-If restore tooling is included in this phase, it copies a prior sealed snapshot into a new candidate, validates/seals it, and publishes a new release ID.
+Add a deterministic helper that takes a prior sealed release snapshot and constructs a new candidate release with a new release ID and provenance back to the source release.
 
-Do not add "set pointer to arbitrary old release" as a normal rollback control.
+The helper follows the same validate -> seal -> activate path as any other publication.
+
+No direct "set pointer to arbitrary old release" operation is allowed. No separate restore UI is required in this task; the helper and tests define the approved rollback semantics.
 
 - [ ] **Step 12: Add Published provenance to Change Requests**
 
@@ -1265,7 +1267,7 @@ node --test tests/faculty-assignment.test.js tests/adfa-assignment-submit.test.j
 
 Expected: PASS.
 
-If `firestore.rules` changed in this task, also run:
+Run the emulator suite because this task extends Change Request rule shape/provenance:
 
 ```bash
 npm run test:emulator
