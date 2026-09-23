@@ -1,7 +1,7 @@
 # PAWS Scoped Parallel Teaching Assignment Workflow — Design Spec
 
 Date: 2026-09-22  
-Status: Approved design baseline  
+Status: Approved design baseline — P3 architecture lock (parallel workflow + versioned timetable publication)  
 Repository: `Alex1122341/Teaching-assignment`  
 Implementation branch: `feature/scoped-parallel-assignment-workflow`
 
@@ -9,7 +9,9 @@ Implementation branch: `feature/scoped-parallel-assignment-workflow`
 
 Replace the current serial Teaching Assignment preparation model with a scoped, parallel contribution model while preserving the existing explicit Change Request approval lifecycle.
 
-This design applies only to the normal Teaching Assignment preparation flow. It does not replace or weaken the routed Change Request approval flow.
+Add a separate Working-versus-Published timetable boundary so internal Teaching Assignment changes can continue without exposing unfinished work to ordinary Faculty. The existing `sessions` + `calendar_sessions` pair remains the internal Working layer; Faculty consume only the active, versioned Published release.
+
+This design does not weaken the routed Change Request approval flow, does not redesign DOE formulas, and does not treat ADFA session finalization as timetable publication.
 
 ## 2. Repository and branch baseline
 
@@ -23,7 +25,12 @@ Before product-code implementation begins on the home computer, the implementati
 
 The unfinished local PR #67 worktree on the company computer is not available on the home computer and must not be reconstructed or assumed to exist.
 
-Useful company-computer work may be reconciled later. Old serial-readiness D2 logic must not be imported blindly because this design supersedes it.
+The company-computer WIP was preserved on `handoff/pr67-phase-a-wip` at checkpoint `11b14aea01498efb19a7adca27cb80d69614811c`. Reconciliation concluded:
+- D1 LAB roster/group consistency contains reusable integrity ideas but must be reimplemented cleanly; the handoff commit must not be cherry-picked wholesale.
+- D2 serial readiness is superseded and must not be continued.
+- D3 added no reusable local implementation.
+
+In particular, a referenced LAB group that does not exist must fail closed, while LAB group/roster completion remains independent from ADFA readiness.
 
 ## 3. Separate the two workflows
 
@@ -71,6 +78,36 @@ Change Request
 ```
 
 Existing approval lifecycle, routing, order enforcement, push-back, reject, resubmit, and finalizer behavior must remain intact unless a separate approved design explicitly changes them.
+
+A Change Request created from a Published release must retain publication provenance such as `baseReleaseId` plus the existing/public base-session evidence. Final apply must revalidate the current Working session and fail closed when the reviewed base is stale. Publication provenance strengthens stale-write protection; it does not change the ADC/LAB/ADFA approval order.
+
+### 3.3 Working versus Published timetable boundary
+
+Normal Teaching Assignment preparation and timetable publication are separate lifecycles:
+
+```text
+INTERNAL WORKING LAYER
+sessions
+  -> calendar_sessions (sanitized Working projection)
+  -> ADC / LAB / scoped HICC / scoped VISC / ADFA / Developer-Owner
+  -> ADFA Approve & Submit
+  -> finalized Working assignment
+
+EXPLICIT PUBLICATION
+  -> build complete Academic-Year release candidate
+  -> validate
+  -> seal
+  -> atomically switch activeReleaseId
+
+FACULTY-FACING PUBLISHED LAYER
+  -> active sealed release only
+```
+
+`ADFA Approve & Submit` is session-level final assignment authority. It must not publish the timetable.
+
+`Publish Timetable` is timetable-level release authority. It must not create or change final assignments and must not trigger DOE.
+
+Working edits after a release is active do not change what Faculty see until a later explicit Publish.
 
 ## 4. Session skeleton and readiness
 
@@ -203,28 +240,40 @@ Topic remains free instructional content and must never be used as the authoriza
 
 ### 6.4 Authorization storage
 
-Prefer authoritative academic scopes on the user's existing authorization profile so Firestore rules can evaluate them through the already-required profile read without depending on a stale derived authorization cache.
+The canonical implementation uses a bounded profile-local token list so Firestore rules can evaluate exact scope membership through the already-required user profile read.
 
-A compatible shape is:
+Canonical shape:
 
-```js
-academicScopes: {
-  hicc: [
-    { course: "VTMD 505" },
-    { course: "VTMD 506", subjectKey: "surgery" }
-  ],
-  visc: [
-    { course: "VTMD 521", subjectKey: "imaging" }
-  ],
-  rotation_coordinator: [
-    { course: "VTMD 590" }
-  ]
-}
+```text
+academicScopeTokens:
+  hicc|VTMD 505|*
+  hicc|VTMD 506|surgery
+  visc|VTMD 521|imaging
+  rotation_coordinator|VTMD 590|*
 ```
 
-Exact storage may reuse an existing canonical structure if repository inspection finds a safer equivalent, but the authorization contract above must remain unchanged.
+Rules:
 
-`faculty_groups` may continue to support group/member administration; it should not become the only authorization source if that requires fuzzy matching or stale derived access state.
+- token grammar is exactly `responsibility|COURSE|subjectKey`
+- `*` means course-wide authority
+- responsibility, course and Subject components are bounded
+- components may not contain `|`
+- matching is exact after canonical normalization
+- legacy profiles without tokens remain valid but gain no scoped authority
+- do not create a derived `user_scopes/{uid}` authorization cache
+- `faculty_groups` remains group/member administration, not the sole authorization source
+
+### 6.5 Deprecated `other_office` role
+
+`other_office` is not part of the target PAWS role model.
+
+It receives no new parallel-workflow, Working-timetable, contribution, publication, or final-assignment capability.
+
+During Task 6 implementation, perform a read-only dependency check using existing safe tooling. If an active account still depends on `other_office`, stop and report the migration requirement before removing runtime acceptance. If no active account depends on it, remove `other_office` from active role enums, capability maps, provisioning choices, Firestore authorization, demo fixtures, and runtime tests.
+
+Historical audit/doc text may still contain the string. Future offices must receive explicit capabilities/scopes tied to real business requirements; do not introduce another generic placeholder role.
+
+## 7. Faculty suggestions
 
 ## 7. Faculty suggestions
 
@@ -305,8 +354,9 @@ Readable by:
 Not readable by:
 
 - ordinary Faculty without a Teaching Assignment responsibility
-- Other Office
 - Student
+
+The deprecated `other_office` role receives no target runtime access.
 
 A Teaching Assignment role may see the Teaching Assignment notes needed for that workflow. Scoped academic roles still remain course/Subject-scoped for any write or workflow action.
 
@@ -384,6 +434,126 @@ review suggestions
 ```
 
 Do not create a redundant `adfaSubmittedAt` state solely to represent the same fact if the authoritative assignment write already provides the canonical evidence.
+
+Approve & Submit changes the authoritative Working session only. It must not create a timetable release and must not change an active release pointer.
+
+### 11.2 Versioned timetable publication
+
+Keep the current source/mirror split as the internal Working layer:
+
+```text
+sessions
+  = authoritative Working session source
+
+calendar_sessions
+  = sanitized Working projection
+```
+
+Do not repurpose `calendar_sessions` as Published data. Existing paired-write, bulk-import, repair, timetable-editing and DOE persistence paths depend on its Working-layer semantics.
+
+Use a separate versioned release family. The implementation plan may refine field names, but the contract is:
+
+```text
+timetable_publications/{academicYearKey}
+  activeReleaseId
+
+timetable_publications/{academicYearKey}/releases/{releaseId}
+  release metadata
+
+timetable_publications/{academicYearKey}/releases/{releaseId}/sessions/{sessionId}
+  immutable Faculty-facing session snapshots
+```
+
+A release covers the complete timetable for one Academic Year in this phase.
+
+### 11.3 Release lifecycle
+
+A candidate release progresses conceptually through:
+
+```text
+building -> validated -> sealed
+```
+
+Only a sealed release may become active.
+
+Building and validation occur while the prior release remains active. The Faculty-visible publication event is one atomic pointer transaction that changes `activeReleaseId`.
+
+If first publication has no active release yet, Faculty see a controlled "Timetable has not yet been published" state.
+
+If build, validation, seal, or activation fails, the prior active release remains unchanged.
+
+### 11.4 Release immutability and republish
+
+A sealed release is immutable.
+
+Working changes after publication never mutate a sealed release.
+
+Republish creates a new release version, validates and seals it, then atomically switches the pointer.
+
+Rollback, when needed, is represented as a new release copied from a prior sealed snapshot and published forward. Do not move the pointer backward to an old release as the normal rollback mechanism.
+
+### 11.5 Publication concurrency
+
+Each candidate records the active release it was based on and a deterministic fingerprint of the Working source snapshot used to build it.
+
+Before activation:
+
+- recompute/validate the Working source fingerprint
+- verify the candidate is complete and sealed
+- transactionally verify the active pointer still equals the candidate's expected prior value
+
+If another publisher wins first, the losing candidate is not activated and must be rebuilt from current Working state.
+
+### 11.6 Publication authority
+
+Initial Publish authority is limited to:
+
+- Developer
+- Owner / ADFA General-equivalent high-trust authority
+
+ADFA Regular, ADC, LAB, HICC, VISC and ordinary Faculty cannot publish.
+
+Final-assignment capability and publication capability are separate.
+
+### 11.7 Faculty-facing visibility
+
+Ordinary Faculty:
+
+- cannot read `sessions`
+- cannot read `calendar_sessions`
+- can read the complete active Published timetable for the selected Academic Year
+- see only the active release, not inactive release history
+
+The main Timetable may display the whole active Published timetable.
+
+`My Teaching` is a convenience filter over that same active release. It is not the authorization boundary.
+
+Faculty Dashboard self-mode and other Faculty self-service surfaces must also use Published data only. No Faculty-facing path may silently fall back to Working collections.
+
+HICC/VISC have two distinct surfaces:
+
+- normal Faculty timetable view -> active Published release
+- scoped Teaching Assignment work tools -> exact-scope Working queries only
+
+ADC/LAB/ADFA/Developer-Owner continue to use the Working layer for authorized internal work.
+
+### 11.8 Published snapshot privacy
+
+Release session documents use an explicit allowlist. Never spread/copy a Working session object wholesale.
+
+Published snapshots may contain approved scheduling display fields such as course, Subject, date, time, type, Topic, room, instructor display names and non-private LAB group identifiers.
+
+Published snapshots must not contain:
+
+- contributor notes
+- suggestions
+- roster/student data
+- exact DOE, target, variance or formula data
+- HR/AFC private details
+- private Faculty identifiers
+- internal approval/audit payloads
+
+A missing or corrupt active pointer, missing release metadata, or incomplete/unsealed release fails closed. Faculty clients must never guess the newest release or fall back to Working data.
 
 ## 12. Candidate availability and workload
 
@@ -494,6 +664,23 @@ The same role/course may also differ between academic years when the Annual Rule
 
 Missing or ambiguous course/Subject mappings must return Needs Review/fail closed. Never copy the previous course's DOE and never invent a default.
 
+### 13.5 Publication and DOE
+
+Timetable publication is a presentation/release action, not a DOE calculation event.
+
+The following never trigger authoritative DOE by themselves:
+
+- contribution suggestion save
+- Teaching Assignment note save
+- Subject-only change when the active Rule Book does not declare Subject relevant
+- release build
+- release validation
+- release seal
+- active release pointer switch
+- republish/restore release
+
+The existing authoritative final-assignment path remains the only Teaching Assignment event that may request DOE recalculation when Rule Book-relevant facts changed.
+
 ## 14. Work Queue behavior
 
 The Work Queue must stop representing normal Teaching Assignment preparation as a serial ADC -> LAB -> ADFA chain.
@@ -517,18 +704,40 @@ The implementation must prove these with code-level and Firestore emulator tests
 1. `role == 'hicc'` alone does not grant all-course authority.
 2. `role == 'visc'` alone does not grant all-course authority.
 3. Course and Subject authorization are exact-match.
-4. Cross-course HICC/VISC Topic writes are denied.
-5. Cross-Subject HICC/VISC Topic writes are denied when Subject scope is present.
-6. Suggestions cannot contain private Faculty/DOE/AFC/HR fields.
-7. Suggestions cannot silently become assignments.
-8. Notes are denied to ordinary Faculty, Other Office and Student.
-9. Notes never enter calendar/public projections.
-10. Roster read is currently allowed to every active authenticated PAWS user.
-11. Roster write remains role-restricted.
-12. LAB roster completion does not block ADFA readiness.
-13. Existing explicit routed approval order remains enforced.
-14. Normal Teaching Assignment preparation creates no Change Request approval records.
-15. DOE suggestion/preview data never becomes authoritative DOE without the trusted final-assignment/DOE path.
+4. Cross-course HICC/VISC Working reads and Topic writes are denied.
+5. Cross-Subject HICC/VISC Working reads and Topic writes are denied when Subject scope is present.
+6. Scoped contributors cannot change `course` or `subjectKey` to expand authority.
+7. Topic text never establishes authorization.
+8. Suggestions cannot contain private Faculty/DOE/AFC/HR fields.
+9. Suggestions cannot silently become assignments.
+10. Notes are denied to ordinary Faculty and Student-facing users.
+11. Notes never enter Working calendar or Published projections.
+12. Roster read is temporarily allowed to every active, password-complete PAWS user.
+13. Roster write remains role-restricted.
+14. Missing referenced LAB group fails closed for integrity.
+15. LAB roster completion does not block ADFA readiness.
+16. Existing explicit routed approval order remains enforced.
+17. Normal Teaching Assignment preparation creates no Change Request approval records.
+18. DOE suggestion/preview data never becomes authoritative DOE without the trusted final-assignment/DOE path.
+19. Ordinary Faculty are denied direct reads of Working `sessions`.
+20. Ordinary Faculty are denied direct reads of Working `calendar_sessions`.
+21. Faculty-visible timetable data comes only from the active sealed release.
+22. Inactive/building/validated-but-unsealed/failed release sessions are not Faculty-readable.
+23. Release session documents use a strict public-field allowlist.
+24. Sealed release metadata and session snapshots are immutable.
+25. The active release cannot be deleted or modified in place.
+26. Working writes never mutate an existing sealed release.
+27. Missing/corrupt publication state never falls back to Working data.
+28. Publication authority is narrower than final-assignment authority.
+29. Approve & Submit never changes `activeReleaseId`.
+30. Publish never changes final assignments and never triggers DOE.
+31. Concurrent publish attempts cannot create mixed-version Faculty views.
+32. Change Requests preserve Published-base provenance and final apply fails closed on stale Working state.
+33. `other_office` grants no target runtime authority after the approved T6 removal gate.
+34. Inactive, anonymous, and password-change-required accounts are denied Working, Published and roster reads.
+35. Firestore rules, not UI hiding, enforce the boundary.
+
+## 16. Existing modules to preserve or extend
 
 ## 16. Existing modules to preserve or extend
 
@@ -576,25 +785,41 @@ At minimum cover:
 - explicit approval regression
 - Firestore rules expression-budget regression
 - browser smoke regression
+- direct Faculty denial for Working `sessions` and `calendar_sessions`
+- exact-scope HICC/VISC Working queries
+- active-release-only Faculty reads
+- inactive release ID guessing denial
+- strict Published-session allowlist
+- no-release and corrupt-pointer fail-closed behavior
+- sealed release immutability
+- atomic pointer activation and concurrent publisher conflict
+- Working edits after publish remain invisible until republish
+- Approve & Submit does not publish
+- Publish does not assign or trigger DOE
+- Faculty Timetable and Faculty Dashboard self-mode use Published data only
+- Change Request `baseReleaseId`/base-session stale protection
+- deprecated `other_office` runtime removal regression
 
 ## 18. Implementation sequence
 
-The detailed implementation plan must be written separately after this design is approved.
+The approved implementation sequence is:
 
-The plan should broadly sequence work as:
+1. T1 — isolated worktree, merge latest main, clean baseline gate
+2. T2 — exact academic Course/Subject scope helper
+3. T3 — canonical Subject catalog and `subjectKey` Working projection
+4. T4 — parallel field-based preparation readiness
+5. T5 — four-source suggestions and actor-scoped contributions
+6. T6 — scoped capabilities, User Management scope assignment, Topic policy, publication capability, and `other_office` retirement
+7. T7 — Firestore authorization for scoped Working data, contributions/notes/roster, and the versioned publication boundary
+8. T8 — Work Queue plus role-correct Working/Published UI and scoped HICC/VISC Working queries
+9. T9 — ADFA suggestion review/Approve & Submit plus explicit versioned Publish Timetable and Change Request publication provenance
+10. T10 — safe availability and coarse workload projection
+11. T11 — DOE regression guards including no-DOE-on-publish
+12. T12 — schema/docs/fixtures, explicit approval regression, publication security regression, static/server/emulator/browser verification
 
-1. merge latest main into the new feature worktree and establish clean baseline
-2. pure logic scope/readiness/contribution tests
-3. scoped responsibility model
-4. parallel readiness and Work Queue
-5. contribution persistence and notes/suggestions
-6. Firestore rules and emulator tests
-7. LAB temporary roster-read rule
-8. ADFA UI integration
-9. candidate safe projection
-10. DOE regression protections
-11. explicit approval regression
-12. full static/server/emulator/browser verification
+T7, T8 and T9 are the publication-critical implementation tasks. Do not start them from the pre-P3 plan text.
+
+## 19. Out of scope
 
 ## 19. Out of scope
 
@@ -609,3 +834,8 @@ This design does not:
 - merge PR #67
 - reconstruct the company-computer local PR #67 worktree
 - design the future Student-facing roster privacy model
+- expose inactive/previous timetable releases to ordinary Faculty
+- support partial course/term publication in the first version; the initial release unit is one complete Academic Year
+- implement pointer-backward rollback; restoration is a new forward release
+- redesign `calendar_sessions` into the Published store
+- create a generic replacement for the deprecated `other_office` role
