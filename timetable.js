@@ -80,7 +80,7 @@
   function capabilities(stage=''){const profile=currentUser?.profile||{role:currentUser?.role||''};return window.UCVM_OFFICE_CAPABILITIES.forProfile(profile,stage?{stage}:{});}
   function canAddSessions(){return capabilities().canAddSessions;}
   function canAddOneSession(){return capabilities().canAddOneSession;}
-  function canSelectSessions(){return capabilities().canSelectSessions;}
+  function canSelectSessions(){return capabilities().canSelectSessions||UCVM.general(currentUser);}
   function canEdit(){const c=capabilities();return c.canEditCourseFields||c.canEditInstructor;}
   function hasOfficeAccess(stage){return window.UCVM_OFFICE_CAPABILITIES.hasOfficeAccess(currentUser?.profile||{role:currentUser?.role||''},stage);}
   async function loadSubjectOptions(){
@@ -1102,7 +1102,7 @@
       el.addEventListener('click',()=>{
         if(!selectionMode){openSessionDetail(el.dataset.sessionId);return}
         if(isReadOnlySynthetic(s)){toast(s?.isUniversityClosure?'University closure records are read-only institutional calendar entries.':'CCC records are read-only and cannot be selected.',true);return}
-        if(!window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),s).canSelect){toast('LAB accounts can select LAB sessions only.',true);return}
+        if(!selectionPolicy(s).canSelect){toast('This session is not selectable for the current work context.',true);return}
         try{
           const selected=sessionSelection.toggle(el.dataset.sessionId);
           if(selected&&s)selectedSessionOriginals.set(String(s.id),JSON.parse(JSON.stringify(s)));
@@ -1123,6 +1123,11 @@
   async function startSessionSelection(){
     if(!canSelectSessions())return;
     scopedWork=null;selectionLabRosterDrafts.clear();
+    const ordinarySelection=capabilities().canSelectSessions===true;
+    if(mayConfigureTeachingAssignmentOwnership())await ensureTeachingAssignmentDirectory();
+    if(!ordinarySelection&&UCVM.general(currentUser)&&!canConfigureTeachingAssignmentOwnership()){
+      toast('Teaching Assignment ownership configuration is unavailable until its security rules are enabled.',true);return;
+    }
     if(capabilities().canEditInstructor)await ensureFacultyDirectory();
     selectionViewFlow.begin(viewMode);
     selectionMode=true;reviewingSelection=false;document.body.classList.add('session-selection-mode');updateSelectionControls();render();
@@ -1268,9 +1273,21 @@
       return{field:'labRoster',label:`LAB roster · Group ${code}`,before:`${before} student${before===1?'':'s'}`,after:`${after} student${after===1?'':'s'}`};
     });
   }
-  function selectionRole(){if(scopedWork?.stage)return scopedWork.stage;const role=UCVM.role(currentUser?.role);return role==='developer'?'developer':hasOfficeAccess('adc')?'adc':role;}
+  function selectionRole(){
+    if(scopedWork?.stage)return scopedWork.stage;
+    const role=UCVM.role(currentUser?.role);
+    if(role==='developer')return'developer';
+    if(hasOfficeAccess('adc'))return'adc';
+    if(UCVM.general(currentUser)&&canConfigureTeachingAssignmentOwnership())return'ta_config';
+    return role;
+  }
   function selectionCapabilities(){const role=selectionRole();return role==='developer'?capabilities():capabilities(role);}
-  function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session);}
+  function selectionOwnershipAllowed(){
+    if(!canConfigureTeachingAssignmentOwnership())return false;
+    if(scopedWork)return scopedWork.stage==='adc';
+    return['developer','adc','ta_config'].includes(selectionRole());
+  }
+  function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session,{allowTeachingAssignmentOwnership:selectionOwnershipAllowed()});}
   function lockedAttr(enabled){return enabled?'':'disabled class="role-locked-field"';}
   function renderSelectionEditor(){
     if($('calendar-body').querySelector('[data-selection-row]'))return;
