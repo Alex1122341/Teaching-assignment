@@ -30,9 +30,10 @@
   - ADFAD final Faculty assignment
 - VISC is a group reviewer/leader, not a peer HICC content editor and not the final submitter to ADFAD.
 - HICC remains exact Course/Subject scoped.
+- HICC/VISC operational authority is time-bounded through stable Teaching Responsibilities; `users.role` alone is never current-duty evidence.
 - VISC review authority comes from Teaching Assignment group leadership, not a VISC Course/Subject token.
 - Use a dedicated `teaching_assignment_groups` model; do not repurpose existing `faculty_groups`.
-- Working sessions carry trusted `teachingAssignmentGroupId`, `responsibleHiccUid`, and internal `teachingAssignmentSubmissionId`; HICC/VISC cannot self-edit these ownership/package-locator fields.
+- Working sessions carry trusted `teachingAssignmentGroupId`, `responsibleHiccResponsibilityId`, and internal `teachingAssignmentSubmissionId`; HICC/VISC cannot self-edit these ownership/package-locator fields.
 - HICC package review state is stored separately from explicit Change Request state.
 - ADFAD queue entry requires VISC approval of the current package revision plus HICC Final Submit.
 - Any review-relevant Working edit after VISC approval invalidates that approval for Final Submit.
@@ -48,7 +49,7 @@
 
 ## Review Focus
 
-1. **HICC ownership** — HICC must be both `responsibleHiccUid` and exact Course/Subject authorized.
+1. **HICC ownership** — HICC must be both `responsibleHiccResponsibilityId` and exact Course/Subject authorized.
 2. **VISC group boundary** — VISC may review every HICC package in groups it leads, and no package outside those groups.
 3. **VISC review-only semantics** — approval/push-back does not grant Topic editing, Final Submit, final Faculty assignment, or Publish.
 4. **Revision safety** — HICC Final Submit must fail unless the server-enforced current `workingRevision` still equals the submitted and VISC-approved Working revisions; fingerprint equality is an additional consistency check, not the sole authorization proof.
@@ -521,7 +522,9 @@ git commit -m "feat: add teaching assignment contributions"
 
 **Files:**
 - Create: `teaching-assignment-groups.js`
+- Extend: `teaching-responsibility.js`
 - Create: `tests/teaching-assignment-groups.test.js`
+- Extend: `tests/teaching-responsibility.test.js`
 - Modify: `office-capabilities.js`
 - Modify: `account-profile.js`
 - Modify: `user-management.html`
@@ -543,29 +546,39 @@ Any active dependency/inability to verify -> STOP before runtime removal.
 {
   id:'bovine',
   name:'Bovine',
-  leaderViscUid:'uid-visc',
-  hiccUids:['uid-hicc-a','uid-hicc-b'],
+  leaderViscResponsibilityId:'visc-bovine',
+  hiccResponsibilityIds:['hicc-bovine-a','hicc-bovine-b'],
   active:true
 }
 ```
 
 Rules:
-- one VISC leader per group in first version
-- VISC may lead multiple groups
-- HICC membership explicit
-- group `id` is immutable and canonical: `^[a-z][a-z0-9_-]{0,63}$`
-- export/test deterministic `submissionDocumentId(academicYearKey, groupId, hiccUid)`
-  using the locked `ta-sub-v1__...` encoding from the design
-- malformed group/package identity fails closed
+- one stable VISC responsibility leads a group in the first version
+- a VISC responsibility may lead multiple groups only when explicitly configured
+- HICC group membership is by stable HICC responsibility ID, never by current assignee UID
+- group `id` and responsibility `id` are immutable canonical slugs: `^[a-z][a-z0-9_-]{0,63}$`
+- export/test deterministic `submissionDocumentId(academicYearKey, groupId, hiccResponsibilityId)`
+  using the locked `ta-sub-v2__...` encoding from the design
+- malformed group/responsibility/package identity fails closed
 - existing `faculty_groups` is not reused.
 
 - [ ] **Step 3: User Management Teaching Assignment Groups**
 
 High-trust managers can:
 - create/rename/deactivate group
-- choose VISC leader
-- add/remove HICC members
-- assign HICC exact Course/Subject scopes.
+- create/rename/deactivate stable HICC/VISC responsibilities
+- choose the group's VISC leader responsibility
+- add/remove HICC responsibilities
+- assign HICC exact Course/Subject scopes to the responsibility
+- assign Faculty to HICC/VISC responsibilities with arbitrary valid Active/Expiration dates
+- split and restore coverage within the same year while rejecting overlapping windows.
+
+Example: Lisa may cover Bill's HICC responsibility from Sep 1 to Mar 1, and Bill
+may resume on Mar 1 without changing the session/package responsibility ID.
+
+DOE Role Assignment may link to the same `responsibilityId`, but the safe
+operational assignee projection contains no DOE amount, DOE override, RSL/AFC
+reason, HR data or private special note.
 
 Keep existing HICC-owned `faculty_groups` UI separate.
 
@@ -590,19 +603,29 @@ Publish remains high-trust only.
 
 Support:
 - `teachingAssignmentGroupId`
-- `responsibleHiccUid`
+- `responsibleHiccResponsibilityId`
 - `teachingAssignmentSubmissionId`
 
 The locator is deterministically derived from the session's canonical
-`academicYear`, group and responsible HICC through
+`academicYear`, group and stable HICC responsibility through
 `submissionDocumentId(...)`. It is internal-only and must not enter the
 calendar or Published projection.
 
-Only trusted admin/ADC/DVM configuration paths set/change these fields.
+Create Rules-addressable temporal assignee projections at:
 
-HICC/VISC cannot self-reassign ownership/group/package. T6 defines the identity
-and trusted metadata; T7 owns Firestore enforcement and review-transition
-security.
+```text
+teaching_responsibilities/{responsibilityId}/years/{academicYearKey}/assignees/{uid}
+```
+
+Each assignee/year document is bounded to at most four non-overlapping half-open
+windows and excludes DOE/private leave data.
+
+Only trusted admin/ADC/DVM configuration paths set/change session ownership.
+Only high-trust management sets responsibility definitions and assignee windows.
+
+HICC/VISC cannot self-reassign ownership/group/package or their own time window.
+T6 defines identity/schedule and validates no-overlap; T7 owns Firestore
+enforcement and review-transition security.
 
 - [ ] **Step 6: User-facing terminology**
 
@@ -653,22 +676,34 @@ git commit -m "feat: add grouped hicc visc responsibilities"
 - [ ] **Step 0: Deterministic package identity and direct Rules locator**
 
 Use the locked package identity
-`ta-sub-v1__ENC(academicYearKey)__ENC(groupId)__ENC(hiccUid)`.
+`ta-sub-v2__ENC(academicYearKey)__ENC(groupId)__ENC(hiccResponsibilityId)`.
 
 Do not make Firestore Rules reproduce JavaScript URL encoding. Every P3.1-owned
 Working session carries trusted `teachingAssignmentSubmissionId`; HICC/VISC
 cannot mutate it. Rules load that package directly and fail closed unless the
-package Academic Year, group and HICC exactly match the session's
-`academicYear`, `teachingAssignmentGroupId` and `responsibleHiccUid`.
+package Academic Year, group and stable HICC responsibility exactly match the
+session's `academicYear`, `teachingAssignmentGroupId` and
+`responsibleHiccResponsibilityId`.
+
+For HICC/VISC Working reads and writes, Rules also directly load:
+
+```text
+teaching_responsibilities/{responsibilityId}/years/{academicYearKey}/assignees/{request.auth.uid}
+```
+
+The assignee document must be enabled and at least one bounded window must
+satisfy `activeAt <= request.time < expiresAt`. This is the current-duty
+authorization boundary; `users.role` is not a substitute.
 
 - [ ] **Step 1: HICC exact ownership**
 
 Allow HICC Working read/edit only when:
-- `responsibleHiccUid == request.auth.uid`
-- exact HICC Course/Subject token matches
-- active Teaching Assignment group contains the HICC
+- the session's `responsibleHiccResponsibilityId` identifies an active HICC responsibility
+- the authenticated actor has a currently effective assignee window for that responsibility
+- the HICC responsibility's exact Course/Subject token matches the session
+- the active Teaching Assignment group contains that HICC responsibility
 - `teachingAssignmentSubmissionId` resolves to the exact matching Academic
-  Year/group/HICC package.
+  Year/group/HICC-responsibility package.
 
 HICC/VISC cannot change any trusted ownership/package-locator field.
 
@@ -676,7 +711,7 @@ Deny cross-HICC/course/Subject/package.
 
 - [ ] **Step 2: VISC group review**
 
-Allow VISC read of all HICC Working sessions/submissions in groups it leads.
+Allow VISC read of all HICC Working sessions/submissions in groups led by its stable VISC responsibility. The authenticated actor must have a currently effective assignee window for that group’s `leaderViscResponsibilityId`.
 
 Deny other groups.
 
@@ -1140,7 +1175,7 @@ Document:
 - HICC `academicScopeTokens`
 - canonical `subjectKey`
 - trusted session `teachingAssignmentGroupId`
-- trusted session `responsibleHiccUid`
+- trusted session `responsibleHiccResponsibilityId`
 - `teaching_assignment_groups`
 - `teaching_assignment_submissions`
 - submission lifecycle:
@@ -1170,6 +1205,7 @@ Include a deterministic Bovine-style example:
 - one VISC Push Back example
 - one package `visc_approved`
 - one package `submitted_to_adfad`
+- one temporal HICC handoff fixture (Lisa covers Bill, then Bill resumes) without changing package identity
 - LAB group/roster
 - one sealed Published release
 - newer Working changes absent from Published release
