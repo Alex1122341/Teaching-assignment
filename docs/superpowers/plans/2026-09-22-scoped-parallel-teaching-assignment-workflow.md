@@ -69,7 +69,7 @@ Expected: merge completes without discarding the existing PR #67-derived Work Qu
 - [ ] **Step 3: Install repository dependencies without changing dependency versions**
 
 ```bash
-npm install
+npm ci
 npm --prefix server install
 ```
 
@@ -148,7 +148,7 @@ test('Subject-limited scope requires exact course and exact Subject',()=>{
 ```js
 test('malformed academicScopeTokens fail closed',()=>{
  const api=load();
- for(const academicScopeTokens of [null,[],{hicc:'VTMD 505'},{hicc:[{}]},{hicc:[{course:'5'}]}]){
+ for(const academicScopeTokens of [null,{},[''],['hicc|5|*'],['hicc|VTMD 505'],['unknown|VTMD 505|*']]){
   assert.equal(api.hasScope({role:'hicc',academicScopeTokens},'hicc',{course:'VTMD 505',subjectKey:'surgery'}),false);
  }
 });
@@ -217,7 +217,7 @@ Expected: PASS.
 
 - [ ] **Step 6: Add the helper to static/browser assets before consumers**
 
-If browser consumers load these modules directly, add `academic-responsibility.js` to `tools/static-assets.json` and load it before `timetable.js` in `index.html`. Add a load-order assertion next to the existing office-capability load-order test.
+Add `academic-responsibility.js` to `tools/static-assets.json` and load it before `office-capabilities.js` and `timetable.js` in `index.html`. Add a load-order assertion next to the existing office-capability load-order test.
 
 - [ ] **Step 7: Run static and focused regression tests**
 
@@ -342,7 +342,7 @@ Rules/UI must enforce:
 - `subjectKey` is optional and is not an ADFA readiness gate
 - HICC/VISC cannot change `subjectKey`
 - Topic remains a separate free-text field
-- changing Subject alone does not create authoritative DOE
+- changing Subject alone does not create authoritative DOE\n- `subjectKey` is included in the sanitized session/calendar projection because it is non-private scheduling metadata\n- ADC/admin session write allowlists and calendar source matching accept `subjectKey` without changing ADFA readiness
 
 - [ ] **Step 8: Add static/runtime assets in deterministic order**
 
@@ -361,7 +361,7 @@ Expected: PASS.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add subject-catalog.js subject-catalog-admin.js tests/subject-catalog.test.js tests/subject-catalog-admin.test.js tests/subject-catalog-security-emulator.test.js faculty-admin.html timetable.js timetable-selection.js firestore.rules tools/static-assets.json tools/runtime-bundles.json
+git add subject-catalog.js subject-catalog-admin.js tests/subject-catalog.test.js tests/subject-catalog-admin.test.js tests/subject-catalog-security-emulator.test.js faculty-admin.html timetable.js timetable-selection.js calendar-session.js tests/calendar-session.test.js firestore.rules tools/static-assets.json tools/runtime-bundles.json
 git commit -m "feat: add canonical teaching subject catalog"
 ```
 
@@ -688,12 +688,12 @@ Pin:
 - [ ] **Step 7: Run focused suites**
 
 ```bash
-node --test tests/office-capabilities.test.js tests/timetable-multi-edit-ui.test.js
+node --test tests/office-capabilities.test.js tests/timetable-multi-edit-ui.test.js tests/user-management.test.js
 ```
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add office-capabilities.js timetable-selection.js timetable.js tests/office-capabilities.test.js tests/timetable-multi-edit-ui.test.js
@@ -768,10 +768,11 @@ Expected: new scoped/contribution/roster-read tests fail under old rules.
 Update user create/update validation so `academicScopeTokens` may be persisted by existing high-trust user-management paths.
 
 Rules must validate:
-- map shape
-- only approved responsibility keys used in this phase: `hicc`, `visc`, `rotation_coordinator`
-- each value is a bounded list of maps
-- each scope contains a non-empty course and optional string Subject key
+- `academicScopeTokens` is a bounded list of strings
+- each token uses the exact three-part grammar `responsibility|COURSE|subject`
+- responsibility is one of `hicc`, `visc`, `rotation_coordinator`
+- course and Subject components have bounded lengths and cannot contain `|`
+- Subject may be `*` for course-wide authority
 - HICC/VISC role alone does not grant scope
 
 Keep legacy profiles without `academicScopeTokens` valid but with no scoped authority.
@@ -807,7 +808,7 @@ Permit changes only to:
 
 for a matching HICC/VISC scope. Require the paired sanitized calendar write if the existing session/calendar invariant requires it.
 
-Do not permit scoped roles to change course/date/start/end/type/room/assignments/facultyIds/instructor.
+Do not permit scoped roles to change course/subjectKey/date/start/end/type/room/assignments/facultyIds/instructor. A scoped role must never be able to change `subjectKey` and thereby expand its own authorization.
 
 - [ ] **Step 8: Add `session_assignment_contributions/{id}` rules**
 
