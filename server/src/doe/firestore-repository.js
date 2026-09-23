@@ -349,6 +349,13 @@ function createRepository(db){
       .sort((a,b)=>text(a.roleType||a.teachingRole).localeCompare(text(b.roleType||b.teachingRole))||text(a.activeDate).localeCompare(text(b.activeDate))||text(a.assignmentFactId).localeCompare(text(b.assignmentFactId)));
   }
 
+  async function listRoleAssignmentsForYear(academicYear){
+    const year=text(academicYear);if(!year)return[];
+    const rows=await listWhere('assignments','academicYear',year,'assignmentFactId');
+    return rows.filter(row=>text(row.category).toLowerCase()==='role')
+      .sort((a,b)=>text(a.facultyId).localeCompare(text(b.facultyId))||text(a.roleType||a.teachingRole).localeCompare(text(b.roleType||b.teachingRole))||text(a.assignmentFactId).localeCompare(text(b.assignmentFactId)));
+  }
+
   async function deactivateDoeAssignment({assignmentFactId,auditRecord={}}={}){
     const id=text(assignmentFactId),auditId=text(auditRecord.auditId);
     if(!id)throw new RepositoryError('ASSIGNMENT_ID_REQUIRED','DOE assignmentFactId is required.');
@@ -550,7 +557,7 @@ function createRepository(db){
   return Object.freeze({
     getPolicyForYear,getVersion,getFacultyRecord,listRules,listExceptions,getActivePolicyBundle,getPolicyBundleByVersion,getReference,getSession,
     listCourseMappings,listSubjectMappings,getCourseMapping,getSubjectMapping,
-    saveDraftReference,saveDraftCourseMapping,saveDraftSubjectMapping,saveDraftReservePolicy,saveFacultyTarget,createCalculationRecord,saveDoeAssignmentCalculation,getDoeAssignment,listFacultyRoleAssignments,deactivateDoeAssignment,saveSessionCalculationBundle,getAnnualReviewState,
+    saveDraftReference,saveDraftCourseMapping,saveDraftSubjectMapping,saveDraftReservePolicy,saveFacultyTarget,createCalculationRecord,saveDoeAssignmentCalculation,getDoeAssignment,listFacultyRoleAssignments,listRoleAssignmentsForYear,deactivateDoeAssignment,saveSessionCalculationBundle,getAnnualReviewState,
     createPolicyYearDraft,loadAnnualValidationDataset,saveAnnualValidationResult,getFacultyWorksheetSource,listFacultyWorksheetSources,listFacultyIdsForDoe
   });
 }
