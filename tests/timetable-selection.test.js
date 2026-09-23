@@ -35,6 +35,19 @@ test('only ADC scheduling authority can classify a selected session with an acti
  assert.ok(denied.errors.some(error=>/cannot change subjectKey/i.test(error)));
 });
 
+test('LAB can save owned fields on legacy sessions whose missing subjectKey renders as an empty locked control',()=>{
+ const api=load(),original={...baseSession,type:'LAB',topic:'TBD',labGroupIds:['g1']};
+ delete original.subjectKey;
+ const row={...plain(original),subjectKey:'',topic:'Venipuncture',labGroupIds:['g1','g2']};
+ const plan=plain(api.planChanges([original],[row],{uid:'lab',role:'lab'},123,undefined,{role:'lab',activeSubjectKeys:[]}));
+ assert.deepEqual(plan.errors,[]);
+ assert.equal(plan.updates.length,1);
+ assert.deepEqual(plan.updates[0].data,{topic:'Venipuncture',labGroupIds:['g1','g2']});
+ assert.equal(Object.prototype.hasOwnProperty.call(plan.updates[0].data,'subjectKey'),false);
+ const denied=api.planChanges([original],[{...row,subjectKey:'surgery'}],{uid:'lab',role:'lab'},123,undefined,{role:'lab',activeSubjectKeys:['surgery']});
+ assert.ok(denied.errors.some(error=>/cannot change subjectKey/i.test(error)));
+});
+
 test('a Subject-only selection update does not request DOE recalculation',async()=>{
  const api=load(),original={...baseSession,subjectKey:''},row={...original,subjectKey:'surgery'};
  assert.equal(api.onlySubjectChanged(original,row),true);

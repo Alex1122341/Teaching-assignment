@@ -109,7 +109,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
      if(policy.fields[field])continue;
      // ADC converting a session to LAB forces Topic to TBD, so that is not an attempt.
      if(role==='adc'&&field==='topic'&&text(row.type).toUpperCase()==='LAB')continue;
-     if(!equal(original[field],row[field]))attempted.push(field);
+     if(field==='subjectKey' ? text(original[field])!==text(row[field]) : !equal(original[field],row[field]))attempted.push(field);
     }
     if(policy.fields.subjectKey&&!equal(text(original.subjectKey),text(row.subjectKey))){
      const catalog=window.UCVM_SUBJECT_CATALOG,key=text(row.subjectKey),active=Array.isArray(options.activeSubjectKeys)?options.activeSubjectKeys:[];
