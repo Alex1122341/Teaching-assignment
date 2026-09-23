@@ -341,3 +341,11 @@ test('Teaching Assignment ownership-only update does not request DOE recalculati
  await api.commitPlan(plan,store);
  assert.equal(writes.some(write=>write[1]==='doe/q'),false);
 });
+
+test('ownership-only ta_config policy exposes no scheduling or Faculty fields',()=>{
+ const api=load(),policy=plain(api.editPolicy('ta_config',baseSession,{allowTeachingAssignmentOwnership:true}));
+ assert.equal(policy.canSelect,true);
+ assert.equal(policy.fields.teachingAssignmentGroupId,true);
+ assert.equal(policy.fields.responsibleHiccResponsibilityId,true);
+ for(const field of ['date','year','course','subjectKey','type','start','end','topic','room','faculty','labGroups'])assert.equal(policy.fields[field],false,field);
+});

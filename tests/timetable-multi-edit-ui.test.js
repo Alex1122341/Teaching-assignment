@@ -98,8 +98,11 @@ test('selection pickers render chips into their sibling containers',()=>{
 
 test('scoped Work Queue editor derives field ownership from the persisted scoped stage',()=>{
  const js=read('timetable.js');
- assert.match(js,/function selectionRole\(\)\{if\(scopedWork\?\.stage\)return scopedWork\.stage;/);
- assert.doesNotMatch(js,/function selectionRole\(\)[^\n]*activeScoped/);
+ const start=js.indexOf('function selectionRole');
+ const end=js.indexOf('function selectionCapabilities',start);
+ const fn=js.slice(start,end);
+ assert.match(fn,/if\(scopedWork\?\.stage\)return scopedWork\.stage/);
+ assert.doesNotMatch(fn,/activeScoped/);
 });
 
 test('selection save pairs source calendar and audit writes and uses resumable progress batches',()=>{
@@ -197,4 +200,53 @@ test('Subject selection uses the active catalog and a Subject-only save bypasses
  assert.match(form,/if\(subjectOnly\)next=\{\.\.\.existing,subjectKey\}/);
  assert.match(form,/if\(existing&&!subjectOnly\)/);
  assert.match(form,/const needsDoe=canEditInstructor&&!subjectOnly/);
+});
+
+test('trusted Teaching Assignment ownership editor is directory-backed and derives package identity outside the UI',()=>{
+ const js=read('timetable.js');
+ assert.match(js,/teaching_assignment_groups/);
+ assert.match(js,/teaching_responsibilities/);
+ assert.match(js,/ensureTeachingAssignmentDirectory/);
+ assert.match(js,/data-selection-field="teachingAssignmentGroupId"/);
+ assert.match(js,/data-selection-field="responsibleHiccResponsibilityId"/);
+ assert.doesNotMatch(js,/data-selection-field="teachingAssignmentSubmissionId"/);
+ assert.match(js,/allowTeachingAssignmentOwnership:selectionOwnershipAllowed\(\)/);
+ assert.match(js,/teachingAssignmentGroups:\[\.\.\.teachingAssignmentGroupDirectory\.values\(\)\]/);
+ assert.match(js,/teachingResponsibilities:\[\.\.\.teachingResponsibilityDirectory\.values\(\)\]/);
+});
+
+test('Owner ADFAD General uses ownership-only ta_config rather than inheriting ADC or Faculty editing',()=>{
+ const js=read('timetable.js');
+ const start=js.indexOf('function selectionRole');
+ const end=js.indexOf('function selectionPolicy',start);
+ const fn=js.slice(start,end);
+ assert.match(fn,/UCVM\.general\(currentUser\)&&canConfigureTeachingAssignmentOwnership\(\)\)return'ta_config'/);
+ assert.match(fn,/hasOfficeAccess\('adc'\)\)return'adc'/);
+ assert.match(fn,/selectionOwnershipAllowed/);
+});
+
+test('Teaching Assignment ownership participates in stale checks and metadata-only saves bypass DOE',()=>{
+ const js=read('timetable.js');
+ const start=js.indexOf('async function saveSelectedChanges');
+ const end=js.indexOf('\n  function openSessionDetail',start);
+ const fn=js.slice(start,end);
+ for(const field of ['teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId'])assert.match(fn,new RegExp(field));
+ assert.match(fn,/onlyNonDoeMetadataChanged/);
+ assert.match(fn,/nonDoeMetadataCount/);
+ assert.match(fn,/const needsDoe=canEditFaculty&&preflight\.updates\.length>0&&nonDoeMetadataCount===0/);
+});
+
+test('Teaching Assignment ownership stays internal and is absent from calendar session projection',()=>{
+ const projection=read('calendar-session.js');
+ for(const field of ['teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId'])assert.doesNotMatch(projection,new RegExp(field),field);
+});
+
+test('Teaching Assignment directory permission failure disables ownership configuration without failing timetable data',()=>{
+ const js=read('timetable.js');
+ const start=js.indexOf('async function ensureTeachingAssignmentDirectory');
+ const end=js.indexOf('function canConfigureTeachingAssignmentOwnership',start);
+ const fn=js.slice(start,end);
+ assert.match(fn,/permission-denied/);
+ assert.match(fn,/teachingAssignmentDirectoryReady=false/);
+ assert.match(fn,/return teachingAssignmentDirectory\(\)/);
 });
