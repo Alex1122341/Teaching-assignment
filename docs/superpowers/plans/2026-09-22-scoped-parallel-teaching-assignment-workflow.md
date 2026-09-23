@@ -688,7 +688,7 @@ Pin:
 - [ ] **Step 7: Run focused suites**
 
 ```bash
-node --test tests/office-capabilities.test.js tests/timetable-multi-edit-ui.test.js tests/user-management.test.js
+node --test tests/office-capabilities.test.js tests/timetable-multi-edit-ui.test.js tests/user-management.test.js tests/user-management.test.js
 ```
 
 Expected: PASS.
@@ -696,7 +696,7 @@ Expected: PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add office-capabilities.js timetable-selection.js timetable.js tests/office-capabilities.test.js tests/timetable-multi-edit-ui.test.js
+git add office-capabilities.js timetable-selection.js timetable.js user-management.html user-management.js tests/office-capabilities.test.js tests/timetable-multi-edit-ui.test.js tests/user-management.test.js
 git commit -m "feat: enforce course subject teaching scopes"
 ```
 
