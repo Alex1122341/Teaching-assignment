@@ -97,10 +97,10 @@ Expected: merge completes without discarding the existing PR #67-derived Work Qu
 
 ```bash
 npm ci
-npm --prefix server ci
+npm --prefix server install --no-save --no-audit --no-fund --package-lock=false
 ```
 
-Expected: installs the lockfile-declared dependencies. Do not run dependency upgrades.
+Expected: root dependencies use the committed root `package-lock.json` via `npm ci`. The server currently has no committed `package-lock.json`, so its baseline installation follows the repository's existing `npm install` model. `--no-save` prevents dependency declarations from being written back, and `--package-lock=false` prevents creation of a server lockfile. Task 1 must not change dependency declarations or upgrade dependency versions.
 
 - [ ] **Step 4: Run the complete pre-change baseline**
 
