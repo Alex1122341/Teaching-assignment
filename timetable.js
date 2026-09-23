@@ -214,7 +214,9 @@
   let allSessionsLoading = null;
   const profileSnapshots=new Map();
   const labGroupDirectory=new Map(),labRosterDirectory=new Map();
+  const teachingAssignmentGroupDirectory=new Map(),teachingResponsibilityDirectory=new Map();
   let labWorkflowLoaded=false,labWorkflowLoading=null;
+  let teachingAssignmentDirectoryLoaded=false,teachingAssignmentDirectoryReady=false,teachingAssignmentDirectoryLoading=null;
   function pageProfile(){return currentUser?{...currentUser.profile,name:currentUser.name,email:currentUser.email,role:currentUser.role,facultyId:currentUser.profile?.facultyId||''}:null}
   function pageSessions(){return[...sessionCache.values()]}
   function workflowContext(){return{rosters:Object.fromEntries([...labRosterDirectory.entries()].map(([id,row])=>[id,row])),labGroups:[...labGroupDirectory.values()]}}
@@ -229,6 +231,40 @@
       labWorkflowLoaded=true;publishPageData();return workflowContext();
     }).finally(()=>{labWorkflowLoading=null});
     return labWorkflowLoading;
+  }
+  function mayConfigureTeachingAssignmentOwnership(){
+    return Boolean(currentUser)&&(UCVM.general(currentUser)||hasOfficeAccess('adc'));
+  }
+  function teachingAssignmentDirectory(){
+    return{groups:[...teachingAssignmentGroupDirectory.values()],responsibilities:[...teachingResponsibilityDirectory.values()],ready:teachingAssignmentDirectoryReady};
+  }
+  async function ensureTeachingAssignmentDirectory(force=false){
+    if(!db||!mayConfigureTeachingAssignmentOwnership()){
+      teachingAssignmentGroupDirectory.clear();teachingResponsibilityDirectory.clear();
+      teachingAssignmentDirectoryLoaded=false;teachingAssignmentDirectoryReady=false;
+      return teachingAssignmentDirectory();
+    }
+    if(teachingAssignmentDirectoryLoaded&&!force)return teachingAssignmentDirectory();
+    if(teachingAssignmentDirectoryLoading)return teachingAssignmentDirectoryLoading;
+    teachingAssignmentDirectoryLoading=Promise.all([
+      db.collection('teaching_assignment_groups').get(),
+      db.collection('teaching_responsibilities').get()
+    ]).then(([groups,responsibilities])=>{
+      teachingAssignmentGroupDirectory.clear();teachingResponsibilityDirectory.clear();
+      for(const doc of groups.docs)teachingAssignmentGroupDirectory.set(String(doc.id),{id:doc.id,...doc.data()});
+      for(const doc of responsibilities.docs)teachingResponsibilityDirectory.set(String(doc.id),{id:doc.id,...doc.data()});
+      teachingAssignmentDirectoryLoaded=true;teachingAssignmentDirectoryReady=true;publishPageData();
+      return teachingAssignmentDirectory();
+    }).catch(error=>{
+      teachingAssignmentGroupDirectory.clear();teachingResponsibilityDirectory.clear();
+      teachingAssignmentDirectoryLoaded=true;teachingAssignmentDirectoryReady=false;
+      if(!['permission-denied','failed-precondition'].includes(error?.code))console.error('[Teaching Assignment directory]',error);
+      return teachingAssignmentDirectory();
+    }).finally(()=>{teachingAssignmentDirectoryLoading=null});
+    return teachingAssignmentDirectoryLoading;
+  }
+  function canConfigureTeachingAssignmentOwnership(){
+    return teachingAssignmentDirectoryReady&&mayConfigureTeachingAssignmentOwnership();
   }
   function publishPageData(){for(const callback of pageDataSubscribers){try{callback()}catch(error){console.error('[page data subscriber]',error)}}}
   function cacheSessionRange(range,rows){
