@@ -50,8 +50,6 @@
 
 ## Review Focus
 
-## Review Focus
-
 1. **Malformed or stale academic scope data** — an empty, unknown, or malformed `academicScopeTokens` value must fail closed rather than broadening HICC/VISC authority. Task 2 adds explicit malformed-scope tests.
 2. **Course/Subject normalization edge cases** — authorization may trim and canonicalize course/Subject keys, but it must never fall back to substring matching. Task 2 tests short-string and cross-Subject attacks.
 3. **Concurrent contributor writes** — ADC/LAB/HICC/VISC contributions must live in actor/source-specific documents so one save cannot overwrite another contributor's suggestions or note. Task 5 pins document identity and coexistence.
@@ -99,7 +97,7 @@ Expected: merge completes without discarding the existing PR #67-derived Work Qu
 
 ```bash
 npm ci
-npm --prefix server install
+npm --prefix server ci
 ```
 
 Expected: installs the lockfile-declared dependencies. Do not run dependency upgrades.
