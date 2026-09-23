@@ -7,18 +7,30 @@
  *
  * Pure logic only: no DOM, no Firebase. Safe to load in Node for tests.
  *
- * Stage order is fixed: ADC -> LAB -> ADFA. Stages never run in parallel.
+ * Legacy office consumers retain ADC -> LAB -> ADFA sequencing. The separate
+ * Teaching Assignment content/ADFAD handoff interfaces below require package
+ * review evidence; legacy field completeness is not final package readiness.
  */
 (function(root,factory){
- const api=factory();
+ const api=factory(()=>typeof module==='object'&&module.exports
+  ?require('./teaching-assignment-review.js'):root?.UCVM_TEACHING_ASSIGNMENT_REVIEW);
  if(typeof module==='object'&&module.exports)module.exports=api;
  if(root)root.UCVM_SESSION_WORKFLOW=api;
-})(typeof window!=='undefined'?window:null,function(){
+})(typeof window!=='undefined'?window:null,function(reviewProvider){
  'use strict';
 
  const STAGES=['adc','lab','adfa'];
  const ORDER={adc:0,lab:1,adfa:2};
  const STAGE_LABEL={adc:'ADC',lab:'LAB',adfa:'ADFA'};
+
+ // Resolve on use so older pages can keep loading their existing workflow bundle.
+ // New package consumers fail closed if the review runtime is unavailable.
+ function contentReadiness(session){
+  return reviewProvider()?.contentReadiness(session)||{ready:false,missing:['review_model_unavailable']};
+ }
+ function canEnterAdfadQueue(packageRecord,sessions,suggestions=[]){
+  return reviewProvider()?.canEnterAdfadQueue(packageRecord,sessions,suggestions)===true;
+ }
 
  // Session types that have a spec-defined workflow scope.
  const SCOPED_TYPES=['LEC','SRL','LAB'];
@@ -241,6 +253,6 @@
   missingRequiredFields,optionalFields,isStageComplete,
   previousApplicableStage,nextApplicableStage,stageStatus,
   evaluateSessionWorkflow,workflowItemsForRole,countItemsForRole,
-  isScopedType,sessionType
+  isScopedType,sessionType,contentReadiness,canEnterAdfadQueue
  });
 });

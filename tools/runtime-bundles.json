@@ -79,6 +79,7 @@
     {
       "output": "bundles/timetable-app.bundle.js",
       "sources": [
+        "teaching-assignment-review.js",
         "subject-catalog.js",
         "academic-responsibility.js",
         "office-capabilities.js",

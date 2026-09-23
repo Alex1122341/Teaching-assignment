@@ -14,9 +14,9 @@ test('lightweight report calculates reduction percentages',()=>{
 
 test('source metrics describe the modular runtime graph',()=>{
  const metrics=report.collectSourceMetrics(path.resolve(__dirname,'..'));
- assert.equal(metrics.assets,72);
- assert.equal(metrics.jsAssets,60);
- assert.equal(metrics.pageScripts['index.html'],38);
+ assert.equal(metrics.assets,73);
+ assert.equal(metrics.jsAssets,61);
+ assert.equal(metrics.pageScripts['index.html'],39);
  assert.equal(metrics.pageScripts['faculty-admin.html'],34);
  assert.equal(metrics.pageScripts['user-management.html'],16);
  assert.equal(metrics.pageScripts['password.html'],4);

@@ -8,6 +8,36 @@ const sourceFunction=require('../test-support/source-function');
 const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
+test('normal Teaching Assignment content readiness cannot imply ADFAD handoff',()=>{
+  const workflow=require('../session-workflow.js'),review=require('../teaching-assignment-review.js');
+  const row={id:'ta-1',course:'VTMD 506',date:'2027-09-08',start:'09:00',end:'10:00',type:'LAB',topic:'Suturing'};
+  assert.equal(workflow.contentReadiness(row).ready,true);
+  assert.equal(workflow.canEnterAdfadQueue(null,[row]),false);
+  const draft={status:'draft',revision:0,hiccUid:'h1',viscUid:'v1'};
+  const hicc={actorUid:'h1',actorRole:'hicc',ownsPackage:true,sessions:[row]};
+  const submitted=review.transition(draft,'submit',hicc);
+  const approved=review.transition(submitted,'approve',{actorUid:'v1',actorRole:'visc',canReviewPackage:true,sessions:[row]});
+  assert.equal(workflow.canEnterAdfadQueue(approved,[row]),false);
+  const final=review.transition(approved,'final_submit',hicc);
+  assert.equal(workflow.canEnterAdfadQueue(final,[row]),true);
+  assert.equal(workflow.canEnterAdfadQueue(final,[{...row,room:'Changed room'}]),false);
+  // Existing office operational readiness remains compatible, separate from the handoff.
+  assert.equal(workflow.stageStatus(row,'lab',{rosters:{}}).status,'waiting');
+  assert.equal(workflow.stageStatus({...row,year:2},'lab',{rosters:{}}).status,'ready');
+});
+
+test('browser compatibility interfaces fail closed until the review module is loaded',()=>{
+  const context={window:{}};
+  vm.runInNewContext(read('session-workflow.js'),context);
+  const workflow=context.window.UCVM_SESSION_WORKFLOW;
+  const row={id:'ta-1',course:'VTMD 506',date:'2027-09-08',start:'09:00',end:'10:00',type:'LEC',topic:'Topic'};
+  assert.equal(workflow.contentReadiness(row).ready,false);
+  assert.equal(workflow.canEnterAdfadQueue({status:'submitted_to_adfad'},[row]),false);
+  for(const file of ['scheduling-core.js','teaching-assignment-review.js'])vm.runInNewContext(read(file),context);
+  assert.equal(workflow.contentReadiness(row).ready,true);
+  assert.equal(workflow.canEnterAdfadQueue({status:'submitted_to_adfad'},[row]),false);
+});
+
 function loadWorkQueue(){
   const context={window:{}};
   vm.runInNewContext(read('session-workflow.js'),context);

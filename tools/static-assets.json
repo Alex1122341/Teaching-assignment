@@ -38,6 +38,7 @@
   "academic-responsibility.js",
   "subject-catalog.js",
   "subject-catalog-admin.js",
+  "teaching-assignment-review.js",
   "office-capabilities.js",
   "faculty-account-planner.js",
   "account-profile.js",
