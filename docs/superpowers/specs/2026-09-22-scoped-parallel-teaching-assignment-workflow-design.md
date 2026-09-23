@@ -156,7 +156,7 @@ Each HICC-owned Working session carries trusted ownership metadata:
 
 ```text
 teachingAssignmentGroupId
-responsibleHiccUid
+responsibleHiccResponsibilityId
 teachingAssignmentSubmissionId
 ```
 
@@ -324,8 +324,8 @@ Conceptual record:
 ```js
 {
   name: "Bovine",
-  leaderViscUid: "uid-visc-bovine",
-  hiccUids: ["uid-hicc-a","uid-hicc-b","uid-hicc-c"],
+  leaderViscResponsibilityId: "visc-bovine",
+  hiccResponsibilityIds: ["hicc-bovine-medicine","hicc-bovine-surgery"],
   active: true,
   updatedBy,
   updatedAt
@@ -337,11 +337,66 @@ Rules:
 - a VISC may lead more than one group;
 - a HICC may belong only to groups explicitly assigned by trusted administration;
 - VISC may review all HICC packages/sessions in groups they lead;
-- HICC remains limited to its own `responsibleHiccUid` sessions plus exact course/Subject scope;
+- HICC remains limited to its own `responsibleHiccResponsibilityId` sessions plus exact course/Subject scope;
 - HICC/VISC cannot change group leadership or membership;
 - group membership is not DOE evidence.
 
-### 6.6 Deprecated `other_office` role
+### 6.6 Stable responsibilities and time-bounded assignees
+
+A HICC or VISC responsibility is a durable operational position, not a person.
+
+Canonical collection:
+
+`teaching_responsibilities/{responsibilityId}`
+
+Conceptual record:
+
+```js
+{
+  id: "hicc-vtmd204",
+  kind: "hicc",               // hicc | visc
+  groupId: "year-2",
+  label: "VTMD 204 HICC",
+  academicScopeTokens: ["hicc|VTMD 204|*"], // HICC only
+  active: true
+}
+```
+
+HICC exact Course/Subject scope belongs to the stable HICC responsibility. VISC responsibility carries group leadership and does not use HICC scope tokens.
+
+Rules-addressable assignee schedule:
+
+```text
+teaching_responsibilities/{responsibilityId}
+  /years/{academicYearKey}
+    /assignees/{uid}
+```
+
+Each assignee/year document contains `enabled` plus 1–4 bounded non-overlapping windows. Each window stores display dates and trusted `activeAt` / `expiresAt` timestamps. Windows are half-open `[activeDate, expirationDate)`.
+
+Requirements:
+- different Faculty may cover the same responsibility during different windows;
+- the same Faculty may leave and later return in the same Academic Year;
+- no two enabled assignees may overlap for one responsibility;
+- high-trust management validates the complete schedule before saving;
+- HICC/VISC clients cannot change responsibility definitions or assignee windows;
+- `users.role` is base account classification, not scheduled operational authority;
+- role name alone never grants HICC/VISC Working authority;
+- Rules directly load the assignee document from responsibility ID + Academic Year + `request.auth.uid`, then require one window with `activeAt <= request.time < expiresAt`;
+- the operational projection contains no DOE amount, DOE override, RSL/AFC reason, HR data or private special note;
+- DOE Role Assignment may link to `responsibilityId` and `sourceDoeAssignmentFactId`, while exact DOE remains server/admin data.
+
+Example:
+
+```text
+Responsibility: hicc-vtmd204
+2026-09-01 <= Lisa < 2027-03-01
+2027-03-01 <= Bill < 2027-05-01
+```
+
+The package/session keeps `hicc-vtmd204` throughout the handoff, so package identity and VISC review history stay continuous.
+
+### 6.7 Deprecated `other_office` role
 
 `other_office` is not part of the target PAWS role model.
 
@@ -415,8 +470,8 @@ A submission represents one HICC's Teaching Assignment package for one Academic 
 The package document ID is deterministic:
 
 ```text
-submissionDocumentId(academicYearKey, groupId, hiccUid)
-  = ta-sub-v1__ENC(academicYearKey)__ENC(groupId)__ENC(hiccUid)
+submissionDocumentId(academicYearKey, groupId, hiccResponsibilityId)
+  = ta-sub-v2__ENC(academicYearKey)__ENC(groupId)__ENC(hiccResponsibilityId)
 ```
 
 `ENC(value)` is exactly the collision-safe component encoding already used by
@@ -435,8 +490,7 @@ Identity inputs are canonical before encoding:
   the second component represents the following year;
 - `groupId` is an immutable canonical slug matching
   `^[a-z][a-z0-9_-]{0,63}$`;
-- `hiccUid` is the exact authenticated UID, nonblank and free of surrounding
-  whitespace/control characters.
+- `hiccResponsibilityId` is the immutable canonical HICC responsibility slug.
 
 Firestore Rules do not attempt to reproduce JavaScript URL encoding. Each
 P3.1-owned Working session instead carries trusted
@@ -444,7 +498,7 @@ P3.1-owned Working session instead carries trusted
 locator and then fail closed unless:
 - package `academicYearKey == session.academicYear`;
 - package `groupId == session.teachingAssignmentGroupId`;
-- package `hiccUid == session.responsibleHiccUid`.
+- package `hiccResponsibilityId == session.responsibleHiccResponsibilityId`.
 
 Conceptual fields:
 
@@ -452,8 +506,8 @@ Conceptual fields:
 {
   academicYearKey,
   groupId,
-  hiccUid,
-  viscUid,
+  hiccResponsibilityId,
+  viscResponsibilityId,
   status,                       // draft | visc_review | changes_requested |
                                 // visc_approved | submitted_to_adfad | adfad_finalized
   revision,                     // HICC review-round counter
@@ -473,7 +527,7 @@ Conceptual fields:
 The package covers all current Working sessions where:
 - Academic Year matches;
 - `teachingAssignmentGroupId == groupId`;
-- `responsibleHiccUid == hiccUid`;
+- `responsibleHiccResponsibilityId == hiccResponsibilityId`;
 - `teachingAssignmentSubmissionId == submissionId`;
 - session course/Subject is within the HICC's exact authorized scope.
 
@@ -533,6 +587,8 @@ HICC Final Submit:
 - requires
   `workingRevision == submittedWorkingRevision == viscApprovedWorkingRevision`;
 - also requires `reviewFingerprint == viscApprovedFingerprint`.
+
+HICC/VISC transitions also require a currently effective responsibility assignee document for the authenticated actor. Actor UID is audit provenance and never part of stable package identity.
 
 The browser may recompute the T4 fingerprint for UX and corruption detection,
 but a client-supplied/recomputed fingerprint is never the sole Firestore
@@ -918,11 +974,11 @@ Explicit Change Request queue remains separate and keeps existing routed approva
 
 The implementation must prove:
 
-1. HICC role alone grants no course/Subject authority.
+1. HICC role alone grants no course/Subject authority; a current responsibility assignment is required.
 2. HICC exact Course/Subject scope is enforced.
-3. HICC can act only on sessions/packages where `responsibleHiccUid == request.auth.uid`.
-4. HICC cannot change `teachingAssignmentGroupId`, `responsibleHiccUid`, or `teachingAssignmentSubmissionId`.
-5. VISC role alone grants no global review authority.
+3. HICC can act only on sessions/packages where `responsibleHiccResponsibilityId == request.auth.uid`.
+4. HICC cannot change `teachingAssignmentGroupId`, `responsibleHiccResponsibilityId`, or `teachingAssignmentSubmissionId`.
+5. VISC role alone grants no global review authority; a current leader-responsibility assignment is required.
 6. VISC can read/review all HICC packages in groups they lead.
 7. VISC cannot read/review packages from groups they do not lead.
 8. VISC review authority does not grant Topic/suggestion/final-assignment edit authority.
