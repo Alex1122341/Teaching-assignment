@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace PAWS normal Teaching Assignment preparation with a course/Subject-scoped parallel contribution workflow while preserving explicit Change Request approvals and authoritative DOE behavior.
+**Goal:** Replace PAWS normal Teaching Assignment preparation with a course/Subject-scoped parallel contribution workflow, add an explicit versioned Working-versus-Published timetable boundary, retire the unused `other_office` placeholder role, and preserve explicit Change Request approvals and authoritative DOE behavior.
 
-**Architecture:** Keep the existing session, assignment, approval, LAB-group, calendar-projection, and DOE engines. Add one pure academic-scope helper and one pure contribution model, then wire them through the existing Work Queue, timetable editor, Firestore rules, and ADFA assignment flow. Normal preparation readiness becomes field-based; explicit routed approvals remain serial and unchanged.
+**Architecture:** Keep `sessions` + `calendar_sessions` as the internal Working source/projection pair and preserve existing assignment, approval, LAB-group, bulk-import, repair, and DOE engines. Add exact academic scope, actor-scoped contributions, field-based readiness, and a separate versioned `timetable_publications/{academicYearKey}` release family. Ordinary Faculty read only the active sealed Published release; internal roles use Working data according to capability/scope. Explicit routed Change Requests remain serial, with added published-base provenance and stale-apply protection.
 
 **Tech Stack:** Vanilla JavaScript, Firebase Auth/Firestore, Firestore Security Rules, Node.js `node:test`, `@firebase/rules-unit-testing`, existing PAWS browser-smoke/static build tooling.
 
@@ -14,17 +14,41 @@
 
 - Execute on the HOME computer in an isolated worktree; do not reconstruct or depend on the unfinished company-computer PR #67 worktree.
 - Start from remote branch `feature/scoped-parallel-assignment-workflow`, which was created from `fix/workflow-functional-completion`; merge the latest `origin/main` into the feature worktree before product-code changes.
+- Company WIP checkpoint `handoff/pr67-phase-a-wip@11b14aea01498efb19a7adca27cb80d69614811c` is reference evidence only. Do not merge or cherry-pick it wholesale. Reimplement only the architecture-independent D1 integrity principle: referenced LAB groups must exist/fail closed, and roster completion does not gate ADFA.
 - Do not merge PR #67, force-push, deploy production Firebase, seed live production data, publish DOE, or modify Azure.
 - Normal Teaching Assignment preparation is parallel and field-based; explicit Change Request approval remains a separate serial workflow.
 - ADFA readiness requires course, valid date, start, end, session type, and valid Topic. Room, suggestions, notes, LAB groups, and LAB rosters do not block ADFA readiness.
 - HICC/VISC authority is based on exact course scope plus optional exact Subject scope; `role == 'hicc'` or `role == 'visc'` alone never grants global authority.
 - Subject uses a canonical administrator-maintained `subjectKey`; Topic is free instructional content and never an authorization key.
 - Faculty suggestions are advisory only and cannot automatically become `assignments[]`.
-- Teaching Assignment notes are readable only by ADFA, Teaching Assignment offices, and scoped Teaching Assignment roles; ordinary Faculty, Other Office, and Student are denied.
-- Full LAB roster read is temporarily allowed to every authenticated active PAWS user; roster write remains role-restricted.
-- Subject, suggestions, and notes do not by themselves create authoritative DOE or invent new DOE formulas.
+- Teaching Assignment notes are internal to authorized Teaching Assignment roles and never enter Faculty-facing Published data.
+- Full LAB roster read is temporarily allowed to every authenticated, active, password-complete PAWS user; roster write remains role-restricted.
+- `sessions` remains the authoritative Working session source.
+- `calendar_sessions` remains the sanitized Working projection and must retain the existing paired-write/repair/bulk-import/DOE persistence semantics.
+- Do not repurpose `calendar_sessions` as Published data.
+- Initial Published storage contract is:
+  - `timetable_publications/{academicYearKey}` -> active pointer metadata
+  - `timetable_publications/{academicYearKey}/releases/{releaseId}` -> release metadata
+  - `timetable_publications/{academicYearKey}/releases/{releaseId}/sessions/{sessionId}` -> immutable Faculty-facing snapshots
+- A release covers one complete Academic Year in the first implementation.
+- Release lifecycle is `building -> validated -> sealed`; only a sealed release may be activated.
+- The Faculty-visible publication event is an atomic `activeReleaseId` pointer switch after the complete candidate is built and validated.
+- Working writes after publication never mutate an active/sealed release.
+- Republish creates a new release. Restore/rollback is a new forward release derived from a prior sealed snapshot; do not move the pointer backward as the normal rollback mechanism.
+- Ordinary Faculty cannot read Working `sessions` or Working `calendar_sessions`; the main Timetable reads the complete active Published release and `My Teaching` filters that same release.
+- Faculty Dashboard self-mode and all Faculty self-service/session-data surfaces must use Published data only and must never fall back to Working collections.
+- HICC/VISC normal Faculty view uses Published data; their Teaching Assignment tools use separately loaded exact-scope Working data.
+- Publish authority is initially limited to Developer and Owner/ADFA General-equivalent high-trust authority. ADFA Regular can finalize assignments but cannot publish.
+- `Approve & Submit` is session-level final assignment authority and does not publish.
+- `Publish Timetable` is release-level authority and does not assign Faculty or trigger DOE.
+- Subject, suggestions, notes, release build/validation/seal, pointer activation, republish, and restore-release creation do not by themselves create authoritative DOE or invent new DOE formulas.
 - HICC/VISC DOE remains independently calculated per Faculty + role + course + Subject when applicable + Academic Year + active Annual DOE Rule Book.
 - Missing or ambiguous DOE course/Subject mapping fails closed; no default DOE percentage may be invented.
+- The legacy `other_office` role is deprecated and receives no new capability. T6 removes it from active runtime support only after a read-only dependency check confirms no active account depends on it; otherwise stop and report the migration requirement.
+- Do not introduce a generic replacement for `other_office`; future offices require explicit capabilities/scopes.
+- Change Requests created from a Published release retain `baseReleaseId` plus base-session evidence. Final apply must fail closed when current Working state no longer matches the reviewed base; publication provenance must not weaken serial approval order.
+
+## Review Focus
 
 ## Review Focus
 
@@ -33,6 +57,11 @@
 3. **Concurrent contributor writes** — ADC/LAB/HICC/VISC contributions must live in actor/source-specific documents so one save cannot overwrite another contributor's suggestions or note. Task 5 pins document identity and coexistence.
 4. **Missing coarse workload policy** — candidate workload must render `Needs Review` without exposing exact DOE when no approved threshold policy is configured. Task 10 tests this fail-closed display.
 5. **Non-scoped session types** — QUIZ/MIDTERM/OSCE/EXAM and unknown types must retain current behavior and receive no invented HICC/VISC workflow. Task 4 keeps explicit regression coverage.
+6. **Working-data leakage** — ordinary Faculty must be denied direct SDK/query access to both `sessions` and `calendar_sessions`; UI filtering is not authorization. T7 emulator tests prove direct denial.
+7. **Mixed/partial publication** — release documents are built invisibly, validated, sealed, then made visible only by one pointer transaction. T7/T9 pin immutability, pointer eligibility and concurrent-publisher conflict.
+8. **Alternate Faculty surfaces** — timetable, My Teaching, Faculty Dashboard self-mode and AFC/page-data integrations must all resolve Published data only. T8 adds source-contract and browser coverage.
+9. **Stale Change Request base** — a request originating from an older Published release must not overwrite newer Working state. T9/T12 preserve `baseReleaseId` plus base-session stale checks.
+10. **Deprecated role residue** — `other_office` must not survive as an active capability path after T6, while historical audit text may remain.
 
 ---
 
@@ -592,56 +621,71 @@ git commit -m "feat: add scoped teaching contributions"
 
 ---
 
-### Task 6: Scoped Capabilities, User-Management Scope Assignment, and Topic Editing Policy
+### Task 6: Scoped Capabilities, User-Management Scope Assignment, Publication Capability, and Role Cleanup
 
 **Files:**
 - Modify: `office-capabilities.js`
+- Modify: `account-profile.js`
+- Modify: `user-management.html`
+- Modify: `user-management.js`
 - Modify: `tests/office-capabilities.test.js`
+- Modify: `tests/account-profile.test.js`
+- Modify: `tests/user-management.test.js`
 - Modify: `timetable-selection.js`
 - Modify: `tests/timetable-multi-edit-ui.test.js`
 - Modify: `timetable.js`
+- Modify: provisioning/demo role lists that actively expose `other_office` after the migration gate
+- Create: `tests/other-office-removal.test.js`
 
 **Interfaces:**
 - Consumes: `UCVM_ACADEMIC_RESPONSIBILITY.hasScope(profile,responsibility,session)`.
 - Produces capabilities:
   - `canEditScopedTopic`
   - `canSuggestFacultyScoped`
-  - existing office capability flags unchanged for ADC/LAB/ADFA.
+  - `canPublishTimetable`
+  - existing ADC/LAB/ADFA operational flags without broadening HICC/VISC.
 
-- [ ] **Step 1: Add RED capability tests**
+- [ ] **Step 1: Perform the read-only `other_office` dependency gate before removal**
 
-```js
-test('HICC/VISC scoped powers require a matching academic scope',()=>{
- const api=load();
- const profile={role:'faculty',academicScopeTokens:['hicc|VTMD 505|surgery']};
- const allowed=api.forProfile(profile,{course:'VTMD 505',subjectKey:'surgery'});
- const denied=api.forProfile(profile,{course:'VTMD 505',subjectKey:'anesthesia'});
- assert.equal(allowed.canEditScopedTopic,true);
- assert.equal(allowed.canSuggestFacultyScoped,true);
- assert.equal(denied.canEditScopedTopic,false);
- assert.equal(denied.canSuggestFacultyScoped,false);
-});
-```
+Use only existing safe read-only account/user inventory tooling already available to the repository/environment. Do not write live Firebase and do not create an ad hoc production credential flow.
 
-Keep the existing test that forged `officeAccess` cannot promote HICC/VISC into ADC/LAB/ADFA.
+Required result:
+- no active account depends on role `other_office` -> continue removal
+- any active dependency or inability to obtain trustworthy evidence -> STOP and report the migration requirement before removing runtime acceptance
 
-- [ ] **Step 2: Run focused test and verify RED**
+Historical audit/doc strings do not count as active dependencies.
+
+- [ ] **Step 2: Add RED capability tests**
+
+Pin:
+- HICC/VISC powers require a matching `academicScopeTokens` entry.
+- cross-course/cross-Subject scope returns false.
+- HICC/VISC never gain ADC/LAB/ADFA operational flags from role name or forged `officeAccess`.
+- Developer and Owner/ADFA General-equivalent high-trust profiles have `canPublishTimetable == true`.
+- ADFA Regular, ADC, LAB, HICC, VISC and Faculty have `canPublishTimetable == false`.
+- `other_office` yields no recognized target capability after the approved removal gate.
+
+- [ ] **Step 3: Run focused tests and verify RED**
 
 ```bash
-node --test tests/office-capabilities.test.js
+node --test tests/office-capabilities.test.js tests/account-profile.test.js tests/other-office-removal.test.js
 ```
 
-Expected: FAIL because the new capability flags are absent.
+Expected: FAIL before capability/removal work.
 
-- [ ] **Step 3: Add scoped capability flags without turning HICC/VISC into operational offices**
+- [ ] **Step 4: Add scoped capability flags without turning HICC/VISC into operational offices**
 
 `OFFICES` remains `['adc','lab','adfa']`.
 
-Make `office-capabilities.js` consume `academic-responsibility.js` as a module dependency. In `forProfile(profile, options)`, after operational office flags, evaluate that helper against `options.course` and `options.subjectKey`. Set only `canEditScopedTopic` and `canSuggestFacultyScoped`; do not set `canEditCourseFields`, `canEditInstructor`, or LAB roster/group write permissions.
+Make `office-capabilities.js` consume the academic responsibility helper. In `forProfile(profile, options)`, evaluate exact scope against `options.course` and `options.subjectKey`.
 
-- [ ] **Step 4: Add academic responsibility assignment to User Management**
+Set scoped powers only when scope matches. Do not set `canEditCourseFields`, `canEditInstructor`, LAB roster/group write, or Publish authority for HICC/VISC.
 
-Extend the existing User Management editor so high-trust user managers can add/remove exact academic scope rows:
+Implement `canPublishTimetable` using existing high-trust General/Owner semantics rather than a new generic role.
+
+- [ ] **Step 5: Add academic responsibility assignment to User Management**
+
+Extend User Management so high-trust user managers can add/remove exact scope rows:
 
 ```text
 Responsibility: HICC
@@ -656,382 +700,584 @@ Subject: Imaging
 ```
 
 Requirements:
-- course is required
-- Subject dropdown comes from active `teaching_subjects`
-- `All Subjects` serializes as `*`
-- duplicate tokens are rejected
-- unknown responsibility values are rejected
-- ordinary Faculty cannot edit their own scope tokens
-- removing a token immediately removes authority on the next authorization check
+- course required
+- Subject dropdown from active `teaching_subjects`
+- `All Subjects` -> `*`
+- duplicates rejected
+- unknown responsibilities rejected
+- ordinary Faculty cannot edit own scopes
+- removing a token removes authority on the next authorization check
 
-Add `tests/user-management.test.js` assertions for render, normalization, duplicate rejection, and persistence payload.
+- [ ] **Step 6: Remove `other_office` from active runtime role support after the gate**
 
-- [ ] **Step 5: Update timetable field policy**
+Remove it from:
+- active role enums/selection lists
+- account-profile accepted target roles
+- capability maps
+- User Management/provisioning choices
+- timetable role branches
+- active Firestore role allowlists in T7
+- demo/seed supported-role fixtures
+- bootstrap supported role options
+- runtime/security tests that treat it as supported
+
+Do not rewrite historical documentation/audit fixtures solely to erase the string.
+
+Unknown/deprecated roles must fail closed.
+
+- [ ] **Step 7: Update timetable field policy**
 
 In `timetable-selection.editPolicy`:
 - ADC may edit Topic for LEC/SRL through existing course-field authority.
 - LAB may edit Topic for LAB through existing LAB authority.
 - scoped HICC/VISC may edit only Topic when `canEditScopedTopic` is true.
-- scoped HICC/VISC may not edit course/date/time/type/room/final Faculty assignment.
-- Subject selection itself is administrator-managed catalog data; scoped roles consume the canonical key and do not create arbitrary Subject values.
+- scoped HICC/VISC may not edit course/date/time/type/room/subjectKey/final Faculty assignment.
+- Subject selection remains admin/ADC-managed canonical classification.
 
-- [ ] **Step 6: Add selection-policy tests**
+- [ ] **Step 8: Add selection-policy tests**
 
-Pin:
-- HICC VTMD 505/Surgery Topic edit allowed.
-- same HICC VTMD 505/Anesthesia denied.
-- same HICC VTMD 506 denied.
-- VISC follows its independent scope.
-- normal Faculty denied.
-- ADC LEC/SRL Topic remains allowed.
-- LAB LAB Topic remains allowed.
+Pin HICC/VISC exact scope, cross-scope denial, normal Faculty denial, ADC LEC/SRL Topic, LAB LAB Topic, and inability for scoped roles to mutate `subjectKey`.
 
-- [ ] **Step 7: Run focused suites**
+- [ ] **Step 9: Run focused suites**
 
 ```bash
-node --test tests/office-capabilities.test.js tests/timetable-multi-edit-ui.test.js tests/user-management.test.js tests/user-management.test.js
+node --test tests/office-capabilities.test.js tests/account-profile.test.js tests/user-management.test.js tests/timetable-multi-edit-ui.test.js tests/other-office-removal.test.js
 ```
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add office-capabilities.js timetable-selection.js timetable.js user-management.html user-management.js tests/office-capabilities.test.js tests/timetable-multi-edit-ui.test.js tests/user-management.test.js
-git commit -m "feat: enforce course subject teaching scopes"
+git add office-capabilities.js account-profile.js user-management.html user-management.js timetable-selection.js timetable.js tests/office-capabilities.test.js tests/account-profile.test.js tests/user-management.test.js tests/timetable-multi-edit-ui.test.js tests/other-office-removal.test.js
+git commit -m "feat: enforce scoped capabilities and retire placeholder office role"
 ```
 
 ---
 
-### Task 7: Firestore Authorization for Academic Scopes, Contributions, Notes, and Roster Reads
+### Task 7: Firestore Security for Working Data, Scoped Contributions, Roster Reads, and Versioned Publication
 
 **Files:**
 - Modify: `firestore.rules`
 - Create: `tests/academic-scope-security-emulator.test.js`
 - Create: `tests/assignment-contribution-security-emulator.test.js`
 - Modify: `tests/lab-group-security-emulator.test.js`
+- Create: `tests/timetable-publication-security-emulator.test.js`
+- Create: `tests/timetable-release-immutability-emulator.test.js`
+- Create: `tests/timetable-release-visibility-emulator.test.js`
+- Modify: `tests/calendar-session-security-emulator.test.js`
+- Modify: `tests/office-timetable-security-emulator.test.js`
 - Modify: `tests/rules-evaluation-budget.test.js`
 
 **Interfaces:**
 - Consumes:
   - `users/{uid}.academicScopeTokens`
-  - session `course` and optional `subjectKey`
+  - Working session `course` and optional `subjectKey`
   - contribution `course`, `subjectKey`, `sourceRole`, `actorUid`
-- Produces Firestore permissions for scoped Topic writes and contribution documents.
+  - `timetable_publications/{academicYearKey}.activeReleaseId`
+  - release metadata/status and release session snapshots
+- Produces:
+  - exact-scope Working read/write authorization
+  - Faculty denial for Working collections
+  - contribution/note authorization
+  - temporary roster-read policy
+  - active-release-only Faculty read rules
+  - sealed-release immutability and publication-pointer authorization.
 
-- [ ] **Step 1: Add RED emulator tests for scoped Topic writes**
+- [ ] **Step 1: Add RED direct-read emulator tests for the Working/Published boundary**
 
-Seed users with authoritative scopes and sessions with canonical course/Subject fields.
+Prove ordinary Faculty:
+- cannot `get` or query `sessions`
+- cannot `get` or query `calendar_sessions`
+- cannot bypass with a document ID or different query shape
+- can read the complete active sealed Published release
+- cannot read building, validated-but-unsealed, failed, inactive or guessed release IDs
+- cannot read Published data when inactive or password-change-required
 
-Required assertions:
+These are security-rule assertions, not UI tests.
 
-```js
-await assertSucceeds(hicc505.doc('sessions/s505-surg').update({topic:'Updated',updatedBy:'hicc505',updatedAt:serverTimestamp()}));
-await assertFails(hicc505.doc('sessions/s505-anesthesia').update({topic:'Denied',updatedBy:'hicc505',updatedAt:serverTimestamp()}));
-await assertFails(hicc505.doc('sessions/s506').update({topic:'Denied',updatedBy:'hicc505',updatedAt:serverTimestamp()}));
-```
-
-Also assert `role:'hicc'` with no matching `academicScopeTokens` is denied.
-
-- [ ] **Step 2: Add RED emulator tests for contribution-note privacy**
+- [ ] **Step 2: Add RED exact-scope Working read/write tests for HICC/VISC**
 
 Pin:
-- ADC/LAB/ADFA can read Teaching Assignment contributions needed by their workflow.
-- scoped HICC/VISC can read applicable contribution documents in their exact scope.
-- actor may write only their own source-role contribution.
-- cross-course HICC/VISC contribution write denied.
-- ordinary Faculty read denied.
-- Other Office read denied.
-- a contribution containing forbidden private fields is denied by the rule shape even if the client helper was bypassed.
+- course-wide token can query/read that exact course
+- Subject token requires exact course + exact `subjectKey`
+- cross-course and cross-Subject reads fail
+- role name with no matching token fails
+- Topic text never grants access
+- HICC/VISC cannot mutate `course` or `subjectKey` to move a session into scope
+- UI/query shape must include the same exact scope constraints required by rules
 
-- [ ] **Step 3: Rewrite roster-read tests to the approved temporary policy**
+Firestore rules do not filter query results; broad HICC/VISC queries must be denied.
 
-Replace old expectations that ADC/HICC/VISC/Faculty are denied. New read matrix:
+- [ ] **Step 3: Add RED contribution/note privacy tests**
 
-```js
-for(const uid of ['developer','owner','administrator','adc','lab','hicc','visc','faculty','other-office']){
- await assertSucceeds(db(uid).doc('lab_group_rosters/g-a').get());
-}
-```
+Pin:
+- ADC/LAB/ADFA/high-trust read workflow contributions
+- matching scoped HICC/VISC read applicable contributions only
+- actor writes only their own source-role document
+- ordinary Faculty read denied
+- forbidden private suggestion fields denied
+- note body never appears in broad/public audit payloads
 
-Keep write assertions restricted to LAB and existing approved administrative/high-trust roles.
+- [ ] **Step 4: Rewrite roster-read tests to the approved temporary policy**
 
-- [ ] **Step 4: Run emulator tests and verify RED**
+Every `ready()` user may read `lab_group_rosters`.
 
-```bash
-npm run test:emulator
-```
+Keep roster writes restricted.
 
-Expected: new scoped/contribution/roster-read tests fail under old rules.
+Also pin:
+- anonymous/inactive/password-change-required denied
+- missing referenced LAB group fails closed in integrity helpers
+- roster content is not allowed in `calendar_sessions` or release sessions
 
-- [ ] **Step 5: Extend the user profile shape for `academicScopeTokens`**
+- [ ] **Step 5: Add RED release visibility/immutability tests**
 
-Update user create/update validation so `academicScopeTokens` may be persisted by existing high-trust user-management paths.
-
-Rules must validate:
-- `academicScopeTokens` is a bounded list of strings
-- each token uses the exact three-part grammar `responsibility|COURSE|subject`
-- responsibility is one of `hicc`, `visc`, `rotation_coordinator`
-- course and Subject components have bounded lengths and cannot contain `|`
-- Subject may be `*` for course-wide authority
-- HICC/VISC role alone does not grant scope
-
-Keep legacy profiles without `academicScopeTokens` valid but with no scoped authority.
-
-- [ ] **Step 6: Add exact-match rule helpers using the already-loaded profile**
-
-Use `profile().academicScopeTokens`; do not add a derived authorization cache.
-
-The canonical stored representation for this implementation is a bounded profile-local token list:
+Use the locked hierarchy:
 
 ```text
-academicScopeTokens:
-  hicc|VTMD 505|*
-  hicc|VTMD 506|surgery
-  visc|VTMD 521|imaging
+timetable_publications/{academicYearKey}
+timetable_publications/{academicYearKey}/releases/{releaseId}
+timetable_publications/{academicYearKey}/releases/{releaseId}/sessions/{sessionId}
 ```
 
-Create rule helpers equivalent to:
+Pin:
+- Faculty release-session read requires pointer `activeReleaseId == releaseId`
+- release metadata must be sealed/eligible
+- knowing an inactive release ID grants nothing
+- ordinary users cannot create/update/delete release metadata or sessions
+- sealed release metadata/sessions cannot be modified
+- active release cannot be deleted
+- only explicit high-trust Publish authority may change the pointer
+- pointer cannot be set to non-sealed/failed/missing release metadata
+- missing/corrupt pointer produces denial, never Working fallback
 
-```text
-hasAcademicCourseScope(responsibility, course)
-hasAcademicSubjectScope(responsibility, course, subjectKey)
-hasAcademicScope(responsibility, course, subjectKey)
-```
+Rules cannot count arbitrary release-session completeness; that remains a trusted application validation in T9.
 
-Use exact token membership after the same normalization defined by `academic-responsibility.js`. Do not query `faculty_groups` for authorization and do not create a derived authorization cache.
+- [ ] **Step 6: Extend user profile validation for `academicScopeTokens` and remove deprecated runtime role**
 
-- [ ] **Step 7: Add scoped Topic update rule**
+Validate:
+- bounded list of strings
+- exact grammar `responsibility|COURSE|subject`
+- responsibility in `hicc|visc|rotation_coordinator`
+- bounded components without `|`
+- Subject may be `*`
+- malformed data fails closed
+- role name alone grants no scope
 
-Permit changes only to:
-- `topic`
-- standard update metadata already required by session writes
+After the T6 migration gate passed, remove `other_office` from active `readySignedIn`/`explicitRole` authorization.
 
-for a matching HICC/VISC scope. Require the paired sanitized calendar write if the existing session/calendar invariant requires it.
+- [ ] **Step 7: Add exact-match rule helpers using the already-loaded profile**
 
-Do not permit scoped roles to change course/subjectKey/date/start/end/type/room/assignments/facultyIds/instructor. A scoped role must never be able to change `subjectKey` and thereby expand its own authorization.
+Use `profile().academicScopeTokens`; do not add `user_scopes/{uid}` or query `faculty_groups` for authorization.
 
-- [ ] **Step 8: Add `session_assignment_contributions/{id}` rules**
+Create minimal helpers equivalent to:
+- `hasAcademicCourseScope(responsibility, course)`
+- `hasAcademicSubjectScope(responsibility, course, subjectKey)`
+- `hasAcademicScope(responsibility, course, subjectKey)`
 
-Read:
-- ADFA/high-trust admin
-- ADC/LAB Teaching Assignment office
-- matching scoped HICC/VISC
+Keep rules-budget cost explicit.
 
-Write:
-- the authenticated actor only
-- `actorUid == request.auth.uid`
-- `sourceRole` matches actor authority
-- HICC/VISC course/Subject exact scope required
-- safe allowlisted keys only
-- note length <= 2000
-- suggestions use safe allowlisted fields only
-- no UCID/email/facultyId/exact DOE/AFC/HR keys
+- [ ] **Step 8: Add scoped Working session/calendar rules**
 
-- [ ] **Step 9: Change roster read helper only**
+Working authorization target:
+- Developer/Owner/ADFA -> authorized full Working access according to existing high-trust policy
+- ADC/LAB -> existing Working operational access, with their established private/sanitized boundaries
+- HICC/VISC -> exact scoped Working read plus Topic-only write
+- ordinary Faculty -> no Working session/calendar read
+- deprecated/unknown roles -> fail closed
 
-Set the read predicate to active authenticated PAWS users:
+Preserve the existing `sessions <-> calendar_sessions` paired-write invariant for Working mutations.
 
-```text
-rosterReader() = ready()
-```
+- [ ] **Step 9: Add contribution rules**
 
-Do not broaden roster write predicates.
+Safe allowlisted document only:
+- actor/source-specific identity
+- note <= 2000
+- safe suggestions only
+- no UCID/email/raw Faculty ID/exact DOE/AFC/HR fields
+- exact scope for HICC/VISC writes
 
-- [ ] **Step 10: Run budget test immediately**
+- [ ] **Step 10: Add publication rule helpers**
+
+Implement the smallest rule set needed for:
+- publisher authority
+- pointer-to-sealed-release eligibility
+- active-release-only Faculty read
+- sealed snapshot immutability
+- delete protection
+- account readiness
+
+Do not raise the expression ceiling merely to support publication. Keep publication helpers in a distinct/simple rule domain where practical.
+
+- [ ] **Step 11: Run rules-budget guard immediately**
 
 ```bash
 node --test tests/rules-evaluation-budget.test.js
 ```
 
-Expected: PASS at or below the existing core ceiling. If it fails, simplify rule expressions before continuing; do not raise the ceiling just to make the change pass.
+Expected: PASS at or below the reviewed ceilings. If not, simplify before continuing.
 
-- [ ] **Step 11: Run complete emulator suite**
+- [ ] **Step 12: Run complete emulator suite**
 
 ```bash
 npm run test:emulator
 ```
 
-Expected: PASS with zero authorization regressions in explicit approval tests.
+Expected: PASS, including explicit routed-approval regressions.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
-git add firestore.rules tests/academic-scope-security-emulator.test.js tests/assignment-contribution-security-emulator.test.js tests/lab-group-security-emulator.test.js tests/rules-evaluation-budget.test.js
-git commit -m "feat: secure scoped teaching contributions"
+git add firestore.rules tests/academic-scope-security-emulator.test.js tests/assignment-contribution-security-emulator.test.js tests/lab-group-security-emulator.test.js tests/calendar-session-security-emulator.test.js tests/office-timetable-security-emulator.test.js tests/timetable-publication-security-emulator.test.js tests/timetable-release-immutability-emulator.test.js tests/timetable-release-visibility-emulator.test.js tests/rules-evaluation-budget.test.js
+git commit -m "feat: enforce working published timetable boundary"
 ```
 
 ---
 
-### Task 8: Work Queue and Timetable UI for HICC/VISC Contributions
+### Task 8: Work Queue, Scoped Working Queries, and Faculty Published-Only UI
 
 **Files:**
 - Modify: `work-queue.js`
 - Modify: `tests/work-queue.test.js`
+- Create: `timetable-publication.js`
+- Create: `tests/timetable-publication.test.js`
 - Modify: `timetable.js`
+- Modify: `faculty-admin.js`
+- Modify: `tests/faculty.test.js`
 - Modify: `tests/workflow-functional-completion.test.js`
 - Modify: `tests/timetable.test.js`
+- Create: `tests/faculty-published-source-contract.test.js`
+- Modify: `tools/static-assets.json`
+- Modify: `tools/runtime-bundles.json`
 
 **Interfaces:**
 - Consumes:
   - `UCVM_ACADEMIC_RESPONSIBILITY`
   - `UCVM_ASSIGNMENT_CONTRIBUTIONS`
   - `preparationReadiness`
+  - publication pointer + active release read helper
   - existing `UCVM_PAGE_DATA.openScopedEditor`
 - Produces:
   - HICC/VISC scoped Topic work items
-  - contribution editor controls for suggestion(s) + actor note
-  - contribution Firestore save/load wiring
+  - exact-scope Working queries for contributor tools
+  - contribution editor controls
+  - Published-only ordinary Faculty Timetable/My Teaching/Faculty Dashboard self-mode
+  - safe no-release/corrupt-release state.
 
-- [ ] **Step 1: Add RED Work Queue tests for HICC/VISC Topic work**
+- [ ] **Step 1: Add RED Work Queue tests**
 
-Pin that:
-- missing Topic + matching HICC scope => HICC item
-- missing Topic + matching VISC scope => VISC item
-- completed Topic => no blocking HICC/VISC item
-- optional suggestion/note absence never creates a blocking item
+Pin:
+- missing Topic + matching HICC/VISC scope -> scoped work item
+- completed Topic -> no blocking item
+- optional suggestion/note absence never blocks
 - cross-course/cross-Subject sessions never appear
+- LAB roster outstanding remains independent from ADFA readiness
 
-- [ ] **Step 2: Add RED UI source tests for contribution controls**
+- [ ] **Step 2: Add RED publication read-helper tests**
 
-The scoped editor must expose, for a contributor:
-- Topic field when authorized
-- multi-select safe Faculty suggestions
-- one actor-owned note textarea
-- no final Faculty assignment editor unless ADFA
+Create a pure/read-focused `timetable-publication.js` contract.
 
-Use existing source-function/static UI test style rather than brittle full-DOM rewrites.
+Pin:
+- resolve the Academic-Year pointer first
+- load only the pointer-selected sealed release
+- no pointer -> explicit `not_published` result
+- missing/failed/unsealed/mismatched release -> explicit fail-closed error/result
+- never choose "latest" release
+- never fall back to `sessions` or `calendar_sessions`
+- cache identity is keyed by Academic Year + release ID so mixed-version display cannot occur
 
-- [ ] **Step 3: Run focused tests and verify RED**
+Do not add write/publish operations yet; T9 owns publication writes.
+
+- [ ] **Step 3: Add RED source-contract tests for every Faculty-facing path**
+
+Ordinary Faculty must use Published data in:
+- main Timetable
+- My Teaching
+- Faculty Dashboard self-mode
+- page-data/AFC integrations that consume timetable sessions
+
+Pin that ordinary Faculty paths do not query `sessions` or `calendar_sessions`.
+
+The main Timetable may show the entire active release. `My Teaching` filters that same already-authorized release.
+
+- [ ] **Step 4: Add RED HICC/VISC scoped-query tests**
+
+HICC/VISC have two data paths:
+- normal Faculty view -> Published release
+- Teaching Assignment work tools -> Working data queried by exact authorized course/Subject scope
+
+For multiple tokens, execute separate exact queries and merge/dedupe client-side. Never issue a broad query and filter only in the browser.
+
+- [ ] **Step 5: Run focused tests and verify RED**
 
 ```bash
-node --test tests/work-queue.test.js tests/workflow-functional-completion.test.js tests/timetable.test.js
+node --test tests/work-queue.test.js tests/timetable-publication.test.js tests/faculty-published-source-contract.test.js tests/faculty.test.js tests/workflow-functional-completion.test.js tests/timetable.test.js
 ```
 
-Expected: FAIL because HICC/VISC queue and contribution UI are not wired.
+Expected: FAIL before the read-path changes.
 
-- [ ] **Step 4: Extend Work Queue model without changing explicit approval UI**
+- [ ] **Step 6: Implement the Published resolver and role-correct timetable source**
 
-Add HICC/VISC preparation items based on:
-- matching academic scope
-- scoped session type
-- missing Topic
+For ordinary Faculty/HICC/VISC normal calendar view:
+- resolve active release for selected Academic Year
+- subscribe/load its release-session subcollection
+- render Published badge/state
+- if no release exists show `Timetable has not yet been published.`
+- if pointer/release is invalid show controlled unavailable state
+- never expose Working fallback
 
-Do not add HICC/VISC to `officeAccess`; these are academic responsibility queue items.
+For ADC/LAB/ADFA/Developer-Owner internal view:
+- retain authorized Working source behavior
+- label the surface `Working` so it is not confused with Published state
 
-- [ ] **Step 5: Extend `openScopedEditor` to academic responsibility stages**
+- [ ] **Step 7: Implement HICC/VISC Working contribution loading separately**
 
-Allow `stage:'hicc'` and `stage:'visc'` only when the live session still matches the current profile's scope. Re-resolve the session and scope at open/save time; never trust the stale Work Queue snapshot.
+Do not reuse the Published session cache for scoped Working tools.
 
-- [ ] **Step 6: Load and save actor-scoped contribution documents**
+Load exact authorized Working sessions per token and keep this cache separate from Faculty-visible release sessions.
 
-For current session + sourceRole + actorUid:
-- load that actor's contribution
-- load the session's visible contribution set for ADFA/authorized roles
-- save suggestions/note to `session_assignment_contributions/{documentId}`
-- save Topic through the normal sanitized session+calendar write path
-- never put note text into `session_change_log`; audit only a safe fact such as `Teaching Assignment note updated`
+Re-resolve scope on open/save.
 
-- [ ] **Step 7: Keep LAB outstanding independent**
+- [ ] **Step 8: Extend contribution editor**
 
-LAB group/roster editor remains accessible and may remain outstanding after ADFA readiness. Saving a roster refreshes LAB context but must not remove ADFA readiness.
+Authorized contributor may see:
+- Topic when permitted
+- safe multi-select Faculty suggestions
+- one actor-owned note
+- no final assignment editor unless ADFA
 
-- [ ] **Step 8: Run focused tests**
+Save Topic through Working `sessions + calendar_sessions`; save suggestion/note through actor contribution doc.
+
+- [ ] **Step 9: Convert Faculty Dashboard self-mode to Published sessions**
+
+Replace `listenFacultySessions(facultyId)` as a Working-source dependency for self-service.
+
+Self-mode must consume the active Published release and then filter the user’s own displayed assignments using safe Published fields/current self identity.
+
+Admin mode remains an internal Working/authoritative administrative surface.
+
+- [ ] **Step 10: Preserve LAB independence**
+
+LAB group/roster UI remains available and may stay outstanding after ADFA readiness. Roster updates never change Published data until an explicit future Publish.
+
+- [ ] **Step 11: Run focused + static tests**
 
 ```bash
-node --test tests/work-queue.test.js tests/workflow-functional-completion.test.js tests/timetable.test.js tests/timetable-multi-edit-ui.test.js
+node --test tests/work-queue.test.js tests/timetable-publication.test.js tests/faculty-published-source-contract.test.js tests/faculty.test.js tests/workflow-functional-completion.test.js tests/timetable.test.js tests/timetable-multi-edit-ui.test.js
+npm run test:static
 ```
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
-git add work-queue.js timetable.js tests/work-queue.test.js tests/workflow-functional-completion.test.js tests/timetable.test.js tests/timetable-multi-edit-ui.test.js
-git commit -m "feat: add scoped contributor work queue"
+git add work-queue.js timetable-publication.js timetable.js faculty-admin.js tools/static-assets.json tools/runtime-bundles.json tests/work-queue.test.js tests/timetable-publication.test.js tests/faculty-published-source-contract.test.js tests/faculty.test.js tests/workflow-functional-completion.test.js tests/timetable.test.js tests/timetable-multi-edit-ui.test.js
+git commit -m "feat: separate working and published timetable views"
 ```
 
 ---
 
-### Task 9: ADFA Suggestion Review and Explicit Approve & Submit
+### Task 9: ADFA Approve & Submit, Versioned Publish Timetable, and Published-Base Stale Protection
 
 **Files:**
 - Modify: `timetable.js`
+- Modify: `timetable-publication.js`
 - Modify: `faculty-assignment.js` only if a small source/provenance helper is needed
+- Modify: `approval-request.js` only for immutable Published-base provenance
+- Modify: `approval-finalizer.js` only for stale-base validation; do not alter routing/order
+- Modify: `firestore.rules` only if T7 publication/request shape needs a small companion adjustment
 - Modify: `tests/faculty-assignment.test.js`
 - Create: `tests/adfa-assignment-submit.test.js`
+- Create: `tests/adfa-approve-submit-not-publish.test.js`
+- Create: `tests/timetable-publication-activation.test.js`
+- Create: `tests/timetable-publication-concurrency.test.js`
+- Create: `tests/timetable-working-published-isolation.test.js`
+- Create: `tests/timetable-publication-private-fields.test.js`
+- Create: `tests/timetable-publication-no-doe.test.js`
+- Create: `tests/change-request-published-provenance.test.js`
+- Create: `tests/change-request-stale-base.test.js`
 - Modify: `tests/workflow-functional-completion.test.js`
 
 **Interfaces:**
 - Consumes:
   - `suggestionsForAdfa(contributions)`
-  - existing `faculty-assignment.addFaculty/removeFaculty/syncSession`
-  - existing timetable save / calendar projection / audit / DOE recalculation adapter
-- Produces: an ADFA review UI where accepting suggestions changes only an in-memory editable final selection until explicit `Approve & Submit`.
+  - existing multi-Faculty assignment helpers
+  - existing authoritative Working save/calendar/audit/DOE adapter
+  - `timetable-publication.js` read helper from T8
+  - current complete Academic-Year Working dataset
+- Produces:
+  - ADFA review UI with explicit `Approve & Submit`
+  - a separate explicit `Publish Timetable` action for high-trust publishers
+  - immutable versioned release build/validate/seal/activate behavior
+  - Change Request `baseReleaseId` provenance and stale Working-base protection.
 
-- [ ] **Step 1: Add RED test that accepting a suggestion does not mutate authoritative assignment**
+- [ ] **Step 1: Add RED test that suggestion acceptance is in-memory only**
 
-```js
-test('accepting suggestions prepares an editable selection but does not assign automatically',()=>{
- const state=review.acceptSuggestions({session:{assignments:[]},suggestions:[{candidateKey:'c1',displayName:'Dr X'}]});
- assert.equal(state.session.assignments.length,0);
- assert.deepEqual(state.selectedCandidateKeys,['c1']);
-});
-```
+Accepting suggestions prepares an editable selection but does not mutate authoritative `assignments[]` until `Approve & Submit`.
 
-- [ ] **Step 2: Add RED test for multi-Faculty submit provenance**
+- [ ] **Step 2: Add RED multi-Faculty submit test**
 
-Pin an ADFA final selection containing:
-- two accepted suggestions from different sources
-- one manually selected Faculty
-
-Expected authoritative session:
-- one session row
+Pin two accepted suggestions from different sources plus one manual Faculty:
+- one session
 - three assignment entries
-- each accepted assignment records safe source provenance such as `accepted_suggestion:hicc`
-- manual assignment retains existing manual source semantics
+- safe provenance
+- normal derived `facultyIds`/`instructor`
+- no publication pointer mutation
 
-- [ ] **Step 3: Run focused tests and verify RED**
+- [ ] **Step 3: Add RED separation tests**
 
-```bash
-node --test tests/faculty-assignment.test.js tests/adfa-assignment-submit.test.js
-```
+Pin:
+- `Approve & Submit` changes Working assignment and may invoke existing DOE recalculation when Rule Book-relevant facts changed
+- `Approve & Submit` never creates/seals/activates a timetable release
+- `Publish Timetable` never changes authoritative assignments
+- Publish build/validate/seal/activate never calls DOE
+- Working changes after an active release do not mutate the release snapshot
 
-Expected: FAIL until review/submit helpers exist.
+- [ ] **Step 4: Add RED strict Published-session sanitizer tests**
 
-- [ ] **Step 4: Implement in-memory suggestion acceptance**
+Implement publication snapshot construction with an explicit allowlist, never `{...session}`.
 
-Do not call `suggestionToAssignment()`. Resolve accepted opaque candidate keys through the existing private/admin candidate mapping only inside the ADFA-authorized path, then construct final assignment rows with existing `faculty-assignment` helpers.
+Allowed display fields should be intentionally enumerated from the approved public scheduling contract, including canonical `subjectKey` where present.
 
-- [ ] **Step 5: Implement explicit `Approve & Submit`**
+Forbidden in serialized release sessions:
+- notes
+- contributions
+- suggestions
+- student/roster data
+- exact DOE/target/variance/formula
+- AFC/HR details
+- private Faculty identifiers
+- internal approval/audit bodies
 
-The button performs the existing authoritative save path:
-- session `assignments[]`
+- [ ] **Step 5: Add RED release lifecycle tests**
+
+For one complete Academic Year:
+1. read a consistent Working source snapshot
+2. compute deterministic `sourceFingerprint`
+3. record `basedOnActiveReleaseId`
+4. create candidate metadata `building`
+5. write all sanitized release-session documents while candidate remains invisible
+6. validate expected session count, identity/year, sanitizer shape and source fingerprint
+7. mark candidate `validated`
+8. seal it
+9. activate by one pointer transaction
+
+Pin:
+- no partial candidate is Faculty-visible
+- failed build leaves old pointer unchanged
+- missing/incomplete candidate cannot activate
+- sealed release is immutable
+
+- [ ] **Step 6: Add RED concurrent-publisher test**
+
+Publisher A and B build against the same current pointer.
+
+A activates first.
+
+B activation transaction sees that `activeReleaseId` no longer equals `basedOnActiveReleaseId` and fails with a publication conflict.
+
+B must rebuild from current Working state; do not allow blind pointer retry.
+
+- [ ] **Step 7: Implement in-memory suggestion acceptance and explicit ADFA `Approve & Submit`**
+
+Resolve opaque candidate keys only in the authorized ADFA path. Use existing assignment helpers.
+
+Submit performs only:
+- Working `sessions.assignments[]`
 - derived `facultyIds[]`
 - derived `instructor`
-- sanitized `calendar_sessions`
+- Working `calendar_sessions`
 - audit
-- DOE recalculation request when assignment/time facts require it
+- DOE recalculation request when existing policy says relevant
 
-Do not add a redundant second approval-state machine or `adfaSubmittedAt` marker solely to mirror the assignment write.
+No `adfaSubmittedAt` mirror state and no Publish side effect.
 
-- [ ] **Step 6: Add stale-session safety**
+- [ ] **Step 8: Implement release builder/validator/sealer**
 
-Before submit, re-read/re-resolve the live session and reject the save if relevant session fields changed since the ADFA review opened. Reuse the PR #67 stale Work Queue protection pattern.
+Extend `timetable-publication.js`.
 
-- [ ] **Step 7: Run focused tests**
+Requirements:
+- build from canonical Working data for exactly one Academic Year
+- use explicit snapshot allowlist
+- fail if any included session cannot resolve required publication identity/year
+- fail on missing referenced LAB group integrity
+- roster completion is not a publication-readiness gate
+- room may be blank
+- optional suggestions/notes irrelevant
+- validation rechecks the current Working source fingerprint before seal/activation
+- release session count must match the validated source snapshot
+- candidate failure records safe metadata only and never alters active pointer
+
+- [ ] **Step 9: Implement explicit high-trust Publish control**
+
+Expose `Publish Timetable` only when `canPublishTimetable` is true.
+
+Do not reuse the legacy `publish-firestore-schedule` label for this semantic action. Rename the old initialization/synchronization control so "Publish" means Faculty release only.
+
+The Publish UI must show:
+- Academic Year
+- current active release ID/time if present
+- Working-vs-Published state
+- candidate validation result
+- explicit final confirmation
+
+- [ ] **Step 10: Implement atomic activation**
+
+Use a Firestore transaction on the Academic-Year pointer:
+- re-read current `activeReleaseId`
+- require equality with candidate `basedOnActiveReleaseId`
+- require candidate metadata sealed/eligible
+- switch to candidate release ID
+- write safe publication audit metadata
+
+The activation event is the only Faculty-visible cutover.
+
+- [ ] **Step 11: Implement restore-as-new-release, not pointer rollback**
+
+If restore tooling is included in this phase, it copies a prior sealed snapshot into a new candidate, validates/seals it, and publishes a new release ID.
+
+Do not add "set pointer to arbitrary old release" as a normal rollback control.
+
+- [ ] **Step 12: Add Published provenance to Change Requests**
+
+When a Faculty request originates from Published view:
+- record immutable `baseReleaseId`
+- retain stable base-session public evidence/fingerprint using the existing request base model
+- client cannot alter provenance during later lifecycle steps
+
+Do not change which offices approve the request.
+
+- [ ] **Step 13: Extend final apply stale protection**
+
+Before applying an approved request:
+- re-resolve current Working session
+- compare current relevant base facts with the request's reviewed base evidence
+- if different, fail closed as stale / Needs Review
+- an active release change triggers revalidation but need not fail if the specific referenced base/session still matches safely
+- missing Working session fails closed
+- never recreate a deleted session from a stale Published snapshot
+- preserve idempotent apply behavior
+
+- [ ] **Step 14: Run focused suites**
 
 ```bash
-node --test tests/faculty-assignment.test.js tests/adfa-assignment-submit.test.js tests/workflow-functional-completion.test.js
+node --test tests/faculty-assignment.test.js tests/adfa-assignment-submit.test.js tests/adfa-approve-submit-not-publish.test.js tests/timetable-publication.test.js tests/timetable-publication-activation.test.js tests/timetable-publication-concurrency.test.js tests/timetable-working-published-isolation.test.js tests/timetable-publication-private-fields.test.js tests/timetable-publication-no-doe.test.js tests/change-request-published-provenance.test.js tests/change-request-stale-base.test.js tests/workflow-functional-completion.test.js
 ```
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+If `firestore.rules` changed in this task, also run:
 
 ```bash
-git add timetable.js faculty-assignment.js tests/faculty-assignment.test.js tests/adfa-assignment-submit.test.js tests/workflow-functional-completion.test.js
-git commit -m "feat: add adfa suggestion review submit"
+npm run test:emulator
+```
+
+- [ ] **Step 15: Commit**
+
+```bash
+git add timetable.js timetable-publication.js faculty-assignment.js approval-request.js approval-finalizer.js firestore.rules tests/faculty-assignment.test.js tests/adfa-assignment-submit.test.js tests/adfa-approve-submit-not-publish.test.js tests/timetable-publication-activation.test.js tests/timetable-publication-concurrency.test.js tests/timetable-working-published-isolation.test.js tests/timetable-publication-private-fields.test.js tests/timetable-publication-no-doe.test.js tests/change-request-published-provenance.test.js tests/change-request-stale-base.test.js tests/workflow-functional-completion.test.js
+git commit -m "feat: add explicit versioned timetable publication"
 ```
 
 ---
@@ -1106,7 +1352,7 @@ Add `faculty_capacity_index` to the rebuild/verify lifecycle. Reuse existing opa
 
 - [ ] **Step 6: Add Firestore read rule and emulator tests**
 
-Authorized suggestion roles and ADFA may read `faculty_capacity_index`. Other Office is denied if the existing restricted-office policy requires it. Exact DOE collections remain denied to contributor roles.
+Authorized suggestion roles and ADFA may read `faculty_capacity_index` according to their approved role/scope. The deprecated `other_office` role receives no runtime access. Exact DOE collections remain denied to contributor roles.
 
 - [ ] **Step 7: Render only safe labels in contributor and ADFA candidate pickers**
 
@@ -1149,9 +1395,16 @@ Construct before/after assignment facts identical except `subjectKey`. Use an ac
 
 Expected: workflow preview reports no Teaching DOE delta/recalculation requirement solely from the Subject change.
 
-- [ ] **Step 2: Add a test that suggestion/note writes never call DOE preparation**
+- [ ] **Step 2: Add tests that contribution and publication actions never call DOE preparation**
 
-In timetable/source tests, assert contribution-only save code does not call `createDoeAdapter().prepareSession` and does not create `doe_recalculation_requests`.
+In timetable/source tests, assert:
+- contribution-only suggestion/note save does not call `createDoeAdapter().prepareSession`
+- contribution-only save creates no `doe_recalculation_requests`
+- release build/validate/seal creates no DOE work
+- active release pointer switch creates no DOE work
+- republish/restore-release creation creates no DOE work
+
+Keep the positive regression that authoritative final assignment still invokes the existing DOE path when Rule Book-relevant facts changed.
 
 - [ ] **Step 3: Add HICC per-course DOE tests**
 
@@ -1187,62 +1440,108 @@ git commit -m "test: protect scoped role doe behavior"
 
 ---
 
-### Task 12: Explicit Approval Regression, Schema Docs, Demo Fixtures, and Full Verification
+### Task 12: Schema, Explicit Approval and Publication Regression, Demo Fixtures, and Full Verification
 
 **Files:**
 - Modify: `docs/database/SCHEMA.md`
 - Modify: `tools/seed/dataset.js`
 - Modify: `tests/seed-dataset.test.js`
 - Modify: `tools/browser-smoke.js`
-- Modify tests only as needed to reflect the approved normal-preparation behavior; do not relax explicit approval assertions.
+- Modify/add tests only as needed to reflect the approved architecture; do not relax explicit approval/security assertions.
 
 **Interfaces:**
-- Consumes: all earlier task outputs.
-- Produces: documented schema, deterministic demo fixtures, full regression evidence, and a remote feature branch ready for acceptance review.
+- Consumes: all T1-T11 outputs.
+- Produces: documented schema, deterministic demo fixtures, release/security regression evidence, browser proof, and a remote feature branch ready for independent acceptance review.
 
-- [ ] **Step 1: Document the new schema contracts**
+- [ ] **Step 1: Document the final schema contracts**
 
-Add exact documentation for:
-- user `academicScopeTokens` representation and exact token grammar
+Document:
+- `academicScopeTokens` grammar
 - canonical `subjectKey`
 - `session_assignment_contributions`
-- temporary all-active-user LAB roster read policy
+- temporary all-ready-user LAB roster read policy
 - `faculty_capacity_index`
-- separation between normal preparation and explicit Change Request approval
-- DOE independence of role/course/Subject/year
+- Working semantics of `sessions` and `calendar_sessions`
+- `timetable_publications/{academicYearKey}` active pointer
+- release metadata lifecycle `building -> validated -> sealed`
+- immutable release-session snapshot shape
+- one-complete-Academic-Year release scope
+- publication authority and separation from ADFA final assignment
+- Faculty Published-only surfaces
+- Change Request `baseReleaseId`/base-session provenance
+- DOE non-trigger from publication
+- deprecated `other_office` target-runtime removal
 
-- [ ] **Step 2: Update seed/demo fixtures**
+- [ ] **Step 2: Update deterministic demo fixtures**
 
-Add deterministic demo profiles/sessions that exercise:
+Include:
 - HICC course-wide scope
 - HICC course+Subject scope
 - VISC course+Subject scope
-- one user holding multiple academic responsibilities
-- one LAB session with groups/roster
-- one ADFA-ready session without LAB roster completion
+- multiple responsibilities on one user
+- LAB group/roster
+- ADFA-ready session with incomplete roster
+- one sealed active Published release
+- newer Working changes not present in that release
+- one safe no-release Academic Year fixture
+- no supported `other_office` runtime fixture
 
-Do not seed live Firebase in this task; update repository fixture code only.
+Do not seed live Firebase.
 
-- [ ] **Step 3: Add/retain explicit approval regression tests**
+- [ ] **Step 3: Add/retain explicit Change Request regression**
 
-The following must remain true:
-- later required offices cannot approve before earlier required offices
-- Reject and Push Back behavior remains as currently specified
-- resubmit/revision behavior remains intact
-- normal Teaching Assignment contribution saves create no `change_request*` documents
+Must remain true:
+- later offices cannot approve before earlier applicable offices
+- Reject, Push Back, resubmit/revision behavior remains intact
+- normal contribution saves create no `change_request*` documents
+- Published-origin request preserves `baseReleaseId`
+- stale Working base prevents final apply
+- routing/order is unchanged by publication provenance
 
-- [ ] **Step 4: Extend browser smoke**
+- [ ] **Step 4: Add publication security/integrity regression matrix**
 
-Pin an end-to-end demo path:
+Pin:
+- Faculty direct Working get/query denied
+- Faculty direct Working calendar get/query denied
+- active sealed release allowed
+- guessed inactive release denied
+- building/failed/unsealed release denied
+- sealed snapshot immutable
+- active release delete denied
+- unauthorized pointer update denied
+- invalid/missing pointer fails closed
+- no fallback to Working
+- strict Published allowlist excludes note/suggestion/roster/DOE/HR/private IDs
+- Working edits after publish do not mutate active release
+- republish creates a new version
+- concurrent publisher loser conflicts
+- inactive/password-change-required user denied
+- `other_office` grants no active runtime authority
+
+- [ ] **Step 5: Extend browser smoke**
+
+Pin end-to-end paths:
+
+Internal Working:
 1. ADC skeleton exists.
-2. HICC/VISC scoped Topic contribution is visible only where authorized.
+2. HICC/VISC scoped Topic work is visible only in scope.
 3. suggestions/notes coexist.
-4. LAB roster is readable by a normal active authenticated user.
-5. ADFA becomes ready from skeleton + Topic even if LAB roster is incomplete.
-6. ADFA reviews suggestions and submits multiple Faculty.
-7. routed Change Request browser smoke still passes unchanged.
+4. normal active authenticated user can read LAB roster.
+5. ADFA ready from skeleton + Topic even with incomplete roster.
+6. ADFA submits multiple Faculty.
+7. Working view reflects final assignment.
 
-- [ ] **Step 5: Run all non-emulator suites**
+Published:
+8. before Publish, ordinary Faculty still sees prior active release.
+9. high-trust publisher builds/validates/seals/activates a new release.
+10. Faculty Timetable switches as one release.
+11. My Teaching filters the same active release.
+12. Faculty Dashboard self-mode uses the same Published source.
+13. later Working edit remains invisible until republish.
+14. no-release/corrupt-pointer states show controlled fail-closed UI.
+15. routed Change Request browser smoke still passes with serial approval.
+
+- [ ] **Step 6: Run all non-emulator suites**
 
 ```bash
 npm test
@@ -1252,32 +1551,46 @@ npm run test:server
 
 Expected: PASS.
 
-- [ ] **Step 6: Run the authoritative emulator suite**
+- [ ] **Step 7: Run authoritative emulator suite**
 
 ```bash
 npm run test:emulator
 ```
 
-Expected: PASS with no skipped authorization tests that should have executed.
+Expected: PASS with all new security tests executed.
 
-- [ ] **Step 7: Run static build and browser smoke**
+- [ ] **Step 8: Run static build and browser smoke**
 
 ```bash
 node tools/build-static.js
 node tools/browser-smoke.js --demo
 ```
 
-Expected: browser smoke completes successfully, including the existing routed approval path.
+Expected: PASS, including Published release switch and existing routed approval path.
 
-- [ ] **Step 8: Re-run the Firestore rules budget guard**
+- [ ] **Step 9: Re-run Firestore rules budget guard**
 
 ```bash
 node --test tests/rules-evaluation-budget.test.js
 ```
 
-Expected: PASS without increasing the ceiling solely to accommodate this feature.
+Expected: PASS without raising a ceiling solely to accommodate the feature.
 
-- [ ] **Step 9: Inspect final diff for forbidden scope changes**
+- [ ] **Step 10: Search for forbidden runtime residue**
+
+```bash
+git grep -n "other_office" -- ':!docs/**'
+git grep -n "calendar_sessions" timetable.js faculty-admin.js
+git grep -n "activeReleaseId" .
+```
+
+Expected:
+- no active runtime authorization/provisioning support for `other_office`
+- historical/migration test text may remain only where intentionally asserting denial
+- ordinary Faculty source paths do not use Working `calendar_sessions`
+- publication pointer use is explicit and reviewable
+
+- [ ] **Step 11: Inspect final diff for protected subsystems**
 
 ```bash
 git diff origin/main...HEAD --stat
@@ -1285,35 +1598,41 @@ git diff origin/main...HEAD -- firestore.rules approval-lifecycle.js approval-ro
 ```
 
 Expected:
-- intentional Firestore changes are present
-- explicit approval lifecycle files are unchanged unless a test-only compatibility fix was strictly necessary and separately reviewed
-- DOE engine formulas/rates were not redesigned
-- no production deployment configuration was changed unintentionally
+- publication/scoped rule changes are intentional
+- approval-request/finalizer changes are limited to approved provenance/stale-base protection
+- approval routing/order semantics are unchanged
+- DOE formulas/rates are not redesigned
+- no deployment configuration changed unintentionally
 
-- [ ] **Step 10: Commit documentation/fixture/smoke changes**
+- [ ] **Step 12: Commit documentation/fixture/smoke changes**
 
 ```bash
 git add docs/database/SCHEMA.md tools/seed/dataset.js tests/seed-dataset.test.js tools/browser-smoke.js tests
-git commit -m "test: complete scoped workflow acceptance coverage"
+git commit -m "test: complete publication and scoped workflow acceptance coverage"
 ```
 
-- [ ] **Step 11: Push the verified feature branch**
+- [ ] **Step 13: Push the verified feature branch**
 
 ```bash
 git status --short
 git push origin feature/scoped-parallel-assignment-workflow
 ```
 
-Expected: clean worktree and remote branch updated.
+Expected: clean worktree and updated remote.
 
-- [ ] **Step 12: Produce the implementation handoff report**
+- [ ] **Step 14: Produce implementation handoff report**
 
 Report:
 - final HEAD
 - commits by task
-- tests executed and results
-- Firestore rules budget before/after
+- tests/results
+- rules-budget before/after
+- publication schema and active release ID used in demo
 - any approved design deviations
 - remaining known limitations
-- confirmation that no live Firebase/DOE/Azure write/deploy occurred
-- confirmation that explicit Change Request approval remained intact
+- confirmation no live Firebase/DOE/Azure write/deploy occurred
+- confirmation explicit Change Request approval order remained intact
+- confirmation ordinary Faculty have no Working timetable read path
+- confirmation `other_office` no longer grants active runtime authority
+
+---
