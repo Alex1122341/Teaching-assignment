@@ -85,7 +85,7 @@ test('Azure stages the canonical config after the same generated lightweight bui
  const metadataPath=path.join(root,'.deploy-metadata','deployment-assets.json');
  const metadata=JSON.parse(fs.readFileSync(metadataPath,'utf8'));
  assert.equal(metadata.schemaVersion,'ucvm-static-deployment-v2');
- assert.equal(metadata.sourceAssetCount,75);
+ assert.equal(metadata.sourceAssetCount,77);
  assert.equal(metadata.deploymentAssetCount,32);
  assert.equal(metadata.deployedJsCount,20);
  assert.equal(metadata.bundles.length,12);
