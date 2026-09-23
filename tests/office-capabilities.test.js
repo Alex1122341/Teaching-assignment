@@ -86,3 +86,40 @@ test('officeAccess cannot turn faculty-facing or Other Office accounts into oper
 test('stage-scoped capabilities prevent a multi-office account from mixing office fields in one editor',()=>{const api=load(),profile={role:'owner',officeAccess:['adc','adfa']};const adc=api.forProfile(profile,{stage:'adc'}),adfa=api.forProfile(profile,{stage:'adfa'});assert.equal(adc.canEditCourseFields,true);assert.equal(adc.canEditInstructor,false);assert.equal(adfa.canEditCourseFields,false);assert.equal(adfa.canEditInstructor,true);});
 
 test('non-admin ADC LAB profiles cannot acquire ADFA through forged officeAccess',()=>{const api=load();assert.deepEqual(Array.from(api.officesForProfile({role:'adc',officeAccess:['lab','adfa']})),['lab']);assert.equal(api.forProfile({role:'lab',officeAccess:['adfa']}).canEditInstructor,false);assert.deepEqual(Array.from(api.allowedOfficesForRole('owner')),['adc','lab','adfa']);});
+
+test('time-bounded HICC responsibility grants scoped package capabilities without changing primary Faculty role',()=>{
+ const api=load(),base={role:'faculty'},draft=api.forProfile(base,{teachingAssignment:{hiccAssigned:true,ownsPackage:true,hasAcademicScope:true,state:'draft'}});
+ for(const key of ['canViewTeachingAssignmentWorking','canViewHiccPackage','canEditHiccTopic','canSuggestHiccFaculty','canSubmitHiccPackage'])assert.equal(draft[key],true,key);
+ assert.equal(draft.canApproveViscPackage,false);
+ assert.equal(draft.canFinalSubmitHiccPackage,false);
+ const approved=api.forProfile(base,{teachingAssignment:{hiccAssigned:true,ownsPackage:true,hasAcademicScope:true,state:'visc_approved',viscApprovalCurrent:true}});
+ assert.equal(approved.canFinalSubmitHiccPackage,true);
+});
+
+test('HICC role name alone does not grant current-duty capabilities and incomplete context fails closed',()=>{
+ const api=load();
+ for(const profile of [{role:'hicc'},{role:'faculty'}]){
+  const c=api.forProfile(profile);
+  for(const key of ['canViewHiccPackage','canEditHiccTopic','canSuggestHiccFaculty','canSubmitHiccPackage','canFinalSubmitHiccPackage'])assert.equal(c[key],false,key);
+ }
+ assert.equal(api.forProfile({role:'faculty'},{teachingAssignment:{hiccAssigned:true,ownsPackage:true,hasAcademicScope:false,state:'draft'}}).canSubmitHiccPackage,false);
+});
+
+test('current VISC leader assignment is review-only and cannot edit or Final Submit HICC package',()=>{
+ const api=load(),c=api.forProfile({role:'faculty'},{teachingAssignment:{viscAssigned:true,leadsGroup:true,state:'visc_review'}});
+ for(const key of ['canViewTeachingAssignmentWorking','canViewViscPackages','canApproveViscPackage','canPushBackViscPackage'])assert.equal(c[key],true,key);
+ for(const key of ['canEditHiccTopic','canSuggestHiccFaculty','canSubmitHiccPackage','canFinalSubmitHiccPackage','canEditInstructor'])assert.equal(c[key],false,key);
+});
+
+test('VISC role name alone grants no group review authority',()=>{
+ const api=load(),c=api.forProfile({role:'visc'});
+ for(const key of ['canViewViscPackages','canApproveViscPackage','canPushBackViscPackage'])assert.equal(c[key],false,key);
+});
+
+test('timetable publication is limited to Developer and Owner ADFAD General-equivalent authority',()=>{
+ const api=load();
+ assert.equal(api.forRole('developer').canPublishTimetable,true);
+ assert.equal(api.forRole('owner').canPublishTimetable,true);
+ assert.equal(api.forRole('adfa_general').canPublishTimetable,true);
+ for(const role of ['administrator','adfa_regular','adc','lab','hicc','visc','faculty'])assert.equal(api.forRole(role).canPublishTimetable,false,role);
+});
