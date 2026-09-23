@@ -33,6 +33,18 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
     const blocker=readiness.waitingFor[0];
     throw Error(`${STAGE_LABEL[blocker]||blocker} must complete this request before ${STAGE_LABEL[text(office)]||office} can act on it.`);
   }
+  // Session preparation uses the same routed lifecycle, with stricter evidence
+  // checks because its work fields can already be complete before approval.
+  function preparationReadiness({request={},workflow={},approvals={},office=''}={}){
+    const invalid={allowed:false,waitingFor:['approval'],reason:'stale_approval_evidence'};
+    if(!Number.isInteger(request.revision)||request.revision<1||workflow.requestId!==request.id||workflow.revision!==request.revision||!Array.isArray(workflow.requiredOffices))return invalid;
+    const prior=orderedOffices(workflow).filter(name=>STAGE_ORDER[name]<STAGE_ORDER[office]);
+    for(const name of prior){
+      const row=approvals[name];
+      if(!row||row.requestId!==request.id||row.office!==name||row.revision!==request.revision||!text(workflow.scopeSignatures?.[name])||row.scopeSignature!==workflow.scopeSignatures[name]||JSON.stringify(row.fields)!==JSON.stringify(workflow.scopes?.[name]))return invalid;
+    }
+    return decisionReadiness({workflow:{...workflow,requiredOffices:[...workflow.requiredOffices,office]},approvals,office});
+  }
   function assertTimingPatch(base,patch){
     const check=scheduling.validateSessionTimingChange(base,patch);
     if(check.status==='invalid')throw Error(`Invalid session timing (${check.reason}).`);
@@ -206,5 +218,5 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
   }
 
   return{requiredApproved,planDecision,planWithdrawal,planResubmission,planRequesterWithdrawal,planRequesterResubmission,
-    orderedOffices,previousRequiredOffices,decisionReadiness,assertDecisionOrder,STAGE_ORDER,STAGE_LABEL};
+    orderedOffices,previousRequiredOffices,decisionReadiness,preparationReadiness,assertDecisionOrder,STAGE_ORDER,STAGE_LABEL};
 })();

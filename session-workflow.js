@@ -10,10 +10,10 @@
  * Stage order is fixed: ADC -> LAB -> ADFA. Stages never run in parallel.
  */
 (function(root,factory){
- const api=factory();
+ const api=factory(root);
  if(typeof module==='object'&&module.exports)module.exports=api;
  if(root)root.UCVM_SESSION_WORKFLOW=api;
-})(typeof window!=='undefined'?window:null,function(){
+})(typeof window!=='undefined'?window:null,function(root){
  'use strict';
 
  const STAGES=['adc','lab','adfa'];
@@ -172,6 +172,21 @@
   return index>=0&&index<list.length-1?list[index+1]:'';
  }
 
+ function stageReadiness(session,stage,context={}){
+  const list=applicableStages(definitionForSession(session)),index=list.indexOf(stage);
+  if(index<0)return{allowed:true,waitingFor:'',reason:'not_applicable'};
+  const blocker=list.slice(0,index).find(previous=>!isStageComplete(session,previous,context));
+  if(blocker)return{allowed:false,waitingFor:STAGE_LABEL[blocker],reason:'previous_work_incomplete'};
+  if(context.approvalsReady===false)return{allowed:false,waitingFor:'APPROVAL EVIDENCE',reason:'approval_evidence_unavailable'};
+  for(const request of context.routedRequests||[]){
+   if(text(request.sessionId)!==text(session?.id||session?.sessionId)||request.requestSchema!=='office-routing-v1'||['approved','rejected','withdrawn'].includes(request.status))continue;
+   const lifecycle=context.approvalLifecycle||root?.UCVM_APPROVAL_LIFECYCLE;
+   const ready=lifecycle?.preparationReadiness?.({request,workflow:request._workflow||{},approvals:request._approvals||{},office:stage});
+   if(!ready?.allowed)return{allowed:false,waitingFor:STAGE_LABEL[ready?.waitingFor?.[0]]||'APPROVAL EVIDENCE',reason:ready?.reason||'approval_evidence_unavailable'};
+  }
+  return{allowed:true,waitingFor:'',reason:'ready'};
+ }
+
  /* Per-stage status. See spec section 7.
   *   not_applicable -> stage does not belong to this session
   *   complete       -> every required field for the stage is filled
@@ -183,10 +198,9 @@
   if(!scope||scope.applicable!==true)return{status:'not_applicable',missing:[],waitingFor:''};
   const missing=missingRequiredFields(session,stage,context);
   if(!missing.length)return{status:'complete',missing:[],waitingFor:''};
-  const list=applicableStages(definition),index=list.indexOf(stage);
-  const blocker=list.slice(0,index).find(previous=>!isStageComplete(session,previous,context));
-  return blocker
-   ?{status:'waiting',missing,waitingFor:STAGE_LABEL[blocker]}
+  const ready=stageReadiness(session,stage,context);
+  return !ready.allowed
+   ?{status:'waiting',missing,waitingFor:ready.waitingFor}
    :{status:'ready',missing,waitingFor:''};
  }
 
@@ -248,7 +262,7 @@
   STAGES,ORDER,STAGE_LABEL,SCOPED_TYPES,
   definitionForSession,stageForRole,applicableStages,
   missingRequiredFields,optionalFields,isStageComplete,
-  previousApplicableStage,nextApplicableStage,stageStatus,
+  previousApplicableStage,nextApplicableStage,stageStatus,stageReadiness,
   evaluateSessionWorkflow,workflowItemsForRole,countItemsForRole,
   isScopedType,sessionType
  });
