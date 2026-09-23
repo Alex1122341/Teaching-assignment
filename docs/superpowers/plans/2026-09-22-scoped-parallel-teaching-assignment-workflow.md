@@ -111,15 +111,16 @@ Expected: the remote feature branch contains the merged baseline and no unrelate
 **Files:**
 - Create: `academic-responsibility.js`
 - Create: `tests/academic-responsibility.test.js`
-- Modify later in this task only if required by static asset loading: `tools/static-assets.json`
-- Modify later in this task only if required by browser load order: `index.html`
+- Modify: `tools/static-assets.json`
+- Modify: `index.html`
 
 **Interfaces:**
 - Consumes: a user/profile object whose optional `academicScopeTokens` list contains exact scope tokens such as `hicc|VTMD 505|*` and `visc|VTMD 521|imaging`.
 - Produces:
   - `normalizeCourse(value) -> string`
   - `normalizeSubjectKey(value) -> string`
-  - `scopeToken(responsibility, course, subjectKey='*') -> string`\n  - `scopesFor(profile, responsibility) -> Array<{course:string,subjectKey:string}>`
+  - `scopeToken(responsibility, course, subjectKey='*') -> string`
+  - `scopesFor(profile, responsibility) -> Array<{course:string,subjectKey:string}>`
   - `hasScope(profile, responsibility, resource) -> boolean`
   - `responsibilitiesFor(profile, resource) -> string[]`
   - `canEditTopic(profile, resource) -> boolean`
@@ -612,9 +613,9 @@ git commit -m "feat: add scoped teaching contributions"
 ```js
 test('HICC/VISC scoped powers require a matching academic scope',()=>{
  const api=load();
- const profile={role:'faculty',academicScopeTokens:{hicc:[{course:'VTMD 505',subjectKey:'surgery'}]}};
- const allowed=api.forProfile(profile,{course:'VTMD 505',subjectKey:'surgery',responsibilityApi:scopeApi});
- const denied=api.forProfile(profile,{course:'VTMD 505',subjectKey:'anesthesia',responsibilityApi:scopeApi});
+ const profile={role:'faculty',academicScopeTokens:['hicc|VTMD 505|surgery']};
+ const allowed=api.forProfile(profile,{course:'VTMD 505',subjectKey:'surgery'});
+ const denied=api.forProfile(profile,{course:'VTMD 505',subjectKey:'anesthesia'});
  assert.equal(allowed.canEditScopedTopic,true);
  assert.equal(allowed.canSuggestFacultyScoped,true);
  assert.equal(denied.canEditScopedTopic,false);
