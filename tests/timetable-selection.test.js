@@ -13,6 +13,10 @@ function load(){
  vm.runInNewContext(fs.readFileSync(path.join(root,'office-capabilities.js'),'utf8'),context);
  vm.runInNewContext(fs.readFileSync(path.join(root,'session-workflow.js'),'utf8'),context);
  vm.runInNewContext(fs.readFileSync(path.join(root,'subject-catalog.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'temporal-role-assignment.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'academic-responsibility.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'teaching-responsibility.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'teaching-assignment-groups.js'),'utf8'),context);
  vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
  return context.window.UCVM_TIMETABLE_SELECTION;
 }
@@ -281,4 +285,59 @@ test('Developer selection policy exposes every editable timetable field',()=>{
  const api=load(),policy=plain(api.editPolicy('developer',{type:'LAB'}));
  assert.equal(policy.canSelect,true);
  for(const field of Object.keys(policy.fields))assert.equal(policy.fields[field],true,field);
+});
+
+test('trusted config path can set stable Teaching Assignment ownership and derives ta-sub-v2 locator',()=>{
+ const api=load(),original={...baseSession,course:'VTMD 204',semester:'fall'},row={...original,teachingAssignmentGroupId:'bovine',responsibleHiccResponsibilityId:'hicc-bovine'};
+ const groups=[{id:'bovine',name:'Bovine',leaderViscResponsibilityId:'visc-bovine',hiccResponsibilityIds:['hicc-bovine'],active:true}];
+ const responsibilities=[
+  {id:'visc-bovine',kind:'visc',label:'Bovine VISC',active:true},
+  {id:'hicc-bovine',kind:'hicc',groupId:'bovine',label:'Bovine HICC',academicScopeTokens:['hicc|VTMD 204|*'],active:true}
+ ];
+ const plan=plain(api.planChanges([original],[row],{uid:'adc',role:'adc'},123,undefined,{role:'adc',allowTeachingAssignmentOwnership:true,teachingAssignmentGroups:groups,teachingResponsibilities:responsibilities}));
+ assert.deepEqual(plan.errors,[]);
+ assert.equal(plan.updates[0].data.teachingAssignmentGroupId,'bovine');
+ assert.equal(plan.updates[0].data.responsibleHiccResponsibilityId,'hicc-bovine');
+ assert.match(plan.updates[0].data.teachingAssignmentSubmissionId,/^ta-sub-v2__/);
+ assert.equal(plan.logs[0].changes.some(change=>change.field==='teachingAssignmentSubmissionId'),true);
+});
+
+test('HICC VISC and ordinary Faculty cannot self-reassign trusted ownership',()=>{
+ const api=load(),original={...baseSession,semester:'fall',teachingAssignmentGroupId:'bovine',responsibleHiccResponsibilityId:'hicc-bovine',teachingAssignmentSubmissionId:'ta-sub-v2__2026-27__bovine__hicc-bovine'};
+ const changed={...original,responsibleHiccResponsibilityId:'hicc-other'};
+ for(const role of ['hicc','visc','faculty']){
+  const plan=api.planChanges([original],[changed],{uid:role,role},123,undefined,{role});
+  assert.ok(plan.errors.some(error=>/cannot change responsibleHiccResponsibilityId/i.test(error)),role);
+ }
+});
+
+test('trusted ownership fails closed for partial missing or out-of-group identities',()=>{
+ const api=load(),original={...baseSession,course:'VTMD 204',semester:'fall'},responsibilities=[
+  {id:'visc-bovine',kind:'visc',label:'Bovine VISC',active:true},
+  {id:'hicc-bovine',kind:'hicc',groupId:'bovine',label:'Bovine HICC',academicScopeTokens:['hicc|VTMD 204|*'],active:true},
+  {id:'hicc-equine',kind:'hicc',groupId:'equine',label:'Equine HICC',academicScopeTokens:['hicc|VTMD 204|*'],active:true}
+ ],groups=[{id:'bovine',name:'Bovine',leaderViscResponsibilityId:'visc-bovine',hiccResponsibilityIds:['hicc-bovine'],active:true}];
+ const options={role:'adc',allowTeachingAssignmentOwnership:true,teachingAssignmentGroups:groups,teachingResponsibilities:responsibilities};
+ assert.ok(api.planChanges([original],[{...original,teachingAssignmentGroupId:'bovine'}],{role:'adc'},123,undefined,options).errors.some(error=>/set together/i.test(error)));
+ assert.ok(api.planChanges([original],[{...original,teachingAssignmentGroupId:'missing',responsibleHiccResponsibilityId:'hicc-bovine'}],{role:'adc'},123,undefined,options).errors.some(error=>/active Teaching Assignment group/i.test(error)));
+ assert.ok(api.planChanges([original],[{...original,teachingAssignmentGroupId:'bovine',responsibleHiccResponsibilityId:'hicc-equine'}],{role:'adc'},123,undefined,options).errors.some(error=>/does not belong/i.test(error)));
+});
+
+test('trusted caller cannot forge the derived Teaching Assignment submission locator',()=>{
+ const api=load(),original={...baseSession,course:'VTMD 204',semester:'fall',teachingAssignmentGroupId:'bovine',responsibleHiccResponsibilityId:'hicc-bovine',teachingAssignmentSubmissionId:'ta-sub-v2__2026-27__bovine__hicc-bovine'};
+ const row={...original,teachingAssignmentSubmissionId:'forged-package'};
+ const groups=[{id:'bovine',name:'Bovine',leaderViscResponsibilityId:'visc-bovine',hiccResponsibilityIds:['hicc-bovine'],active:true}],responsibilities=[{id:'visc-bovine',kind:'visc',label:'Bovine VISC'},{id:'hicc-bovine',kind:'hicc',groupId:'bovine',label:'Bovine HICC',academicScopeTokens:['hicc|VTMD 204|*']}];
+ const plan=api.planChanges([original],[row],{uid:'adc',role:'adc'},123,undefined,{role:'adc',allowTeachingAssignmentOwnership:true,teachingAssignmentGroups:groups,teachingResponsibilities:responsibilities});
+ assert.ok(plan.errors.some(error=>/cannot change teachingAssignmentSubmissionId/i.test(error)));
+});
+
+test('Teaching Assignment ownership-only update does not request DOE recalculation',async()=>{
+ const api=load(),original={...baseSession,course:'VTMD 204',semester:'fall'},row={...original,teachingAssignmentGroupId:'bovine',responsibleHiccResponsibilityId:'hicc-bovine'};
+ const groups=[{id:'bovine',name:'Bovine',leaderViscResponsibilityId:'visc-bovine',hiccResponsibilityIds:['hicc-bovine'],active:true}],responsibilities=[{id:'visc-bovine',kind:'visc',label:'Bovine VISC'},{id:'hicc-bovine',kind:'hicc',groupId:'bovine',label:'Bovine HICC',academicScopeTokens:['hicc|VTMD 204|*']}];
+ const plan=api.planChanges([original],[row],{uid:'adc',role:'adc'},123,undefined,{role:'adc',allowTeachingAssignmentOwnership:true,teachingAssignmentGroups:groups,teachingResponsibilities:responsibilities});
+ assert.deepEqual(plain(plan.errors),[]);
+ assert.equal(api.onlyNonDoeMetadataChanged(plan.logs[0].before,plan.logs[0].after),true);
+ const writes=[],store={batch:()=>({update:(ref,data)=>writes.push(['update',ref,data]),set:(ref,data)=>writes.push(['set',ref,data]),commit:async()=>{}}),sessionRef:id=>'sessions/'+id,calendarRef:id=>'calendar/'+id,calendarFromSource:(data,id)=>({sessionId:id,course:data.course}),logRef:()=> 'logs/a',queueRef:()=> 'doe/q',queueData:()=>({trigger:'ownership-only'})};
+ await api.commitPlan(plan,store);
+ assert.equal(writes.some(write=>write[1]==='doe/q'),false);
 });
