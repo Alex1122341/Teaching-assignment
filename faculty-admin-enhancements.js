@@ -65,7 +65,7 @@
  #doe-list-view .doe-status-pill.within{background:#ecfdf3;color:#166534;border-color:#a7d7b5}#doe-list-view .doe-status-pill.remaining{background:#fff8e6;color:#8a5d00;border-color:#ebcd83}#doe-list-view .doe-status-pill.over,#doe-list-view .doe-status-pill.error{background:#fff1f2;color:#b91c1c;border-color:#f3b4ba}#doe-list-view .doe-status-pill.needs_review{background:#fff8e6;color:#8a5d00;border-color:#ebcd83}#doe-list-view .doe-status-pill.unavailable{background:#f3f4f6;color:#6b7280}
  #doe-list-view .doe-override{font-weight:800;color:var(--navy)}#doe-list-view .doe-note-cell{max-width:260px;white-space:normal;line-height:1.35}
  .ucvm-role-help{margin:0 0 10px;padding:10px 12px;border:1px solid #dbe4f3;border-radius:7px;background:#f7faff;font-size:11px;line-height:1.5;color:var(--text2)}
- .ucvm-managed-role-row{display:grid;grid-template-columns:1.15fr 1.35fr 1.2fr 1.5fr auto;gap:7px;align-items:end;padding:8px;border:1px solid var(--border);border-radius:7px;margin-bottom:7px;background:var(--surface2)}
+ .ucvm-managed-role-row{display:grid;grid-template-columns:1.05fr 1.2fr .92fr .92fr 1.08fr .92fr 1.3fr auto;gap:7px;align-items:end;padding:8px;border:1px solid var(--border);border-radius:7px;margin-bottom:7px;background:var(--surface2)}
  .ucvm-managed-role-row label{display:flex;flex-direction:column;gap:3px}.ucvm-managed-role-row .form-label{font-size:9px}.ucvm-role-remove{align-self:end}.ucvm-override-grid{display:grid;grid-template-columns:1fr 1fr 2fr;gap:9px}
  .ucvm-managed-source{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:9px;font-weight:800}
  #doe-reconciliation-view .doe-reconciliation-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px;border-bottom:1px solid var(--border)}#doe-reconciliation-view .doe-reconciliation-toolbar .input{min-width:220px;flex:1}#doe-reconciliation-view .doe-reconciliation-toolbar .select{min-width:170px}#doe-reconciliation-view .reconciliation-status{display:inline-flex;padding:3px 7px;border-radius:999px;font-size:10px;font-weight:800;border:1px solid var(--border)}#doe-reconciliation-view .reconciliation-status.matched{background:#ecfdf3;color:#166534;border-color:#a7d7b5}#doe-reconciliation-view .reconciliation-status.different_doe{background:#fff8e6;color:#8a5d00;border-color:#ebcd83}#doe-reconciliation-view .reconciliation-status.legacy_only,#doe-reconciliation-view .reconciliation-status.server_only{background:#eef2ff;color:#3730a3;border-color:#c7d2fe}#doe-reconciliation-view .reconciliation-status.missing_mapping,#doe-reconciliation-view .reconciliation-status.needs_review{background:#fff1f2;color:#b91c1c;border-color:#f3b4ba}#doe-reconciliation-view .reconciliation-kpis{padding:12px}#doe-reconciliation-view .reconciliation-section{padding:0 12px 14px}#doe-reconciliation-view .reconciliation-section h3{margin:14px 0 8px;font-size:14px}
@@ -89,7 +89,7 @@
   document.querySelectorAll('.tab').forEach(t=>{if(t===tab)return;t.addEventListener('click',()=>sec.classList.add('hidden'))});
   ['doe-list-search','doe-rank-filter','doe-specialty-filter','doe-status-filter'].forEach(id=>$(id)?.addEventListener(id==='doe-list-search'?'input':'change',renderDoeList));
   $('doe-list-reset').onclick=()=>{['doe-list-search','doe-rank-filter','doe-specialty-filter','doe-status-filter'].forEach(id=>$(id).value='');renderDoeList()};
-  $('roles-search')?.addEventListener('input',()=>setTimeout(queueManagedRoles,180));$('role-type-filter')?.addEventListener('change',()=>setTimeout(queueManagedRoles,0));const roleTab=[...document.querySelectorAll('.tab')].find(x=>x.dataset.tab==='roles');roleTab?.addEventListener('click',()=>setTimeout(queueManagedRoles,0));
+  $('roles-search')?.addEventListener('input',()=>setTimeout(queueManagedRoles,180));$('role-type-filter')?.addEventListener('change',()=>setTimeout(queueManagedRoles,0));$('role-status-filter')?.addEventListener('change',()=>setTimeout(queueManagedRoles,0));const roleTab=[...document.querySelectorAll('.tab')].find(x=>x.dataset.tab==='roles');roleTab?.addEventListener('click',()=>setTimeout(queueManagedRoles,0));
  }
 
  function reconciliationRows(){
@@ -174,24 +174,45 @@
  }
  function openBaseEditor(id){const tab=[...document.querySelectorAll('.tab')].find(x=>x.dataset.tab==='database');tab?.click();setTimeout(()=>{const b=[...document.querySelectorAll('[data-edit]')].find(x=>x.dataset.edit===id);if(b)b.click()},60)}
 
+ function localRoleDate(){
+  const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+ }
+ function roleWindow(row={},year=doeListAcademicYear()){
+  const helper=window.UCVM_TEMPORAL_ROLE_ASSIGNMENT;if(!helper)throw Error('Temporal role helper is unavailable.');
+  return helper.normalizeWindow({academicYear:year,activeDate:row.activeDate,expirationDate:row.expirationDate});
+ }
+ function roleStatus(row={},year=doeListAcademicYear()){
+  const helper=window.UCVM_TEMPORAL_ROLE_ASSIGNMENT;
+  if(!helper)return row.active===false?'inactive':'active';
+  try{return helper.statusAt({academicYear:row.academicYear||year,...row},localRoleDate())}catch(_){return'inactive'}
+ }
  function roleFactsFromRow(row){
   const roleType=String(row.querySelector('.ucvm-role-type')?.value||'Other').trim(),scope=String(row.querySelector('.ucvm-role-assignment')?.value||'').trim(),notes=String(row.querySelector('.ucvm-role-notes-input')?.value||'').trim(),assignmentFactId=String(row.dataset.assignmentId||'').trim();
-  const facts={roleType,notes};if(assignmentFactId)facts.assignmentFactId=assignmentFactId;
+  const roleDates=roleWindow({activeDate:row.querySelector('.ucvm-role-active-date')?.value,expirationDate:row.querySelector('.ucvm-role-expiration-date')?.value});
+  const doeOverride=window.UCVM_TEMPORAL_ROLE_ASSIGNMENT.normalizeDoeOverride(row.querySelector('.ucvm-role-doe-override')?.value??'');
+  const facts={roleType,notes,activeDate:roleDates.activeDate,expirationDate:roleDates.expirationDate,doeOverride};if(assignmentFactId)facts.assignmentFactId=assignmentFactId;
   if(roleType==='VISC')facts.subjectKey=scope;else facts.courseCode=scope;
   return facts;
  }
  function roleRowHtml(r={},options={}){
-  const legacy=options.legacy===true,server=options.server===true,typeValue=r.roleType||r.type||'Other',type=ROLE_TYPES.includes(typeValue)?typeValue:'Other',scope=r.assignment||r.courseCode||r.subjectKey||'',assignmentFactId=server?String(r.assignmentFactId||''):'',legacyDoe=num(r.doeCredit);
-  if(legacy)return `<div class="ucvm-managed-role-row" data-legacy="1"><label><span class="form-label">Role type</span><input class="input" value="${esc(type)}" disabled></label><label><span class="form-label">Course / subject / scope</span><input class="input" value="${esc(scope)}" disabled></label><label><span class="form-label">Legacy DOE</span><input class="input" value="${legacyDoe===null?'—':pct(roleEffect(r))}" disabled></label><label class="ucvm-role-notes"><span class="form-label">Legacy note</span><input class="input" value="${esc(r.notes||'Historical managed role retained for migration')}" disabled></label><span class="source-pill source-manual">Legacy · read-only</span></div>`;
-  const calculated=server&&legacyDoe!==null?`${pct(legacyDoe)} · ${esc(r.doeRuleKey||r.doeRuleId||'server rule')}`:'Calculated by DOE API';
-  return `<div class="ucvm-managed-role-row" data-legacy="0" data-assignment-id="${esc(assignmentFactId)}" data-dirty="${server?'0':'1'}"><label><span class="form-label">Role type</span><select class="select ucvm-role-type">${ROLE_TYPES.map(x=>`<option ${x===type?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label><span class="form-label">Course / subject / scope</span><input class="input ucvm-role-assignment" value="${esc(scope)}" placeholder="e.g., VTMD 204 or Anatomy"></label><label><span class="form-label">Calculated DOE</span><div class="input ucvm-role-calculated" aria-live="polite">${calculated}</div></label><label class="ucvm-role-notes"><span class="form-label">Notes</span><input class="input ucvm-role-notes-input" value="${esc(r.notes||r.facts?.notes||'')}" placeholder="Optional assignment note"></label><button type="button" class="btn btn-small btn-danger ucvm-role-remove">${server?'Deactivate':'Remove row'}</button>${server?'<span class="source-pill source-manual">Server · active</span>':''}</div>`;
+  const legacy=options.legacy===true,server=options.server===true,typeValue=r.roleType||r.type||'Other',type=ROLE_TYPES.includes(typeValue)?typeValue:'Other',scope=r.assignment||r.courseCode||r.subjectKey||'',assignmentFactId=server?String(r.assignmentFactId||''):'',legacyDoe=num(r.doeCredit),year=doeListAcademicYear();
+  if(legacy)return `<div class="ucvm-managed-role-row" data-legacy="1"><label><span class="form-label">Role type</span><input class="input" value="${esc(type)}" disabled></label><label><span class="form-label">Course / subject / scope</span><input class="input" value="${esc(scope)}" disabled></label><label><span class="form-label">Active date</span><input class="input" value="Legacy" disabled></label><label><span class="form-label">Expiration date</span><input class="input" value="Legacy" disabled></label><label><span class="form-label">Legacy DOE</span><input class="input" value="${legacyDoe===null?'—':pct(roleEffect(r))}" disabled></label><label><span class="form-label">DOE override</span><input class="input" value="—" disabled></label><label class="ucvm-role-notes"><span class="form-label">Legacy note</span><input class="input" value="${esc(r.notes||'Historical managed role retained for migration')}" disabled></label><span class="source-pill source-manual">Legacy · read-only</span></div>`;
+  const roleDates=roleWindow(r,year),status=roleStatus(r,year),disabled=server&&r.active===false,calculatedDoe=num(r.doeCalculatedCredit??r.calculatedDoe),appliedDoe=num(r.doeCredit??r.resultDoe),overrideDoe=num(r.doeOverride),disabledAttr=disabled?' disabled':'';
+  const calculated=server&&calculatedDoe!==null?(overrideDoe===null?`${pct(calculatedDoe)} · ${esc(r.doeRuleKey||r.ruleKey||r.doeRuleId||'server rule')}`:`${pct(calculatedDoe)} map → ${pct(appliedDoe)} applied`):'Calculated by DOE API';
+  const action=disabled?'<span class="source-pill source-manual">Server · inactive</span>':`<button type="button" class="btn btn-small btn-danger ucvm-role-remove">${server?'Deactivate':'Remove row'}</button>${server?`<span class="source-pill source-manual">Server · ${esc(status)}</span>`:''}`;
+  return `<div class="ucvm-managed-role-row" data-legacy="0" data-assignment-id="${esc(assignmentFactId)}" data-dirty="${server?'0':'1'}"><label><span class="form-label">Role type</span><select class="select ucvm-role-type"${disabledAttr}>${ROLE_TYPES.map(x=>`<option ${x===type?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label><span class="form-label">Course / subject / scope</span><input class="input ucvm-role-assignment" value="${esc(scope)}" placeholder="e.g., VTMD 204 or Anatomy"${disabledAttr}></label><label><span class="form-label">Active date</span><input class="input ucvm-role-active-date" type="date" required value="${esc(roleDates.activeDate)}"${disabledAttr}></label><label><span class="form-label">Expiration date</span><input class="input ucvm-role-expiration-date" type="date" required value="${esc(roleDates.expirationDate)}"${disabledAttr}></label><label><span class="form-label">Calculated DOE</span><div class="input ucvm-role-calculated" aria-live="polite">${calculated}</div></label><label><span class="form-label">DOE override</span><input class="input ucvm-role-doe-override" type="number" step="0.01" value="${overrideDoe===null?'':esc(overrideDoe)}" placeholder="Optional ± DOE"${disabledAttr}></label><label class="ucvm-role-notes"><span class="form-label">Special notes</span><input class="input ucvm-role-notes-input" value="${esc(r.notes||r.facts?.notes||'')}" placeholder="e.g., Acting HICC until Mar 1"${disabledAttr}></label>${action}</div>`;
  }
  async function previewRoleRow(row){
-  if(row?.dataset?.legacy==='1')return;const output=row?.querySelector('.ucvm-role-calculated');if(!output)return;
-  const facts=roleFactsFromRow(row),scope=facts.courseCode||facts.subjectKey;if(!scope){output.textContent='Enter course / subject';return}
+  if(row?.dataset?.legacy==='1'||row?.querySelector('.ucvm-role-type')?.disabled)return;const output=row?.querySelector('.ucvm-role-calculated');if(!output)return;
+  let facts;try{facts=roleFactsFromRow(row)}catch(error){output.textContent=error.message||'Invalid role dates';return}
+  const scope=facts.courseCode||facts.subjectKey;if(!scope){output.textContent='Enter course / subject';return}
   if(!window.UCVM_DOE_API?.isConfigured?.()){output.textContent='DOE API required';return}
   output.textContent='Calculating…';
-  try{const result=await window.UCVM_DOE_API.previewAssignment(doeListAcademicYear(),facts);output.textContent=`${pct(result.resultDoe)} · ${result.reference?.section?`§${result.reference.section}`:'policy rule'}`}catch(error){output.textContent=error?.code==='COURSE_MAPPING_REQUIRED'||error?.code==='SUBJECT_MAPPING_REQUIRED'?'Needs mapping':(error?.message||'Needs Review')}
+  try{
+   const policyFacts={...facts};for(const key of ['activeDate','expirationDate','doeOverride','assignmentFactId'])delete policyFacts[key];
+   const result=await window.UCVM_DOE_API.previewAssignment(doeListAcademicYear(),policyFacts),applied=window.UCVM_TEMPORAL_ROLE_ASSIGNMENT.effectiveDoe(result.resultDoe,facts.doeOverride);
+   output.textContent=facts.doeOverride===null?`${pct(result.resultDoe)} · ${result.reference?.section?`§${result.reference.section}`:'policy rule'}`:`${pct(result.resultDoe)} map → ${pct(applied)} override`;
+  }catch(error){output.textContent=error?.code==='COURSE_MAPPING_REQUIRED'||error?.code==='SUBJECT_MAPPING_REQUIRED'?'Needs mapping':(error?.message||'Needs Review')}
  }
  function wireRoleRows(section){
   if(!Array.isArray(section._removedRoleIds))section._removedRoleIds=[];
@@ -200,8 +221,11 @@
    if(row.dataset.wired==='1')return;row.dataset.wired='1';
    const mark=()=>{row.dataset.dirty='1'};
    row.querySelector('.ucvm-role-type')?.addEventListener('change',()=>{mark();previewRoleRow(row)});
-   const scope=row.querySelector('.ucvm-role-assignment');scope?.addEventListener('input',()=>{mark();clearTimeout(row._doeTimer);row._doeTimer=setTimeout(()=>previewRoleRow(row),250)});
-   scope?.addEventListener('change',()=>{mark();previewRoleRow(row)});
+   const scope=row.querySelector('.ucvm-role-assignment');scope?.addEventListener('input',()=>{mark();clearTimeout(row._doeTimer);row._doeTimer=setTimeout(()=>previewRoleRow(row),250)});scope?.addEventListener('change',()=>{mark();previewRoleRow(row)});
+   const activeDate=row.querySelector('.ucvm-role-active-date'),expirationDate=row.querySelector('.ucvm-role-expiration-date');
+   const syncDateMin=()=>{if(activeDate?.value&&expirationDate)expirationDate.min=activeDate.value};
+   activeDate?.addEventListener('change',()=>{syncDateMin();mark();previewRoleRow(row)});expirationDate?.addEventListener('change',()=>{mark();previewRoleRow(row)});syncDateMin();
+   row.querySelector('.ucvm-role-doe-override')?.addEventListener('input',()=>{mark();previewRoleRow(row)});
    row.querySelector('.ucvm-role-notes-input')?.addEventListener('input',mark);
    if(row.dataset.dirty==='1')previewRoleRow(row);
   });
@@ -231,31 +255,29 @@
 
  function appendManagedRoleRows(){
   const body=$('roles-body'),filter=$('role-type-filter');if(!body)return;body.querySelectorAll('tr[data-ucvm-managed-role]').forEach(r=>r.remove());
-  const currentTypes=serverDoeRows.flatMap(row=>(row.roleAssignments||[]).map(r=>r.roleType).filter(Boolean));
-  const legacyTypes=faculty.flatMap(f=>managedRoles(f).map(r=>r.type)).filter(Boolean);
-  const types=[...new Set([...currentTypes,...legacyTypes])].sort();
+  const currentTypes=serverDoeRows.flatMap(row=>(row.roleAssignmentRecords||row.roleAssignments||[]).map(r=>r.roleType).filter(Boolean));
+  const legacyTypes=faculty.flatMap(f=>managedRoles(f).map(r=>r.type)).filter(Boolean),types=[...new Set([...currentTypes,...legacyTypes])].sort();
   if(filter)types.forEach(t=>{if(![...filter.options].some(o=>o.value===t)){const o=document.createElement('option');o.value=t;o.textContent=t;filter.appendChild(o)}});
-  const q=norm($('roles-search')?.value),type=filter?.value||'',currentRows=[],legacyRows=[];
+  const q=norm($('roles-search')?.value),type=filter?.value||'',statusFilter=$('role-status-filter')?.value||'',currentRows=[],legacyRows=[];
   for(const summaryRow of serverDoeRows){
    const f=facultyById.get(String(summaryRow.facultyId||''))||{__id:String(summaryRow.facultyId||''),preferredFullName:summaryRow.displayName||summaryRow.facultyId};
-   for(const r of summaryRow.roleAssignments||[]){
-    const assignment=r.courseCode||r.subjectKey||'',blob=norm(`${facultyName(f)} ${r.roleType} ${assignment} ${r.ruleKey}`);
-    if((!q||blob.includes(q))&&(!type||r.roleType===type))currentRows.push({f,r,assignment});
+   for(const r of summaryRow.roleAssignmentRecords||summaryRow.roleAssignments||[]){
+    const assignment=r.courseCode||r.subjectKey||'',status=roleStatus(r,summaryRow.academicYear||doeListAcademicYear()),blob=norm(`${facultyName(f)} ${r.roleType} ${assignment} ${r.ruleKey} ${r.notes} ${status}`);
+    if((!q||blob.includes(q))&&(!type||r.roleType===type)&&(!statusFilter||status===statusFilter))currentRows.push({f,r,assignment,status});
    }
   }
-  for(const f of faculty)for(const r of managedRoles(f)){
+  if(!statusFilter)for(const f of faculty)for(const r of managedRoles(f)){
    const blob=norm(`${facultyName(f)} ${r.type} ${r.assignment} ${r.notes}`);
    if((!q||blob.includes(q))&&(!type||r.type===type))legacyRows.push({f,r});
   }
-  currentRows.forEach(({f,r,assignment})=>{
+  currentRows.forEach(({f,r,assignment,status})=>{
    const tr=document.createElement('tr');tr.dataset.ucvmManagedRole='1';tr.dataset.source='server';
-   const doe=num(r.resultDoe),status=String(r.status||'').toLowerCase(),credit=doe===null||['needs_review','error'].includes(status)?'<span class="doe-status-pill needs_review">Needs Review</span>':`<strong>${pct(doe)}</strong>`;
-   const ref=r.reference?window.UCVM_DOE_WORKSHEET_VIEW.referenceText(r.reference):'';
-   tr.innerHTML=`<td><strong>${esc(facultyName(f))}</strong></td><td><span class="role-chip">${esc(r.roleType||'Role')}</span><span class="ucvm-managed-source">Current server</span></td><td>${esc(assignment||'—')}</td><td>Authoritative assignment</td><td>${credit}</td><td>${esc(r.ruleKey||r.ruleId||'Needs Review')}${ref?`<div class="muted">${esc(ref)}</div>`:''}</td><td>${esc(r.assignmentFactId||'—')}</td>`;body.appendChild(tr);
+   const doe=num(r.resultDoe),credit=doe===null?'<span class="doe-status-pill needs_review">Needs Review</span>':`<strong>${pct(doe)}</strong>`,calculated=num(r.calculatedDoe),override=num(r.overrideDoe),dateText=[r.activeDate?`from ${r.activeDate}`:'',r.expirationDate?`until ${r.expirationDate}`:''].filter(Boolean).join(' · '),details=[r.notes,r.assignmentFactId].filter(Boolean).join(' · ')||'—';
+   tr.innerHTML=`<td><strong>${esc(facultyName(f))}</strong></td><td><span class="role-chip">${esc(r.roleType||'Role')}</span><span class="ucvm-managed-source">${esc(status)}</span></td><td>${esc(assignment||'—')}</td><td><strong>${esc(status)}</strong>${dateText?`<div class="muted">${esc(dateText)}</div>`:''}</td><td>${credit}${override!==null?`<div class="muted">Map ${esc(pct(calculated))} → override ${esc(pct(override))}</div>`:''}</td><td>${esc(r.ruleKey||r.ruleId||'Needs Review')}</td><td>${esc(details)}</td>`;body.appendChild(tr);
   });
   legacyRows.forEach(({f,r})=>{
    const tr=document.createElement('tr');tr.dataset.ucvmManagedRole='1';tr.dataset.source='legacy';const effect=roleEffect(r);
-   tr.innerHTML=`<td><strong>${esc(facultyName(f))}</strong></td><td><span class="role-chip">${esc(r.type)}</span><span class="ucvm-managed-source">Legacy</span></td><td>${esc(r.assignment||'—')}</td><td>${esc(r.action==='remove'?'Approved removal':'Migration evidence')}</td><td><span class="muted">Historical ${effect>=0?'+':''}${pct(effect)}</span></td><td>Legacy ${YEAR} migration evidence · not current DOE authority</td><td>${esc(r.notes||'—')}</td>`;body.appendChild(tr);
+   tr.innerHTML=`<td><strong>${esc(facultyName(f))}</strong></td><td><span class="role-chip">${esc(r.type)}</span><span class="ucvm-managed-source">Legacy</span></td><td>${esc(r.assignment||'—')}</td><td><span class="muted">Legacy/source evidence · no dated status</span></td><td><span class="muted">Historical ${effect>=0?'+':''}${pct(effect)}</span></td><td>Legacy ${YEAR} migration evidence · not current DOE authority</td><td>${esc(r.notes||'—')}</td>`;body.appendChild(tr);
   });
  }
  function queueManagedRoles(){if(roleAppendQueued)return;roleAppendQueued=true;requestAnimationFrame(()=>{roleAppendQueued=false;appendManagedRoleRows()})}
@@ -272,9 +294,9 @@
  function watchDom(){
   const inspect=()=>{ensureDoeView();ensureReconciliationView();renameDashboard();const form=$('edit-form');if(form&&form.children.length&&form.elements?.namedItem('ucid'))enhanceEditor(form)};inspect();
   new MutationObserver(inspect).observe(document.documentElement,{childList:true,subtree:true});
-  document.addEventListener('submit',ev=>{const form=ev.target;if(form?.id!=='edit-form'||!form.querySelector('#ucvm-doe-role-section'))return;const id=String(form.elements.namedItem('ucid')?.value||'').trim(),f=facultyById.get(id)||{},after=readEditorExtras(form);pendingExtra={id,name:String(form.elements.namedItem('preferredFullName')?.value||facultyName(f)||id),before:{roles:managedRoles(f),override:form._ucvmDoeBeforeOverride??null},after};waitForEditorSave(pendingExtra)},true)
+  document.addEventListener('submit',ev=>{const form=ev.target;if(form?.id!=='edit-form'||!form.querySelector('#ucvm-doe-role-section'))return;let after;try{after=readEditorExtras(form)}catch(error){ev.preventDefault();ev.stopPropagation();const t=$('toast');if(t){t.textContent=error.message||'Role assignment dates are invalid.';t.classList.add('show','error')}return}const id=String(form.elements.namedItem('ucid')?.value||'').trim(),f=facultyById.get(id)||{};pendingExtra={id,name:String(form.elements.namedItem('preferredFullName')?.value||facultyName(f)||id),before:{roles:managedRoles(f),override:form._ucvmDoeBeforeOverride??null},after};waitForEditorSave(pendingExtra)},true)
  }
- installStyles();watchDom();$('roles-search')?.addEventListener('input',()=>scheduleRoleAppend(220));$('role-type-filter')?.addEventListener('change',()=>scheduleRoleAppend(30));$('doe-policy-year')?.addEventListener('change',()=>{serverDoeLoaded=false;serverDoeRows=[];serverDoeError='';if(doeDataReady())loadDoeList({force:true}).catch(error=>console.error(error));renderReconciliation()});
+ installStyles();watchDom();$('roles-search')?.addEventListener('input',()=>scheduleRoleAppend(220));$('role-type-filter')?.addEventListener('change',()=>scheduleRoleAppend(30));$('role-status-filter')?.addEventListener('change',()=>scheduleRoleAppend(30));$('doe-policy-year')?.addEventListener('change',()=>{serverDoeLoaded=false;serverDoeRows=[];serverDoeError='';if(doeDataReady())loadDoeList({force:true}).catch(error=>console.error(error));renderReconciliation()});
  const startFromPage=()=>{const sharedProfile=window.UCVM_ADMIN_DATA?.profile?.();if(!sharedProfile||sharedProfile.active!==true||!UCVM.admin(sharedProfile))return false;profile=sharedProfile;subscribe();return true};
  auth.onAuthStateChanged(u=>{user=u;profile=null;if(facultyUnsub)facultyUnsub();if(sessionUnsub)sessionUnsub();facultyUnsub=sessionUnsub=null;if(!u)return;if(!startFromPage())window.addEventListener('ucvm:admin-ready',startFromPage,{once:true})});
 })();
