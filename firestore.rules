@@ -3,7 +3,7 @@ service cloud.firestore {
  match /databases/{database}/documents {
   function signedIn(){return request.auth != null;}
   function profile(){return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;}
-  function readySignedIn(){let p=profile();return p.active == true && p.role in ['developer','owner','administrator','other_office','admin','editor','viewer','adfa_general','adfa_regular','hicc','visc','faculty','adc','lab'] && p.get('mustChangePassword',false) == false;}
+  function readySignedIn(){let p=profile();return p.active == true && p.role in ['developer','owner','administrator','admin','editor','viewer','adfa_general','adfa_regular','hicc','visc','faculty','adc','lab'] && p.get('mustChangePassword',false) == false;}
   function ready(){return signedIn() && readySignedIn();}
   function admin(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
   function general(){return ready() && profile().role in ['developer','owner','adfa_general'];}
@@ -11,12 +11,12 @@ service cloud.firestore {
   function historyReader(d){return historyAll() || (ready() && !(profile().role in ['adc','lab']) && d.changedBy == request.auth.uid);}
   function hicc(){return ready() && profile().role == 'hicc';}
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
-  function explicitRole(r){return r in ['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
+  function explicitRole(r){return r in ['developer','owner','administrator','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
   function developer(){return ready() && profile().role == 'developer';}
   function defaultOfficeAccess(r){return r == 'developer' ? ['adc','lab','adfa'] : (r == 'adc' ? ['adc'] : (r == 'lab' ? ['lab'] : (r in ['owner','administrator','admin','adfa_general','adfa_regular'] ? ['adfa'] : [])));}
   function officeAccess(){let p=profile();return p.keys().hasAny(['officeAccess']) ? p.officeAccess : defaultOfficeAccess(p.role);}
   function hasOfficeAccess(name){return ready() && (developer() || name in officeAccess());}
-  function restrictedOffice(){return signedIn() && (profile().role == 'other_office' || (profile().role in ['adc','lab'] && !hasOfficeAccess('adfa')));}
+  function restrictedOffice(){return signedIn() && profile().role in ['adc','lab'] && !hasOfficeAccess('adfa');}
   function adc(){return hasOfficeAccess('adc');}
   function lab(){return hasOfficeAccess('lab');}
   function adfaApprover(){return hasOfficeAccess('adfa');}
