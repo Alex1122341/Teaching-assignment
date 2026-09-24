@@ -19,6 +19,10 @@
   const text = value => typeof value === 'string' ? value.trim() : '';
   const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
   const validRevision = record => Number.isSafeInteger(record?.revision ?? 0) && (record?.revision ?? 0) >= 0;
+  const generation = (record,field) => Number.isSafeInteger(record?.[field] ?? 0) && (record?.[field] ?? 0) >= 0 ? (record?.[field] ?? 0) : null;
+  const currentGeneration = record => generation(record,'workingRevision');
+  const submittedGeneration = record => generation(record,'submittedWorkingRevision');
+  const approvedGeneration = record => generation(record,'viscApprovedWorkingRevision');
   const isFingerprint = value => typeof value === 'string' && value.startsWith(PREFIX) && value.length > PREFIX.length;
 
   function contentReadiness(session) {
@@ -92,16 +96,19 @@
     // An approved package changed in Working must explicitly be resubmitted by
     // its HICC owner. It can never carry the earlier decision to a new revision.
     return record.status === 'visc_approved' && isFingerprint(record.viscApprovedFingerprint) &&
-      current !== record.viscApprovedFingerprint;
+      (current !== record.viscApprovedFingerprint || currentGeneration(record) !== approvedGeneration(record));
   }
   function canViscApprove(record, currentFingerprint, context = {}) {
     return record?.status === 'visc_review' && validRevision(record) && record.revision > 0 &&
+      currentGeneration(record) !== null && currentGeneration(record) === submittedGeneration(record) &&
       reviewsPackage(record,context) && isFingerprint(currentFingerprint) &&
       record.reviewFingerprint === currentFingerprint &&
       (context.sessions === undefined || readyFingerprint(context.sessions,context.suggestions ?? []) === currentFingerprint);
   }
   function approvedContent(record, currentFingerprint, sessions, suggestions) {
     return validRevision(record) && record.revision > 0 && isFingerprint(currentFingerprint) &&
+      currentGeneration(record) !== null && currentGeneration(record) === submittedGeneration(record) &&
+      submittedGeneration(record) === approvedGeneration(record) &&
       record.reviewFingerprint === currentFingerprint && record.viscApprovedFingerprint === currentFingerprint &&
       readyFingerprint(sessions,suggestions) === currentFingerprint;
   }
@@ -119,18 +126,19 @@
   function transition(record, action, context = {}) {
     const current = readyFingerprint(context.sessions,context.suggestions ?? []);
     if (action === 'submit' && canSubmitForViscReview(record,context.sessions,context)) {
-      return {...record,status:'visc_review',revision:(record.revision ?? 0) + 1,
+      return {...record,workingRevision:currentGeneration(record) ?? 0,status:'visc_review',revision:(record.revision ?? 0) + 1,
+        submittedWorkingRevision:currentGeneration(record) ?? 0,viscApprovedWorkingRevision:null,
         reviewFingerprint:current,viscApprovedFingerprint:'',viscReviewComment:'',
         submittedForReviewAt:null,viscReviewedAt:null,finalSubmittedAt:null,updatedAt:null};
     }
     if (action === 'approve' && canViscApprove(record,current,context)) {
-      return {...record,status:'visc_approved',viscApprovedFingerprint:current,viscReviewedAt:null,updatedAt:null};
+      return {...record,status:'visc_approved',viscApprovedWorkingRevision:currentGeneration(record),viscApprovedFingerprint:current,viscReviewedAt:null,updatedAt:null};
     }
     if (action === 'push_back' && record?.status === 'visc_review' && reviewsPackage(record,context) &&
         validRevision(record) && record.revision > 0 && isFingerprint(record.reviewFingerprint)) {
       const comment = text(context.comment);
       if (comment && comment.length <= 2000) {
-        return {...record,status:'changes_requested',viscApprovedFingerprint:'',viscReviewComment:comment,
+        return {...record,status:'changes_requested',viscApprovedWorkingRevision:null,viscApprovedFingerprint:'',viscReviewComment:comment,
           viscReviewedAt:null,finalSubmittedAt:null,updatedAt:null};
       }
     }
