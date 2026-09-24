@@ -102,6 +102,9 @@ test('HICC submits its own ready package and pins its first revision', () => {
   assert.equal(result.status,'visc_review');
   assert.equal(result.revision,1);
   assert.equal(result.reviewFingerprint,fingerprint());
+  assert.equal(result.workingRevision,0);
+  assert.equal(result.submittedWorkingRevision,0);
+  assert.equal(result.viscApprovedWorkingRevision,null);
   assert.equal(result.viscApprovedFingerprint,'');
   assert.equal(draft().status,'draft');
 });
@@ -124,6 +127,7 @@ test('VISC approval requires explicit authority and the submitted current finger
   const result = approved();
   assert.equal(result.status,'visc_approved');
   assert.equal(result.viscApprovedFingerprint,fingerprint());
+  assert.equal(result.viscApprovedWorkingRevision,0);
   assert.equal(result.revision,1);
 });
 test('VISC Push Back requires a bounded nonblank comment and explicit resubmission', () => {
@@ -142,6 +146,32 @@ test('VISC Push Back requires a bounded nonblank comment and explicit resubmissi
   assert.equal(resubmitted.viscApprovedFingerprint,'');
   assert.equal(resubmitted.reviewFingerprint,review.reviewFingerprint([revised],[]));
 });
+test('workingRevision makes a prior VISC approval stale even when the browser fingerprint is replayed', () => {
+  const record = approved();
+  const edited = {...record,workingRevision:record.workingRevision + 1};
+  assert.equal(edited.reviewFingerprint,record.reviewFingerprint);
+  assert.equal(edited.viscApprovedFingerprint,record.viscApprovedFingerprint);
+  assert.equal(review.canHiccFinalSubmit(edited,fingerprint(),hicc()),false);
+  assert.throws(()=>review.transition(edited,'final_submit',hicc()));
+  const resubmitted=review.transition(edited,'submit',hicc());
+  assert.equal(resubmitted.status,'visc_review');
+  assert.equal(resubmitted.revision,2);
+  assert.equal(resubmitted.submittedWorkingRevision,1);
+  assert.equal(resubmitted.viscApprovedWorkingRevision,null);
+  const reapproved=review.transition(resubmitted,'approve',visc());
+  assert.equal(reapproved.viscApprovedWorkingRevision,1);
+  assert.equal(review.canHiccFinalSubmit(reapproved,fingerprint(),hicc()),true);
+});
+
+test('missing or null VISC approved generation never certifies final submit',()=>{
+  const record=approved();
+  for(const value of [null,undefined,-1,1]){
+    const candidate={...record,viscApprovedWorkingRevision:value};
+    if(value===undefined)delete candidate.viscApprovedWorkingRevision;
+    assert.equal(review.canHiccFinalSubmit(candidate,fingerprint(),hicc()),false);
+  }
+});
+
 test('HICC final submission needs exact approval and current ready content', () => {
   const record = approved();
   assert.equal(review.canHiccFinalSubmit(record,fingerprint(),hicc()),true);
