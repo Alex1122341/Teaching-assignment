@@ -21,7 +21,7 @@
 
  const STAGES=['adc','lab','adfa'];
  const ORDER={adc:0,lab:1,adfa:2};
- const STAGE_LABEL={adc:'ADC',lab:'LAB',adfa:'ADFA'};
+ const STAGE_LABEL={adc:'ADC/DVM',lab:'LAB',adfa:'ADFAD'};
 
  // Resolve on use so older pages can keep loading their existing workflow bundle.
  // New package consumers fail closed if the review runtime is unavailable.
