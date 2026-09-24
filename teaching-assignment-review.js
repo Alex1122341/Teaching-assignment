@@ -19,8 +19,8 @@
   const text = value => typeof value === 'string' ? value.trim() : '';
   const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
   const validRevision = record => Number.isSafeInteger(record?.revision ?? 0) && (record?.revision ?? 0) >= 0;
-  const generation = (record,field) => Number.isSafeInteger(record?.[field] ?? 0) && (record?.[field] ?? 0) >= 0 ? (record?.[field] ?? 0) : null;
-  const currentGeneration = record => generation(record,'workingRevision');
+  const generation = (record,field) => Number.isSafeInteger(record?.[field]) && record[field] >= 0 ? record[field] : null;
+  const currentGeneration = record => record?.workingRevision === undefined ? 0 : generation(record,'workingRevision');
   const submittedGeneration = record => generation(record,'submittedWorkingRevision');
   const approvedGeneration = record => generation(record,'viscApprovedWorkingRevision');
   const isFingerprint = value => typeof value === 'string' && value.startsWith(PREFIX) && value.length > PREFIX.length;
