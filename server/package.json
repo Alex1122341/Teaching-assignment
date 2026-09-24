@@ -1,7 +1,13 @@
 {
-  "name":"ucvm-doe-api",
-  "private":true,
-  "type":"commonjs",
-  "scripts":{"test":"node --test test/*.test.js","start":"node src/server.js"},
-  "dependencies":{"firebase-admin":"latest"}
+  "name": "ucvm-doe-api",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "firebase-admin": "latest",
+    "mssql": "12.7.2"
+  }
 }

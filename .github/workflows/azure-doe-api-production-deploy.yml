@@ -58,13 +58,13 @@ jobs:
 
       - name: Install and test DOE API
         run: |
-          npm --prefix server ci --no-audit --no-fund
+          npm --prefix server install --no-audit --no-fund
           npm --prefix server test
 
       - name: Stage deployable DOE API package
         run: |
           node tools/build-doe-api.js
-          npm --prefix output/doe-api/server ci --omit=dev --no-audit --no-fund
+          npm --prefix output/doe-api/server install --omit=dev --no-audit --no-fund
 
       - name: Verify staged App Service package
         shell: bash

@@ -2,6 +2,7 @@
 const http=require('node:http');
 const {errorPayload,statusFor}=require('./http/errors.js');
 const {createDoeRoutes}=require('./routes/doe-routes.js');
+const {createDataRoutes}=require('./routes/data-routes.js');
 
 function jsonBody(req){
   return new Promise((resolve,reject)=>{
@@ -33,6 +34,7 @@ function createHandler({authProvider,services={},allowedOrigins=[]}={}){
   if(!authProvider?.verify)throw new Error('authProvider.verify is required.');
   const originAllowlist=new Set((Array.isArray(allowedOrigins)?allowedOrigins:[]).map(value=>String(value||'').trim().replace(/\/+$/,'')).filter(Boolean));
   const doeRoutes=services.doeRoutes||(services.calculationService?createDoeRoutes({calculationService:services.calculationService,rulebookService:services.rulebookService,worksheetService:services.worksheetService,workflowPreviewService:services.workflowPreviewService,policyAdminService:services.policyAdminService,targetService:services.targetService}):null);
+  const dataRoutes=services.dataRoutes||(services.sessionReadService?createDataRoutes({sessionReadService:services.sessionReadService}):null);
   return async function handler(req,res){
     try{
       const url=new URL(req.url,'http://localhost');
@@ -48,7 +50,7 @@ function createHandler({authProvider,services={},allowedOrigins=[]}={}){
       if(req.method==='GET'&&url.pathname==='/api/health'){
         return writeJson(res,200,{ok:true,service:'ucvm-doe-api'});
       }
-      if(!url.pathname.startsWith('/api/doe/')){
+      if(!url.pathname.startsWith('/api/doe/')&&!url.pathname.startsWith('/api/data/')){
         return writeJson(res,404,{code:'NOT_FOUND',message:'Route not found.'});
       }
       const header=String(req.headers.authorization||'');
@@ -61,6 +63,10 @@ function createHandler({authProvider,services={},allowedOrigins=[]}={}){
       }
       req.actor=actor;
       req.body=await jsonBody(req);
+      if(dataRoutes&&url.pathname.startsWith('/api/data/')){
+        const routed=await dataRoutes.handle({method:req.method,path:url.pathname,actor:req.actor,body:req.body,query:Object.fromEntries(url.searchParams.entries())});
+        if(routed)return writeJson(res,routed.statusCode,routed.body);
+      }
       if(doeRoutes){
         const routed=await doeRoutes.handle({method:req.method,path:url.pathname,actor:req.actor,body:req.body,query:Object.fromEntries(url.searchParams.entries())});
         if(routed)return writeJson(res,routed.statusCode,routed.body);
