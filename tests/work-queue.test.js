@@ -61,9 +61,9 @@ test('work queue counts ready and waiting work per office',()=>{
 test('an office role only sees its own office work and gets a role label',()=>{
  const {workflow,queue}=loadModule();
  const sessions=[lec({room:''}),lab({course:''})];
- assert.equal(queue.buildViewModel({sessions,role:'adc',workflow}).label,'ADC Work (2)');
+ assert.equal(queue.buildViewModel({sessions,role:'adc',workflow}).label,'ADC/DVM Work (2)');
  assert.equal(queue.buildViewModel({sessions,role:'lab',workflow}).label,'LAB Work (1)');
- assert.equal(queue.buildViewModel({sessions,role:'adfa',workflow}).label,'ADFA Work (2)');
+ assert.equal(queue.buildViewModel({sessions,role:'adfa',workflow}).label,'ADFAD Work (2)');
 });
 
 test('a role with no office authority gets no work queue at all',()=>{
@@ -81,15 +81,15 @@ test('office summaries expose READY and WAITING FOR counts',()=>{
  const summaries=queue.officeSummaries(view),labSummary=summaries.find(row=>row.stage==='lab');
  assert.equal(labSummary.ready,1);
  assert.equal(labSummary.waiting,1);
- assert.equal(labSummary.waitingFor.ADC,1);
+ assert.equal(labSummary.waitingFor['ADC/DVM'],1);
  assert.equal(summaries.find(row=>row.stage==='adc').ready,1);
 });
 
 test('panel HTML always shows the group label text, not colour alone',()=>{
  const {workflow,queue}=loadModule();
  const html=queue.panelHtml(queue.buildViewModel({sessions:[lab({course:''})],role:'developer',workflow}));
- for(const label of ['ADC Work','LAB Work','ADFA Work','READY','WAITING'])assert.ok(html.includes(label),label);
- assert.ok(html.includes('WAITING FOR ADC'));
+ for(const label of ['ADC/DVM Work','LAB Work','ADFAD Work','READY','WAITING'])assert.ok(html.includes(label),label);
+ assert.ok(html.includes('WAITING FOR ADC/DVM'));
 });
 
 test('closing the work queue hides the panel but keeps the button mounted',()=>{
@@ -150,7 +150,7 @@ test('a waiting item cannot be opened while a ready item can',()=>{
  const controller=queue.createController({document,host,onOpen:detail=>opened.push(detail)});
  controller.render({...queue.buildViewModel({sessions:[lab({course:''})],role:'lab',workflow}),role:'lab'});
  const html=controller.panel.innerHTML;
- assert.ok(html.includes('WAITING FOR ADC'));
+ assert.ok(html.includes('WAITING FOR ADC/DVM'));
  assert.ok(/data-work-open="s-lab"[^>]*disabled/.test(html));
  controller.panel.listeners.click[0]({target:{closest:selector=>selector==='[data-work-open]'?{disabled:true,dataset:{workOpen:'s-lab',workOpenStage:'lab'}}:null}});
  assert.deepEqual(opened,[]);
