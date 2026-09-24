@@ -355,6 +355,11 @@ try {
         throw 'Health payload did not contain ok=true.'
     }
     Write-Host 'PAWS API health: PASS'
+    $sqlHealth = Invoke-RestMethod -Method Get -Uri "$baseUrl/api/health/sql" -TimeoutSec 30
+    if ($sqlHealth.ok -ne $true -or $sqlHealth.dependency -ne 'azure-sql') {
+        throw 'Azure SQL health payload did not report a healthy azure-sql dependency.'
+    }
+    Write-Host 'PAWS App Service -> Azure SQL health: PASS'
 }
 catch {
     if ($SkipDeployment -or $SkipGitHubConfiguration) {

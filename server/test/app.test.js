@@ -69,3 +69,23 @@ test('v1 me returns the authenticated SQL-shaped account projection',async()=>{
   assert.equal(response.statusCode,200);
   assert.deepEqual(response.json(),{uid:'u1',email:'alex@example.test',name:'Alex',role:'developer',facultyId:'',officeName:'ADFA',mustChangePassword:false});
 });
+
+
+test('SQL health endpoint proves repository connectivity without requiring a bearer token',async()=>{
+  let calls=0;
+  const app=createApp({
+    authProvider:{verify:async()=>{throw Error('should not run')}},
+    services:{sessionReadService:{async ping(){calls++;return true},async listSessions(){return[]}}}
+  });
+  const response=await app.inject({method:'GET',url:'/api/health/sql'});
+  assert.equal(response.statusCode,200);
+  assert.deepEqual(response.json(),{ok:true,service:'ucvm-doe-api',dependency:'azure-sql'});
+  assert.equal(calls,1);
+});
+
+test('SQL health endpoint fails closed when SQL repository is unavailable',async()=>{
+  const app=createApp({authProvider:{verify:async()=>{throw Error('should not run')}},services:{}});
+  const response=await app.inject({method:'GET',url:'/api/health/sql'});
+  assert.equal(response.statusCode,503);
+  assert.equal(response.json().code,'SQL_HEALTH_UNAVAILABLE');
+});

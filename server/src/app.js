@@ -50,6 +50,13 @@ function createHandler({authProvider,services={},allowedOrigins=[]}={}){
       if(req.method==='GET'&&url.pathname==='/api/health'){
         return writeJson(res,200,{ok:true,service:'ucvm-doe-api'});
       }
+      if(req.method==='GET'&&url.pathname==='/api/health/sql'){
+        if(!services.sessionReadService?.ping){
+          return writeJson(res,503,{ok:false,service:'ucvm-doe-api',dependency:'azure-sql',code:'SQL_HEALTH_UNAVAILABLE'});
+        }
+        await services.sessionReadService.ping();
+        return writeJson(res,200,{ok:true,service:'ucvm-doe-api',dependency:'azure-sql'});
+      }
       if(!url.pathname.startsWith('/api/doe/')&&!url.pathname.startsWith('/api/data/')&&!url.pathname.startsWith('/api/v1/')){
         return writeJson(res,404,{code:'NOT_FOUND',message:'Route not found.'});
       }

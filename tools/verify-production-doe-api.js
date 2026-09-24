@@ -27,25 +27,31 @@ async function verifyDoeApi({
 }={}){
   const base=cleanBaseUrl(baseUrl),allowedOrigin=cleanOrigin(origin);
   if(typeof fetchImpl!=='function')throw Error('Fetch is unavailable.');
-  const response=await fetchImpl(`${base}/api/health`,{
-    method:'GET',
-    headers:{Origin:allowedOrigin,Accept:'application/json'},
-    redirect:'error',
-    signal:typeof AbortSignal?.timeout==='function'?AbortSignal.timeout(10000):undefined
-  });
-  const text=await response.text();
-  let payload={};
-  try{payload=text?JSON.parse(text):{}}catch{throw Error('DOE API health response is not valid JSON.')}
-  if(!response.ok)throw Error(`DOE API health check returned HTTP ${response.status}.`);
+  async function readHealth(path,label){
+    const response=await fetchImpl(`${base}${path}`,{
+      method:'GET',
+      headers:{Origin:allowedOrigin,Accept:'application/json'},
+      redirect:'error',
+      signal:typeof AbortSignal?.timeout==='function'?AbortSignal.timeout(10000):undefined
+    });
+    const body=await response.text();
+    let payload={};
+    try{payload=body?JSON.parse(body):{}}catch{throw Error(`${label} response is not valid JSON.`)}
+    if(!response.ok)throw Error(`${label} returned HTTP ${response.status}.`);
+    const cors=String(response.headers.get('access-control-allow-origin')||'').trim().replace(/\/+$/,'');
+    if(cors!==allowedOrigin)throw Error('DOE API does not allow the production frontend origin.');
+    return payload;
+  }
+  const payload=await readHealth('/api/health','DOE API health check');
   if(payload.ok!==true||payload.service!=='ucvm-doe-api')throw Error('DOE API health response does not identify the expected service.');
-  const cors=String(response.headers.get('access-control-allow-origin')||'').trim().replace(/\/+$/,'');
-  if(cors!==allowedOrigin)throw Error('DOE API does not allow the production frontend origin.');
-  return{ok:true,service:payload.service,origin:allowedOrigin};
+  const sql=await readHealth('/api/health/sql','Azure SQL health check');
+  if(sql.ok!==true||sql.service!=='ucvm-doe-api'||sql.dependency!=='azure-sql')throw Error('Azure SQL health response does not identify the expected dependency.');
+  return{ok:true,service:payload.service,origin:allowedOrigin,sql:true};
 }
 
 async function main(){
   await verifyDoeApi();
-  console.log('Production DOE API health and CORS verified.');
+  console.log('Production DOE API health, CORS, and Azure SQL connectivity verified.');
 }
 
 if(require.main===module){
