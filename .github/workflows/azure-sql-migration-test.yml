@@ -1,0 +1,77 @@
+name: Azure SQL Migration Tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/azure-sql-migration-test.yml"
+      - "database/azure-sql/**"
+      - "tools/azure_sql_migration/**"
+      - "tools/build_azure_sql_import.py"
+      - "tools/plan_paws_azure_sql_reset.ps1"
+      - "tools/reset_paws_azure_sql_exact.ps1"
+      - "tools/load_paws_azure_sql_empty.ps1"
+      - "tests/python/test_azure_sql_*.py"
+      - "tests/powershell/**"
+      - "tools/requirements-azure-sql-migration.txt"
+      - "docs/azure-sql-migration.md"
+      - "docs/superpowers/specs/2026-09-24-azure-sql-cutover-design.md"
+      - "docs/superpowers/plans/2026-09-24-azure-sql-phase1-implementation.md"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/azure-sql-migration-test.yml"
+      - "database/azure-sql/**"
+      - "tools/azure_sql_migration/**"
+      - "tools/build_azure_sql_import.py"
+      - "tools/plan_paws_azure_sql_reset.ps1"
+      - "tools/reset_paws_azure_sql_exact.ps1"
+      - "tools/load_paws_azure_sql_empty.ps1"
+      - "tests/python/test_azure_sql_*.py"
+      - "tests/powershell/**"
+      - "tools/requirements-azure-sql-migration.txt"
+      - "docs/azure-sql-migration.md"
+      - "docs/superpowers/specs/2026-09-24-azure-sql-cutover-design.md"
+      - "docs/superpowers/plans/2026-09-24-azure-sql-phase1-implementation.md"
+
+permissions:
+  contents: read
+
+jobs:
+  migration_tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r tools/requirements-azure-sql-migration.txt
+      - name: Parse PowerShell migration scripts
+        shell: pwsh
+        run: |
+          $parseErrors = @()
+          foreach ($path in @(
+            'tools/azure_sql_migration/sql_access.ps1',
+            'tools/plan_paws_azure_sql_reset.ps1',
+            'tools/reset_paws_azure_sql_exact.ps1',
+            'tools/load_paws_azure_sql_empty.ps1'
+          )) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path).Path,
+              [ref]$tokens,
+              [ref]$errors
+            )
+            if ($errors.Count -gt 0) {
+              $parseErrors += $errors | ForEach-Object { ([string]$path + ': ' + $_.Message) }
+            }
+          }
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
+      - run: python -m unittest discover -s tests/python -p "test_azure_sql_*.py" -v
+      - name: Run PowerShell loader helper regression test
+        shell: pwsh
+        run: ./tests/powershell/test_azure_sql_loader_helpers.ps1
