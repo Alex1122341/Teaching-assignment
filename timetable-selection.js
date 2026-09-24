@@ -106,7 +106,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
  function planChanges(originals,rows,actor,timestamp,facultyById,options={}){
   const originalById=new Map((originals||[]).map(row=>[text(row.id),row])),errors=[],role=text(options.role||actor?.role).toLowerCase();
   const workflow=window.UCVM_SESSION_WORKFLOW;
-  const roleLabel={adc:'ADC',lab:'LAB',adfa:'ADFA'}[workflow?.stageForRole?.(role)]||role.toUpperCase();
+  const roleLabel={adc:'ADC/DVM',lab:'LAB',adfa:'ADFAD'}[workflow?.stageForRole?.(role)]||role.toUpperCase();
   (rows||[]).forEach((row,index)=>{
    const policy=role?editPolicy(role,row,{allowTeachingAssignmentOwnership:options.allowTeachingAssignmentOwnership===true}):{canSelect:true,fields:{faculty:true,teachingAssignmentGroupId:true,responsibleHiccResponsibilityId:true}};
    const original=originalById.get(text(row.id));
