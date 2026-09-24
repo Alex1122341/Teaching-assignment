@@ -122,8 +122,15 @@ function Invoke-Az {
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [switch]$AllowFailure
     )
-    $output = @(& az @Arguments --only-show-errors 2>&1)
-    $exitCode = $LASTEXITCODE
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = @(& az @Arguments --only-show-errors 2>&1)
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($exitCode -ne 0 -and -not $AllowFailure) {
         throw ("az " + ($Arguments -join ' ') + " failed." + [Environment]::NewLine + ($output -join [Environment]::NewLine))
     }
@@ -138,8 +145,15 @@ function Invoke-Gh {
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [switch]$AllowFailure
     )
-    $output = @(& gh @Arguments 2>&1)
-    $exitCode = $LASTEXITCODE
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = @(& gh @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($exitCode -ne 0 -and -not $AllowFailure) {
         throw ("gh " + ($Arguments -join ' ') + " failed." + [Environment]::NewLine + ($output -join [Environment]::NewLine))
     }
