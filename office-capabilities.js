@@ -42,7 +42,7 @@
  }
  function hasOfficeAccess(profileOrRole,office){return officesForProfile(profileOrRole).includes(normalize(office));}
  function officeForRole(role){role=roleOf(role);return role==='adc'?'adc':role==='lab'?'lab':adfaRoles.includes(role)?'adfa':'';}
- function isOfficeAccount(profileOrRole){return officesForProfile(profileOrRole).length>0||roleOf(profileOrRole)==='other_office';}
+ function isOfficeAccount(profileOrRole){return officesForProfile(profileOrRole).length>0;}
  function blank(){
   return{canViewCalendar:false,
    canAddSessions:false,canAddOneSession:false,canSelectSessions:false,
