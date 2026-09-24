@@ -52,7 +52,7 @@ const config=window.UCVM_FIREBASE_CONFIG;
  }
  function installLandingReset(){if(window.__ucvmLandingResetInstalled||typeof firebase==='undefined')return;window.__ucvmLandingResetInstalled=true;try{firebase.auth().onAuthStateChanged(u=>{if(!u){sessionStorage.removeItem('ucvm-admin-default-landing');window.__ucvmAdminLandingScheduled=false}})}catch(_){}}
  async function linkFacultyIdentity(user,p){
-  if(admin(p)||['adc','lab'].includes(role(p?.role)))return;
+  if(admin(p)||['adc','lab','other_office'].includes(role(p?.role)))return;
   const emails=[user?.email,p?.email].map(v=>String(v||'').trim()).filter((v,i,a)=>v&&a.indexOf(v)===i);
   for(const email of emails){
    try{
