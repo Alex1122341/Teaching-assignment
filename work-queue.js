@@ -18,7 +18,7 @@
  if(root)root.UCVM_WORK_QUEUE=api;
 })(typeof window!=='undefined'?window:null,function(){
  'use strict';
- const STAGE_LABEL={adc:'ADC',lab:'LAB',adfa:'ADFA'};
+ const STAGE_LABEL={adc:'ADC/DVM',lab:'LAB',adfa:'ADFAD'};
  const PANEL_ID='ucvm-work-queue-panel';
  const BUTTON_ID='ucvm-work-queue-btn';
  const text=value=>String(value??'').trim();
