@@ -57,7 +57,7 @@ test('setup guide documents reviewed profile-first provisioning without storing 
 
 test('office setup exposes ADC/LAB identity and existing UID inputs',()=>{
  const html=read('user-management.html');
- for(const role of ['adc','lab'])assert.ok(html.includes(`<option value="${role}">${role.toUpperCase()}</option>`));
+ for(const [role,label] of [['adc','ADC/DVM'],['lab','LAB']])assert.ok(html.includes(`<option value="${role}">${label}</option>`));
  for(const id of ['account-office-identity','account-office-name','account-office-email','account-existing-uid'])assert.ok(html.includes(`id="${id}"`),id);
  assert.ok(html.indexOf('account-profile.js')<html.indexOf('user-management.js'));
 });
