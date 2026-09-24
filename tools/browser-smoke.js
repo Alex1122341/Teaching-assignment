@@ -788,7 +788,7 @@ async function verifyDemoWorkQueue({debugPort,origin,setupCdp}){
   if(!/^All Work \([1-9]\d*\)$/.test(before.label))throw Error('Developer Work Queue button must carry a positive count: '+before.label);
   const opened=await cdp.send('Runtime.evaluate',{expression:clickExpression('ucvm-work-queue-btn'),returnByValue:true});
   if(opened.exceptionDetails||!opened.result?.value)throw Error('Work Queue button could not be clicked');
-  await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),text=p?.textContent||'';return !!p&&!p.classList.contains('hidden')&&/ADC/DVM Work/.test(text)&&/LAB Work/.test(text)&&/READY/.test(text)&&/WAITING/.test(text)})()",'Work Queue panel content',12000);
+  await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),text=p?.textContent||'';return !!p&&!p.classList.contains('hidden')&&/ADC\\/DVM Work/.test(text)&&/LAB Work/.test(text)&&/READY/.test(text)&&/WAITING/.test(text)})()",'Work Queue panel content',12000);
   // Closing only hides the panel.
   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.querySelector('#ucvm-work-queue-panel [data-work-close]')?.click();return true})()",returnByValue:true});
   await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),b=document.getElementById('ucvm-work-queue-btn');return !!p&&p.classList.contains('hidden')&&!!b&&!b.classList.contains('hidden')})()",'Work Queue closed with the button retained',12000);
