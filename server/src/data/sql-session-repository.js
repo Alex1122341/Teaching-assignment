@@ -27,10 +27,7 @@ async function appServiceManagedIdentityToken({env=process.env,fetchImpl=globalT
 
 function createSqlSessionRepository({sqlModule=null,tokenProvider=appServiceManagedIdentityToken,server=DEFAULT_SERVER,database=DEFAULT_DATABASE}={}){
   const serverName=text(server)||DEFAULT_SERVER,databaseName=text(database)||DEFAULT_DATABASE;
-  async function listSessions({start,end,facultyEmail=''}={}){
-    if(!validDate(start)||!validDate(end)||start>end){
-      throw Object.assign(Error('A valid start/end date range is required.'),{code:'INVALID_DATE_RANGE',statusCode:400});
-    }
+  async function withPool(work){
     const sql=sqlModule||require('mssql');
     const token=await tokenProvider();
     const pool=new sql.ConnectionPool({
@@ -41,7 +38,21 @@ function createSqlSessionRepository({sqlModule=null,tokenProvider=appServiceMana
       authentication:{type:'azure-active-directory-access-token',options:{token}}
     });
     await pool.connect();
-    try{
+    try{return await work(pool,sql)}finally{try{await pool.close()}catch{}}
+  }
+
+  async function ping(){
+    return withPool(async pool=>{
+      await pool.request().query('SELECT TOP (1) 1 AS ok FROM paws.Session;');
+      return true;
+    });
+  }
+
+  async function listSessions({start,end,facultyEmail=''}={}){
+    if(!validDate(start)||!validDate(end)||start>end){
+      throw Object.assign(Error('A valid start/end date range is required.'),{code:'INVALID_DATE_RANGE',statusCode:400});
+    }
+    return withPool(async pool=>{
       const request=pool.request();
       request.input('start',start);
       request.input('end',end);
@@ -84,11 +95,9 @@ ORDER BY v.SessionDate,v.StartTime,v.CourseCode,v.SessionId;`);
           instructor,instructorNames:[...new Set(instructor.split(';').map(name=>name.trim()).filter(Boolean))]
         };
       });
-    }finally{
-      try{await pool.close()}catch{}
-    }
+    });
   }
-  return Object.freeze({listSessions,server:serverName,database:databaseName});
+  return Object.freeze({listSessions,ping,server:serverName,database:databaseName});
 }
 
 module.exports={DEFAULT_SERVER,DEFAULT_DATABASE,SQL_RESOURCE,appServiceManagedIdentityToken,createSqlSessionRepository};
