@@ -28,7 +28,7 @@ test('DOE API production deployment is manual, exact-main and production-environ
  assert.match(workflow,/AZURE_DOE_API_PUBLISH_PROFILE/);
  assert.match(workflow,/npm --prefix server test/);
  assert.match(workflow,/node tools\/build-doe-api\.js/);
- assert.match(workflow,/npm --prefix output\/doe-api\/server ci --omit=dev/);
+ assert.match(workflow,/npm --prefix output\/doe-api\/server install --omit=dev/);
  assert.match(workflow,/Azure\/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383/);
  assert.match(workflow,/node tools\/verify-production-doe-api\.js/);
  assert.match(workflow,/https:\/\/red-cliff-04871ca0f\.5\.azurestaticapps\.net/);

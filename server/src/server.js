@@ -13,6 +13,7 @@ const LEGACY_FIRESTORE=require('../../doe-policy-firestore.js');
 const LEGACY_SERVICE=require('../../doe-policy-service.js');
 const INDEX_MAINTENANCE=require('../../index-maintenance.js');
 const DOE_ENGINE=require('../../doe-policy-engine.js');
+const {createSqlSessionRepository}=require('./data/sql-session-repository.js');
 
 
 function allowedOriginsFromEnv(value=process.env.ALLOWED_ORIGINS){
@@ -75,7 +76,7 @@ function createProductionDependencies({adminModule,env=process.env}={}){
   return{authProvider:createFirebaseAuthProvider({adminAuth,firestore}),firestore};
 }
 
-function createProductionServices({firestore,engine=DOE_ENGINE}={}){
+function createProductionServices({firestore,engine=DOE_ENGINE,sessionReadService=null}={}){
   const repository=createRepository(firestore);
   const calculationService=createCalculationService({repository,engine});
   const worksheetService=createWorksheetService({repository});
@@ -98,14 +99,16 @@ function createProductionServices({firestore,engine=DOE_ENGINE}={}){
   const policyAdminService=createPolicyAdminService({serviceFor,repositoryFor:()=>legacyRepository,engine,annualRulebookService:rulebookService});
   const targetService=createTargetService({repository});
   return{
-    repository,calculationService,worksheetService,rulebookService,policyAdminService,targetService,
+    repository,calculationService,worksheetService,rulebookService,policyAdminService,targetService,sessionReadService,
     workflowPreviewService:createWorkflowPreviewService({repository,calculationService,worksheetService})
   };
 }
 
 if(require.main===module){
   const deps=createProductionDependencies();
-  const services=createProductionServices({firestore:deps.firestore});
+  const sqlReads=String(process.env.PAWS_SQL_READS||'on').trim().toLowerCase()!=='off';
+  const sessionReadService=sqlReads?createSqlSessionRepository({server:process.env.AZURE_SQL_SERVER,database:process.env.AZURE_SQL_DATABASE}):null;
+  const services=createProductionServices({firestore:deps.firestore,sessionReadService});
   const port=Number(process.env.PORT)||3000;
   const app=createApp({authProvider:deps.authProvider,services,allowedOrigins:allowedOriginsFromEnv()});
   app.listen(port,()=>process.stdout.write(`UCVM DOE API listening on ${port}\n`));
