@@ -50,7 +50,7 @@ function createHandler({authProvider,services={},allowedOrigins=[]}={}){
       if(req.method==='GET'&&url.pathname==='/api/health'){
         return writeJson(res,200,{ok:true,service:'ucvm-doe-api'});
       }
-      if(!url.pathname.startsWith('/api/doe/')&&!url.pathname.startsWith('/api/data/')){
+      if(!url.pathname.startsWith('/api/doe/')&&!url.pathname.startsWith('/api/data/')&&!url.pathname.startsWith('/api/v1/')){
         return writeJson(res,404,{code:'NOT_FOUND',message:'Route not found.'});
       }
       const header=String(req.headers.authorization||'');
@@ -62,8 +62,11 @@ function createHandler({authProvider,services={},allowedOrigins=[]}={}){
         return writeJson(res,401,{code:'AUTH_REQUIRED',message:'Authentication is required.'});
       }
       req.actor=actor;
+      if(req.method==='GET'&&url.pathname==='/api/v1/me'){
+        return writeJson(res,200,{uid:actor.uid,email:actor.email,name:actor.name,role:actor.role,facultyId:actor.facultyId||'',officeName:actor.officeName||'',mustChangePassword:actor.mustChangePassword===true});
+      }
       req.body=await jsonBody(req);
-      if(dataRoutes&&url.pathname.startsWith('/api/data/')){
+      if(dataRoutes&&(url.pathname.startsWith('/api/data/')||url.pathname.startsWith('/api/v1/'))){
         const routed=await dataRoutes.handle({method:req.method,path:url.pathname,actor:req.actor,body:req.body,query:Object.fromEntries(url.searchParams.entries())});
         if(routed)return writeJson(res,routed.statusCode,routed.body);
       }
