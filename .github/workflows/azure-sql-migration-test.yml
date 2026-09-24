@@ -10,6 +10,7 @@ on:
       - "tools/plan_paws_azure_sql_reset.ps1"
       - "tools/reset_paws_azure_sql_exact.ps1"
       - "tools/load_paws_azure_sql_empty.ps1"
+      - "tools/bootstrap_paws_azure_runtime.ps1"
       - "tests/python/test_azure_sql_*.py"
       - "tests/powershell/**"
       - "tools/requirements-azure-sql-migration.txt"
@@ -54,7 +55,8 @@ jobs:
             'tools/azure_sql_migration/sql_access.ps1',
             'tools/plan_paws_azure_sql_reset.ps1',
             'tools/reset_paws_azure_sql_exact.ps1',
-            'tools/load_paws_azure_sql_empty.ps1'
+            'tools/load_paws_azure_sql_empty.ps1',
+            'tools/bootstrap_paws_azure_runtime.ps1'
           )) {
             $tokens = $null
             $errors = $null

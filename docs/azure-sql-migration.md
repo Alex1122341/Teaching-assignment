@@ -165,3 +165,25 @@ A successful result must demonstrate:
 - `staging.ImportBatch` stores the exact source-manifest SHA and completed status.
 
 Phase 1 does not switch the PAWS frontend to Azure SQL. Firebase Authentication remains, and the later API/frontend cutover will move business-data reads and writes behind the Azure App Service API.
+
+## Runtime bootstrap: App Service -> Azure SQL
+
+After the authoritative import is complete, `tools/bootstrap_paws_azure_runtime.ps1` performs the guarded one-time runtime wiring:
+
+1. uses an existing App Service when it can choose one unambiguously;
+2. creates a Node 22 App Service only when `-CreateIfMissing` is explicitly supplied;
+3. enables a system-assigned managed identity;
+4. configures SQL runtime settings and the server-side account bootstrap allowlist;
+5. grants the managed identity application access to `paws.*` and explicitly denies `staging.*`;
+6. configures the GitHub production API variables and publish-profile environment secret;
+7. dispatches the exact-current-main API deployment and verifies `/api/health`.
+
+The script does not enable the Azure SQL 0.0.0.0 "Allow Azure services" firewall rule unless `-AllowAzureServicesToSql` is explicitly supplied.
+
+Example when an API App Service does not exist yet:
+
+```powershell
+.\tools\bootstrap_paws_azure_runtime.ps1 -CreateIfMissing
+```
+
+The bootstrap email is prompted interactively so it does not need to be committed or placed on the command line. The default creation SKU is `F1`; use `-Sku B1` (or another supported SKU) only when intentionally selecting a paid App Service tier.
