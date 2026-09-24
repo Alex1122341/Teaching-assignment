@@ -55,6 +55,11 @@ class AzureSqlRuntimeBootstrapContractTests(unittest.TestCase):
         ]:
             self.assertIn(text, self.source)
 
+    def test_native_cli_stderr_does_not_bypass_allow_failure(self):
+        self.assertGreaterEqual(self.source.count("$previousErrorActionPreference = $ErrorActionPreference"), 2)
+        self.assertGreaterEqual(self.source.count("$ErrorActionPreference = 'Continue'"), 2)
+        self.assertGreaterEqual(self.source.count("$ErrorActionPreference = $previousErrorActionPreference"), 2)
+
     def test_bootstrap_email_is_not_hard_coded(self):
         self.assertIn("Read-Host 'Firebase sign-in email to bootstrap in PAWS SQL'", self.source)
         self.assertNotIn("xinyu.zhu1@", self.source.lower())
