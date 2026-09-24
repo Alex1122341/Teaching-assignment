@@ -585,7 +585,7 @@ async function verifyDemoAdcLabHandoff({debugPort,origin,setupCdp}){
    if(!/Topic/.test(item.missing)||item.status!=='READY'||item.openDisabled)throw Error('LAB did not receive READY Topic work after ADC LAB create: '+JSON.stringify(item));
   });
   await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-admin',label:'ADFA receives Faculty assignment work'},async cdp=>{
-   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')})()",'ADFA Work Queue after ADC create',12000);
+   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')})()",'ADFAD Work Queue after ADC create',12000);
    await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('ucvm-work-queue-btn')?.click();return true})()",returnByValue:true});
    const item=await waitForCondition(cdp,`(()=>{const row=[...document.querySelectorAll('#ucvm-work-queue-panel [data-work-session]')].find(node=>node.dataset.workSession===${JSON.stringify(sessionId)}&&node.dataset.workStage==='adfa');if(!row)return false;return{missing:(row.querySelector('.work-queue-item-missing')?.textContent||'').trim(),status:(row.querySelector('.work-queue-pill')?.textContent||'').trim(),openDisabled:!!row.querySelector('[data-work-open]')?.disabled}})()`,'ADFA Faculty assignment work item',12000);
    if(!/Faculty assignment/.test(item.missing)||item.status!=='WAITING FOR LAB'||item.openDisabled!==true)throw Error('ADFA did not receive the ordered Faculty assignment prompt: '+JSON.stringify(item));
@@ -788,7 +788,7 @@ async function verifyDemoWorkQueue({debugPort,origin,setupCdp}){
   if(!/^All Work \([1-9]\d*\)$/.test(before.label))throw Error('Developer Work Queue button must carry a positive count: '+before.label);
   const opened=await cdp.send('Runtime.evaluate',{expression:clickExpression('ucvm-work-queue-btn'),returnByValue:true});
   if(opened.exceptionDetails||!opened.result?.value)throw Error('Work Queue button could not be clicked');
-  await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),text=p?.textContent||'';return !!p&&!p.classList.contains('hidden')&&/ADC Work/.test(text)&&/LAB Work/.test(text)&&/READY/.test(text)&&/WAITING/.test(text)})()",'Work Queue panel content',12000);
+  await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),text=p?.textContent||'';return !!p&&!p.classList.contains('hidden')&&/ADC/DVM Work/.test(text)&&/LAB Work/.test(text)&&/READY/.test(text)&&/WAITING/.test(text)})()",'Work Queue panel content',12000);
   // Closing only hides the panel.
   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.querySelector('#ucvm-work-queue-panel [data-work-close]')?.click();return true})()",returnByValue:true});
   await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),b=document.getElementById('ucvm-work-queue-btn');return !!p&&p.classList.contains('hidden')&&!!b&&!b.classList.contains('hidden')})()",'Work Queue closed with the button retained',12000);
@@ -813,9 +813,9 @@ async function verifyDemoWorkQueue({debugPort,origin,setupCdp}){
  });
 
  // A role with no outstanding required work must not show a Work Queue button.
- await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-admin',label:'ADFA Work Queue'},async cdp=>{
+ await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-admin',label:'ADFAD Work Queue'},async cdp=>{
   await ready(cdp);
-  await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&b.classList.contains('hidden')})()",'ADFA Work Queue hidden when nothing is outstanding',12000);
+  await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&b.classList.contains('hidden')})()",'ADFAD Work Queue hidden when nothing is outstanding',12000);
  });
  }finally{
   try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
@@ -917,10 +917,10 @@ async function verifyDemoScopedEditor({debugPort,origin,setupCdp}){
    if(seeded.exceptionDetails)throw Error('ADFA work fixture failed: '+exceptionText(seeded.exceptionDetails));
    const seededValue=seeded.result?.value;
    if(!seededValue?.id)throw Error('No session available to create ADFA work');
-   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')&&/ADFA Work \\(\\d+\\)/.test((b.textContent||'').trim())})()",'ADFA Work Queue button',12000);
+   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')&&/ADFAD Work \\(\\d+\\)/.test((b.textContent||'').trim())})()",'ADFAD Work Queue button',12000);
    await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('ucvm-work-queue-btn').click();return true})()",returnByValue:true});
    const opened=await waitForCondition(cdp,"(()=>{const b=document.querySelector('#ucvm-work-queue-panel [data-work-open]:not([disabled])');if(!b)return false;b.click();return true})()",'ADFA Open Work target',12000);
-   if(!opened)throw Error('ADFA Work Queue exposed no openable item');
+   if(!opened)throw Error('ADFAD Work Queue exposed no openable item');
    await waitForCondition(cdp,"(()=>!!document.querySelector('[data-selection-row]'))()",'ADFA scoped editor opened from the Work Queue',12000);
    const state=await readEditor(cdp);
    if(!state.open)throw Error('ADFA scoped editor did not open');
