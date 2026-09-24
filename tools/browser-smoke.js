@@ -514,6 +514,25 @@ async function withDemoRolePage({debugPort,origin,setupCdp,page,uid,label},verif
   await closeTarget(debugPort,target.id);
  }
 }
+async function verifyRetiredOtherOffice({debugPort,origin,setupCdp}){
+ await setStoredDemoRole(setupCdp,'uid-otheroffice');
+ const target=await newTarget(debugPort),cdp=await connectCdp(target.webSocketDebuggerUrl);
+ try{
+  await Promise.all([cdp.send('Runtime.enable'),cdp.send('Page.enable')]);
+  const load=waitForEvent(cdp,'Page.loadEventFired');
+  const navigation=await cdp.send('Page.navigate',{url:`${origin}/index.html`});
+  if(navigation.errorText)throw Error('Retired Other Office navigation failed: '+navigation.errorText);
+  await load;
+  await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser===null&&document.body.classList.contains('auth-locked'))()",'Retired Other Office fail-closed sign-out',12000);
+  const state=await timetableToolState(cdp);
+  for(const key of ['bulkAdd','addOne','select','manageUsers','facultyDashboard','outlook','publish','adminMenu','myTeaching','afcRequest','myHistory','myTimetable']){
+   if(state[key]!==false)throw Error('retired Other Office exposed '+key+'; state='+JSON.stringify(state));
+  }
+ }finally{
+  cdp.close();
+  await closeTarget(debugPort,target.id);
+ }
+}
 async function timetableToolState(cdp){
  const result=await cdp.send('Runtime.evaluate',{expression:"(()=>{const visible=id=>{const el=document.getElementById(id);return !!el&&!el.classList.contains('hidden')},menu=document.getElementById('cal-admin-menu');return{uid:window.firebase?.auth?.().currentUser?.uid||'',bulkAdd:visible('bulk-add-session-btn'),addOne:visible('add-session-btn'),select:visible('selection-controls'),manageUsers:visible('manage-users-btn'),facultyDashboard:visible('faculty-dashboard-btn'),outlook:visible('outlook-invite-btn'),publish:visible('publish-firestore-schedule'),adminMenu:visible('cal-admin-menu'),adminMenuLabel:(menu?.querySelector('summary')?.textContent||'').trim(),myTeaching:visible('my-teaching-btn'),afcRequest:visible('afc-request-btn'),myHistory:visible('my-change-history-btn'),myTimetable:visible('my-timetable-btn')}})()",returnByValue:true});
  if(result.exceptionDetails)throw Error('Timetable role tool inspection failed: '+exceptionText(result.exceptionDetails));
@@ -522,11 +541,10 @@ async function timetableToolState(cdp){
 async function verifyTimetableRoleMatrix({debugPort,origin,setupCdp}){
  const cases=[
   {uid:'uid-developer',label:'Developer',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true,adminMenu:true,adminMenuLabel:'Admin tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
-  {uid:'uid-owner',label:'Owner',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:true,facultyDashboard:true,outlook:true,publish:true,adminMenu:true,adminMenuLabel:'Admin tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
+  {uid:'uid-owner',label:'Owner',expect:{bulkAdd:false,addOne:false,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true,adminMenu:true,adminMenuLabel:'Admin tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
   {uid:'uid-admin',label:'Administrator',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:true,publish:true,adminMenu:true,adminMenuLabel:'Admin tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
   {uid:'uid-adc-1',label:'ADC',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,adminMenu:true,adminMenuLabel:'ADC tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
   {uid:'uid-lab-1',label:'LAB',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,adminMenu:false,myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
-  {uid:'uid-otheroffice',label:'Other Office',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,adminMenu:false,myTeaching:false,afcRequest:false,myHistory:true,myTimetable:false}},
   {uid:'uid-hicc-1',label:'HICC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:true,facultyDashboard:true,outlook:false,publish:false,adminMenu:true,adminMenuLabel:'HICC tools',myTeaching:true,afcRequest:true,myHistory:true,myTimetable:false}},
   {uid:'uid-visc-1',label:'VISC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false,adminMenu:false,myTeaching:true,afcRequest:true,myHistory:true,myTimetable:false}},
   {uid:'uid-fac-001',label:'Faculty',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false,adminMenu:false,myTeaching:true,afcRequest:true,myHistory:true,myTimetable:false}}
@@ -537,14 +555,9 @@ async function verifyTimetableRoleMatrix({debugPort,origin,setupCdp}){
     if(['uid-hicc-1','uid-visc-1','uid-fac-001'].includes(entry.uid))await waitForCondition(cdp,"(()=>!document.getElementById('faculty-dashboard-btn')?.classList.contains('hidden'))()",'Timetable '+entry.label+' Faculty Dashboard link',12000);
     const state=await timetableToolState(cdp);
     for(const [key,expected] of Object.entries(entry.expect))if(state[key]!==expected)throw Error('expected '+key+'='+expected+' but got '+state[key]+'; state='+JSON.stringify(state));
-    if(entry.uid==='uid-otheroffice'){
-     const seeded=await cdp.send('Runtime.evaluate',{expression:"(async()=>{const db=firebase.firestore(),stamp=firebase.firestore.Timestamp.now();await db.collection('session_change_log').doc('other-office-self').set({sessionId:'self-history',action:'update',course:'HISTORY',topic:'OTHER-OFFICE-SELF-HISTORY',changedBy:'uid-otheroffice',changedByName:'Other Office',changedAt:stamp,changes:[{field:'topic',label:'Session name',before:'Before',after:'OTHER-OFFICE-SELF-HISTORY'}]});await db.collection('session_change_log').doc('other-office-foreign').set({sessionId:'foreign-history',action:'update',course:'HISTORY',topic:'FOREIGN-HISTORY-MUST-NOT-SHOW',changedBy:'uid-developer',changedByName:'VISTA Developer',changedAt:stamp,changes:[{field:'topic',label:'Session name',before:'Before',after:'FOREIGN-HISTORY-MUST-NOT-SHOW'}]});document.getElementById('my-change-history-btn')?.click();return true})()",returnByValue:true,awaitPromise:true});
-     if(seeded.exceptionDetails)throw Error('Other Office history fixture failed: '+exceptionText(seeded.exceptionDetails));
-     await waitForCondition(cdp,"(()=>{const panel=document.getElementById('afc-panel'),text=document.getElementById('afc-panel-content')?.textContent||'',status=document.getElementById('audit-status')?.textContent||'';return panel?.hidden===false&&text.includes('OTHER-OFFICE-SELF-HISTORY')&&!text.includes('FOREIGN-HISTORY-MUST-NOT-SHOW')&&status.includes('your changes only')})()",'Other Office self-only Change History',12000);
-     await cdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true});
-    }
    });
   }
+  await verifyRetiredOtherOffice({debugPort,origin,setupCdp});
  }finally{
   await setStoredDemoRole(setupCdp,'uid-developer');
  }
