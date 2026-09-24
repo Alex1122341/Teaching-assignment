@@ -4,7 +4,7 @@ const load=()=>require('../account-profile.js');
 const faculty={id:'f1',name:'Faculty Name',email:'FACULTY@example.test'};
 
 test('office profiles require their own identity and carry no Faculty link or roles',()=>{
- const api=load();for(const role of ['adc','lab','other_office','administrator','owner','developer']){
+ const api=load();for(const role of ['adc','lab','administrator','owner','developer']){
   const profile=api.build({role,faculty,roles:['hicc'],office:{name:'Scheduling Office',email:'OFFICE@example.test'},active:true,current:{facultyId:'f1',facultyRoles:['hicc']},mustChangePassword:true});
   const expected={name:'Scheduling Office',email:'office@example.test',role,active:true,mustChangePassword:true};if(['adc','lab','administrator','owner','developer'].includes(role))expected.officeAccess=api.defaultOfficeAccess(role);assert.deepEqual(profile,expected);
   assert.equal(api.facultyFacingRole(role),false);
@@ -21,7 +21,7 @@ test('missing Faculty identity, invalid office identity and unknown roles are re
   assert.throws(()=>api.build({role,office:{name:'',email:'office@example.test'}}),/name/i);
   assert.throws(()=>api.build({role,office:{name:'Office',email:'bad'}}),/email/i);
  }
- for(const role of ['','constructor','__proto__','unknown'])assert.throws(()=>api.build({role,faculty}),/role/i);
+ for(const role of ['','constructor','__proto__','unknown','other_office'])assert.throws(()=>api.build({role,faculty,office:{name:'Legacy Office',email:'legacy@example.test'}}),/role/i);
 });
 test('new Auth and existing-UID links always start with password change required',()=>{
  const api=load();assert.equal(api.build({role:'lab',office:{name:'Lab',email:'lab@example.test'},active:true,mustChangePassword:false}).mustChangePassword,true);
