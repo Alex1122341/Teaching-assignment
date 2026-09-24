@@ -26,6 +26,90 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Add-PortableCommandToPath {
+    param([Parameter(Mandatory = $true)][string]$CommandPath)
+    $directory = Split-Path -Parent $CommandPath
+    if (-not (($env:PATH -split ';') -contains $directory)) {
+        $env:PATH = "$directory;$env:PATH"
+    }
+}
+
+function Invoke-PortableDownload {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+    $previousProgress = $ProgressPreference
+    try {
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $Uri -OutFile $Destination -UseBasicParsing
+    }
+    finally {
+        $ProgressPreference = $previousProgress
+    }
+}
+
+function Ensure-PortableAzureCli {
+    if (Get-Command az -ErrorAction SilentlyContinue) { return }
+
+    $root = Join-Path $env:LOCALAPPDATA 'PAWS\portable-tools\azure-cli'
+    $azCommand = Get-ChildItem -LiteralPath $root -Recurse -Filter 'az.cmd' -File -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+
+    if (-not $azCommand) {
+        Write-Host 'Azure CLI is missing. Downloading the official no-admin ZIP package...'
+        $toolRoot = Split-Path -Parent $root
+        New-Item -ItemType Directory -Path $toolRoot -Force | Out-Null
+        $zip = Join-Path $toolRoot 'azure-cli-x64.zip'
+        Invoke-PortableDownload -Uri 'https://aka.ms/installazurecliwindowszipx64' -Destination $zip
+        if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        Expand-Archive -LiteralPath $zip -DestinationPath $root -Force
+        Remove-Item -LiteralPath $zip -Force
+        $azCommand = Get-ChildItem -LiteralPath $root -Recurse -Filter 'az.cmd' -File -ErrorAction Stop |
+            Select-Object -First 1
+    }
+
+    if (-not $azCommand) { throw 'Portable Azure CLI download did not contain az.cmd.' }
+    Add-PortableCommandToPath -CommandPath $azCommand.FullName
+}
+
+function Ensure-PortableGitHubCli {
+    if (Get-Command gh -ErrorAction SilentlyContinue) { return }
+
+    $root = Join-Path $env:LOCALAPPDATA 'PAWS\portable-tools\github-cli'
+    $ghCommand = Get-ChildItem -LiteralPath $root -Recurse -Filter 'gh.exe' -File -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+
+    if (-not $ghCommand) {
+        Write-Host 'GitHub CLI is missing. Downloading the official portable Windows binary...'
+        $release = Invoke-RestMethod -Method Get -Uri 'https://api.github.com/repos/cli/cli/releases/latest' -Headers @{
+            'User-Agent' = 'PAWS-runtime-bootstrap'
+            'Accept' = 'application/vnd.github+json'
+        }
+        $asset = @($release.assets) |
+            Where-Object { [string]$_.name -match '^gh_.*_windows_amd64\.zip$' } |
+            Select-Object -First 1
+        if (-not $asset -or [string]::IsNullOrWhiteSpace([string]$asset.browser_download_url)) {
+            throw 'Latest GitHub CLI release does not contain a Windows amd64 ZIP asset.'
+        }
+
+        $toolRoot = Split-Path -Parent $root
+        New-Item -ItemType Directory -Path $toolRoot -Force | Out-Null
+        $zip = Join-Path $toolRoot 'github-cli-windows-amd64.zip'
+        Invoke-PortableDownload -Uri ([string]$asset.browser_download_url) -Destination $zip
+        if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        Expand-Archive -LiteralPath $zip -DestinationPath $root -Force
+        Remove-Item -LiteralPath $zip -Force
+        $ghCommand = Get-ChildItem -LiteralPath $root -Recurse -Filter 'gh.exe' -File -ErrorAction Stop |
+            Select-Object -First 1
+    }
+
+    if (-not $ghCommand) { throw 'Portable GitHub CLI download did not contain gh.exe.' }
+    Add-PortableCommandToPath -CommandPath $ghCommand.FullName
+}
+
 function Assert-Command {
     param([Parameter(Mandatory = $true)][string]$Name)
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
@@ -76,6 +160,7 @@ function Get-AppNames {
     return @($result.Text -split "\r?\n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 }
 
+Ensure-PortableAzureCli
 Assert-Command -Name 'az'
 
 $account = Invoke-Az -Arguments @('account','show','-o','json') -AllowFailure
@@ -274,10 +359,19 @@ if ([string]::IsNullOrWhiteSpace($hostName)) {
 $baseUrl = "https://$hostName"
 
 if (-not $SkipGitHubConfiguration) {
+    Ensure-PortableGitHubCli
     Assert-Command -Name 'gh'
     $ghStatus = Invoke-Gh -Arguments @('auth','status') -AllowFailure
     if ($ghStatus.ExitCode -ne 0) {
-        throw 'GitHub CLI is not authenticated. Run gh auth login and re-run this script.'
+        Write-Host 'GitHub CLI is not signed in. Starting browser sign-in...'
+        & gh auth login --hostname github.com --git-protocol https --web
+        if ($LASTEXITCODE -ne 0) {
+            throw 'GitHub CLI browser sign-in failed.'
+        }
+        $ghStatus = Invoke-Gh -Arguments @('auth','status') -AllowFailure
+        if ($ghStatus.ExitCode -ne 0) {
+            throw 'GitHub CLI is still not authenticated after browser sign-in.'
+        }
     }
 
     Write-Host 'Configuring GitHub production variables and publish profile...'
