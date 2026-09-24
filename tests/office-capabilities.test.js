@@ -50,7 +50,7 @@ test('unknown roles fail closed and cannot mutate the shared policy',()=>{
  assert.throws(()=>{api.forRole('lab').canEditInstructor=true;},TypeError);assert.equal(api.forRole('lab').canEditInstructor,false);
 });
 test('ADC/LAB are labelled correctly and are not broad admins or history readers',()=>{
- const a=access();for(const role of ['adc','lab']){assert.equal(a.label(role),role.toUpperCase());assert.equal(a.admin({role}),false);assert.equal(a.general({role}),false);assert.equal(a.historyAll({role}),false);}
+ const a=access();assert.equal(a.label('adc'),'ADC/DVM');assert.equal(a.label('lab'),'LAB');for(const role of ['adc','lab']){assert.equal(a.admin({role}),false);assert.equal(a.general({role}),false);assert.equal(a.historyAll({role}),false);}
  assert.equal(a.admin({role:'other_office'}),false);assert.equal(a.general({role:'other_office'}),false);assert.equal(a.historyAll({role:'other_office'}),false);
 });
 test('office accounts never attempt Faculty Directory auto-linking',async()=>{
@@ -74,11 +74,10 @@ test('Developer has every office capability and highest access helpers',()=>{
 });
 
 
-test('Other Office has calendar visibility without timetable or approval authority',()=>{
+test('retired Other Office fails closed without calendar or operational authority',()=>{
  const api=load(),c=api.forRole('other_office');
- assert.equal(c.canViewCalendar,true);
- for(const [key,value] of Object.entries(c))if(key!=='canViewCalendar')assert.equal(value,false,key);
- assert.equal(api.officeForRole('other_office'),'');assert.equal(api.isOfficeAccount('other_office'),true);
+ for(const [key,value] of Object.entries(c))assert.equal(value,false,key);
+ assert.equal(api.officeForRole('other_office'),'');assert.equal(api.isOfficeAccount('other_office'),false);
 });
 
 test('officeAccess can delegate operational offices without changing system-level role authority',()=>{const api=load(),owner=api.forProfile({role:'owner',officeAccess:['adc','lab']});for(const key of ['canAddSessions','canSelectSessions','canEditCourseFields','canEditLabTopic','canEditLabGroups','canEditLabRoster'])assert.equal(owner[key],true,key);assert.equal(owner.canEditInstructor,false);assert.equal(owner.canOverride,true);assert.equal(owner.canViewFullApprovalOverview,true);assert.deepEqual(Array.from(api.officesForProfile({role:'administrator',officeAccess:['lab','adfa']})),['lab','adfa']);assert.equal(api.hasOfficeAccess({role:'administrator',officeAccess:['lab']},'lab'),true);assert.equal(api.hasOfficeAccess({role:'administrator',officeAccess:['lab']},'adfa'),false);});
