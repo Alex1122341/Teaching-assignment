@@ -134,14 +134,14 @@ const decide=(api,office,approvals=orderApprovals,workflow=orderWorkflow,decisio
 
 test('LAB cannot approve while ADC is still pending',()=>{
  const api=load();
- assert.throws(()=>decide(api,'lab'),/ADC must complete this request before LAB can act on it\./);
+ assert.throws(()=>decide(api,'lab'),/ADC\/DVM must complete this request before LAB can act on it\./);
 });
 
 test('ADFA cannot approve while an applicable LAB stage is still pending',()=>{
  const api=load();
- assert.throws(()=>decide(api,'adfa'),/ADC must complete this request before ADFA can act on it\./);
+ assert.throws(()=>decide(api,'adfa'),/ADC\/DVM must complete this request before ADFAD can act on it\./);
  const adcDone={...orderApprovals,adc:{status:'approved',fields:['date'],scopeSignature:'a'}};
- assert.throws(()=>decide(api,'adfa',adcDone),/LAB must complete this request before ADFA can act on it\./);
+ assert.throws(()=>decide(api,'adfa',adcDone),/LAB must complete this request before ADFAD can act on it\./);
 });
 
 test('ADC approves first, then LAB, then ADFA in order',()=>{
@@ -163,7 +163,7 @@ test('a session type without an applicable LAB stage unlocks ADFA as soon as ADC
  const api=load();
  const workflow={...orderWorkflow,requiredOffices:['adc','adfa'],scopes:{adc:['date'],adfa:['assignments']}};
  const approvals={adc:{status:'pending',fields:['date'],scopeSignature:'a'},adfa:{status:'pending',fields:['assignments'],scopeSignature:'f'}};
- assert.throws(()=>decide(api,'adfa',approvals,workflow),/ADC must complete/);
+ assert.throws(()=>decide(api,'adfa',approvals,workflow),/ADC\/DVM must complete/);
  const adcApproved={...approvals,adc:{status:'approved',fields:['date'],scopeSignature:'a'}};
  const plan=decide(api,'adfa',adcApproved,workflow);
  assert.equal(plan.approvalPatches.adfa.status,'approved');
