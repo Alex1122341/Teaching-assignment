@@ -187,3 +187,12 @@ Example when an API App Service does not exist yet:
 ```
 
 The bootstrap email is prompted interactively so it does not need to be committed or placed on the command line. The default creation SKU is `F1`; use `-Sku B1` (or another supported SKU) only when intentionally selecting a paid App Service tier.
+
+
+### No-admin CLI fallback
+
+The runtime bootstrap does not require MSI installation of Azure CLI or GitHub CLI. If `az` or `gh` is not available on `PATH`, it downloads official portable ZIP distributions into `%LOCALAPPDATA%\PAWS\portable-tools` and prepends only the extracted command directory to the current PowerShell process `PATH`.
+
+- Azure CLI uses Microsoft's `https://aka.ms/installazurecliwindowszipx64` no-admin ZIP.
+- GitHub CLI resolves the latest official `windows_amd64.zip` release asset from `cli/cli`.
+- If GitHub CLI is not authenticated, the bootstrap starts `gh auth login --web`.

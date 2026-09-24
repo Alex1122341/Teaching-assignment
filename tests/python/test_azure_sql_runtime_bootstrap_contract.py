@@ -41,6 +41,20 @@ class AzureSqlRuntimeBootstrapContractTests(unittest.TestCase):
         ]:
             self.assertIn(text, self.source)
 
+    def test_bootstrap_can_self_provision_portable_cli_without_admin(self):
+        for text in [
+            "PAWS\\portable-tools\\azure-cli",
+            "https://aka.ms/installazurecliwindowszipx64",
+            "PAWS\\portable-tools\\github-cli",
+            "https://api.github.com/repos/cli/cli/releases/latest",
+            "windows_amd64\\.zip",
+            "Expand-Archive",
+            "Ensure-PortableAzureCli",
+            "Ensure-PortableGitHubCli",
+            "gh auth login --hostname github.com --git-protocol https --web",
+        ]:
+            self.assertIn(text, self.source)
+
     def test_bootstrap_email_is_not_hard_coded(self):
         self.assertIn("Read-Host 'Firebase sign-in email to bootstrap in PAWS SQL'", self.source)
         self.assertNotIn("xinyu.zhu1@", self.source.lower())
