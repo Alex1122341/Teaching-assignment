@@ -469,6 +469,554 @@ service cloud.firestore {
     && (get(doeImpactPath(runId)).data.runBy == request.auth.uid || general());
   }
 
+  function taCanonicalId(value){return value is string && value.matches('^[a-z][a-z0-9_-]{0,63} && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
+  function peopleIndexShapeValid(d){return d.keys().hasOnly(['schemaVersion','entries','generatedAt']) && d.schemaVersion == 'ucvm-people-index-v1' && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
+
+  match /users/{uid} {
+   allow get: if signedIn() && (request.auth.uid == uid || general());
+   allow list: if general();
+   allow create: if generalUserCreate();
+   allow update: if generalUserUpdate(uid) || selfPasswordCompletion(uid);
+   allow delete: if false;
+  }
+  match /teaching_assignment_groups/{id} {
+   allow read: if general();
+   allow create,update: if general() && taGroupShape(id,request.resource.data);
+   allow delete: if false;
+  }
+  match /teaching_responsibilities/{responsibilityId} {
+   allow read: if general();
+   allow create,update: if general() && taResponsibilityShape(responsibilityId,request.resource.data);
+   allow delete: if false;
+   match /years/{academicYearKey}/assignees/{uid} {
+    allow get: if general() || (ready() && request.auth.uid == uid);
+    allow list: if general();
+    allow create,update: if general() && taAssigneeShape(responsibilityId,academicYearKey,uid,request.resource.data);
+    allow delete: if false;
+   }
+  }
+  match /faculty_groups/{id} {
+   allow read: if privateReader() && (admin() || request.auth.uid == resource.data.ownerUid || request.auth.uid in resource.data.memberUids);
+   allow create: if generalGroupWrite() && request.resource.data.createdAt == request.time;
+   allow update: if generalGroupWrite() || hiccMemberUpdate();
+   allow delete: if general();
+  }
+  match /teaching_subjects/{subjectKey} {
+   allow read: if ready();
+   allow create,update: if admin() && teachingSubjectRecordValid(subjectKey);
+   allow delete: if admin();
+  }
+  match /calendar_sessions/{id} {
+   allow read: if ready();
+   // General/Owner repair is checked first so a direct sanitized projection repair
+   // short-circuits before the paired-write and maintenance branches spend the
+   // Firestore rules expression budget. The authorized cases are unchanged.
+   allow create: if calendarHasNoRosterData() && (generalCalendarRepair(id) || officeCalendarCreate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id));
+   allow update: if calendarHasNoRosterData() && (generalCalendarRepair(id) || officeCalendarUpdate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id));
+   allow delete: if (teachingWritesOpen() && admin() && !existsAfter(sessionPath(id))) || maintenanceCalendarDelete(id) || generalCalendarDelete(id);
+  }
+  match /sessions/{id} {
+   allow read: if privateReader();
+   allow create: if adcSessionCreate(id) || (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && subjectKeyCreateValid() && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
+   allow update: if sessionApprovalMarkerChanged() ? routedSessionApply(id) : (adcSessionUpdate(id) || labSessionUpdate(id) || (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && subjectKeyUpdateValid() && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || doeRecalculationSessionWrite() || maintenanceSessionWrite(id));
+   allow delete: if (teachingWritesOpen() && admin() && !existsAfter(calendarPath(id))) || maintenanceSessionDelete(id);
+  }
+  match /faculty/{id} {
+   allow get: if admin() || ownFacultyId(id);
+   allow list: if admin();
+   allow create: if teachingWritesOpen() && admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportCreate() || general());
+   allow update: if (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportChange() || general())) || doeRecalculationFacultyWrite() || maintenanceFacultyUpdate();
+   allow delete: if teachingWritesOpen() && admin();
+  }
+  match /change_requests/{id} {
+   allow read: if routedRequestRead(id,resource.data) || legacyRequestRead(resource.data);
+   allow create: if teachingWritesOpen() && validRoutedRequestCreate(id);
+   allow update: if teachingWritesOpen() && ((routedRequest(resource.data) && validRoutedRequestUpdate(id)) || (!routedRequest(resource.data) && validRequestDecision()));
+   allow delete: if false;
+  }
+  match /change_request_workflow/{id} {
+   allow read: if officeWorkflowRead(id);
+   allow create: if teachingWritesOpen() && validRoutedWorkflowCreate(id);
+   allow update: if teachingWritesOpen() && validRoutedWorkflowResubmit(id);
+   allow delete: if false;
+  }
+  match /change_request_approvals/{id} {
+   allow read: if officeUser();
+   allow create: if teachingWritesOpen() && (validRoutedApprovalCreate(id) || validRoutedApprovalResubmitCreate(id));
+   allow update: if teachingWritesOpen() && validRoutedOfficeDecision(id);
+   allow delete: if false;
+  }
+  match /change_request_private/{id} {
+   allow read: if admin();
+   allow create: if teachingWritesOpen() && validRoutedPrivateCreate(id);
+   allow update: if teachingWritesOpen() && validRoutedPrivateResubmit(id);
+   allow delete: if false;
+  }
+  match /change_request_audit/{id} {
+   allow read: if admin();
+   allow create: if teachingWritesOpen() && validRoutedAuditCreate();
+   allow update,delete: if false;
+  }
+  match /workflow_notifications/{id} {
+   allow read: if workflowNotificationRead();
+   allow create: if validWorkflowNotificationCreate();
+   allow update: if workflowNotificationAcknowledge();
+   allow delete: if false;
+  }
+  match /settings/system_state {
+   allow read: if ready();
+   allow create: if validSystemStateCreate();
+   allow update: if validSystemStateAcquire() || validSystemStateOwnerModeChange() || validSystemStateTakeover() || validSystemStateUnlock();
+   allow delete: if false;
+  }
+  match /settings/{id} {
+   allow read: if admin();
+   allow read: if privateReader() && id == 'faculty_swap_index';
+   allow read: if id == 'people_index' && facultyMember();
+   allow write: if id == 'faculty_swap_index' && swapIndexShapeValid(request.resource.data) && ((teachingWritesOpen() && admin()) || maintenanceOwner());
+   allow write: if id == 'people_index' && peopleIndexShapeValid(request.resource.data) && admin();
+   allow write: if id != 'system_state' && id != 'faculty_swap_index' && id != 'people_index' && ((id in ['faculty_index','schedule_stats','faculty_swap_map'] && ((teachingWritesOpen() && admin()) || maintenanceOwner())) || (id == 'faculty_summary_2026_27' && ((teachingWritesOpen() && general()) || maintenanceOwner())) || (!(id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map','faculty_summary_2026_27']) && admin()));
+  }
+  match /bulk_import_jobs/{importId} {
+   allow read: if general();
+   allow create: if validImportJobCreate(importId);
+   allow update: if validImportJobUpdate(importId) || validImportJobTakeover(importId);
+   allow delete: if false;
+   match /stale_batches/{batchId} {
+    allow read: if general();
+    allow create,update: if maintenanceOwnerFor(importId);
+    allow delete: if false;
+   }
+   match /restore_delete_batches/{batchId} {
+    allow read: if general();
+    allow create,update: if maintenanceOwnerFor(importId);
+    allow delete: if false;
+   }
+   match /events/{eventId} {
+    allow read: if general();
+    allow create: if maintenanceOwnerFor(importId) && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
+    allow update,delete: if false;
+   }
+  }
+  match /doe_policies/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_policy_versions/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rules/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_selectors/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_parameters/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_tiers/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_inputs/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_exceptions/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_reference_sources/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_course_mappings/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_subject_mappings/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_impact_runs/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_impact_rows/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_publications/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_recalculation_requests/{id} {
+   allow read: if doeAdmin();
+   allow create: if doeRecalculationRequestCreate(id);
+   allow update,delete: if false;
+  }
+  match /doe_recalculation_batches/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_assignments/{id} {
+   allow read,create,update,delete: if false;
+  }
+  match /doe_calculation_records/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_audit_log/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /public_info/{id} {allow read: if ready(); allow create,update: if general() && request.resource.data.messages is list && request.resource.data.messages.size() <= 10 && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time; allow delete: if false;}
+  match /public_schedule/{id} {
+   allow read: if privateReader() && id == 'ccc_events';
+   allow create,update: if id == 'ccc_events' && general()
+    && request.resource.data.keys().hasOnly(['events','count','facultyCount','source','updatedBy','updatedByName','updatedAt'])
+    && request.resource.data.events is list && request.resource.data.events.size() <= 1000
+    && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time;
+   allow delete: if false;
+  }
+  match /session_change_log/{id} {
+   allow read: if historyReader(resource.data);
+   allow create: if teachingWritesOpen() && ((admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time) || officeSessionAuditCreate());
+   allow update: if false;
+   allow delete: if false;
+  }
+  match /faculty_change_log/{id} {
+   allow read: if historyReader(resource.data);
+   allow create: if teachingWritesOpen() && admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
+   allow update: if false;
+   allow delete: if false;
+  }
+  match /account_audit/{id} {
+   allow read: if historyReader(resource.data);
+   allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time && (general() || (hicc() && request.resource.data.action == 'group_members_updated' && get(/databases/$(database)/documents/faculty_groups/$(request.resource.data.groupId)).data.ownerUid == request.auth.uid));
+   allow update,delete: if false;
+  }
+  match /audit_events/{id} {allow read: if historyReader(resource.data); allow write: if false;}
+  match /afc_requests/{id} {
+   allow read: if ready() && afcRead(resource.data);
+   allow create: if afcCreate();
+   allow update: if privateReader() && (afcRecommend() || afcReject() || afcApprove() || afcWithdraw());
+   allow delete: if false;
+   match /pdf_chunks/{part} {
+    allow read: if ready() && afcRead(get(/databases/$(database)/documents/afc_requests/$(id)).data);
+    allow create: if historyAll() && getAfter(/databases/$(database)/documents/afc_requests/$(id)).data.status == 'approved' && request.resource.data.index is int && request.resource.data.base64 is string && request.resource.data.sha256 == getAfter(/databases/$(database)/documents/afc_requests/$(id)).data.pdfSha256;
+    allow update,delete: if false;
+   }
+  }
+  match /afc_audit/{id} {allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid || resource.data.requesterUid == request.auth.uid || resource.data.reportToUid == request.auth.uid); allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time; allow update,delete: if false;}
+  match /lab_groups/{id} {
+   allow read: if ready() && (officeName() != '' || facultyMember() || general());
+   allow create,update: if teachingWritesOpen() && labGroupWrite(id);
+   allow delete: if false;
+  }
+  match /lab_group_rosters/{id} {
+   allow read: if rosterReader();
+   allow create,update: if teachingWritesOpen() && rosterReader() && rosterShapeValid(request.resource.data) && request.resource.data.groupId == id;
+   allow delete: if false;
+  }
+  match /{document=**} {allow read,write: if false;}
+ }
+}
+);}
+  function taAcademicYear(value){return value is string && value.matches('^[0-9]{4}-[0-9]{2} && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
+  function peopleIndexShapeValid(d){return d.keys().hasOnly(['schemaVersion','entries','generatedAt']) && d.schemaVersion == 'ucvm-people-index-v1' && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
+
+  match /users/{uid} {
+   allow get: if signedIn() && (request.auth.uid == uid || general());
+   allow list: if general();
+   allow create: if generalUserCreate();
+   allow update: if generalUserUpdate(uid) || selfPasswordCompletion(uid);
+   allow delete: if false;
+  }
+  match /faculty_groups/{id} {
+   allow read: if privateReader() && (admin() || request.auth.uid == resource.data.ownerUid || request.auth.uid in resource.data.memberUids);
+   allow create: if generalGroupWrite() && request.resource.data.createdAt == request.time;
+   allow update: if generalGroupWrite() || hiccMemberUpdate();
+   allow delete: if general();
+  }
+  match /teaching_subjects/{subjectKey} {
+   allow read: if ready();
+   allow create,update: if admin() && teachingSubjectRecordValid(subjectKey);
+   allow delete: if admin();
+  }
+  match /calendar_sessions/{id} {
+   allow read: if ready();
+   // General/Owner repair is checked first so a direct sanitized projection repair
+   // short-circuits before the paired-write and maintenance branches spend the
+   // Firestore rules expression budget. The authorized cases are unchanged.
+   allow create: if calendarHasNoRosterData() && (generalCalendarRepair(id) || officeCalendarCreate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id));
+   allow update: if calendarHasNoRosterData() && (generalCalendarRepair(id) || officeCalendarUpdate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id));
+   allow delete: if (teachingWritesOpen() && admin() && !existsAfter(sessionPath(id))) || maintenanceCalendarDelete(id) || generalCalendarDelete(id);
+  }
+  match /sessions/{id} {
+   allow read: if privateReader();
+   allow create: if adcSessionCreate(id) || (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && subjectKeyCreateValid() && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
+   allow update: if sessionApprovalMarkerChanged() ? routedSessionApply(id) : (adcSessionUpdate(id) || labSessionUpdate(id) || (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && subjectKeyUpdateValid() && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || doeRecalculationSessionWrite() || maintenanceSessionWrite(id));
+   allow delete: if (teachingWritesOpen() && admin() && !existsAfter(calendarPath(id))) || maintenanceSessionDelete(id);
+  }
+  match /faculty/{id} {
+   allow get: if admin() || ownFacultyId(id);
+   allow list: if admin();
+   allow create: if teachingWritesOpen() && admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportCreate() || general());
+   allow update: if (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportChange() || general())) || doeRecalculationFacultyWrite() || maintenanceFacultyUpdate();
+   allow delete: if teachingWritesOpen() && admin();
+  }
+  match /change_requests/{id} {
+   allow read: if routedRequestRead(id,resource.data) || legacyRequestRead(resource.data);
+   allow create: if teachingWritesOpen() && validRoutedRequestCreate(id);
+   allow update: if teachingWritesOpen() && ((routedRequest(resource.data) && validRoutedRequestUpdate(id)) || (!routedRequest(resource.data) && validRequestDecision()));
+   allow delete: if false;
+  }
+  match /change_request_workflow/{id} {
+   allow read: if officeWorkflowRead(id);
+   allow create: if teachingWritesOpen() && validRoutedWorkflowCreate(id);
+   allow update: if teachingWritesOpen() && validRoutedWorkflowResubmit(id);
+   allow delete: if false;
+  }
+  match /change_request_approvals/{id} {
+   allow read: if officeUser();
+   allow create: if teachingWritesOpen() && (validRoutedApprovalCreate(id) || validRoutedApprovalResubmitCreate(id));
+   allow update: if teachingWritesOpen() && validRoutedOfficeDecision(id);
+   allow delete: if false;
+  }
+  match /change_request_private/{id} {
+   allow read: if admin();
+   allow create: if teachingWritesOpen() && validRoutedPrivateCreate(id);
+   allow update: if teachingWritesOpen() && validRoutedPrivateResubmit(id);
+   allow delete: if false;
+  }
+  match /change_request_audit/{id} {
+   allow read: if admin();
+   allow create: if teachingWritesOpen() && validRoutedAuditCreate();
+   allow update,delete: if false;
+  }
+  match /workflow_notifications/{id} {
+   allow read: if workflowNotificationRead();
+   allow create: if validWorkflowNotificationCreate();
+   allow update: if workflowNotificationAcknowledge();
+   allow delete: if false;
+  }
+  match /settings/system_state {
+   allow read: if ready();
+   allow create: if validSystemStateCreate();
+   allow update: if validSystemStateAcquire() || validSystemStateOwnerModeChange() || validSystemStateTakeover() || validSystemStateUnlock();
+   allow delete: if false;
+  }
+  match /settings/{id} {
+   allow read: if admin();
+   allow read: if privateReader() && id == 'faculty_swap_index';
+   allow read: if id == 'people_index' && facultyMember();
+   allow write: if id == 'faculty_swap_index' && swapIndexShapeValid(request.resource.data) && ((teachingWritesOpen() && admin()) || maintenanceOwner());
+   allow write: if id == 'people_index' && peopleIndexShapeValid(request.resource.data) && admin();
+   allow write: if id != 'system_state' && id != 'faculty_swap_index' && id != 'people_index' && ((id in ['faculty_index','schedule_stats','faculty_swap_map'] && ((teachingWritesOpen() && admin()) || maintenanceOwner())) || (id == 'faculty_summary_2026_27' && ((teachingWritesOpen() && general()) || maintenanceOwner())) || (!(id in ['faculty_index','schedule_stats','faculty_swap_index','faculty_swap_map','faculty_summary_2026_27']) && admin()));
+  }
+  match /bulk_import_jobs/{importId} {
+   allow read: if general();
+   allow create: if validImportJobCreate(importId);
+   allow update: if validImportJobUpdate(importId) || validImportJobTakeover(importId);
+   allow delete: if false;
+   match /stale_batches/{batchId} {
+    allow read: if general();
+    allow create,update: if maintenanceOwnerFor(importId);
+    allow delete: if false;
+   }
+   match /restore_delete_batches/{batchId} {
+    allow read: if general();
+    allow create,update: if maintenanceOwnerFor(importId);
+    allow delete: if false;
+   }
+   match /events/{eventId} {
+    allow read: if general();
+    allow create: if maintenanceOwnerFor(importId) && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
+    allow update,delete: if false;
+   }
+  }
+  match /doe_policies/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_policy_versions/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rules/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_selectors/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_parameters/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_tiers/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_rule_inputs/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_exceptions/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_reference_sources/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_course_mappings/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_subject_mappings/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_impact_runs/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_impact_rows/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_publications/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_recalculation_requests/{id} {
+   allow read: if doeAdmin();
+   allow create: if doeRecalculationRequestCreate(id);
+   allow update,delete: if false;
+  }
+  match /doe_recalculation_batches/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_assignments/{id} {
+   allow read,create,update,delete: if false;
+  }
+  match /doe_calculation_records/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /doe_audit_log/{id} {
+   allow read: if doeAdmin();
+   allow create,update,delete: if false;
+  }
+  match /public_info/{id} {allow read: if ready(); allow create,update: if general() && request.resource.data.messages is list && request.resource.data.messages.size() <= 10 && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time; allow delete: if false;}
+  match /public_schedule/{id} {
+   allow read: if privateReader() && id == 'ccc_events';
+   allow create,update: if id == 'ccc_events' && general()
+    && request.resource.data.keys().hasOnly(['events','count','facultyCount','source','updatedBy','updatedByName','updatedAt'])
+    && request.resource.data.events is list && request.resource.data.events.size() <= 1000
+    && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time;
+   allow delete: if false;
+  }
+  match /session_change_log/{id} {
+   allow read: if historyReader(resource.data);
+   allow create: if teachingWritesOpen() && ((admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time) || officeSessionAuditCreate());
+   allow update: if false;
+   allow delete: if false;
+  }
+  match /faculty_change_log/{id} {
+   allow read: if historyReader(resource.data);
+   allow create: if teachingWritesOpen() && admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
+   allow update: if false;
+   allow delete: if false;
+  }
+  match /account_audit/{id} {
+   allow read: if historyReader(resource.data);
+   allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time && (general() || (hicc() && request.resource.data.action == 'group_members_updated' && get(/databases/$(database)/documents/faculty_groups/$(request.resource.data.groupId)).data.ownerUid == request.auth.uid));
+   allow update,delete: if false;
+  }
+  match /audit_events/{id} {allow read: if historyReader(resource.data); allow write: if false;}
+  match /afc_requests/{id} {
+   allow read: if ready() && afcRead(resource.data);
+   allow create: if afcCreate();
+   allow update: if privateReader() && (afcRecommend() || afcReject() || afcApprove() || afcWithdraw());
+   allow delete: if false;
+   match /pdf_chunks/{part} {
+    allow read: if ready() && afcRead(get(/databases/$(database)/documents/afc_requests/$(id)).data);
+    allow create: if historyAll() && getAfter(/databases/$(database)/documents/afc_requests/$(id)).data.status == 'approved' && request.resource.data.index is int && request.resource.data.base64 is string && request.resource.data.sha256 == getAfter(/databases/$(database)/documents/afc_requests/$(id)).data.pdfSha256;
+    allow update,delete: if false;
+   }
+  }
+  match /afc_audit/{id} {allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid || resource.data.requesterUid == request.auth.uid || resource.data.reportToUid == request.auth.uid); allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time; allow update,delete: if false;}
+  match /lab_groups/{id} {
+   allow read: if ready() && (officeName() != '' || facultyMember() || general());
+   allow create,update: if teachingWritesOpen() && labGroupWrite(id);
+   allow delete: if false;
+  }
+  match /lab_group_rosters/{id} {
+   allow read: if rosterReader();
+   allow create,update: if teachingWritesOpen() && rosterReader() && rosterShapeValid(request.resource.data) && request.resource.data.groupId == id;
+   allow delete: if false;
+  }
+  match /{document=**} {allow read,write: if false;}
+ }
+}
+);}
+  function taManagedMeta(d){return d.updatedBy == request.auth.uid && d.updatedAt == request.time;}
+  function taResponsibilityShape(id,d){
+   let scopes=d.get('academicScopeTokens',[]);
+   return taCanonicalId(id) && d.id == id && d.kind in ['hicc','visc'] && d.label is string && d.label.size() <= 120
+    && d.active is bool && scopes is list && scopes.size() <= 64
+    && ((d.kind == 'hicc' && taCanonicalId(d.groupId) && scopes.size() > 0) || (d.kind == 'visc' && d.get('groupId','') == '' && scopes.size() == 0))
+    && taManagedMeta(d);
+  }
+  function taGroupShape(id,d){
+   let hiccs=d.get('hiccResponsibilityIds',[]);
+   return taCanonicalId(id) && d.id == id && d.name is string && d.name.size() > 0 && d.name.size() <= 120
+    && taCanonicalId(d.leaderViscResponsibilityId) && hiccs is list && hiccs.size() > 0 && hiccs.size() <= 64
+    && d.active is bool && taManagedMeta(d);
+  }
+  function taWindowShape(w){
+   return w is map && w.keys().hasOnly(['activeDate','expirationDate','activeAt','expiresAt','sourceDoeAssignmentFactId'])
+    && w.activeDate is string && w.expirationDate is string && w.activeAt is timestamp && w.expiresAt is timestamp
+    && w.activeAt < w.expiresAt && w.get('sourceDoeAssignmentFactId','') is string;
+  }
+  function taWindowsShape(windows){
+   return windows is list && windows.size() > 0 && windows.size() <= 4
+    && taWindowShape(windows[0])
+    && (windows.size() < 2 || taWindowShape(windows[1]))
+    && (windows.size() < 3 || taWindowShape(windows[2]))
+    && (windows.size() < 4 || taWindowShape(windows[3]));
+  }
+  function taAssigneeShape(responsibilityId,academicYearKey,uid,d){
+   return d.keys().hasOnly(['responsibilityId','academicYearKey','assigneeUid','facultyId','enabled','windows','updatedBy','updatedByName','updatedAt'])
+    && taCanonicalId(responsibilityId) && taAcademicYear(academicYearKey)
+    && d.responsibilityId == responsibilityId && d.academicYearKey == academicYearKey && d.assigneeUid == uid
+    && d.facultyId is string && d.facultyId.size() > 0 && d.enabled is bool && taWindowsShape(d.windows) && taManagedMeta(d);
+  }
+  function taWindowCurrent(w){return w.activeAt <= request.time && request.time < w.expiresAt;}
+  function taAssigneeCurrent(d){
+   let windows=d.get('windows',[]);
+   return d.get('enabled',false) == true && taWindowsShape(windows)
+    && (taWindowCurrent(windows[0])
+     || (windows.size() > 1 && taWindowCurrent(windows[1]))
+     || (windows.size() > 2 && taWindowCurrent(windows[2]))
+     || (windows.size() > 3 && taWindowCurrent(windows[3])));
+  }
+  function taAssigneePath(responsibilityId,academicYearKey,uid){return /databases/$(database)/documents/teaching_responsibilities/$(responsibilityId)/years/$(academicYearKey)/assignees/$(uid);}
+  function taCurrentDuty(responsibilityId,academicYearKey){
+   return ready() && taCanonicalId(responsibilityId) && taAcademicYear(academicYearKey)
+    && exists(taAssigneePath(responsibilityId,academicYearKey,request.auth.uid))
+    && taAssigneeCurrent(get(taAssigneePath(responsibilityId,academicYearKey,request.auth.uid)).data);
+  }
+
   function swapIndexShapeValid(d){return d.keys().hasOnly(['schemaVersion','entries','generatedAt']) && d.schemaVersion == 'ucvm-faculty-swap-index-v1' && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
   function peopleIndexShapeValid(d){return d.keys().hasOnly(['schemaVersion','entries','generatedAt']) && d.schemaVersion == 'ucvm-people-index-v1' && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
 
