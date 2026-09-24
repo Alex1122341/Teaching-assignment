@@ -90,7 +90,7 @@ $appNames = @(Get-AppNames)
 if ([string]::IsNullOrWhiteSpace($AppName)) {
     if ($appNames.Count -eq 1) {
         $AppName = $appNames[0]
-        Write-Host "Using the only App Service in $ResourceGroup: $AppName"
+        Write-Host "Using the only App Service in ${ResourceGroup}: $AppName"
     }
     else {
         $candidates = @($appNames | Where-Object { $_ -match '(?i)(paws|doe|api)' })
