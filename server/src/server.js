@@ -1,6 +1,7 @@
 'use strict';
 const {createApp}=require('./app.js');
 const {createFirebaseAuthProvider}=require('./auth/firebase-auth.js');
+const {createFirebaseSqlAuthProvider,bootstrapProfilesFromEnv}=require('./auth/firebase-sql-auth.js');
 const {createRepository}=require('./doe/firestore-repository.js');
 const {createCalculationService}=require('./doe/calculation-service.js');
 const {createRulebookService}=require('./doe/rulebook-service.js');
@@ -14,6 +15,7 @@ const LEGACY_SERVICE=require('../../doe-policy-service.js');
 const INDEX_MAINTENANCE=require('../../index-maintenance.js');
 const DOE_ENGINE=require('../../doe-policy-engine.js');
 const {createSqlSessionRepository}=require('./data/sql-session-repository.js');
+const {createSqlUserRepository}=require('./data/sql-user-repository.js');
 
 
 function allowedOriginsFromEnv(value=process.env.ALLOWED_ORIGINS){
@@ -73,7 +75,7 @@ function createProductionDependencies({adminModule,env=process.env}={}){
     firestore=admin.firestore();
     adminAuth=admin.auth();
   }else throw Error('Firebase Admin SDK shape is unsupported.');
-  return{authProvider:createFirebaseAuthProvider({adminAuth,firestore}),firestore};
+  return{authProvider:createFirebaseAuthProvider({adminAuth,firestore}),firestore,adminAuth};
 }
 
 function createProductionServices({firestore,engine=DOE_ENGINE,sessionReadService=null}={}){
@@ -107,10 +109,14 @@ function createProductionServices({firestore,engine=DOE_ENGINE,sessionReadServic
 if(require.main===module){
   const deps=createProductionDependencies();
   const sqlReads=String(process.env.PAWS_SQL_READS||'on').trim().toLowerCase()!=='off';
-  const sessionReadService=sqlReads?createSqlSessionRepository({server:process.env.AZURE_SQL_SERVER,database:process.env.AZURE_SQL_DATABASE}):null;
+  const sqlAuth=String(process.env.PAWS_SQL_AUTH||'off').trim().toLowerCase()==='on';
+  const sqlOptions={server:process.env.AZURE_SQL_SERVER,database:process.env.AZURE_SQL_DATABASE};
+  const sessionReadService=sqlReads?createSqlSessionRepository(sqlOptions):null;
+  const userRepository=sqlAuth?createSqlUserRepository(sqlOptions):null;
+  const authProvider=sqlAuth?createFirebaseSqlAuthProvider({adminAuth:deps.adminAuth,userRepository,bootstrapProfiles:bootstrapProfilesFromEnv(process.env.PAWS_ACCOUNT_BOOTSTRAP_JSON)}):deps.authProvider;
   const services=createProductionServices({firestore:deps.firestore,sessionReadService});
   const port=Number(process.env.PORT)||3000;
-  const app=createApp({authProvider:deps.authProvider,services,allowedOrigins:allowedOriginsFromEnv()});
+  const app=createApp({authProvider,services,allowedOrigins:allowedOriginsFromEnv()});
   app.listen(port,()=>process.stdout.write(`UCVM DOE API listening on ${port}\n`));
 }
 

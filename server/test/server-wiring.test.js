@@ -48,6 +48,7 @@ test('production dependencies support Firebase Admin v14 modular exports',()=>{
     }
   });
   assert.equal(deps.firestore,firestoreClient);
+  assert.equal(deps.adminAuth,authClient);
   assert.equal(typeof deps.authProvider.verify,'function');
 });
 

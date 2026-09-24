@@ -61,3 +61,11 @@ test('DOE API CORS permits configured frontend origin and preflight without auth
   const blocked=await app.inject({method:'OPTIONS',url:'/api/doe/calculate',headers:{origin:'https://example.invalid','access-control-request-method':'POST'}});
   assert.equal(blocked.statusCode,403);
 });
+
+
+test('v1 me returns the authenticated SQL-shaped account projection',async()=>{
+  const app=createApp({authProvider:{verify:async()=>({uid:'u1',email:'alex@example.test',name:'Alex',role:'developer',facultyId:'',officeName:'ADFA',mustChangePassword:false})},services:{}});
+  const response=await app.inject({method:'GET',url:'/api/v1/me',headers:{authorization:'Bearer token'}});
+  assert.equal(response.statusCode,200);
+  assert.deepEqual(response.json(),{uid:'u1',email:'alex@example.test',name:'Alex',role:'developer',facultyId:'',officeName:'ADFA',mustChangePassword:false});
+});
