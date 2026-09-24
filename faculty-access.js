@@ -2,11 +2,12 @@
 window.UCVM=(()=>{
 const config=window.UCVM_FIREBASE_CONFIG;
  const rawRole=r=>String((r&&typeof r==='object'?r.role:r)||'').toLowerCase();
- const role=r=>({owner:'adfa_general',administrator:'adfa_regular',other_office:'other_office',adfa_general:'adfa_general',adfa_regular:'adfa_regular',admin:'adfa_regular',editor:'faculty',viewer:'faculty'}[rawRole(r)]||rawRole(r));
+ const retiredRole=r=>rawRole(r)==='other_office';
+ const role=r=>({owner:'adfa_general',administrator:'adfa_regular',adfa_general:'adfa_general',adfa_regular:'adfa_regular',admin:'adfa_regular',editor:'faculty',viewer:'faculty'}[rawRole(r)]||rawRole(r));
  const admin=p=>['developer','adfa_general','adfa_regular'].includes(role(p?.role));
  const general=p=>['developer','adfa_general'].includes(role(p?.role));
  const historyAll=p=>['developer','adfa_general','adfa_regular'].includes(role(p?.role));
- const label=r=>({developer:'Developer',owner:'Owner',adfa_general:'Owner',administrator:'Administrator',adfa_regular:'Administrator',admin:'Administrator',other_office:'Other Office',adc:'ADC',lab:'LAB',hicc:'HICC',visc:'VISC',faculty:'Faculty',editor:'Faculty',viewer:'Faculty'}[rawRole(r)]||rawRole(r));
+ const label=r=>({developer:'Developer',owner:'Owner',adfa_general:'Owner',administrator:'Administrator',adfa_regular:'Administrator',admin:'Administrator',other_office:'Other Office (retired)',adc:'ADC/DVM',lab:'LAB',hicc:'HICC',visc:'VISC',faculty:'Faculty',editor:'Faculty',viewer:'Faculty'}[rawRole(r)]||rawRole(r));
  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const number=v=>{if(v===undefined||v===null||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null};
  function installWeekTimeAlignmentFix(){if(document.getElementById('ucvm-week-time-alignment-fix'))return;const style=document.createElement('style');style.id='ucvm-week-time-alignment-fix';style.textContent='.tg-track{top:0!important;bottom:0!important}.tg-block{position:absolute!important}';document.head.appendChild(style)}
@@ -51,7 +52,7 @@ const config=window.UCVM_FIREBASE_CONFIG;
  }
  function installLandingReset(){if(window.__ucvmLandingResetInstalled||typeof firebase==='undefined')return;window.__ucvmLandingResetInstalled=true;try{firebase.auth().onAuthStateChanged(u=>{if(!u){sessionStorage.removeItem('ucvm-admin-default-landing');window.__ucvmAdminLandingScheduled=false}})}catch(_){}}
  async function linkFacultyIdentity(user,p){
-  if(admin(p)||['adc','lab','other_office'].includes(role(p?.role)))return;
+  if(admin(p)||['adc','lab'].includes(role(p?.role)))return;
   const emails=[user?.email,p?.email].map(v=>String(v||'').trim()).filter((v,i,a)=>v&&a.indexOf(v)===i);
   for(const email of emails){
    try{
@@ -82,7 +83,7 @@ const config=window.UCVM_FIREBASE_CONFIG;
    return true;
   }catch(_){return false}
  }
- async function ready(user,p){if(window.__ucvmSessionGuard?.blocked)return false;if(!p?.active)throw Error('This account is inactive.');if(p.mustChangePassword){location.replace('password.html');return false}installLandingReset();await linkFacultyIdentity(user,p);if(scheduleAdminLanding(user,p))return false;return true}
+ async function ready(user,p){if(window.__ucvmSessionGuard?.blocked)return false;if(!p?.active)throw Error('This account is inactive.');if(retiredRole(p))throw Error('This account role has been retired. Contact an administrator to assign a supported role.');if(p.mustChangePassword){location.replace('password.html');return false}installLandingReset();await linkFacultyIdentity(user,p);if(scheduleAdminLanding(user,p))return false;return true}
  function watch(user,p){let initial=true;return firebase.firestore().doc(`users/${user.uid}`).onSnapshot(s=>{const n=s.data();if(initial){initial=false;return}if(!n||['role','active','mustChangePassword'].some(k=>n[k]!==p[k]))location.reload()})}
  const value=v=>v===null||v===undefined?'—':Array.isArray(v)?v.map(x=>typeof x==='object'?`${x.name||x.ucid||''}${x.role?' ('+x.role+')':''}`:String(x)).filter(Boolean).join('; '):typeof v==='object'?JSON.stringify(v):String(v);
  const time=e=>e.changedAt?.toDate?e.changedAt.toDate().toLocaleString('en-CA',{timeZone:'America/Edmonton'}):'Pending';
