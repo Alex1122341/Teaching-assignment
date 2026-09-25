@@ -462,7 +462,7 @@ The first slice is accepted only when:
 - Firebase-authenticated browser requests reach the managed functions;
 - managed functions can connect to `teaching-assignment-lab`;
 - SQL credentials are absent from browser/runtime static assets and repository history;
-- the SQL runtime identity cannot access `staging.*`;
+- the SQL runtime principal used by the managed functions cannot access `staging.*`;
 - `/api/v1/me` resolves the authenticated PAWS profile;
 - `/api/v1/sessions` returns authorized canonical session data;
 - the beta timetable can read those sessions through the shared data adapter;
