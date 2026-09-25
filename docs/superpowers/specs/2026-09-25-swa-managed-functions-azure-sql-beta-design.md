@@ -136,11 +136,14 @@ Recommended configuration contract:
 PAWS_SQL_CONNECTION_STRING
 PAWS_SQL_READS=on
 PAWS_SQL_AUTH=on
+PAWS_ACCOUNT_BOOTSTRAP_JSON
 FIREBASE_PROJECT_ID
 FIREBASE_SERVICE_ACCOUNT_JSON
 ```
 
 `PAWS_SQL_CONNECTION_STRING` is configured only in Static Web Apps server-side Application Settings and its secret value is never documented in the repository.
+
+`PAWS_ACCOUNT_BOOTSTRAP_JSON` remains the server-side allowlist for the initial non-Faculty office/admin account link. It must be constructed from operator-supplied identity information, never from browser input, and must never be emitted into the frontend artifact. Once the required `paws.UserProfile` rows exist, the bootstrap setting may be reduced or removed in a later reviewed change.
 
 `FIREBASE_PROJECT_ID` must exactly match the Firebase project already configured in the accepted beta frontend build. The implementation must derive/verify that project from the existing beta Firebase configuration and fail closed on mismatch rather than silently switching authentication projects.
 
