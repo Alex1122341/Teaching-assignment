@@ -1166,8 +1166,8 @@
    * editor: it navigates to the session's week, selects only that session and
    * opens the review view, where editPolicy() locks every field the role does not
    * own. No second session editor is introduced. */
-  async function openScopedEditor(sessionId,options={
-    assertSessionMutationsAllowed();}){
+  async function openScopedEditor(sessionId,options={}){
+    assertSessionMutationsAllowed();
     const id=String(sessionId||'').trim(),stage=String(options.stage||'').trim().toLowerCase();
     if(!id||!['adc','lab','adfa'].includes(stage)||!hasOfficeAccess(stage))return false;
     const find=()=>[...sessionCache.values()].find(row=>String(row.id)===id)||null;
