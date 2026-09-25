@@ -50,3 +50,19 @@ test('production verifier fails closed for lab, placeholder, missing or insecure
  assert.throws(()=>verifier.validate({firebaseConfig,emulator:false,projectId:'tester-teaching',doeApiBaseUrl:''}),/missing/);
  assert.throws(()=>verifier.validate({firebaseConfig,emulator:false,projectId:'tester-teaching',doeApiBaseUrl:'http://example.test'}),/HTTPS/);
 });
+
+
+test('PAWS session backend normalization accepts only firestore or azure-sql',()=>{
+ assert.equal(builder.normalizePawsSessionBackend('firestore'),'firestore');
+ assert.equal(builder.normalizePawsSessionBackend('azure-sql'),'azure-sql');
+ assert.equal(builder.normalizePawsSessionBackend(''),'firestore');
+ assert.throws(()=>builder.normalizePawsSessionBackend('direct-sql'),/session backend/i);
+});
+
+test('generated client config carries explicit Azure SQL session backend without SQL secrets',()=>{
+ const source=builder.render(firebaseConfig,{doeApiBaseUrl:'',pawsSessionBackend:'azure-sql'});
+ const vm=require('node:vm'),window={location:{hostname:'red-cliff-04871ca0f.5.azurestaticapps.net'}};
+ vm.runInNewContext(source,{window});
+ assert.equal(window.UCVM_PAWS_SESSION_BACKEND,'azure-sql');
+ assert.doesNotMatch(source,/PAWS_SQL_CONNECTION_STRING|FIREBASE_SERVICE_ACCOUNT_JSON/);
+});
