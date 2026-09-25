@@ -137,11 +137,14 @@ PAWS_SQL_CONNECTION_STRING
 PAWS_SQL_READS=on
 PAWS_SQL_AUTH=on
 FIREBASE_PROJECT_ID
+FIREBASE_SERVICE_ACCOUNT_JSON
 ```
 
 `PAWS_SQL_CONNECTION_STRING` is configured only in Static Web Apps server-side Application Settings and its secret value is never documented in the repository.
 
 `FIREBASE_PROJECT_ID` must exactly match the Firebase project already configured in the accepted beta frontend build. The implementation must derive/verify that project from the existing beta Firebase configuration and fail closed on mismatch rather than silently switching authentication projects.
+
+Because SWA Managed Functions do not inherit a Google/Firebase service identity, Firebase Admin token verification also requires `FIREBASE_SERVICE_ACCOUNT_JSON` as a server-side Static Web Apps Application Setting. That secret must never be committed, printed, copied into the frontend artifact, or returned by an API response. The service account must belong to the same Firebase project named by `FIREBASE_PROJECT_ID`.
 
 Rules:
 - never emit the SQL connection string into frontend JavaScript;
