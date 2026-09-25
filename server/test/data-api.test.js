@@ -58,3 +58,39 @@ test('data API returns SQL error without silent Firestore fallback',async()=>{
   assert.equal(result.statusCode,503);
   assert.equal(result.body.code,'SQL_UNAVAILABLE');
 });
+
+
+test('data API redacts unexpected SQL driver details from unauthenticated health responses',async()=>{
+  const api=createDataApi({
+    authProvider:{verify:async()=>({uid:'u1'})},
+    sessionReadService:{
+      ping:async()=>{throw Error('internal driver detail that must stay server-side')},
+      listSessions:async()=>[]
+    }
+  });
+  const result=await api.handle({method:'GET',path:'/api/health/sql',headers:{},query:{}});
+  assert.equal(result.statusCode,503);
+  assert.equal(result.body.code,'SQL_UNAVAILABLE');
+  assert.equal(result.body.message,'Azure SQL data service is unavailable.');
+  assert.doesNotMatch(JSON.stringify(result.body),/internal driver detail/i);
+});
+
+test('data API redacts unexpected SQL driver details from authenticated session responses',async()=>{
+  const api=createDataApi({
+    authProvider:{verify:async()=>({uid:'u1',role:'administrator',email:'admin@example.test'})},
+    sessionReadService:{
+      ping:async()=>true,
+      listSessions:async()=>{throw Error('internal query detail that must stay server-side')}
+    }
+  });
+  const result=await api.handle({
+    method:'GET',
+    path:'/api/v1/sessions',
+    headers:{authorization:'Bearer token'},
+    query:{start:'2027-03-22',end:'2027-03-23'}
+  });
+  assert.equal(result.statusCode,503);
+  assert.equal(result.body.code,'SQL_UNAVAILABLE');
+  assert.equal(result.body.message,'Azure SQL data service is unavailable.');
+  assert.doesNotMatch(JSON.stringify(result.body),/internal query detail/i);
+});
