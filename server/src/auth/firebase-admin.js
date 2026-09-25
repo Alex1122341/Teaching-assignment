@@ -30,6 +30,7 @@ function firebaseAdminOptionsFromEnv(env=process.env){
 }
 
 function createFirebaseAdminClients({adminModule,env=process.env,includeFirestore=true}={}){
+  const config=firebaseAdminOptionsFromEnv(env);
   let admin=adminModule;
   try{
     if(!admin){
@@ -43,8 +44,6 @@ function createFirebaseAdminClients({adminModule,env=process.env,includeFirestor
     error.message=`firebase-admin is required to start the PAWS API: ${error.message}`;
     throw error;
   }
-
-  const config=firebaseAdminOptionsFromEnv(env);
   let firestore=null,adminAuth;
 
   const modular=admin?.app&&admin?.auth&&typeof admin.app.getApps==='function'&&
