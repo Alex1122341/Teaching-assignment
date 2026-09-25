@@ -11,6 +11,7 @@ on:
       - "tools/reset_paws_azure_sql_exact.ps1"
       - "tools/load_paws_azure_sql_empty.ps1"
       - "tools/bootstrap_paws_azure_runtime.ps1"
+      - "tools/configure_paws_swa_beta.ps1"
       - "tests/python/test_azure_sql_*.py"
       - "tests/python/test_swa_beta_permissions_contract.py"
       - "tests/powershell/**"
@@ -58,7 +59,8 @@ jobs:
             'tools/plan_paws_azure_sql_reset.ps1',
             'tools/reset_paws_azure_sql_exact.ps1',
             'tools/load_paws_azure_sql_empty.ps1',
-            'tools/bootstrap_paws_azure_runtime.ps1'
+            'tools/bootstrap_paws_azure_runtime.ps1',
+            'tools/configure_paws_swa_beta.ps1'
           )) {
             $tokens = $null
             $errors = $null
