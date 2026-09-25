@@ -37,16 +37,17 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/npm ci/);
   assert.match(workflow,/npm run test:all/);
   assert.match(workflow,/npm run test:emulator/);
-  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/UCVM_LAB_FIREBASE_WEB_CONFIG:\s*\$\{\{ vars\.LAB_FIREBASE_WEB_CONFIG_JSON \}\}/);
   assert.doesNotMatch(workflow,/EXPECTED_FIREBASE_PROJECT_ID|build-firebase-config\.js --from-json tools\/lab-firebase-web-config\.json|verify-preview-client-config\.js/);
   assert.doesNotMatch(workflow,/PRODUCTION_DOE_API_BASE_URL|PAGES_DOE_API_BASE_URL|verify-production-doe-api|--doe-api-base-url/);
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
-  assert.match(workflow,/node tools\/browser-smoke\.js --demo/);
-  assert.ok(workflow.indexOf('Stage GitHub Pages frontend demo')<workflow.indexOf('Browser smoke staged frontend demo'));
-  assert.ok(workflow.indexOf('Browser smoke staged frontend demo')<workflow.indexOf('Configure GitHub Pages'));
+  assert.match(workflow,/node tools\/browser-smoke\.js --authenticated/);
+  assert.match(workflow,/--mode lab/);
+  assert.ok(workflow.indexOf('Browser smoke generated deployment')<workflow.indexOf('Stage GitHub Pages Firebase Lab'));
+  assert.ok(workflow.indexOf('Stage GitHub Pages Firebase Lab')<workflow.indexOf('Configure GitHub Pages'));
   assert.match(workflow,/--pr\s+["']?\$\{\{ github\.event\.pull_request\.number \}\}["']?/);
   assert.match(workflow,/--head-sha\s+["']?\$\{\{ github\.event\.pull_request\.head\.sha \}\}["']?/);
   assert.match(workflow,/--build-sha\s+["']?\$\{\{ github\.event\.pull_request\.head\.sha \}\}["']?/);
@@ -221,12 +222,14 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 
-test('Pages preview runs the frontend demo without cloud Firebase or DOE API wiring',()=>{
+test('Pages preview targets Firebase Lab while the separate local demo helper remains available',()=>{
   const workflow=read('.github/workflows/github-pages-test.yml');
   const stage=read('tools/stage-github-pages.js');
   const runtime=read('tools/pages-demo-runtime.js');
   assert.doesNotMatch(workflow,/lab-firebase-web-config\.json|EXPECTED_FIREBASE_PROJECT_ID|verify-preview-client-config|PRODUCTION_DOE_API_BASE_URL|PAGES_DOE_API_BASE_URL/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
+  assert.match(workflow,/vars\.LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/--mode lab/);
   assert.match(stage,/pages-demo-data\.js/);
   assert.match(stage,/pages-demo-runtime\.js/);
   assert.match(stage,/frontend-demo/);
