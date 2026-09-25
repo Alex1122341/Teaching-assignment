@@ -171,6 +171,72 @@ The manual **Firebase Lab Bootstrap** workflow can later create or synchronize t
 
 The manual **Firebase DOE Admin Job** remains the future trusted execution path for authoritative policy validation, impact preview persistence, publication, recalculation, and queued recalculation processing. It is not needed for Frontend Demo Mode.
 
+### Azure SQL beta through the existing Static Web App
+
+The current PAWS beta does **not** require a separate App Service. The reviewed beta path reuses the existing Free Static Web App `ucvm-teaching-lab-web` and deploys same-origin Managed Functions beside the frontend. Firebase Authentication remains the user sign-in boundary; the Managed Functions verify the Firebase ID token and access the canonical `paws.*` Azure SQL objects with a dedicated least-privilege contained user.
+
+This is intentionally a beta bridge. The SQL credential and Firebase Admin service-account JSON live only in Static Web Apps server-side Application Settings. They must never be copied into `firebase-config.js`, GitHub source, the static deployment artifact, issue/PR text, or chat.
+
+The first Azure SQL beta slice is read-only for timetable sessions:
+
+- `GET /api/health/sql`
+- `GET /api/v1/me`
+- `GET /api/v1/sessions`
+- timetable reads from Azure SQL when the production client is built with `--paws-session-backend azure-sql`
+- session add/edit/delete/swap/multi-edit controls fail closed while that backend is active
+- Firestore remains intact as the reviewed rollback path; no request automatically dual-writes or falls back
+
+#### One-time beta server-side configuration
+
+The reviewed targets are pinned in `tools/configure_paws_swa_beta.ps1`:
+
+- subscription: the existing PAWS Azure subscription
+- resource group: `rg-ucvm-teaching-lab`
+- Static Web App: `ucvm-teaching-lab-web`
+- SQL server: `ucvm-teaching-lab-xz-20260911.database.windows.net`
+- database: `teaching-assignment-lab`
+- contained SQL principal: `paws_swa_beta`
+
+Always run the read-only preview first:
+
+```powershell
+.\tools\configure_paws_swa_beta.ps1 -Preview
+```
+
+Preview verifies the pinned Azure resources and prints only resource names plus the required Application Setting names. It does not create/rotate the SQL principal and does not change Static Web Apps settings.
+
+After the preview has been reviewed, the explicit apply form is:
+
+```powershell
+.\tools\configure_paws_swa_beta.ps1 `
+  -Apply `
+  -FirebaseServiceAccountPath "C:\private\tester-teaching-service-account.json"
+```
+
+The service-account file stays on the operator's local machine. The script verifies that its `project_id` matches `tester-teaching`, prompts locally for the approved PAWS bootstrap account identity, generates the SQL password in memory by default, creates or rotates `paws_swa_beta`, applies `database/azure-sql/004_swa_beta_permissions.sql`, and sets these server-side names:
+
+- `PAWS_SQL_CONNECTION_STRING`
+- `PAWS_SQL_READS=on`
+- `PAWS_SQL_AUTH=on`
+- `PAWS_ACCOUNT_BOOTSTRAP_JSON`
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_SERVICE_ACCOUNT_JSON`
+
+The script reports setting **names only** after configuration. It does not print the SQL password, connection string, bootstrap JSON, or Firebase Admin JSON. If an operator intentionally wants to supply the database password rather than use the generated one, add `-PromptForSqlPassword` and enter it only at the local secure prompt.
+
+Operator order for the beta release:
+
+1. Run `configure_paws_swa_beta.ps1 -Preview`.
+2. Review the pinned resource names and the six required server-side setting names.
+3. Only with explicit approval, run the script with `-Apply` and a local Firebase service-account file path.
+4. Confirm the script reports the required setting names without values.
+5. Merge only a reviewed, green implementation to `main`; the `main` build creates one exact frontend + Managed Functions artifact.
+6. Manually dispatch **Azure Production Deploy** with the successful source run ID and exact main commit SHA.
+7. Require the post-deploy `/api/health/sql` gate to pass.
+8. Run authenticated browser smoke for `/api/v1/me`, `/api/v1/sessions`, timetable SQL reads, and the SQL-mode read-only session guard.
+
+`tools/bootstrap_paws_azure_runtime.ps1` is **not required for this beta path**. It remains the future App Service + Managed Identity bootstrap and should not be used merely to make the current Free Static Web Apps beta work.
+
 ### Paused Azure production setup
 
 The Azure material below is retained for a possible future production restart. It is **not required** for the active GitHub Pages Frontend Demo path. If Azure production is reactivated, the manual deployment must use the verified **source run ID** and the exact **commit SHA** from the approved `main` artifact; a `main` push does not automatically deploy production.
