@@ -54,3 +54,21 @@ test('Azure SQL session reads are used by date and all-session helpers too',()=>
   assert.match(all,/sessionBackend\(\)==='azure-sql'/);
   assert.match(all,/ensureSessionsForRange\('0001-01-01','9999-12-31'\)/);
 });
+
+
+test('Azure SQL rows are normalized with academic week and semester before entering timetable cache',()=>{
+  assert.match(source,/function normalizeSqlSessionForTimetable\(row\)/);
+  assert.match(source,/academicPositionForDate\(parseYmd\(date\)\)/);
+  assert.match(source,/rows\.map\(normalizeSqlSessionForTimetable\)/);
+  assert.match(source,/week:\s*position\.week/);
+  assert.match(source,/semester:\s*position\.semester/);
+});
+
+test('Faculty-shaped Azure SQL reads trust the server-side actor scope for My Timetable filtering',()=>{
+  const start=source.indexOf('function sessionBelongsToCurrentFaculty');
+  assert.ok(start>=0,'sessionBelongsToCurrentFaculty must exist');
+  const body=source.slice(start,start+900);
+  assert.match(body,/sessionBackend\(\)==='azure-sql'/);
+  assert.match(body,/roleIsFaculty\(currentUser\)/);
+  assert.match(body,/return true/);
+});
