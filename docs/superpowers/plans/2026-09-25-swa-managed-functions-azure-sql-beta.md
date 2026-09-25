@@ -909,21 +909,45 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\powershell\test_
 
 - [ ] **Step 6: Implement preview-first operator script**
 
-Use the existing Azure SQL access helper already used by migration tooling for the operator connection. The apply path must create or rotate the contained user before executing the static grant file:
+Dot-source the existing `tools/azure_sql_migration/sql_access.ps1` and use its exact `Get-PawsSqlAccessToken` and `Open-PawsSqlConnection` helpers. The apply path creates or rotates the contained user before executing the static grant file:
 
 ```powershell
+. (Join-Path $PSScriptRoot 'azure_sql_migration\sql_access.ps1')
+
 $principalName = 'paws_swa_beta'
-$passwordPlain = Read-SecureSecretAsPlainText -Prompt 'Temporary beta SQL password'
-$escaped = $passwordPlain.Replace("'", "''")
-$userSql = @"
+$securePassword = Read-Host 'Temporary beta SQL password' -AsSecureString
+$passwordBstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+try {
+    $passwordPlain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($passwordBstr)
+}
+finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($passwordBstr)
+}
+
+$token = Get-PawsSqlAccessToken -TenantId $TenantId
+$operatorConnection = Open-PawsSqlConnection -Server $SqlServer -Database $Database -AccessToken $token
+try {
+    Assert-PawsDatabase -Connection $operatorConnection -ExpectedDatabase $Database
+
+    $escaped = $passwordPlain.Replace("'", "''")
+    $userSql = @"
 IF EXISTS (SELECT 1 FROM sys.database_principals WHERE name=N'$principalName')
     ALTER USER [$principalName] WITH PASSWORD = N'$escaped';
 ELSE
     CREATE USER [$principalName] WITH PASSWORD = N'$escaped';
 "@
+    $userCommand = $operatorConnection.CreateCommand()
+    $userCommand.CommandText = $userSql
+    [void]$userCommand.ExecuteNonQuery()
 
-Invoke-PawsSqlNonQuery -Connection $operatorConnection -Sql $userSql
-Invoke-PawsSqlFile -Connection $operatorConnection -Path $permissionsPath
+    $permissionsSql = Get-Content -LiteralPath $permissionsPath -Raw
+    $permissionsCommand = $operatorConnection.CreateCommand()
+    $permissionsCommand.CommandText = $permissionsSql
+    [void]$permissionsCommand.ExecuteNonQuery()
+}
+finally {
+    $operatorConnection.Dispose()
+}
 
 $connectionString = "Server=tcp:$SqlServer,1433;Initial Catalog=$Database;Persist Security Info=False;User ID=$principalName;Password=$passwordPlain;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
 
@@ -941,8 +965,6 @@ $passwordPlain = $null
 $connectionString = $null
 $firebaseServiceAccountJson = $null
 ```
-
-The final implementation may use helper names already present in `tools/azure_sql_migration/sql_access.ps1`; if those helpers have different exact names, use those existing names rather than introducing duplicate connection logic.
 
 Before this apply block, the script must:
 1. pin current subscription/resource group/SWA/SQL names;
