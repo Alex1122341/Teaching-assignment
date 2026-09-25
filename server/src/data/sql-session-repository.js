@@ -11,7 +11,7 @@ function createSqlSessionRepository({poolRunner=null,sqlModule=null,tokenProvide
 
   async function ping(){
     return withPool(async pool=>{
-      await pool.request().query('SELECT TOP (1) 1 AS ok FROM paws.Session;');
+      await pool.request().query('SELECT TOP (1) 1 AS ok FROM paws.vCalendarSession;');
       return true;
     });
   }
