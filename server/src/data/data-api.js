@@ -44,7 +44,14 @@ function createDataApi({authProvider,sessionReadService=null,dataRoutes=null}={}
         const routed=await routes.handle({method,path,actor,body:{},query});
         return routed||{statusCode:404,body:{code:'NOT_FOUND',message:'Route not found.'}};
       }catch(error){
-        return{statusCode:statusFor(error),body:errorPayload(error)};
+        const status=statusFor(error);
+        if(status>=400&&status<500){
+          return{statusCode:status,body:errorPayload(error)};
+        }
+        return{
+          statusCode:503,
+          body:{code:'SQL_UNAVAILABLE',message:'Azure SQL data service is unavailable.'}
+        };
       }
     }
   };
