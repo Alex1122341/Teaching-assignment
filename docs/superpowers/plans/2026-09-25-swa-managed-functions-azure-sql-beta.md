@@ -19,7 +19,7 @@
 - Firebase Authentication remains the browser authentication provider.
 - Browser JavaScript must never receive SQL credentials or `FIREBASE_SERVICE_ACCOUNT_JSON`.
 - Managed Functions may access only the reviewed `paws.*` objects required by this slice; they receive no `staging.*` access.
-- `PAWS_SQL_CONNECTION_STRING` and `FIREBASE_SERVICE_ACCOUNT_JSON` are Static Web Apps server-side Application Settings only.
+- `PAWS_SQL_CONNECTION_STRING`, `PAWS_ACCOUNT_BOOTSTRAP_JSON`, and `FIREBASE_SERVICE_ACCOUNT_JSON` are Static Web Apps server-side Application Settings only.
 - Do not add generic SQL/query endpoints and do not accept arbitrary SQL from browser requests.
 - No automatic SQL/Firestore dual write.
 - When session backend is `azure-sql`, session mutation controls fail closed until a later SQL-write slice is implemented.
@@ -111,7 +111,7 @@ test('SQL pool runner uses server-side connection string without managed identit
   }
   const run=createSqlPoolRunner({
     sqlModule:{ConnectionPool},
-    connectionString:'Server=tcp:example.database.windows.net,1433;Database=teaching-assignment-lab;User ID=paws_swa_beta;Password=secret;Encrypt=True;TrustServerCertificate=False;',
+    connectionString:'fixture-sql-connection-string',
     tokenProvider:async()=>{throw Error('managed identity must not run')}
   });
   await run(async()=>true);
@@ -257,7 +257,7 @@ test('Firebase Admin config rejects service account from another project',()=>{
     FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({
       project_id:'vista-teaching-lab',
       client_email:'svc@example.test',
-      private_key:'-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n'
+      private_key:'fixture-private-key'
     })
   };
   assert.throws(()=>firebaseAdminOptionsFromEnv(env),error=>error.code==='FIREBASE_PROJECT_MISMATCH');
@@ -355,6 +355,7 @@ git commit -m "refactor: share authenticated PAWS data API"
 
 Require:
 - missing `PAWS_SQL_CONNECTION_STRING`, `FIREBASE_PROJECT_ID`, or `FIREBASE_SERVICE_ACCOUNT_JSON` => `SWA_SQL_CONFIG_REQUIRED`;
+- `PAWS_ACCOUNT_BOOTSTRAP_JSON`, when present, is parsed only with `bootstrapProfilesFromEnv` and never from request input;
 - Firebase service-account project mismatch fails before SQL initialization.
 
 - [ ] **Step 2: Write failing Functions registration tests**
@@ -386,9 +387,10 @@ It must:
 2. create Firebase Admin Auth with `includeFirestore:false`;
 3. create one shared connection-string SQL pool runner;
 4. create SQL user/session repositories with that runner;
-5. create `createFirebaseSqlAuthProvider`;
-6. create `createDataApi`;
-7. expose only `{handle}`.
+5. parse `env.PAWS_ACCOUNT_BOOTSTRAP_JSON` with `bootstrapProfilesFromEnv`;
+6. create `createFirebaseSqlAuthProvider({adminAuth,userRepository,bootstrapProfiles})`;
+7. create `createDataApi`;
+8. expose only `{handle}`.
 
 Do not initialize Firestore DOE services.
 
@@ -857,6 +859,7 @@ git commit -m "ci: deploy SWA managed functions with Azure beta"
   - `PAWS_SQL_CONNECTION_STRING`
   - `PAWS_SQL_READS=on`
   - `PAWS_SQL_AUTH=on`
+  - `PAWS_ACCOUNT_BOOTSTRAP_JSON`
   - `FIREBASE_PROJECT_ID`
   - `FIREBASE_SERVICE_ACCOUNT_JSON`
 
@@ -899,6 +902,7 @@ Require `configure_paws_swa_beta.ps1` to:
 - have `-Preview` mode with no writes;
 - never print SQL password or Firebase service-account JSON;
 - use `az staticwebapp appsettings set`;
+- construct `PAWS_ACCOUNT_BOOTSTRAP_JSON` only from operator-supplied email/role/display/office inputs;
 - verify setting names without listing values.
 
 - [ ] **Step 5: Run RED**
@@ -949,7 +953,24 @@ finally {
     $operatorConnection.Dispose()
 }
 
-$connectionString = "Server=tcp:$SqlServer,1433;Initial Catalog=$Database;Persist Security Info=False;User ID=$principalName;Password=$passwordPlain;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+$builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
+$builder.DataSource = "tcp:$SqlServer,1433"
+$builder.InitialCatalog = $Database
+$builder.PersistSecurityInfo = $false
+$builder.UserID = $principalName
+$builder.Password = $passwordPlain
+$builder.Encrypt = $true
+$builder.TrustServerCertificate = $false
+$builder.ConnectTimeout = 30
+$connectionString = $builder.ConnectionString
+
+$bootstrap = [ordered]@{}
+$bootstrap[$BootstrapEmail.Trim().ToLowerInvariant()] = [ordered]@{
+    role = $BootstrapRole
+    displayName = $BootstrapDisplayName
+    officeName = $BootstrapOfficeName
+}
+$bootstrapJson = $bootstrap | ConvertTo-Json -Depth 5 -Compress
 
 & $az staticwebapp appsettings set `
   --name $StaticWebAppName `
@@ -958,11 +979,13 @@ $connectionString = "Server=tcp:$SqlServer,1433;Initial Catalog=$Database;Persis
     "PAWS_SQL_CONNECTION_STRING=$connectionString" `
     'PAWS_SQL_READS=on' `
     'PAWS_SQL_AUTH=on' `
+    "PAWS_ACCOUNT_BOOTSTRAP_JSON=$bootstrapJson" `
     "FIREBASE_PROJECT_ID=$FirebaseProjectId" `
     "FIREBASE_SERVICE_ACCOUNT_JSON=$firebaseServiceAccountJson" | Out-Null
 
 $passwordPlain = $null
 $connectionString = $null
+$bootstrapJson = $null
 $firebaseServiceAccountJson = $null
 ```
 
@@ -970,7 +993,7 @@ Before this apply block, the script must:
 1. pin current subscription/resource group/SWA/SQL names;
 2. verify Azure CLI login;
 3. verify exact target SWA/database;
-4. make `-Preview` output only resource names and the five setting names;
+4. make `-Preview` output only resource names and the six setting names;
 5. read Firebase service-account JSON from an operator-supplied local file;
 6. verify its `project_id` equals `FIREBASE_PROJECT_ID`.
 
@@ -984,7 +1007,7 @@ In `SETUP.md` and migration docs:
 1. Run configure_paws_swa_beta.ps1 -Preview.
 2. Review pinned resource names.
 3. Run explicit apply mode.
-4. Confirm required app-setting names only.
+4. Confirm required app-setting names only, including `PAWS_ACCOUNT_BOOTSTRAP_JSON`.
 5. Merge/build exact main SHA.
 6. Manually dispatch Azure Production Deploy with source_run_id + commit_sha.
 7. Require /api/health/sql PASS.
@@ -1040,7 +1063,7 @@ Verify expected app/API entry files exist.
 - [ ] **Step 3: Scan tracked source for secret values**
 
 ```bash
-git grep -n -E "BEGIN PRIVATE KEY|Password=[^;]+|PAWS_SQL_CONNECTION_STRING=.*[^[:space:]]|FIREBASE_SERVICE_ACCOUNT_JSON=.*\{" -- ':!docs/superpowers/plans/*'
+git grep -n -E "BEGIN PRIVATE KEY|PAWS_SQL_CONNECTION_STRING|FIREBASE_SERVICE_ACCOUNT_JSON" -- ':!docs/superpowers/plans/*'
 ```
 
 Expected: no committed secret values.
@@ -1048,7 +1071,7 @@ Expected: no committed secret values.
 - [ ] **Step 4: Scan static frontend artifact**
 
 ```bash
-grep -R -n -E "BEGIN PRIVATE KEY|PAWS_SQL_CONNECTION_STRING|FIREBASE_SERVICE_ACCOUNT_JSON|User ID=paws_swa_beta|Password=" .deploy-static
+grep -R -n -E "BEGIN PRIVATE KEY|PAWS_SQL_CONNECTION_STRING|FIREBASE_SERVICE_ACCOUNT_JSON|paws_swa_beta" .deploy-static
 ```
 
 Expected: no matches.
