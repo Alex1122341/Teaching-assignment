@@ -12,7 +12,8 @@ function loadRuntimeConfig(filename=path.join(root,'firebase-config.js'),hostnam
     firebaseConfig:window.UCVM_FIREBASE_CONFIG,
     emulator:window.UCVM_FIREBASE_EMULATOR,
     projectId:window.UCVM_FIREBASE_PROJECT_ID,
-    doeApiBaseUrl:window.UCVM_DOE_API_BASE_URL
+    doeApiBaseUrl:window.UCVM_DOE_API_BASE_URL,
+    sessionBackend:window.UCVM_PAWS_SESSION_BACKEND
   };
 }
 
@@ -24,8 +25,13 @@ function validate(runtime,{expectedProjectId='tester-teaching'}={}){
   }
   const apiKey=String(runtime.firebaseConfig.apiKey||'');
   if(!apiKey||apiKey.includes('GENERATE_WITH_'))throw Error('Production Firebase API key is still a placeholder.');
+  const sessionBackend=String(runtime.sessionBackend||'firestore').trim().toLowerCase();
+  if(!['firestore','azure-sql'].includes(sessionBackend))throw Error('Production PAWS session backend is invalid.');
   const base=String(runtime.doeApiBaseUrl||'').trim();
-  if(!base)throw Error('Production DOE API base URL is missing.');
+  if(!base){
+    if(sessionBackend!=='azure-sql')throw Error('Production DOE API base URL is missing.');
+    return true;
+  }
   let url;
   try{url=new URL(base)}catch{throw Error('Production DOE API base URL is invalid.')}
   if(url.protocol!=='https:')throw Error('Production DOE API base URL must use HTTPS.');
@@ -37,7 +43,7 @@ function validate(runtime,{expectedProjectId='tester-teaching'}={}){
 function main(){
   const runtime=loadRuntimeConfig();
   validate(runtime,{expectedProjectId:process.env.EXPECTED_FIREBASE_PROJECT_ID||'tester-teaching'});
-  console.log(`Production client configuration verified for project "${runtime.projectId}" with an HTTPS DOE API endpoint.`);
+  console.log(`Production client configuration verified for project "${runtime.projectId}" with session backend "${runtime.sessionBackend||'firestore'}".`);
 }
 
 if(require.main===module){
