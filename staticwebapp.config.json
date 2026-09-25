@@ -17,5 +17,8 @@
         "Cache-Control": "no-cache, max-age=0, must-revalidate"
       }
     }
-  ]
+  ],
+  "platform": {
+    "apiRuntime": "node:22"
+  }
 }
