@@ -57,4 +57,5 @@
   root.UCVM_FIREBASE_EMULATOR = isLocal;
   root.UCVM_FIREBASE_PROJECT_ID = config.projectId;
   root.UCVM_DOE_API_BASE_URL = '';
+  root.UCVM_PAWS_SESSION_BACKEND = 'firestore';
 })(typeof window !== 'undefined' ? window : null);
