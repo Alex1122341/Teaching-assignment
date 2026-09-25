@@ -9,3 +9,4 @@ output/
 .deploy-static/
 __pycache__/
 .deploy-metadata/
+.ai/generated/
