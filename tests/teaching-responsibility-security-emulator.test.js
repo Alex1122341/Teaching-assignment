@@ -29,7 +29,7 @@ check('Owner and Developer manage definitions while Administrator and Faculty ca
   const fire=db(uid);
   await assertSucceeds(fire.doc('teaching_responsibilities/hicc-surgery').set({
    id:'hicc-surgery',kind:'hicc',groupId:'surgery',label:'Surgery HICC',
-   academicScopeTokens:['hicc|vtmd-505|surgery'],active:true,updatedBy:uid,updatedByName:uid,updatedAt:serverTimestamp()
+   academicScopeTokens:['hicc|VTMD 505|surgery'],active:true,createdAt:serverTimestamp(),updatedBy:uid,updatedByName:uid,updatedAt:serverTimestamp()
   }));
  }
  for(const uid of ['administrator','bill']){
@@ -42,14 +42,30 @@ check('Owner and Developer manage definitions while Administrator and Faculty ca
 
 check('Owner can write a safe dated assignee projection and the assignee can read only their own row',async()=>{
  const fire=db('owner'),activeAt=Timestamp.fromDate(new Date('2026-09-01T06:00:00Z')),expiresAt=Timestamp.fromDate(new Date('2027-03-01T07:00:00Z'));
- await assertSucceeds(fire.doc('teaching_responsibilities/hicc-surgery/years/2026-27/assignees/lisa').set({
+ const batch=fire.batch();
+ batch.set(fire.doc('teaching_responsibilities/hicc-surgery/years/2026-27'),{scheduleRevision:1,changedAssigneeUid:'lisa',updatedBy:'owner',updatedAt:serverTimestamp()});
+ batch.set(fire.doc('teaching_responsibilities/hicc-surgery/years/2026-27/assignees/lisa'),{
   responsibilityId:'hicc-surgery',academicYearKey:'2026-27',assigneeUid:'lisa',facultyId:'f-lisa',enabled:true,
   windows:[{activeDate:'2026-09-01',expirationDate:'2027-03-01',activeAt,expiresAt,sourceDoeAssignmentFactId:'role-fact-1'}],
   updatedBy:'owner',updatedByName:'Owner',updatedAt:serverTimestamp()
- }));
+ });
+ await assertSucceeds(batch.commit());
  await assertSucceeds(db('lisa').doc('teaching_responsibilities/hicc-surgery/years/2026-27/assignees/lisa').get());
  await assertFails(db('bill').doc('teaching_responsibilities/hicc-surgery/years/2026-27/assignees/lisa').get());
  await assertFails(db('lisa').collection('teaching_responsibilities/hicc-surgery/years/2026-27/assignees').get());
+});
+
+check('schedule writes require one atomic coordination revision and reject stale or standalone updates',async()=>{
+ const fire=db('owner'),year=fire.doc('teaching_responsibilities/hicc-surgery/years/2026-27');
+ const ref=year.collection('assignees').doc('lisa'),stamp=()=>({updatedBy:'owner',updatedAt:serverTimestamp()});
+ await assertFails(ref.update({enabled:false,...stamp()}));
+ await assertFails(year.update({scheduleRevision:2,changedAssigneeUid:'lisa',...stamp()}));
+ let batch=fire.batch();batch.update(ref,{enabled:false,...stamp()});batch.set(year,{scheduleRevision:1,changedAssigneeUid:'lisa',...stamp()});
+ await assertFails(batch.commit());
+ batch=fire.batch();batch.update(ref,{enabled:false,...stamp()});batch.set(year,{scheduleRevision:2,changedAssigneeUid:'lisa',...stamp()});
+ await assertSucceeds(batch.commit());
+ batch=fire.batch();batch.update(ref,{enabled:true,...stamp()});batch.set(year,{scheduleRevision:3,changedAssigneeUid:'bill',...stamp()});
+ await assertFails(batch.commit());
 });
 
 check('Assignee projections reject private leave DOE override and arbitrary note fields',async()=>{
@@ -57,13 +73,17 @@ check('Assignee projections reject private leave DOE override and arbitrary note
  const base={responsibilityId:'hicc-surgery',academicYearKey:'2026-27',assigneeUid:'bill',facultyId:'f-bill',enabled:true,
   windows:[{activeDate:'2026-09-01',expirationDate:'2027-03-01',activeAt,expiresAt,sourceDoeAssignmentFactId:'role-fact-2'}],
   updatedBy:'owner',updatedByName:'Owner',updatedAt:serverTimestamp()};
- for(const extra of [{doeOverride:-2},{rslReason:'leave'},{notes:'private leave details'},{afcReason:'away'}])
-  await assertFails(fire.doc('teaching_responsibilities/hicc-surgery/years/2026-27/assignees/bill').set({...base,...extra}));
+ for(const extra of [{doeOverride:-2},{rslReason:'leave'},{notes:'private leave details'},{afcReason:'away'}]){
+  const batch=fire.batch();
+  batch.set(fire.doc('teaching_responsibilities/hicc-surgery/years/2026-27'),{scheduleRevision:3,changedAssigneeUid:'bill',updatedBy:'owner',updatedAt:serverTimestamp()});
+  batch.set(fire.doc('teaching_responsibilities/hicc-surgery/years/2026-27/assignees/bill'),{...base,...extra});
+  await assertFails(batch.commit());
+ }
 });
 
 check('Group configuration is high-trust only and keeps stable responsibility IDs',async()=>{
  const row={id:'surgery',name:'Surgery',leaderViscResponsibilityId:'visc-surgery',hiccResponsibilityIds:['hicc-surgery'],active:true,
-  updatedBy:'owner',updatedByName:'Owner',updatedAt:serverTimestamp()};
+  createdAt:serverTimestamp(),updatedBy:'owner',updatedByName:'Owner',updatedAt:serverTimestamp()};
  await assertSucceeds(db('owner').doc('teaching_assignment_groups/surgery').set(row));
  await assertFails(db('administrator').doc('teaching_assignment_groups/surgery-2').set({...row,id:'surgery-2',updatedBy:'administrator'}));
  await assertFails(db('lisa').doc('teaching_assignment_groups/surgery').get());

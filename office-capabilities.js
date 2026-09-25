@@ -71,6 +71,7 @@
  }
  function forProfile(profileOrRole,options={}){
   const role=roleOf(profileOrRole),c=blank();
+  if(![...adfaRoles,...facultyRoles,'adc','lab'].includes(role))return Object.freeze(c);
   c.canViewCalendar=isOfficeAccount(profileOrRole)||facultyRoles.includes(role);
   if(role==='developer'){Object.keys(c).forEach(key=>{c[key]=true});return Object.freeze(c)}
   const granted=officesForProfile(profileOrRole),stage=normalize(options.stage);

@@ -117,3 +117,84 @@ test('Teaching Assignment admin degrades safely before T7 rules without breaking
  assert.match(source,/permission-denied/);
  assert.match(source,/taAdminReady/);
 });
+
+const vm=require('node:vm'),sourceFunction=require('../test-support/source-function');
+function scopeEditor(value,subjects=[]){
+ const context={academic:require('../academic-responsibility'),subjectCatalog:require('../subject-catalog'),data:{subjects},$:id=>({value:id==='ta-responsibility-kind'?'hicc':value})};
+ vm.runInNewContext(sourceFunction('user-management.js','taScopeTokens')+'\nthis.parse=taScopeTokens;',context);
+ return()=>Array.from(context.parse());
+}
+test('responsibility editor authorizes only active canonical Subjects and explicit course-wide scopes',()=>{
+ const subjects=[{id:'surgery',key:'surgery',label:'Surgery',active:true},{id:'retired',key:'retired',label:'Retired',active:false}];
+ assert.deepEqual(scopeEditor('VTMD 204 | *\nVTMD 506 | surgery',subjects)(),['hicc|VTMD 204|*','hicc|VTMD 506|surgery']);
+ for(const scope of ['VTMD 506 | missing','VTMD 506 | retired','hicc|VTMD 506|missing','VTMD 506 | surgery | ignored'])assert.throws(scopeEditor(scope,subjects),/scope|subject/i,scope);
+ assert.throws(scopeEditor('VTMD 506 | surgery'),/subject/i);
+ assert.deepEqual(scopeEditor('VTMD 506 | *')(),['hicc|VTMD 506|*']);
+});
+
+test('account rendering displays ADC/DVM and ADFAD while preserving technical office keys',()=>{
+ const elements={'account-search':{value:''},'accounts-body':{innerHTML:''}},user={uid:'office',name:'Office',accountRole:'owner',officeAccess:['adc','adfa'],facultyRoles:[],active:true};
+ const context={data:{users:[user]},$:id=>elements[id],e:value=>String(value),UCVM:{label:value=>value},developerAccount:()=>false,developerActor:()=>true,document:{querySelectorAll:()=>[]}};
+ vm.runInNewContext(sourceFunction('user-management.js','renderAccounts')+'\nrenderAccounts();',context);
+ assert.match(elements['accounts-body'].innerHTML,/>ADC\/DVM<\/span>/);
+ assert.match(elements['accounts-body'].innerHTML,/>ADFAD<\/span>/);
+ assert.deepEqual(user.officeAccess,['adc','adfa']);
+});
+
+function scheduleStore(){
+ const documents=new Map(),ref=path=>({path,collection:name=>({doc:id=>ref(`${path}/${name}/${id}`)})});
+ const snapshot=reference=>({exists:documents.has(reference.path),data:()=>documents.get(reference.path)});
+ const apply=writes=>{for(const [reference,value] of writes)documents.set(reference.path,value)};
+ const db={doc:ref,collection:name=>({doc:id=>ref(`${name}/${id||`audit-${documents.size}`}`)}),
+  batch:()=>{const writes=[];return{set:(reference,value)=>writes.push([reference,value]),commit:async()=>apply(writes)}},
+  runTransaction:async work=>{
+   for(let retry=0;retry<3;retry++){
+    const writes=[],reads=new Map();
+    await work({get:async reference=>{reads.set(reference.path,documents.get(reference.path));return snapshot(reference)},set:(reference,value)=>writes.push([reference,value])});
+    if([...reads].some(([path,value])=>documents.get(path)!==value))continue;
+    apply(writes);return;
+   }
+   throw Error('Transaction retry exhausted');
+  }};
+ return{db,documents};
+}
+function scheduleEditor(store,uid,revision=0){
+ const responsibility={id:'hicc-vtmd204',kind:'hicc',groupId:'year-2',academicScopeTokens:['hicc|VTMD 204|*']};
+ const fields={'ta-assignment-year':{value:'2026-27'},'ta-assignment-user':{value:uid},'ta-assignment-enabled':{checked:true}};
+ const window={querySelector:selector=>({value:({'.ta-window-active':'2026-09-01','.ta-window-expiration':'2027-05-01','.ta-window-source':''})[selector]})};
+ const context={UCVM:{general:()=>true},me:{name:'Manager'},auth:{currentUser:{uid:'owner',email:'manager@example.test'}},taAdminReady:true,data:{users:[{uid,facultyId:`f-${uid}`,active:true}]},
+  $:id=>fields[id],selectedTaResponsibility:()=>responsibility,taSchedules:[],taScheduleState:{responsibilityId:responsibility.id,academicYearKey:'2026-27',scheduleRevision:revision},
+  responsibilityApi:require('../teaching-responsibility'),document:{querySelectorAll:()=>[window]},firebase:{firestore:{Timestamp:{fromDate:date=>date.toISOString()}}},db:store.db,stamp:()=>123};
+ vm.runInNewContext(sourceFunction('user-management.js','saveTaSchedule')+'\nthis.save=saveTaSchedule;',context);
+ return context;
+}
+test('two managers cannot save overlapping assignments from the same loaded schedule revision',async()=>{
+ const store=scheduleStore(),bill=scheduleEditor(store,'bill'),lisa=scheduleEditor(store,'lisa');
+ const results=await Promise.allSettled([bill.save(),lisa.save()]);
+ assert.equal(results.filter(result=>result.status==='fulfilled').length,1);
+ assert.match(results.find(result=>result.status==='rejected').reason.message,/changed|reload/i);
+ assert.equal([...store.documents.keys()].filter(path=>path.includes('/assignees/')).length,1);
+ assert.equal([...store.documents.keys()].filter(path=>path.startsWith('account_audit/')).length,1);
+ const year=store.documents.get('teaching_responsibilities/hicc-vtmd204/years/2026-27');
+ assert.equal(year.scheduleRevision,1);
+ assert.ok(['bill','lisa'].includes(year.changedAssigneeUid));
+});
+
+test('dated assignment cannot save while a different responsibility/year schedule is loaded',async()=>{
+ const store=scheduleStore(),editor=scheduleEditor(store,'bill');
+ editor.taScheduleState={responsibilityId:'hicc-other',academicYearKey:'2026-27',scheduleRevision:0};
+ await assert.rejects(editor.save(),/load|schedule/i);
+ assert.equal(store.documents.size,0);
+});
+
+test('schedule load reads the coordination revision from server before reading all assignees',async()=>{
+ const reads=[],year={get:async options=>{reads.push(['revision',options]);return{exists:true,data:()=>({scheduleRevision:4})}},collection:name=>({get:async options=>{reads.push([name,options]);return{docs:[]}}})};
+ const context={taAdminReady:true,taSchedules:[],taScheduleState:null,taScheduleLoad:0,temporal:require('../temporal-role-assignment'),
+  $:id=>({value:id==='ta-assignment-responsibility'?'hicc-vtmd204':'2026-27'}),renderTaSchedules:()=>{},storedSchedule:row=>row,
+  db:{collection:()=>({doc:()=>({collection:()=>({doc:()=>year})})})}};
+ vm.runInNewContext(sourceFunction('user-management.js','loadTaSchedules')+'\nthis.load=loadTaSchedules;',context);
+ await context.load();
+ assert.deepEqual(reads.map(([name])=>name),['revision','assignees']);
+ assert.equal(reads.every(([,options])=>options?.source==='server'),true);
+ assert.equal(context.taScheduleState.scheduleRevision,4);
+});

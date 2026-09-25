@@ -302,6 +302,27 @@ test('trusted config path can set stable Teaching Assignment ownership and deriv
  assert.equal(plan.logs[0].changes.some(change=>change.field==='teachingAssignmentSubmissionId'),true);
 });
 
+test('trusted ownership locator uses preserved canonical academicYear even when dates suggest another year',()=>{
+ const api=load(),original={...baseSession,academicYear:'2025-26',course:'VTMD 204',semester:'fall'},row={...original,teachingAssignmentGroupId:'bovine',responsibleHiccResponsibilityId:'hicc-bovine'};
+ const options={role:'adc',allowTeachingAssignmentOwnership:true,
+  teachingAssignmentGroups:[{id:'bovine',name:'Bovine',leaderViscResponsibilityId:'visc-bovine',hiccResponsibilityIds:['hicc-bovine']}],
+  teachingResponsibilities:[{id:'visc-bovine',kind:'visc'},{id:'hicc-bovine',kind:'hicc',groupId:'bovine',academicScopeTokens:['hicc|VTMD 204|*']}]};
+ const plan=plain(api.planChanges([original],[row],{uid:'adc',role:'adc'},123,undefined,options));
+ assert.deepEqual(plan.errors,[]);
+ assert.equal(plan.updates[0].data.teachingAssignmentSubmissionId,'ta-sub-v2__2025-26__bovine__hicc-bovine');
+ assert.equal(plan.updates[0].after.academicYear,'2025-26');
+});
+
+test('selection cannot use a forged academicYear to move a package to another year',()=>{
+ const api=load(),original={...baseSession,academicYear:'2025-26',course:'VTMD 204',semester:'fall',teachingAssignmentGroupId:'bovine',responsibleHiccResponsibilityId:'hicc-bovine',teachingAssignmentSubmissionId:'ta-sub-v2__2025-26__bovine__hicc-bovine'};
+ const options={role:'adc',allowTeachingAssignmentOwnership:true,
+  teachingAssignmentGroups:[{id:'bovine',name:'Bovine',leaderViscResponsibilityId:'visc-bovine',hiccResponsibilityIds:['hicc-bovine']}],
+  teachingResponsibilities:[{id:'visc-bovine',kind:'visc'},{id:'hicc-bovine',kind:'hicc',groupId:'bovine',academicScopeTokens:['hicc|VTMD 204|*']}]};
+ const plan=api.planChanges([original],[{...original,academicYear:'2026-27'}],{uid:'adc',role:'adc'},123,undefined,options);
+ assert.ok(plan.errors.some(error=>/academicYear/i.test(error)));
+ assert.equal(plan.updates.length,0);
+});
+
 test('HICC VISC and ordinary Faculty cannot self-reassign trusted ownership',()=>{
  const api=load(),original={...baseSession,semester:'fall',teachingAssignmentGroupId:'bovine',responsibleHiccResponsibilityId:'hicc-bovine',teachingAssignmentSubmissionId:'ta-sub-v2__2026-27__bovine__hicc-bovine'};
  const changed={...original,responsibleHiccResponsibilityId:'hicc-other'};
@@ -338,7 +359,9 @@ test('Teaching Assignment ownership-only update does not request DOE recalculati
  assert.deepEqual(plain(plan.errors),[]);
  assert.equal(api.onlyNonDoeMetadataChanged(plan.logs[0].before,plan.logs[0].after),true);
  const writes=[],store={batch:()=>({update:(ref,data)=>writes.push(['update',ref,data]),set:(ref,data)=>writes.push(['set',ref,data]),commit:async()=>{}}),sessionRef:id=>'sessions/'+id,calendarRef:id=>'calendar/'+id,calendarFromSource:(data,id)=>({sessionId:id,course:data.course}),logRef:()=> 'logs/a',queueRef:()=> 'doe/q',queueData:()=>({trigger:'ownership-only'})};
+ let ownershipSaves=0;store.commitOwnership=async(update,log)=>{ownershipSaves++;assert.equal(update.id,log.sessionId);return{operations:4};};
  await api.commitPlan(plan,store);
+ assert.equal(ownershipSaves,1);
  assert.equal(writes.some(write=>write[1]==='doe/q'),false);
 });
 

@@ -18,7 +18,7 @@ test('source metrics describe the modular runtime graph',()=>{
  assert.equal(metrics.jsAssets,65);
  assert.equal(metrics.pageScripts['index.html'],43);
  assert.equal(metrics.pageScripts['faculty-admin.html'],35);
- assert.equal(metrics.pageScripts['user-management.html'],20);
+ assert.equal(metrics.pageScripts['user-management.html'],21);
  assert.equal(metrics.pageScripts['password.html'],4);
 });
 

@@ -45,7 +45,7 @@ test('timetable role navigation separates admin tools from faculty self-service'
   assert.equal($('my-timetable-btn').classList.hidden,true,role+' legacy My Timetable');
   assert.equal($('cal-admin-menu').classList.hidden,!toolRole,role+' tools menu');
   if(isAdmin)assert.equal($('cal-admin-menu')._summary.textContent,'Admin tools',role);
-  if(normalized==='adc')assert.equal($('cal-admin-menu')._summary.textContent,'ADC tools');
+  if(normalized==='adc')assert.equal($('cal-admin-menu')._summary.textContent,'ADC/DVM tools');
   if(normalized==='hicc')assert.equal($('cal-admin-menu')._summary.textContent,'HICC tools');
  }
  assert.match(loader,/\['faculty','hicc','visc'\]\.includes\(UCVM\.role\(profile\?\.role\)\)/);

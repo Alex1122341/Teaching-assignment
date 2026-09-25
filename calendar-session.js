@@ -22,6 +22,10 @@
   // LAB group IDs are operational scheduling metadata, not roster data. Mirror
   // only normalized scalar IDs; student IDs remain private in lab_group_rosters.
   if(Array.isArray(source.labGroupIds))out.labGroupIds=[...new Set(source.labGroupIds.map(text).filter(Boolean))].slice(0,8);
+  // Stable Teaching Assignment locators are safe configuration metadata. Never
+  // include package review state, assignees, or private source/assignment data.
+  if(typeof source.academicYear==='string'&&/^\d{4}-\d{2}$/.test(source.academicYear))out.academicYear=source.academicYear;
+  for(const key of ['teachingAssignmentGroupId','responsibleHiccResponsibilityId'])if(typeof source[key]==='string'&&/^[a-z][a-z0-9_-]{0,63}$/.test(source[key]))out[key]=source[key];
   return out;
  }
  return Object.freeze({fromSource});

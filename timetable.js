@@ -590,10 +590,10 @@
     for(const row of reviews)for(const check of row.checks)warnings.push(`${row.session.course||'Course'} ${row.session.date}: ${check.assignment.name||'Faculty'} - ${assignmentAvailabilityDetail(check.av,row.session.date,row.session.start,row.session.end)}`);
     if(!warnings.length)return new Map();
     const conflict=reviews.some(row=>row.conflicts.length);
-    const question=conflict?'TIMETABLE CONFLICT DETECTED. Override and save? This override will be recorded in the audit log.':'Availability check incomplete or unavailable. Continue as ADFA?';
+    const question=conflict?'TIMETABLE CONFLICT DETECTED. Override and save? This override will be recorded in the audit log.':'Availability check incomplete or unavailable. Continue as ADFAD?';
     if(!confirm(`${question}\n\n${warnings.join('\n')}`))return null;
     return new Map(reviews.filter(row=>row.conflicts.length).map(row=>[String(row.session.id),{
-      ...approvalScheduling.overrideAudit({uid:currentUser.uid,name:currentUser.name||'ADFA administrator'},row.conflicts),
+      ...approvalScheduling.overrideAudit({uid:currentUser.uid,name:currentUser.name||'ADFAD administrator'},row.conflicts),
       confirmedAt:firebase.firestore.FieldValue.serverTimestamp()
     }]));
   }
@@ -1417,10 +1417,11 @@
         result={committed:true,completedRows,errors:[]};
       }else{
         let rosterWritesStaged=false;
-        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),queueRef:()=>db.collection('doe_recalculation_requests').doc(),queueData:(update,log,ref)=>queuedDoeRequestData(update.after||log.after,ref.id,'office_multi_session_edit',update.data.updatedAt||log.changedAt,log.before),stageExtraWrites:rosterPlans.length?({batch})=>{if(rosterWritesStaged)return 0;for(const roster of rosterPlans)batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);rosterWritesStaged=true;return rosterPlans.length}:null,onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(activeScoped?.stage==='lab'&&rosterPlans.length)await ensureLabWorkflowContext(true);if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
+        const ownershipAdapter=window.UCVM_TIMETABLE_SELECTION.createOwnershipAdapter({db,actor:currentUser,configurationReady:canConfigureTeachingAssignmentOwnership,calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),sessionCollection:SESSION_COLLECTION,logCollection:SESSION_LOG_COLLECTION});
+        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{commitOwnership:(update,log)=>ownershipAdapter.save(update,log),packageRef:id=>db.collection('teaching_assignment_submissions').doc(id),increment:value=>firebase.firestore.FieldValue.increment(value),batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),queueRef:()=>db.collection('doe_recalculation_requests').doc(),queueData:(update,log,ref)=>queuedDoeRequestData(update.after||log.after,ref.id,'office_multi_session_edit',update.data.updatedAt||log.changedAt,log.before),stageExtraWrites:rosterPlans.length?({batch})=>{if(rosterWritesStaged)return 0;for(const roster of rosterPlans)batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);rosterWritesStaged=true;return rosterPlans.length}:null,onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(activeScoped?.stage==='lab'&&rosterPlans.length)await ensureLabWorkflowContext(true);if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
       }
       const count=result.completedRows;delete button.dataset.resumeFrom;delete button.dataset.planKey;cancelSessionSelection();toast(`${count} session${count===1?'':'s'} updated with audit history${rosterPlans.length?` and ${rosterPlans.length} LAB roster${rosterPlans.length===1?'':'s'} saved`:''}.`);
-    }catch(error){console.error('[multi-session save]',error);const completed=Number(error.completedRows||0);button.dataset.resumeFrom=String(completed);errorBox.textContent=completed?`${completed} of ${plan.updates.length} sessions were saved. The remaining rows were not saved. Check the connection or permissions, then click Resume save.`:error.committed?'The first batch was saved, but follow-up maintenance failed. Keep this review open and ask an administrator to verify indexes.':'Nothing was saved. Check your connection and permissions, then try again.';errorBox.classList.remove('hidden');button.disabled=false;button.textContent=completed?'Resume save':'Save selected changes'}
+    }catch(error){console.error('[multi-session save]',error);const completed=Number(error.completedRows||0);button.dataset.resumeFrom=String(completed);errorBox.textContent=error.ownershipSave?`${completed?completed+' session(s) saved. ':''}${error.message}`:completed?`${completed} of ${plan.updates.length} sessions were saved. The remaining rows were not saved. Check the connection or permissions, then click Resume save.`:error.committed?'The first batch was saved, but follow-up maintenance failed. Keep this review open and ask an administrator to verify indexes.':'Nothing was saved. Check your connection and permissions, then try again.';errorBox.classList.remove('hidden');button.disabled=false;button.textContent=completed?'Resume save':'Save selected changes'}
   }
 
   function openSessionDetail(id) {
@@ -1491,7 +1492,7 @@
       <td><input data-bulk-field="end" data-index="${index}" type="time" value="${escapeHtml(row.end)}"></td>
       <td><input class="bulk-topic ${labLocked?'role-locked-field':''}" data-bulk-field="topic" data-index="${index}" value="${escapeHtml(labLocked?'TBD':row.topic)}" placeholder="Session topic" ${labLocked?'disabled':''}></td>
       <td><input data-bulk-field="room" data-index="${index}" value="${escapeHtml(row.room)}" placeholder="Room"></td>
-      <td><input class="bulk-faculty ${canEditFaculty?'':'role-locked-field'}" data-bulk-field="faculty" data-index="${index}" value="${escapeHtml(canEditFaculty?row.faculty:'')}" list="bulk-faculty-list" placeholder="${canEditFaculty?'Name, email or UCID; separate with ;':'Instructor assignment is managed by ADFA'}" ${canEditFaculty?'':'disabled'}></td>
+      <td><input class="bulk-faculty ${canEditFaculty?'':'role-locked-field'}" data-bulk-field="faculty" data-index="${index}" value="${escapeHtml(canEditFaculty?row.faculty:'')}" list="bulk-faculty-list" placeholder="${canEditFaculty?'Name, email or UCID; separate with ;':'Instructor assignment is managed by ADFAD'}" ${canEditFaculty?'':'disabled'}></td>
       <td><button type="button" class="bulk-remove" data-bulk-remove="${index}" aria-label="Remove row ${index+1}">×</button></td>
     </tr>`}).join('');
     $('bulk-row-count').textContent=`${bulkRows.length} / ${MAX_BULK_SESSION_ROWS} rows`;
@@ -1582,7 +1583,7 @@
       <div class="bulk-toolbar"><button type="button" class="btn btn-secondary" id="bulk-add-row">+ Add row</button><button type="button" class="btn btn-secondary" id="bulk-duplicate-row">Duplicate last row</button><button type="button" class="btn btn-secondary" id="bulk-paste-rows">Paste Excel rows</button><span class="bulk-count" id="bulk-row-count"></span></div>
       <div class="bulk-paste-panel hidden" id="bulk-paste-panel"><label class="form-label" for="bulk-paste-text">Paste columns: Date, Year, Course, Type, Start, End, Topic, Room, Faculty</label><textarea id="bulk-paste-text" placeholder="2026-09-14&#9;1&#9;CCC&#9;CCC&#9;07:30&#9;17:00&#9;CCC Day&#9;&#9;Faculty Name"></textarea><div><button type="button" class="btn btn-primary" id="bulk-paste-apply">Add pasted rows</button></div></div>
       <datalist id="bulk-faculty-list">${facultyOptions}</datalist><div class="bulk-sheet-wrap"><table class="bulk-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>Faculty</th><th></th></tr></thead><tbody id="bulk-session-body"></tbody></table></div><div class="bulk-errors hidden" id="bulk-errors"></div>
-    </div><div class="modal-footer"><span class="form-hint">Maximum 200 rows. ${canEditFaculty?'Faculty may be separated with semicolons.':'Faculty assignment is handled by ADFA.'}</span><div><button type="button" class="btn btn-secondary" id="bulk-cancel">Cancel</button> <button class="btn btn-primary" type="submit">Save all sessions</button></div></div></form>`);
+    </div><div class="modal-footer"><span class="form-hint">Maximum 200 rows. ${canEditFaculty?'Faculty may be separated with semicolons.':'Faculty assignment is handled by ADFAD.'}</span><div><button type="button" class="btn btn-secondary" id="bulk-cancel">Cancel</button> <button class="btn btn-primary" type="submit">Save all sessions</button></div></div></form>`);
     document.querySelector('#modal .modal-box')?.classList.add('bulk-wide');renderBulkRows();
     $('bulk-add-row').onclick=()=>{if(bulkRows.length>=MAX_BULK_SESSION_ROWS){toast(`Maximum ${MAX_BULK_SESSION_ROWS} rows.`,true);return}bulkRows.push(blankBulkRow(bulkRows.at(-1)||{}));renderBulkRows()};
     $('bulk-duplicate-row').onclick=()=>{if(bulkRows.length>=MAX_BULK_SESSION_ROWS){toast(`Maximum ${MAX_BULK_SESSION_ROWS} rows.`,true);return}bulkRows.push(blankBulkRow({...bulkRows.at(-1),date:bulkRows.at(-1)?.date}));renderBulkRows()};
@@ -1640,7 +1641,7 @@
         ${input('start','Start','time',s.start,'',!s.timeUnknown)}
         ${input('end','End','time',s.end,'',!s.timeUnknown)}
         ${input('topic','Topic','text',s.topic,'full')}
-        <div class="form-field instructor-editor"><label class="form-label">Instructor(s)</label><div id="instructor-lines" class="instructor-lines"></div>${canEditInstructor?'<button type="button" class="btn btn-secondary instructor-add" id="add-instructor-line">+ Add instructor</button><div class="instructor-note">One instructor per line. Select from the active faculty directory. Availability checks both Away from Campus and overlapping live timetable courses at the selected date and time. AFC only reports Unavailable; timetable conflicts continue to show the conflicting course/time. Unavailable or uncertain selections show a warning; admins may override. Add/remove controls are administrator-only. Existing teaching role and DOE credit stay with the line when you change the selected faculty.</div>':'<div class="instructor-note">Instructor assignments are managed by ADFA.</div>'}</div>
+        <div class="form-field instructor-editor"><label class="form-label">Instructor(s)</label><div id="instructor-lines" class="instructor-lines"></div>${canEditInstructor?'<button type="button" class="btn btn-secondary instructor-add" id="add-instructor-line">+ Add instructor</button><div class="instructor-note">One instructor per line. Select from the active faculty directory. Availability checks both Away from Campus and overlapping live timetable courses at the selected date and time. AFC only reports Unavailable; timetable conflicts continue to show the conflicting course/time. Unavailable or uncertain selections show a warning; admins may override. Add/remove controls are administrator-only. Existing teaching role and DOE credit stay with the line when you change the selected faculty.</div>':'<div class="instructor-note">Instructor assignments are managed by ADFAD.</div>'}</div>
         ${input('room','Room','text',s.room)}
       </div></div>
       <div class="modal-footer"><div>${existing ? '<button type="button" class="btn-danger-text" id="delete-session">Delete Session</button>' : ''}</div><div><button type="button" class="btn btn-secondary" id="cancel-session">Cancel</button> <button class="btn btn-primary" type="submit">Save Live Session</button></div></div>
@@ -1648,7 +1649,7 @@
     renderInstructorEditor();
     const syncTopicOwnership=()=>{if(actorRole!=='adc')return;const topicInput=$('topic'),typeInput=$('type');if(!topicInput||!typeInput)return;const isLab=String(typeInput.value||'').toUpperCase()==='LAB';if(isLab)topicInput.value='TBD';topicInput.readOnly=isLab;topicInput.classList.toggle('role-locked-field',isLab)};
     // The same canonical capabilities that drive the selection editor drive this
-    // modal. ADFA is faculty-only, so every scheduling field is locked here too
+    // modal. ADFAD is faculty-only, so every scheduling field is locked here too
     // rather than left editable.
     const lockSchedulingFields=()=>{
       if(canEditCourseFields)return;
@@ -1678,6 +1679,7 @@
       const preservedInstructor=canEditInstructor?assignments.map(a=>a.name).join('; '):String(existing?.instructor||'');
       let next = {
         id: existing?.id || `S${Date.now()}`,
+        ...Object.fromEntries(['academicYear','teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId'].filter(key=>existing?.[key]!==undefined).map(key=>[key,existing[key]])),
         ...(existing?.auditEventId ? {auditEventId: existing.auditEventId} : {}),
         date, week:pos.week, semester:pos.semester, year:Number(form.get('year')),
         course:form.get('course'), courseName:(COURSES.find(c=>String(c.code)===String(form.get('course')))||{}).name||existing?.courseName||'', ...((subjectKey||existing?.subjectKey!==undefined)?{subjectKey}:{}), type, topic, instructor:preservedInstructor, room:form.get('room'),
@@ -1709,6 +1711,8 @@
           batch.set(calendarRef,window.UCVM_CALENDAR_SESSION.fromSource(next,next.id));
           batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{action:existing?'update':'create',override:null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:[],changes:UCVM_AUDIT_DETAILS.diff(existing,next,'session'),doeChanges:[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:'',changedAt:timestamp});
           if(existing&&!subjectOnly){const queueRef=db.collection('doe_recalculation_requests').doc();batch.set(queueRef,queuedDoeRequestData(next,queueRef.id,'office_session_updated',timestamp,existing));}
+          const revision=window.UCVM_TIMETABLE_SELECTION.workingRevisionChange(existing,next,currentUser,timestamp,value=>firebase.firestore.FieldValue.increment(value));
+          if(revision)batch.update(db.collection('teaching_assignment_submissions').doc(revision.id),revision.data);
           await batch.commit();
         }
         invalidateAllSessions();
@@ -1730,7 +1734,7 @@
   }
 
   async function deleteSession(id) {
-    if (!UCVM.admin(currentUser)) { toast('ADFA permission is required.', true); return; }
+    if (!UCVM.admin(currentUser)) { toast('ADFAD permission is required.', true); return; }
     const s = sessions.find(x => x.id === id); if (!s) return;
     if (!liveScheduleAvailable()) { toast('Live Schedule is not initialized.', true); return; }
     if (!confirm(`Delete ${s.course} - ${s.topic} from the live schedule?`)) return;
@@ -1849,7 +1853,7 @@
           } else if (code === 'ucvm/profile-inactive') {
             msg = 'This account exists but active is not true in Firestore.';
           } else if (code === 'ucvm/invalid-role') {
-            msg = 'Firestore role must be a supported UCVM role, including developer, owner, administrator, faculty, HICC, VISC, ADC or LAB.';
+            msg = 'Firestore role must be a supported UCVM role, including developer, owner, administrator, faculty, HICC, VISC, ADC/DVM or LAB.';
           }
           setAppLocked(true, 'Access denied. Sign in with an authorized account.');
           await auth.signOut().catch(() => {});
@@ -1901,7 +1905,7 @@
     showModal(`
       <div class="modal-header"><div class="modal-title">Email Sign In</div><div class="modal-subtitle">Uses Firebase Email/Password authentication.</div></div>
       <form id="email-login-form"><div class="modal-body">
-        <div class="login-cheatsheet">Use the email address registered by ADFA General. New faculty accounts must change their temporary password after signing in.</div>
+        <div class="login-cheatsheet">Use the email address registered by ADFAD General. New faculty accounts must change their temporary password after signing in.</div>
         <div class="form-field"><label class="form-label">Email</label><input class="form-input" id="login-email" name="email" type="email" placeholder="name@ucalgary.ca" autocomplete="username" required></div>
         <div class="form-field"><label class="form-label">Password</label><input class="form-input" id="login-password" name="password" type="password" autocomplete="current-password" required></div>
       </div><div class="modal-footer"><button type="button" class="btn btn-secondary" id="email-back">Back</button><button class="btn btn-primary" type="submit">Sign in with Email</button></div></form>`);
@@ -2079,7 +2083,7 @@
     $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || accessRole === 'hicc'));
     $('faculty-dashboard-btn').classList.toggle('hidden', !(isAdmin||facultySelfService));
     const toolMenu=$('cal-admin-menu'),toolSummary=toolMenu?.querySelector('summary');
-    if(toolSummary)toolSummary.textContent=isAdmin?'Admin tools':accessRole==='adc'?'ADC tools':accessRole==='hicc'?'HICC tools':'Tools';
+    if(toolSummary)toolSummary.textContent=isAdmin?'Admin tools':accessRole==='adc'?'ADC/DVM tools':accessRole==='hicc'?'HICC tools':'Tools';
     toolMenu?.classList.toggle('hidden',!showTools);
     $('my-teaching-btn').classList.toggle('hidden',!facultySelfService);
     $('afc-request-btn').classList.toggle('hidden',!facultySelfService);
@@ -2180,7 +2184,7 @@
     downloadFile(`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//UCVM//Outlook Teaching Invitations//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:REQUEST\r\n${events}\r\nEND:VCALENDAR\r\n`,'text/calendar;charset=utf-8','ucvm-outlook-invite-package.ics');
   }
   async function openOutlookInviteDialog(){
-    if(!UCVM.admin(currentUser)){toast('ADFA permission is required.',true);return}
+    if(!UCVM.admin(currentUser)){toast('ADFAD permission is required.',true);return}
     try{
       const [all]=await Promise.all([ensureAllSessions(),ensureFacultyDirectory()]);if(showCcc)await loadCccEvents();
       const today=ymd(new Date());

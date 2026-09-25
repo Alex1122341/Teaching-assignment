@@ -5,12 +5,17 @@
 (function(root, factory) {
   const scheduling = typeof module === 'object' && module.exports
     ? require('./scheduling-core.js') : root?.UCVM_SCHEDULING;
-  const api = factory(scheduling);
+  const responsibility = typeof module === 'object' && module.exports
+    ? require('./teaching-responsibility.js') : root?.UCVM_TEACHING_RESPONSIBILITY;
+  const academic = typeof module === 'object' && module.exports
+    ? require('./academic-responsibility.js') : root?.UCVM_ACADEMIC_RESPONSIBILITY;
+  const api = factory(scheduling,responsibility,academic);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.UCVM_TEACHING_ASSIGNMENT_REVIEW = api;
-})(typeof window !== 'undefined' ? window : null, function(scheduling) {
+})(typeof window !== 'undefined' ? window : null, function(scheduling,responsibility,academic) {
   'use strict';
   if (!scheduling) throw Error('Teaching Assignment review requires scheduling-core.');
+  if (!responsibility || !academic) throw Error('Teaching Assignment review requires responsibility and academic scope helpers.');
 
   const STATES = Object.freeze(['draft','visc_review','changes_requested','visc_approved',
     'submitted_to_adfad','adfad_finalized']);
@@ -80,16 +85,41 @@
     if (!Array.isArray(sessions) || !sessions.length || !sessions.every(row => contentReadiness(row).ready)) return '';
     try { return reviewFingerprint(sessions,suggestions); } catch (_) { return ''; }
   }
+  // The caller supplies trusted directory/schedule snapshots and the current
+  // Calgary date. Actor UIDs are provenance, never durable package ownership.
+  // Firestore independently enforces duty using request.time, not this date.
+  function currentDuty(record, context, kind) {
+    try {
+      if (!object(record) || !text(context?.actorUid) || typeof context.asOfDate !== 'string' ||
+          !['faculty','hicc','visc','editor','viewer','adc','lab','developer','owner','administrator','admin','adfa_general','adfa_regular'].includes(context.actorRole)) return false;
+      const row=responsibility.createResponsibility(context.responsibility);
+      const schedule=responsibility.normalizeAssigneeSchedule(context.assigneeSchedule);
+      const group=context.group, expected=kind==='hicc'?record.hiccResponsibilityId:record.viscResponsibilityId;
+      return row.active===true && row.kind===kind && row.id===expected &&
+        object(group) && group.active===true && group.id===record.groupId &&
+        group.leaderViscResponsibilityId===record.viscResponsibilityId &&
+        Array.isArray(group.hiccResponsibilityIds) && group.hiccResponsibilityIds.includes(record.hiccResponsibilityId) &&
+        (kind!=='hicc' || row.groupId===record.groupId) &&
+        record.id===responsibility.submissionDocumentId(record.academicYearKey,record.groupId,record.hiccResponsibilityId) &&
+        schedule.responsibilityId===row.id && schedule.academicYearKey===record.academicYearKey &&
+        schedule.assigneeUid===context.actorUid && responsibility.scheduleActiveAt(schedule,context.asOfDate);
+    } catch (_) { return false; }
+  }
   function ownsPackage(record, context) {
-    return context?.actorRole === 'hicc' && context.ownsPackage === true &&
-      Boolean(text(context.actorUid)) && Boolean(text(record?.hiccUid)) && context.actorUid === record.hiccUid;
+    return context?.ownsPackage===true && currentDuty(record,context,'hicc');
+  }
+  function ownsSessions(record,sessions,context) {
+    if (!Array.isArray(sessions) || !sessions.length) return false;
+    const profile=responsibility.scopeProfile(context.responsibility);
+    return sessions.every(row=>row?.academicYear===record.academicYearKey &&
+      row.teachingAssignmentGroupId===record.groupId && row.responsibleHiccResponsibilityId===record.hiccResponsibilityId &&
+      row.teachingAssignmentSubmissionId===record.id && academic.hasScope(profile,'hicc',row));
   }
   function reviewsPackage(record, context) {
-    return context?.actorRole === 'visc' && context.canReviewPackage === true && Boolean(text(context.actorUid)) &&
-      (!record?.viscUid || context.actorUid === record.viscUid);
+    return context?.canReviewPackage===true && currentDuty(record,context,'visc');
   }
   function canSubmitForViscReview(record, sessions, context = {}) {
-    if (!ownsPackage(record,context) || !validRevision(record) || (record.revision ?? 0) >= Number.MAX_SAFE_INTEGER) return false;
+    if (!ownsPackage(record,context) || !ownsSessions(record,sessions,context) || !validRevision(record) || (record.revision ?? 0) >= Number.MAX_SAFE_INTEGER) return false;
     const current = readyFingerprint(sessions,context.suggestions ?? []);
     if (!current) return false;
     if (['draft','changes_requested'].includes(record.status)) return true;
@@ -113,7 +143,7 @@
       readyFingerprint(sessions,suggestions) === currentFingerprint;
   }
   function canHiccFinalSubmit(record, currentFingerprint, context = {}) {
-    return record?.status === 'visc_approved' && ownsPackage(record,context) &&
+    return record?.status === 'visc_approved' && ownsPackage(record,context) && ownsSessions(record,context.sessions,context) &&
       approvedContent(record,currentFingerprint,context.sessions,context.suggestions ?? []);
   }
   function canEnterAdfadQueue(record, sessions, suggestions = []) {

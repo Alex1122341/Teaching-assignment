@@ -13,7 +13,10 @@
  if(!temporal||!academic)throw Error('Teaching responsibility requires temporal-role-assignment and academic-responsibility.');
  const TYPES=Object.freeze(['hicc','visc']);
  const ID=/^[a-z][a-z0-9_-]{0,63}$/;
- const text=value=>String(value??'').trim();
+ const text=value=>{if(typeof value!=='string')throw Error('Teaching responsibility fields must be strings.');return value.trim()};
+ const optionalText=(input,field)=>Object.hasOwn(input,field)?text(input[field]):'';
+ function object(input,label){if(!input||typeof input!=='object'||Array.isArray(input))throw Error(`${label} must be an object.`)}
+ function boolean(input,field){if(Object.hasOwn(input,field)&&typeof input[field]!=='boolean')throw Error(`${field} must be boolean.`);return input[field]!==false}
  function responsibilityId(value,field='responsibilityId'){
   const id=text(value);
   if(!ID.test(id))throw Error(`${field} must be a canonical lowercase slug.`);
@@ -37,36 +40,44 @@
   return token;
  }
  function createResponsibility(input={}){
+  object(input,'Teaching responsibility');
+  const active=boolean(input,'active');
   const id=responsibilityId(input.id),kind=text(input.kind).toLowerCase();
   if(!TYPES.includes(kind))throw Error('Teaching responsibility kind must be hicc or visc.');
-  const groupId=kind==='hicc'?responsibilityId(input.groupId,'groupId'):'',label=text(input.label);
+  const suppliedGroupId=optionalText(input,'groupId'),groupId=kind==='hicc'?responsibilityId(suppliedGroupId,'groupId'):'',label=optionalText(input,'label');
   if(label.length>120)throw Error('Teaching responsibility label exceeds 120 characters.');
-  const scopes=[...new Set((Array.isArray(input.academicScopeTokens)?input.academicScopeTokens:[]).map(canonicalHiccToken))];
+  const source=Object.hasOwn(input,'academicScopeTokens')?input.academicScopeTokens:[];
+  if(!Array.isArray(source)||source.length>64)throw Error('Academic scope tokens must be a list of at most 64 entries.');
+  const scopes=[...new Set(source.map(canonicalHiccToken))];
   if(kind==='hicc'&&!scopes.length)throw Error('HICC responsibility requires at least one exact Course/Subject scope.');
   if(kind==='visc'&&scopes.length)throw Error('VISC group leadership does not use HICC Course/Subject scope tokens.');
-  return Object.freeze({id,kind,groupId,label,academicScopeTokens:kind==='hicc'?scopes:[],active:input.active!==false});
+  return Object.freeze({id,kind,groupId,label,academicScopeTokens:Object.freeze(kind==='hicc'?scopes:[]),active});
  }
  function assigneePath(responsibility,year,assigneeUid){
   const id=responsibilityId(responsibility),academicYear=academicYearKey(year),actor=uid(assigneeUid);
   return`teaching_responsibilities/${id}/years/${academicYear}/assignees/${actor}`;
  }
  function normalizeWindow(input={}){
+  object(input,'Responsibility date window');
+  if(!text(input.activeDate)||!text(input.expirationDate))throw Error('Responsibility date window requires explicit active and expiration dates.');
   const normalized=temporal.normalizeWindow(input);
   return Object.freeze({
    activeDate:normalized.activeDate,
    expirationDate:normalized.expirationDate,
-   sourceDoeAssignmentFactId:text(input.sourceDoeAssignmentFactId)
+   sourceDoeAssignmentFactId:optionalText(input,'sourceDoeAssignmentFactId')
   });
  }
  function normalizeAssigneeSchedule(input={}){
+  object(input,'Responsibility assignee schedule');
+  const enabled=boolean(input,'enabled');
   const id=responsibilityId(input.responsibilityId),year=academicYearKey(input.academicYearKey),assigneeUid=uid(input.assigneeUid);
-  const facultyId=text(input.facultyId),raw=Array.isArray(input.windows)?input.windows:[];
+  const facultyId=optionalText(input,'facultyId'),raw=Array.isArray(input.windows)?input.windows:[];
   if(!raw.length||raw.length>4)throw Error('Responsibility assignee schedule requires 1 to 4 date windows.');
-  const windows=raw.map(row=>normalizeWindow({...row,academicYear:year})).sort((a,b)=>a.activeDate.localeCompare(b.activeDate)||a.expirationDate.localeCompare(b.expirationDate));
+  const windows=raw.map(row=>{object(row,'Responsibility date window');return normalizeWindow({...row,academicYear:year})}).sort((a,b)=>a.activeDate.localeCompare(b.activeDate)||a.expirationDate.localeCompare(b.expirationDate));
   for(let i=1;i<windows.length;i++){
    if(temporal.dateParts(windows[i].activeDate).ms<temporal.dateParts(windows[i-1].expirationDate).ms)throw Error('Responsibility assignee windows may not overlap.');
   }
-  return Object.freeze({responsibilityId:id,academicYearKey:year,assigneeUid,facultyId,enabled:input.enabled!==false,windows:Object.freeze(windows)});
+  return Object.freeze({responsibilityId:id,academicYearKey:year,assigneeUid,facultyId,enabled,windows:Object.freeze(windows)});
  }
  function windowActiveAt(window,date){
   const at=temporal.dateParts(date);if(!at)throw Error('Responsibility status date must use YYYY-MM-DD.');
@@ -76,7 +87,9 @@
   return Boolean(schedule?.enabled)&&Array.isArray(schedule?.windows)&&schedule.windows.some(window=>windowActiveAt(window,date));
  }
  function validateResponsibilitySchedule(responsibility,schedules=[]){
-  const r=createResponsibility(responsibility),rows=(Array.isArray(schedules)?schedules:[]).map(normalizeAssigneeSchedule);
+  if(!Array.isArray(schedules))throw Error('Responsibility schedules must be a list.');
+  const r=createResponsibility(responsibility),rows=schedules.map(normalizeAssigneeSchedule),seen=new Set();
+  for(const row of rows){if(seen.has(row.assigneeUid))throw Error('Duplicate responsibility assignee schedule.');seen.add(row.assigneeUid)}
   for(const row of rows)if(row.responsibilityId!==r.id)throw Error('Assignee schedule belongs to another responsibility.');
   const years=new Set(rows.map(row=>row.academicYearKey));if(years.size>1)throw Error('Validate one Academic Year responsibility schedule at a time.');
   const all=[];

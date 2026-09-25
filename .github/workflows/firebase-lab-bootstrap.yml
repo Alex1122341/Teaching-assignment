@@ -21,7 +21,6 @@ on:
           - administrator
           - adfa_general
           - adfa_regular
-          - other_office
           - adc
           - lab
           - faculty
@@ -32,7 +31,7 @@ on:
         required: false
         type: string
       office_name:
-        description: Office display name for Other Office, ADC or LAB
+        description: Office display name for ADC/DVM or LAB
         required: false
         type: string
       confirmation:

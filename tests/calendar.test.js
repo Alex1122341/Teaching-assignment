@@ -18,7 +18,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const rules=fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8');
 test('maintenance source writes require a synchronized calendar companion',()=>{assert.match(rules,/function maintenanceSessionWrite\(id\)[\s\S]*calendarMatchesSourceAfter\(id\)/);assert.match(rules,/allow create:[^\n]*maintenanceSessionWrite\(id\)/);assert.match(rules,/allow update:[^\n]*maintenanceSessionWrite\(id\)/);assert.match(rules,/allow delete:[^\n]*maintenanceSessionDelete\(id\)/);});
-test('calendar repair is General-only and matches the current private source',()=>{assert.match(rules,/function generalCalendarRepair\(id\)/);assert.match(rules,/general\(\)[\s\S]*calendarMatchesCurrentSource\(id\)/);assert.match(rules,/allow (?:create|update):[^\n]*generalCalendarRepair\(id\)/);});
+test('calendar repair is General-only and matches the current private source',()=>{assert.match(rules,/function generalCalendarRepair\(id\)/);assert.match(rules,/general\(\)[\s\S]*calendarMatchesCurrentSource\(id\)/);assert.match(rules,/allow (?:create|update):[^\n]*taCalendarPermission\(id,/);assert.match(rules,/function taCalendarPermission\(id,previousNames\)[^]*generalCalendarRepair\(id\)/);});
 })();
 
 // ------------------------------------------------------------------------
@@ -31,6 +31,11 @@ const source={id:'s1',course:'505',courseName:'Clinical Skills III',year:3,semes
 const clean={sessionId:'s1',course:'505',courseName:'Clinical Skills III',year:3,semester:'winter',week:8,date:'2027-03-22',start:'14:45',end:'16:15',timeUnknown:false,type:'LAB',topic:'Suturing',room:'CSB 116',instructorNames:['Jane Smith'],instructor:'Jane Smith'};
 test('calendar compare identifies missing stale wrong and private documents',()=>{const api=load();let r=api.compare([source],[]);assert.equal(r.ok,false);assert.equal(r.mismatches[0].kind,'missing');r=api.compare([],[clean]);assert.equal(r.mismatches[0].kind,'stale');r=api.compare([source],[{...clean,room:'Wrong'}]);assert.equal(r.mismatches[0].kind,'mismatch');r=api.compare([source],[{...clean,facultyIds:['f1']}]);assert.equal(r.mismatches[0].kind,'private_field');});
 test('calendar compare reports exact sanitized mirror healthy',()=>{const r=load().compare([source],[clean]);assert.deepEqual({ok:r.ok,mismatchCount:r.mismatchCount},{ok:true,mismatchCount:0});});
+test('calendar maintenance accepts safe Working ownership metadata but still detects the internal package locator',()=>{
+ const metadata={academicYear:'2026-27',subjectKey:'surgery',teachingAssignmentGroupId:'surgery',responsibleHiccResponsibilityId:'hicc-surgery'};
+ const r=load().compare([{...source,...metadata}],[{...clean,...metadata}]);assert.equal(r.ok,true);
+ const leaked=load().compare([{...source,...metadata}],[{...clean,...metadata,teachingAssignmentSubmissionId:'private-package'}]);assert.equal(leaked.mismatches[0].kind,'private_field');
+});
 })();
 
 // ------------------------------------------------------------------------

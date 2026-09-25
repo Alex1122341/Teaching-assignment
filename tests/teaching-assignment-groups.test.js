@@ -66,3 +66,20 @@ test('same VISC responsibility can lead multiple groups only through explicit gr
  assert.doesNotThrow(()=>groups.validateGroupResponsibilities({id:'bovine',name:'Bovine',leaderViscResponsibilityId:'visc-shared',hiccResponsibilityIds:['hicc-bovine']},{responsibilities:bovineResp}));
  assert.doesNotThrow(()=>groups.validateGroupResponsibilities({id:'equine',name:'Equine',leaderViscResponsibilityId:'visc-shared',hiccResponsibilityIds:['hicc-equine']},{responsibilities:equineResp}));
 });
+
+for(const [field,value] of [
+ ['id',['bovine']],['name',{toString:()=> 'Bovine'}],['leaderViscResponsibilityId',['visc-bovine']],
+ ['hiccResponsibilityIds','hicc-bovine-medicine'],['hiccResponsibilityIds',[['hicc-bovine-medicine']]],
+ ['hiccResponsibilityIds',Array.from({length:65},(_,i)=>`hicc-${i}`)],['active','false'],['active',null]
+])test(`group rejects malformed supplied ${field}: ${JSON.stringify(value)}`,()=>{
+ assert.throws(()=>groups.createGroup({...bovine(),[field]:value}));
+});
+
+test('group ownership rejects a supplied locator for another year or package',()=>{
+ const ownership={academicYear:'2026-27',teachingAssignmentGroupId:'bovine',responsibleHiccResponsibilityId:'hicc-bovine-medicine'};
+ for(const locator of ['ta-sub-v2__2025-26__bovine__hicc-bovine-medicine','ta-sub-v2__2026-27__bovine__hicc-bovine-surgery','',null,['ta-sub-v2__2026-27__bovine__hicc-bovine-medicine']]){
+  assert.equal(groups.ownershipMatchesGroup(bovine(),{...ownership,teachingAssignmentSubmissionId:locator}),false);
+ }
+ assert.equal(groups.ownershipMatchesGroup(bovine(),ownership),true);
+ assert.equal(groups.ownershipMatchesGroup(bovine(),{...ownership,academicYear:['2026-27']}),false);
+});

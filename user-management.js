@@ -1,7 +1,7 @@
 'use strict';
 (()=>{
- const {auth,db}=UCVM.init(),$=id=>document.getElementById(id),e=UCVM.esc,planner=UCVM_ACCOUNT_PLANNER,profilePolicy=UCVM_ACCOUNT_PROFILE,temporal=UCVM_TEMPORAL_ROLE_ASSIGNMENT,academic=UCVM_ACADEMIC_RESPONSIBILITY,responsibilityApi=UCVM_TEACHING_RESPONSIBILITY,taGroupsApi=UCVM_TEACHING_ASSIGNMENT_GROUPS;
- let me,data={users:[],people:[],groups:[],faculty:[],taGroups:[],responsibilities:[]},groupId='',taGroupId='',taResponsibilityId='',taSchedules=[],taAdminReady=false,editingUser=null,busy=false,provisionPlan=null,previewRevision='';
+ const {auth,db}=UCVM.init(),$=id=>document.getElementById(id),e=UCVM.esc,planner=UCVM_ACCOUNT_PLANNER,profilePolicy=UCVM_ACCOUNT_PROFILE,temporal=UCVM_TEMPORAL_ROLE_ASSIGNMENT,academic=UCVM_ACADEMIC_RESPONSIBILITY,responsibilityApi=UCVM_TEACHING_RESPONSIBILITY,taGroupsApi=UCVM_TEACHING_ASSIGNMENT_GROUPS,subjectCatalog=UCVM_SUBJECT_CATALOG;
+ let me,data={users:[],people:[],groups:[],faculty:[],taGroups:[],responsibilities:[],subjects:[]},groupId='',taGroupId='',taResponsibilityId='',taSchedules=[],taScheduleState=null,taScheduleLoad=0,taAdminReady=false,editingUser=null,busy=false,provisionPlan=null,previewRevision='';
  const status=(message,error=false)=>{$('status').textContent=message;$('status').classList.toggle('error',error)};
  const stamp=()=>firebase.firestore.FieldValue.serverTimestamp();
  const normName=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
@@ -31,9 +31,9 @@
   data.users=userSnapshot?userSnapshot.docs.map(safeUser):data.people.map(person=>({uid:person.uid,name:person.name,email:'',facultyId:person.facultyId,role:person.role,accountRole:person.role,facultyRoles:[],officeAccess:[],active:true,mustChangePassword:false}));
   data.groups=groupSnapshot.docs.map(doc=>({id:doc.id,...doc.data()}));data.faculty=facultySnapshot?.exists?(facultySnapshot.data().entries||[]).map(indexedFaculty):[];
   if(isGeneral){
-   const[taGroupsRead,responsibilityRead]=await Promise.all([optionalCollection('teaching_assignment_groups'),optionalCollection('teaching_responsibilities')]);
-   data.taGroups=taGroupsRead.rows;data.responsibilities=responsibilityRead.rows;taAdminReady=taGroupsRead.ok&&responsibilityRead.ok;
-  }else{data.taGroups=[];data.responsibilities=[];taAdminReady=false}
+   const[taGroupsRead,responsibilityRead,subjectRead]=await Promise.all([optionalCollection('teaching_assignment_groups'),optionalCollection('teaching_responsibilities'),optionalCollection('teaching_subjects')]);
+   data.taGroups=taGroupsRead.rows;data.responsibilities=responsibilityRead.rows;data.subjects=subjectRead.rows;taAdminReady=taGroupsRead.ok&&responsibilityRead.ok&&subjectRead.ok;
+  }else{data.taGroups=[];data.responsibilities=[];data.subjects=[];taAdminReady=false}
   $('account-faculty').innerHTML='<option value="">Select faculty record</option>'+data.faculty.map(faculty=>`<option value="${e(faculty.id)}">${e(faculty.name)} (${e(faculty.id)})</option>`).join('');
   $('group-picker').innerHTML='<option value="">Select group</option>'+data.groups.map(group=>`<option value="${e(group.id)}">${e(group.name)}</option>`).join('');
   $('group-owner').innerHTML=data.people.filter(person=>person.role==='hicc').map(person=>`<option value="${e(person.uid)}">${e(person.name)}</option>`).join('');
@@ -72,7 +72,7 @@
  function renderAccounts(){
   const normalized=data.users.map(user=>({...user,officeAccess:Array.isArray(user?.officeAccess)?user.officeAccess:[],facultyRoles:Array.isArray(user?.facultyRoles)?user.facultyRoles:[]}));
   const query=$('account-search').value.toLowerCase(),rows=normalized.filter(user=>`${user.name} ${user.email} ${UCVM.label(user.accountRole||user.role)} ${user.officeAccess.join(' ')} ${user.facultyRoles.join(' ')} ${user.uid}`.toLowerCase().includes(query));
-  $('accounts-body').innerHTML=rows.map(user=>{const locked=developerAccount(user)&&!developerActor(),lockNote=locked?' title="Only Developer can modify Developer accounts." disabled':'';return`<tr><td>${e(user.name)}<small>${e(user.email)}</small><small>UID: ${e(user.uid)}</small></td><td>${e(UCVM.label(user.accountRole||user.role))}</td><td>${user.officeAccess.length?user.officeAccess.map(office=>`<span class="faculty-role-pill">${e(office.toUpperCase())}</span>`).join(' '):'—'}</td><td>${user.facultyRoles.length?user.facultyRoles.map(role=>`<span class="faculty-role-pill">${e(UCVM.label(role))}</span>`).join(' '):'—'}</td><td>${user.active?'Active':'Disabled'}${user.mustChangePassword?'<small>Password change required</small>':''}${locked?'<small>Developer protected</small>':''}</td><td><button data-edit="${e(user.uid)}"${lockNote}>Edit</button> <button data-reset="${e(user.uid)}">Send password reset</button></td></tr>`}).join('')||'<tr><td colspan="6">No matching accounts.</td></tr>';
+  $('accounts-body').innerHTML=rows.map(user=>{const locked=developerAccount(user)&&!developerActor(),lockNote=locked?' title="Only Developer can modify Developer accounts." disabled':'';return`<tr><td>${e(user.name)}<small>${e(user.email)}</small><small>UID: ${e(user.uid)}</small></td><td>${e(UCVM.label(user.accountRole||user.role))}</td><td>${user.officeAccess.length?user.officeAccess.map(office=>`<span class="faculty-role-pill">${e(({adc:'ADC/DVM',lab:'LAB',adfa:'ADFAD'})[office]||UCVM.label(office))}</span>`).join(' '):'—'}</td><td>${user.facultyRoles.length?user.facultyRoles.map(role=>`<span class="faculty-role-pill">${e(UCVM.label(role))}</span>`).join(' '):'—'}</td><td>${user.active?'Active':'Disabled'}${user.mustChangePassword?'<small>Password change required</small>':''}${locked?'<small>Developer protected</small>':''}</td><td><button data-edit="${e(user.uid)}"${lockNote}>Edit</button> <button data-reset="${e(user.uid)}">Send password reset</button></td></tr>`}).join('')||'<tr><td colspan="6">No matching accounts.</td></tr>';
   document.querySelectorAll('[data-edit]').forEach(button=>button.onclick=()=>selectAccount(data.users.find(user=>user.uid===button.dataset.edit)));
   document.querySelectorAll('[data-reset]').forEach(button=>button.onclick=async()=>{const user=data.users.find(item=>item.uid===button.dataset.reset);if(!user?.email)return status('This profile has no email address.',true);if(!confirm(`Send a Firebase password-reset email to ${user.email}?`))return;try{await auth.sendPasswordResetEmail(user.email);status(`Password-reset email sent to ${user.email}.`)}catch(error){status(error.message,true)}});
  }
@@ -99,11 +99,13 @@
  $('group-form').onsubmit=event=>{event.preventDefault();action(async()=>{const isGeneral=UCVM.general(me),existing=data.groups.find(group=>group.id===groupId),ownerUid=isGeneral?$('group-owner').value:existing?.ownerUid,name=isGeneral?$('group-name').value.trim():existing?.name,courseIds=isGeneral?$('group-courses').value.split(',').map(value=>value.trim()).filter(Boolean):(existing?.courseIds||[]),selected=[...document.querySelectorAll('[name="member"]:checked')].map(input=>input.value),memberUids=[...new Set([ownerUid,...selected].filter(Boolean))];if(!existing&&!isGeneral)throw Error('Only Owner can create groups.');if(!ownerUid||!name)throw Error('Group name and HICC owner are required.');const ref=existing?db.doc(`faculty_groups/${existing.id}`):db.collection('faculty_groups').doc(),patch={name,ownerUid,courseIds,memberUids,updatedBy:auth.currentUser.uid,updatedByName:me.name||auth.currentUser.email||'',updatedAt:stamp()};if(!existing)patch.createdAt=stamp();const batch=db.batch();batch.set(ref,patch,{merge:true});batch.set(db.collection('account_audit').doc(),{action:isGeneral?(existing?'group_updated':'group_created'):'group_members_updated',groupId:ref.id,ownerUid,memberCount:memberUids.length,changedBy:auth.currentUser.uid,changedByName:me.name||auth.currentUser.email||'',changedByEmail:auth.currentUser.email||'',changedAt:stamp()});await batch.commit();groupId=ref.id},'Group saved.')};
  function taScopeTokens(){
   if($('ta-responsibility-kind').value!=='hicc')return[];
-  const rows=$('ta-responsibility-scopes').value.split(/\n|,/).map(value=>value.trim()).filter(Boolean),tokens=[];
+  const rows=$('ta-responsibility-scopes').value.split(/\n|,/).map(value=>value.trim()).filter(Boolean),tokens=[],activeSubjects=new Set(subjectCatalog.activeOptions(data.subjects).map(row=>row.key));
   for(const row of rows){
-   if(row.toLowerCase().startsWith('hicc|')){tokens.push(row);continue}
-   const parts=row.split('|').map(value=>value.trim()),token=academic.scopeToken('hicc',parts[0]||'',parts[1]||'*');
+   const parts=row.split('|').map(value=>value.trim());if(parts[0].toLowerCase()==='hicc')parts.shift();
+   if(parts.length!==2)throw Error(`Invalid HICC scope: ${row}`);
+   const token=academic.scopeToken('hicc',parts[0],parts[1]);
    if(!token)throw Error(`Invalid HICC scope: ${row}`);
+   const subject=token.split('|')[2];if(subject!=='*'&&!activeSubjects.has(subject))throw Error(`Choose an active Teaching Subject for scope: ${row}`);
    tokens.push(token);
   }
   return[...new Set(tokens)];
@@ -179,7 +181,9 @@
   await batch.commit();taGroupId=row.id;
  }
  function storedSchedule(doc){
-  const row=doc.data?doc.data():doc;return{responsibilityId:String(row.responsibilityId||''),academicYearKey:String(row.academicYearKey||''),assigneeUid:String(row.assigneeUid||doc.id||''),facultyId:String(row.facultyId||''),enabled:row.enabled!==false,windows:Array.isArray(row.windows)?row.windows.map(window=>({activeDate:String(window.activeDate||''),expirationDate:String(window.expirationDate||''),sourceDoeAssignmentFactId:String(window.sourceDoeAssignmentFactId||'')})):[]};
+  const row=doc.data?doc.data():doc;
+  if(doc.id&&row.assigneeUid!==doc.id)throw Error('Stored responsibility assignee identity does not match its document.');
+  return responsibilityApi.normalizeAssigneeSchedule(row);
  }
  function renderTaSchedules(){
   const people=new Map(data.users.map(user=>[user.uid,user]));
@@ -191,23 +195,38 @@
   const windows=row?.windows?.length?row.windows:[temporal.defaultWindow($('ta-assignment-year').value.trim())];for(const window of windows)addTaWindow(window);
  }
  async function loadTaSchedules(){
-  taSchedules=[];if(!taAdminReady)return renderTaSchedules();
+  const loadId=++taScheduleLoad;taSchedules=[];taScheduleState=null;if(!taAdminReady)return renderTaSchedules();
   const responsibilityId=$('ta-assignment-responsibility').value,year=$('ta-assignment-year').value.trim();if(!responsibilityId||temporal.startYear(year)===null)return renderTaSchedules();
-  try{const snapshot=await db.collection('teaching_responsibilities').doc(responsibilityId).collection('years').doc(year).collection('assignees').get();taSchedules=snapshot.docs.map(storedSchedule);renderTaSchedules()}
-  catch(error){if(error?.code==='permission-denied'){taAdminReady=false;renderTaAdmin();return}throw error}
+  try{
+   const yearRef=db.collection('teaching_responsibilities').doc(responsibilityId).collection('years').doc(year);
+   // Read the version first: any concurrent write before/during the collection
+   // read makes this loaded view stale and the save transaction must reject it.
+   const version=await yearRef.get({source:'server'}),scheduleRevision=version.exists?version.data().scheduleRevision:0;
+   if(!Number.isSafeInteger(scheduleRevision)||scheduleRevision<0||(version.exists&&scheduleRevision===0))throw Error('Stored responsibility schedule revision is invalid.');
+   const snapshot=await yearRef.collection('assignees').get({source:'server'});
+   if(loadId!==taScheduleLoad)return;
+   taSchedules=snapshot.docs.map(storedSchedule);taScheduleState={responsibilityId,academicYearKey:year,scheduleRevision};renderTaSchedules();
+  }
+  catch(error){if(loadId!==taScheduleLoad)return;if(error?.code==='permission-denied'){taAdminReady=false;renderTaAdmin();return}throw error}
  }
  async function saveTaSchedule(){
   if(!UCVM.general(me)||!taAdminReady)throw Error('High-trust Teaching Assignment management is unavailable.');
   const responsibility=selectedTaResponsibility(),year=$('ta-assignment-year').value.trim(),assigneeUid=$('ta-assignment-user').value,user=data.users.find(row=>row.uid===assigneeUid);
-  if(!responsibility)throw Error('Select a Teaching responsibility.');if(!user?.facultyId)throw Error('Select an active Faculty assignee.');
+  if(!responsibility)throw Error('Select a Teaching responsibility.');if(!user?.facultyId||user.active!==true)throw Error('Select an active Faculty assignee.');
+  const loaded=taScheduleState;
+  if(!loaded||loaded.responsibilityId!==responsibility.id||loaded.academicYearKey!==year)throw Error('Load this responsibility/year schedule before saving.');
   const windows=[...document.querySelectorAll('.ta-window-row')].map(row=>({activeDate:row.querySelector('.ta-window-active').value,expirationDate:row.querySelector('.ta-window-expiration').value,sourceDoeAssignmentFactId:row.querySelector('.ta-window-source').value}));
   const schedule=responsibilityApi.normalizeAssigneeSchedule({responsibilityId:responsibility.id,academicYearKey:year,assigneeUid,facultyId:user.facultyId,enabled:$('ta-assignment-enabled').checked,windows});
   const all=[...taSchedules.filter(row=>row.assigneeUid!==assigneeUid),schedule];responsibilityApi.validateResponsibilitySchedule(responsibility,all);
   const projection=responsibilityApi.safeAssigneeProjection(schedule),stored={...projection,windows:projection.windows.map(window=>({activeDate:window.activeDate,expirationDate:window.expirationDate,activeAt:firebase.firestore.Timestamp.fromDate(new Date(window.activeAtIso)),expiresAt:firebase.firestore.Timestamp.fromDate(new Date(window.expiresAtIso)),sourceDoeAssignmentFactId:window.sourceDoeAssignmentFactId}))};
-  const ref=db.collection('teaching_responsibilities').doc(responsibility.id).collection('years').doc(year).collection('assignees').doc(assigneeUid),batch=db.batch(),now=stamp();
-  batch.set(ref,{...stored,updatedBy:auth.currentUser.uid,updatedByName:me.name||auth.currentUser.email||'',updatedAt:now},{merge:false});
-  batch.set(db.collection('account_audit').doc(),{action:'ta_responsibility_assignment_updated',responsibilityId:responsibility.id,academicYearKey:year,assigneeUid,facultyId:user.facultyId,enabled:stored.enabled,windowCount:stored.windows.length,changedBy:auth.currentUser.uid,changedByName:me.name||auth.currentUser.email||'',changedByEmail:auth.currentUser.email||'',changedAt:now});
-  await batch.commit();
+  const yearRef=db.collection('teaching_responsibilities').doc(responsibility.id).collection('years').doc(year),ref=yearRef.collection('assignees').doc(assigneeUid),auditRef=db.collection('account_audit').doc(),now=stamp();
+  await db.runTransaction(async transaction=>{
+   const version=await transaction.get(yearRef),revision=version.exists?version.data().scheduleRevision:0;
+   if(!Number.isSafeInteger(revision)||revision!==loaded.scheduleRevision||revision>=Number.MAX_SAFE_INTEGER)throw Error('Responsibility schedule changed. Reload this page and review all assignments before saving.');
+   transaction.set(ref,{...stored,updatedBy:auth.currentUser.uid,updatedByName:me.name||auth.currentUser.email||'',updatedAt:now},{merge:false});
+   transaction.set(yearRef,{scheduleRevision:revision+1,changedAssigneeUid:assigneeUid,updatedBy:auth.currentUser.uid,updatedAt:now});
+   transaction.set(auditRef,{action:'ta_responsibility_assignment_updated',responsibilityId:responsibility.id,academicYearKey:year,assigneeUid,facultyId:user.facultyId,enabled:stored.enabled,windowCount:stored.windows.length,changedBy:auth.currentUser.uid,changedByName:me.name||auth.currentUser.email||'',changedByEmail:auth.currentUser.email||'',changedAt:now});
+  });
  }
  $('ta-group-picker').onchange=()=>selectTaGroup($('ta-group-picker').value);$('ta-group-new').onclick=()=>selectTaGroup('');
  $('ta-group-form').onsubmit=event=>{event.preventDefault();action(saveTaGroup,'Teaching Assignment group saved.')};

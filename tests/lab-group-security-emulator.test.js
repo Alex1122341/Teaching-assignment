@@ -97,6 +97,48 @@ check('a roster payload with extra fields is rejected',async()=>{
  const {assertFails}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore'),stamp=serverTimestamp();
  await assertFails(db('lab').doc('lab_group_rosters/g-a').set({groupId:'g-a',studentIds:['30012345'],updatedBy:'lab',updatedByName:'LAB',updatedAt:stamp,doe:40}));
 });
+check('public LAB metadata rejects private and arbitrary nested fields',async()=>{
+ const {assertFails}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
+ const base={groupId:'g-a',academicYear:'2026-27',course:'601',groupCode:'A',colorKey:'group-a',active:true,updatedBy:'lab',updatedAt:serverTimestamp()};
+ for(const patch of [{studentIds:['30012345']},{metadata:{studentIds:['30012345']}},{groupCode:{studentIds:['30012345']}},{updatedByName:{studentIds:['30012345']}}])await assertFails(db('lab').doc('lab_groups/g-a').set({...base,...patch}));
+});
+check('rosters and calendar LAB references cannot point to nonexistent groups',async()=>{
+ const {assertFails}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
+ await assertFails(db('lab').doc('lab_group_rosters/missing').set({groupId:'missing',studentIds:['30012345'],updatedBy:'lab',updatedAt:serverTimestamp()}));
+ const fire=db('lab'),batch=fire.batch(),row={...SOURCE,topic:'Missing group',labGroupIds:['missing']};
+ batch.update(fire.doc('sessions/s1'),{topic:row.topic,labGroupIds:row.labGroupIds,updatedBy:'lab',updatedAt:serverTimestamp()});
+ batch.set(fire.doc('calendar_sessions/s1'),JSON.parse(JSON.stringify(projectionContext.window.UCVM_CALENDAR_SESSION.fromSource(row,'s1'))));
+ await assertFails(batch.commit());
+});
+check('calendar arrays reject nested student metadata even with a matching source',async()=>{
+ const {assertFails}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
+ for(const extra of [{instructorNames:[{studentIds:['30012345']}]},{labGroupIds:[{studentIds:['30012345']}]}]){
+  const fire=db('owner'),batch=fire.batch(),row={...SOURCE,...extra};
+  batch.update(fire.doc('sessions/s1'),{...extra,updatedBy:'owner',updatedAt:serverTimestamp()});
+  batch.set(fire.doc('calendar_sessions/s1'),{...JSON.parse(JSON.stringify(projectionContext.window.UCVM_CALENDAR_SESSION.fromSource(SOURCE,'s1'))),...extra});
+  await assertFails(batch.commit());
+ }
+});
+check('calendar scalar fields cannot carry student metadata through a matching source',async()=>{
+ const {assertFails}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
+ const fire=db('lab'),batch=fire.batch(),topic={studentIds:['30012345']};
+ batch.update(fire.doc('sessions/s1'),{topic,updatedBy:'lab',updatedAt:serverTimestamp()});
+ batch.set(fire.doc('calendar_sessions/s1'),{...JSON.parse(JSON.stringify(projectionContext.window.UCVM_CALENDAR_SESSION.fromSource(SOURCE,'s1'))),topic});
+ await assertFails(batch.commit());
+});
+
+check('all eight referenced LAB groups and sixteen public instructor names fit the real write budget',async()=>{
+ const {assertSucceeds}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
+ const labGroupIds=Array.from({length:8},(_,i)=>'budget-'+i),instructor=Array.from({length:16},(_,i)=>'Faculty '+i).join('; ');
+ await env.withSecurityRulesDisabled(async ctx=>{
+  for(const id of labGroupIds)await ctx.firestore().doc('lab_groups/'+id).set({groupId:id,active:true});
+  await ctx.firestore().doc('sessions/s1').set(SOURCE);
+ });
+ const fire=db('owner'),batch=fire.batch(),row={...SOURCE,labGroupIds,instructor};
+ batch.update(fire.doc('sessions/s1'),{labGroupIds,instructor,updatedBy:'owner',updatedAt:serverTimestamp()});
+ batch.set(fire.doc('calendar_sessions/s1'),JSON.parse(JSON.stringify(projectionContext.window.UCVM_CALENDAR_SESSION.fromSource(row,'s1'))));
+ await assertSucceeds(batch.commit());
+});
 
 check('student IDs can never be written into the sanitized calendar',async()=>{
  const {assertFails}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore'),fire=db('lab');

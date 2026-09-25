@@ -50,7 +50,8 @@ const USER_SEED = [
   {uid: 'uid-developer', name: 'VISTA Developer', role: 'developer'},
   {uid: 'uid-owner', name: 'VISTA Owner', role: 'owner'},
   {uid: 'uid-admin', name: 'VISTA Administrator', role: 'administrator'},
-  {uid: 'uid-otheroffice', name: 'Other Office', role: 'other_office'},
+  // Keep its identity for legacy denial tests without restoring an active role.
+  {uid: 'uid-otheroffice', name: 'Other Office', role: 'other_office', active: false},
   {uid: 'uid-adfa-general', name: 'ADFA General', role: 'adfa_general'},
   {uid: 'uid-adfa-regular', name: 'ADFA Regular', role: 'adfa_regular'},
   {uid: 'uid-adc-1', name: 'ADC Coordinator', role: 'adc', office: 'DVM / ADC Office'},

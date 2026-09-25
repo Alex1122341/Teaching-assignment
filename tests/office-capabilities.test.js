@@ -80,6 +80,14 @@ test('retired Other Office fails closed without calendar or operational authorit
  assert.equal(api.officeForRole('other_office'),'');assert.equal(api.isOfficeAccount('other_office'),false);
 });
 
+test('retired and unknown roles cannot gain authority from a positive Teaching Assignment context',()=>{
+ const api=load(),teachingAssignment={hiccAssigned:true,ownsPackage:true,hasAcademicScope:true,viscAssigned:true,leadsGroup:true,viscApprovalCurrent:true};
+ for(const role of ['other_office','unknown','','constructor'])for(const state of ['draft','visc_review','changes_requested','visc_approved']){
+  const caps=api.forProfile({role,officeAccess:['adc','lab','adfa']},{teachingAssignment:{...teachingAssignment,state}});
+  assert.equal(Object.values(caps).some(Boolean),false,`${role}/${state}`);
+ }
+});
+
 test('officeAccess can delegate operational offices without changing system-level role authority',()=>{const api=load(),owner=api.forProfile({role:'owner',officeAccess:['adc','lab']});for(const key of ['canAddSessions','canSelectSessions','canEditCourseFields','canEditLabTopic','canEditLabGroups','canEditLabRoster'])assert.equal(owner[key],true,key);assert.equal(owner.canEditInstructor,false);assert.equal(owner.canOverride,true);assert.equal(owner.canViewFullApprovalOverview,true);assert.deepEqual(Array.from(api.officesForProfile({role:'administrator',officeAccess:['lab','adfa']})),['lab','adfa']);assert.equal(api.hasOfficeAccess({role:'administrator',officeAccess:['lab']},'lab'),true);assert.equal(api.hasOfficeAccess({role:'administrator',officeAccess:['lab']},'adfa'),false);});
 test('officeAccess cannot turn faculty-facing or Other Office accounts into operational offices',()=>{const api=load();for(const role of ['faculty','hicc','visc','other_office']){assert.deepEqual(Array.from(api.officesForProfile({role,officeAccess:['adc','lab','adfa']})),[]);const c=api.forProfile({role,officeAccess:['adc','lab','adfa']});assert.equal(c.canAddSessions,false,role);assert.equal(c.canEditInstructor,false,role);}});
 test('stage-scoped capabilities prevent a multi-office account from mixing office fields in one editor',()=>{const api=load(),profile={role:'owner',officeAccess:['adc','adfa']};const adc=api.forProfile(profile,{stage:'adc'}),adfa=api.forProfile(profile,{stage:'adfa'});assert.equal(adc.canEditCourseFields,true);assert.equal(adc.canEditInstructor,false);assert.equal(adfa.canEditCourseFields,false);assert.equal(adfa.canEditInstructor,true);});

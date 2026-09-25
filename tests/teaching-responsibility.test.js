@@ -72,3 +72,38 @@ test('safe assignee projection excludes DOE leave reasons and private notes whil
  assert.equal(row.windows[0].expiresAtIso,'2027-03-01T07:00:00.000Z');
  for(const key of ['doeCredit','doeOverride','notes','afcReason'])assert.equal(Object.hasOwn(row,key),false,key);
 });
+
+for(const [field,value] of [
+ ['id',['hicc-vtmd204']],['kind',['hicc']],['groupId',['year-2']],['label',false],['active','false'],['active',null],
+ ['academicScopeTokens',[['hicc|VTMD 204|*']]],['academicScopeTokens',Array.from({length:65},(_,i)=>`hicc|VTMD ${200+i}|*`)]
+])test(`responsibility rejects malformed supplied ${field}: ${JSON.stringify(value)}`,()=>{
+ assert.throws(()=>responsibility.createResponsibility({...hicc(),[field]:value}));
+});
+
+test('VISC rejects a supplied non-list scope collection rather than discarding it',()=>{
+ for(const academicScopeTokens of [null,'hicc|VTMD 204|*',{}])assert.throws(()=>responsibility.createResponsibility({id:'visc-year-2',kind:'visc',academicScopeTokens}));
+});
+
+const scheduleInput=()=>({responsibilityId:'hicc-vtmd204',academicYearKey:'2026-27',assigneeUid:'bill',facultyId:'f-bill',windows:[{activeDate:'2026-09-01',expirationDate:'2027-05-01'}]});
+for(const [field,value] of [
+ ['responsibilityId',['hicc-vtmd204']],['academicYearKey',['2026-27']],['assigneeUid',123],['facultyId',['f-bill']],['enabled','false'],['enabled',null],
+ ['windows',[null]],['windows',[{}]],['windows',[{activeDate:'',expirationDate:''}]],
+ ['windows',[{activeDate:['2026-09-01'],expirationDate:'2027-05-01'}]],
+ ['windows',[{activeDate:'2026-09-01',expirationDate:'2027-05-01',sourceDoeAssignmentFactId:{}}]]
+])test(`schedule rejects malformed supplied ${field}: ${JSON.stringify(value)}`,()=>{
+ assert.throws(()=>responsibility.normalizeAssigneeSchedule({...scheduleInput(),[field]:value}));
+});
+
+test('explicit default date window remains valid and arbitrary valid coverage dates are retained',()=>{
+ const temporal=require('../temporal-role-assignment.js');
+ assert.deepEqual(responsibility.normalizeAssigneeSchedule({...scheduleInput(),windows:[temporal.defaultWindow('2026-27')]}).windows[0],{activeDate:'2026-09-01',expirationDate:'2027-05-01',sourceDoeAssignmentFactId:''});
+ const row=responsibility.normalizeAssigneeSchedule({...scheduleInput(),windows:[{activeDate:'2026-06-01',expirationDate:'2027-08-31'}]});
+ assert.equal(row.windows[0].activeDate,'2026-06-01');
+ assert.equal(row.windows[0].expirationDate,'2027-08-31');
+});
+
+test('complete schedule validation rejects non-list input and duplicate assignee documents',()=>{
+ assert.throws(()=>responsibility.validateResponsibilitySchedule(hicc(),{}));
+ const first=scheduleInput(),second={...scheduleInput(),windows:[{activeDate:'2027-05-01',expirationDate:'2027-06-01'}]};
+ assert.throws(()=>responsibility.validateResponsibilitySchedule(hicc(),[first,second]),/duplicate/i);
+});

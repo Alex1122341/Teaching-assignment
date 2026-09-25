@@ -8,18 +8,20 @@
  'use strict';
  if(!responsibilities)throw Error('Teaching Assignment groups require teaching-responsibility.');
  const ID=/^[a-z][a-z0-9_-]{0,63}$/;
- const text=value=>String(value??'').trim();
+ const text=value=>{if(typeof value!=='string')throw Error('Teaching Assignment fields must be strings.');return value.trim()};
  function canonicalId(value,field='id'){
   const id=text(value);
   if(!ID.test(id))throw Error(`${field} must be a canonical lowercase slug.`);
   return id;
  }
  function createGroup(input={}){
+  if(!input||typeof input!=='object'||Array.isArray(input))throw Error('Teaching Assignment group must be an object.');
+  if(Object.hasOwn(input,'active')&&typeof input.active!=='boolean')throw Error('Teaching Assignment group active must be boolean.');
   const id=canonicalId(input.id),name=text(input.name);
   if(!name||name.length>120)throw Error('Teaching Assignment group name must be 1 to 120 characters.');
   const leaderViscResponsibilityId=canonicalId(input.leaderViscResponsibilityId,'leaderViscResponsibilityId');
   const source=Array.isArray(input.hiccResponsibilityIds)?input.hiccResponsibilityIds:[];
-  if(!source.length)throw Error('Teaching Assignment group requires at least one HICC responsibility.');
+  if(!source.length||source.length>64)throw Error('Teaching Assignment group requires 1 to 64 HICC responsibilities.');
   const hiccResponsibilityIds=[];
   const seen=new Set();
   for(const value of source){
@@ -62,13 +64,14 @@
  function sessionOwnership(input={}){
   const teachingAssignmentGroupId=canonicalId(input.teachingAssignmentGroupId,'teachingAssignmentGroupId');
   const responsibleHiccResponsibilityId=canonicalId(input.responsibleHiccResponsibilityId,'responsibleHiccResponsibilityId');
-  const academicYearKey=text(input.academicYear||input.academicYearKey);
+  const academicYearKey=text(Object.hasOwn(input,'academicYear')?input.academicYear:input.academicYearKey);
   const teachingAssignmentSubmissionId=submissionDocumentId(academicYearKey,teachingAssignmentGroupId,responsibleHiccResponsibilityId);
   return Object.freeze({teachingAssignmentGroupId,responsibleHiccResponsibilityId,teachingAssignmentSubmissionId});
  }
  function ownershipMatchesGroup(group,ownership={}){
   let g,o;try{g=createGroup(group);o=sessionOwnership(ownership)}catch(_){return false}
-  return g.active===true&&g.id===o.teachingAssignmentGroupId&&g.hiccResponsibilityIds.includes(o.responsibleHiccResponsibilityId);
+  return (!Object.hasOwn(ownership,'teachingAssignmentSubmissionId')||ownership.teachingAssignmentSubmissionId===o.teachingAssignmentSubmissionId)
+   &&g.active===true&&g.id===o.teachingAssignmentGroupId&&g.hiccResponsibilityIds.includes(o.responsibleHiccResponsibilityId);
  }
  function groupsLedByViscResponsibility(groups=[],viscResponsibilityId){
   let id;try{id=canonicalId(viscResponsibilityId,'leaderViscResponsibilityId')}catch(_){return[]}

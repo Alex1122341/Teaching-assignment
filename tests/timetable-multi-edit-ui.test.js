@@ -200,6 +200,8 @@ test('Subject selection uses the active catalog and a Subject-only save bypasses
  assert.match(form,/if\(subjectOnly\)next=\{\.\.\.existing,subjectKey\}/);
  assert.match(form,/if\(existing&&!subjectOnly\)/);
  assert.match(form,/const needsDoe=canEditInstructor&&!subjectOnly/);
+ assert.match(form,/UCVM_TIMETABLE_SELECTION\.workingRevisionChange\(existing,next,currentUser,timestamp/);
+ assert.match(form,/if\(revision\)batch\.update\(db\.collection\('teaching_assignment_submissions'\)\.doc\(revision.id\),revision.data\)/);
 });
 
 test('trusted Teaching Assignment ownership editor is directory-backed and derives package identity outside the UI',()=>{
@@ -236,9 +238,15 @@ test('Teaching Assignment ownership participates in stale checks and metadata-on
  assert.match(fn,/const needsDoe=canEditFaculty&&preflight\.updates\.length>0&&nonDoeMetadataCount===0/);
 });
 
-test('Teaching Assignment ownership stays internal and is absent from calendar session projection',()=>{
+test('internal package locator stays absent from the sanitized Working calendar projection',()=>{
  const projection=read('calendar-session.js');
- for(const field of ['teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId'])assert.doesNotMatch(projection,new RegExp(field),field);
+ assert.doesNotMatch(projection,/teachingAssignmentSubmissionId/);
+ // Safe year/group/responsibility metadata lets ADC configure ownership without
+ // reading private /sessions. The adapter derives the package ID in memory.
+ for(const field of ['academicYear','teachingAssignmentGroupId','responsibleHiccResponsibilityId'])assert.match(projection,new RegExp(field),field);
+ const timetable=read('timetable.js');
+ assert.match(timetable,/createOwnershipAdapter\(\{db,actor:currentUser,configurationReady:canConfigureTeachingAssignmentOwnership/);
+ assert.match(timetable,/commitOwnership:\(update,log\)=>ownershipAdapter.save\(update,log\)/);
 });
 
 test('Teaching Assignment directory permission failure disables ownership configuration without failing timetable data',()=>{

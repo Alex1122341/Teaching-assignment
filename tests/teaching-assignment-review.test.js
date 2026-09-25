@@ -7,14 +7,21 @@ const vm = require('node:vm');
 const review = require('../teaching-assignment-review.js');
 const scheduling = require('../scheduling-core.js');
 
-const session = (patch = {}) => ({id:'s1', course:'VTMD 506', date:'2027-09-08',
+const packageId='ta-sub-v2__2027-28__g1__hicc-surgery';
+const session = (patch = {}) => ({id:'s1',academicYear:'2027-28',teachingAssignmentGroupId:'g1',responsibleHiccResponsibilityId:'hicc-surgery',teachingAssignmentSubmissionId:packageId,course:'VTMD 506', date:'2027-09-08',
   start:'09:00', end:'10:00', type:'LEC', topic:'Pre-operative Management', ...patch});
-const draft = (patch = {}) => ({academicYearKey:'2027-28', groupId:'g1', hiccUid:'h1',
-  viscUid:'v1', status:'draft', revision:0, ...patch});
+const draft = (patch = {}) => ({id:packageId,academicYearKey:'2027-28',groupId:'g1',hiccResponsibilityId:'hicc-surgery',
+  viscResponsibilityId:'visc-surgery',status:'draft',revision:0,...patch});
+const group={id:'g1',active:true,leaderViscResponsibilityId:'visc-surgery',hiccResponsibilityIds:['hicc-surgery']};
+const duty=(kind,uid,windows=[{activeDate:'2027-09-01',expirationDate:'2028-05-01'}])=>({
+  group,asOfDate:'2027-09-08',
+  responsibility:{id:`${kind}-surgery`,kind,groupId:kind==='hicc'?'g1':'',academicScopeTokens:kind==='hicc'?['hicc|VTMD 506|*']:[],active:true},
+  assigneeSchedule:{responsibilityId:`${kind}-surgery`,academicYearKey:'2027-28',assigneeUid:uid,enabled:true,windows}
+});
 const hicc = (patch = {}) => ({actorUid:'h1', actorRole:'hicc', ownsPackage:true,
-  sessions:[session()], suggestions:[], ...patch});
+  ...duty('hicc','h1'),sessions:[session()], suggestions:[], ...patch});
 const visc = (patch = {}) => ({actorUid:'v1', actorRole:'visc', canReviewPackage:true,
-  sessions:[session()], suggestions:[], ...patch});
+  ...duty('visc','v1'),sessions:[session()], suggestions:[], ...patch});
 const suggestion = (patch = {}) => ({sessionId:'s1', candidateKey:'opaque-a',
   displayName:'Faculty A', sourceRole:'hicc', ...patch});
 const fingerprint = () => review.reviewFingerprint([session()], []);
@@ -114,7 +121,7 @@ test('package ownership is explicit and cannot come from role alone', () => {
     assert.equal(review.canSubmitForViscReview(draft(),[session()],ctx),false);
     assert.throws(() => review.transition(draft(),'submit',ctx));
   }
-  assert.equal(review.canSubmitForViscReview(draft({hiccUid:'h2'}),[session()],hicc()),false);
+  assert.equal(review.canSubmitForViscReview(draft({hiccResponsibilityId:'hicc-other'}),[session()],hicc()),false);
 });
 test('VISC approval requires explicit authority and the submitted current fingerprint', () => {
   const record = submitted();
@@ -223,8 +230,46 @@ test('pure transitions leave inputs unchanged and do not implement persistence o
 });
 test('browser and Node produce the same fingerprint without Node crypto', () => {
   const context = {window:{}};
-  for (const file of ['scheduling-core.js','teaching-assignment-review.js']) {
+  for (const file of ['scheduling-core.js','temporal-role-assignment.js','academic-responsibility.js','teaching-responsibility.js','teaching-assignment-review.js']) {
     vm.runInNewContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context);
   }
   assert.equal(context.window.UCVM_TEACHING_ASSIGNMENT_REVIEW.reviewFingerprint([session()],[]),fingerprint());
+});
+
+test('Bill Lisa Bill handoff retains package identity and only current assignee may act',()=>{
+ const windows=[{activeDate:'2027-09-01',expirationDate:'2027-10-01'},{activeDate:'2027-11-01',expirationDate:'2028-05-01'}];
+ const bill=hicc({...duty('hicc','bill',windows),actorUid:'bill',actorRole:'faculty'});
+ const lisa=hicc({...duty('hicc','lisa',[{activeDate:'2027-10-01',expirationDate:'2027-11-01'}]),actorUid:'lisa',actorRole:'faculty'});
+ for(const [asOfDate,billAllowed,lisaAllowed] of [['2027-09-30',true,false],['2027-10-01',false,true],['2027-11-01',true,false]]){
+  assert.equal(review.canSubmitForViscReview(draft(),[session()],{...bill,asOfDate}),billAllowed);
+  assert.equal(review.canSubmitForViscReview(draft(),[session()],{...lisa,asOfDate}),lisaAllowed);
+ }
+ const submittedByLisa=review.transition(draft(),'submit',{...lisa,asOfDate:'2027-10-01'});
+ assert.equal(submittedByLisa.id,packageId);
+ assert.equal('hiccUid' in submittedByLisa,false);
+});
+
+test('stable review authority rejects forged role-only, expired, cross-year group and scope evidence',()=>{
+ for(const patch of [{assigneeSchedule:undefined},{asOfDate:'2028-05-01'},{asOfDate:undefined},
+  {group:{...group,id:'g2'}},{group:{...group,active:false}},{group:{...group,hiccResponsibilityIds:['other']}},
+  {assigneeSchedule:{...duty('hicc','h1').assigneeSchedule,academicYearKey:'2026-27'}},
+  {responsibility:{...duty('hicc','h1').responsibility,academicScopeTokens:['hicc|VTMD 505|*']}},
+  {responsibility:{...duty('hicc','h1').responsibility,academicScopeTokens:['hicc|VTMD 506|anesthesia']}},
+  {actorRole:'other_office'},{actorRole:'unknown'}]){
+  assert.equal(review.canSubmitForViscReview(draft(),[session()],hicc(patch)),false);
+ }
+ for(const patch of [{academicYear:'2026-27'},{teachingAssignmentGroupId:'g2'},
+  {responsibleHiccResponsibilityId:'hicc-other'},{teachingAssignmentSubmissionId:'another-package'}]){
+  assert.equal(review.canSubmitForViscReview(draft(),[session(patch)],hicc()),false);
+ }
+});
+
+test('VISC review follows current leader responsibility assignment instead of actor UID on package',()=>{
+ const record=submitted(),replacement=visc({...duty('visc','replacement'),actorUid:'replacement',actorRole:'faculty'});
+ assert.equal(review.canViscApprove(record,fingerprint(),replacement),true);
+ for(const patch of [{asOfDate:'2028-05-01'},{group:{...group,leaderViscResponsibilityId:'visc-other'}},
+  {assigneeSchedule:{...replacement.assigneeSchedule,enabled:false}}]){
+  assert.equal(review.canViscApprove(record,fingerprint(),{...replacement,...patch}),false);
+ }
+ assert.equal(review.canHiccFinalSubmit(approved(),fingerprint(),replacement),false);
 });

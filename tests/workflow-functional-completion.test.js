@@ -10,13 +10,23 @@ const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('normal Teaching Assignment content readiness cannot imply ADFAD handoff',()=>{
   const workflow=require('../session-workflow.js'),review=require('../teaching-assignment-review.js');
-  const row={id:'ta-1',course:'VTMD 506',date:'2027-09-08',start:'09:00',end:'10:00',type:'LAB',topic:'Suturing'};
+  const responsibilities=require('../teaching-responsibility.js'),groups=require('../teaching-assignment-groups.js');
+  const academicYearKey='2027-28',asOfDate='2027-09-08';
+  const hiccResponsibility=responsibilities.createResponsibility({id:'hicc-surgery',kind:'hicc',groupId:'surgery',academicScopeTokens:['hicc|VTMD 506|surgery'],active:true});
+  const viscResponsibility=responsibilities.createResponsibility({id:'visc-surgery',kind:'visc',active:true});
+  const group=groups.createGroup({id:'surgery',name:'Surgery',leaderViscResponsibilityId:viscResponsibility.id,hiccResponsibilityIds:[hiccResponsibility.id],active:true});
+  const ownership=groups.sessionOwnership({academicYear:academicYearKey,teachingAssignmentGroupId:group.id,responsibleHiccResponsibilityId:hiccResponsibility.id});
+  const row={id:'ta-1',academicYear:academicYearKey,...ownership,course:'VTMD 506',subjectKey:'surgery',date:asOfDate,start:'09:00',end:'10:00',type:'LAB',topic:'Suturing'};
   assert.equal(workflow.contentReadiness(row).ready,true);
   assert.equal(workflow.canEnterAdfadQueue(null,[row]),false);
-  const draft={status:'draft',revision:0,hiccUid:'h1',viscUid:'v1'};
-  const hicc={actorUid:'h1',actorRole:'hicc',ownsPackage:true,sessions:[row]};
+  const draft={id:ownership.teachingAssignmentSubmissionId,academicYearKey,groupId:group.id,hiccResponsibilityId:hiccResponsibility.id,viscResponsibilityId:viscResponsibility.id,status:'draft',revision:0,workingRevision:0};
+  const duty=(responsibility,actorUid)=>({group,responsibility,asOfDate,assigneeSchedule:responsibilities.normalizeAssigneeSchedule({
+    responsibilityId:responsibility.id,academicYearKey,assigneeUid:actorUid,facultyId:'faculty-'+actorUid,enabled:true,
+    windows:[{activeDate:'2027-09-01',expirationDate:'2028-05-01'}]
+  })});
+  const hicc={actorUid:'h1',actorRole:'hicc',ownsPackage:true,sessions:[row],...duty(hiccResponsibility,'h1')};
   const submitted=review.transition(draft,'submit',hicc);
-  const approved=review.transition(submitted,'approve',{actorUid:'v1',actorRole:'visc',canReviewPackage:true,sessions:[row]});
+  const approved=review.transition(submitted,'approve',{actorUid:'v1',actorRole:'visc',canReviewPackage:true,sessions:[row],...duty(viscResponsibility,'v1')});
   assert.equal(workflow.canEnterAdfadQueue(approved,[row]),false);
   const final=review.transition(approved,'final_submit',hicc);
   assert.equal(workflow.canEnterAdfadQueue(final,[row]),true);
@@ -33,7 +43,10 @@ test('browser compatibility interfaces fail closed until the review module is lo
   const row={id:'ta-1',course:'VTMD 506',date:'2027-09-08',start:'09:00',end:'10:00',type:'LEC',topic:'Topic'};
   assert.equal(workflow.contentReadiness(row).ready,false);
   assert.equal(workflow.canEnterAdfadQueue({status:'submitted_to_adfad'},[row]),false);
-  for(const file of ['scheduling-core.js','teaching-assignment-review.js'])vm.runInNewContext(read(file),context);
+  for(const file of ['scheduling-core.js','temporal-role-assignment.js','academic-responsibility.js','teaching-responsibility.js'])vm.runInNewContext(read(file),context);
+  assert.equal(workflow.contentReadiness(row).ready,false);
+  assert.equal(workflow.canEnterAdfadQueue({status:'submitted_to_adfad'},[row]),false);
+  vm.runInNewContext(read('teaching-assignment-review.js'),context);
   assert.equal(workflow.contentReadiness(row).ready,true);
   assert.equal(workflow.canEnterAdfadQueue({status:'submitted_to_adfad'},[row]),false);
 });
