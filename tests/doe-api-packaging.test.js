@@ -13,7 +13,7 @@ test('DOE API packaging stages server and every shared runtime dependency',()=>{
  assert.equal(run.status,0,run.stderr||run.stdout);
  const required=[
   'server/package.json','server/src/server.js','doe-formula.js','doe-policy-engine.js','doe-policy-repository.js',
-  'doe-policy-firestore.js','doe-policy-service.js','index-maintenance.js','data-index.js','scheduling-core.js','calendar-session.js'
+  'doe-policy-firestore.js','doe-policy-service.js','index-maintenance.js','data-index.js','scheduling-core.js','calendar-session.js','temporal-role-assignment.js'
  ];
  for(const file of required)assert.equal(fs.existsSync(path.join(out,file)),true,`missing ${file}`);
  const smoke=spawnSync(process.execPath,['-e',`require(${JSON.stringify(path.join(out,'server','src','server.js'))})`],{cwd:root,encoding:'utf8'});

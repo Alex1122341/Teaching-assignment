@@ -389,10 +389,10 @@ test('15. Frontend Demo browser smoke surface is untouched',()=>{
   assert.match(smoke,/unexpected Firebase cloud request/);
   const workflow=read('.github/workflows/github-pages-test.yml');
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
-  assert.doesNotMatch(workflow,/--mode lab/);
+  assert.match(workflow,/--mode lab/);
 });
 
-test('16. Firebase Lab is manual-only and never an implicit PR default',()=>{
+test('16. manual Firebase Lab workflow remains gated and PR previews use the explicit repository lab configuration',()=>{
   const workflow=read(LAB_WORKFLOW);
   assert.match(workflow,/workflow_dispatch:/);
   assert.doesNotMatch(workflow,/\n\s*push:/);
@@ -408,9 +408,10 @@ test('16. Firebase Lab is manual-only and never an implicit PR default',()=>{
   const buildBlock=workflow.slice(workflow.indexOf('build_lab:'),workflow.indexOf('publish_lab_pages:'));
   assert.doesNotMatch(buildBlock,/pages: write|id-token: write/);
   assert.match(workflow,/publish_lab_pages:[\s\S]*?permissions:\s*\n\s+contents: read\n\s+pages: write\n\s+id-token: write/);
-  // The normal Pages workflow must stay in demo mode.
+  // PR previews follow the current lab-only deployment contract.
   const pages=read('.github/workflows/github-pages-test.yml');
-  assert.doesNotMatch(pages,/--mode lab/);
+  assert.match(pages,/--mode lab/);
+  assert.match(pages,/vars\.LAB_FIREBASE_WEB_CONFIG_JSON/);
   // No Azure deployment surface is introduced here.
   assert.doesNotMatch(workflow,/Azure\/static-web-apps-deploy|AZURE_STATIC_WEB_APPS_API_TOKEN/);
 });

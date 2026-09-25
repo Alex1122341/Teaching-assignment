@@ -514,6 +514,25 @@ async function withDemoRolePage({debugPort,origin,setupCdp,page,uid,label},verif
   await closeTarget(debugPort,target.id);
  }
 }
+async function verifyRetiredOtherOffice({debugPort,origin,setupCdp}){
+ await setStoredDemoRole(setupCdp,'uid-otheroffice');
+ const target=await newTarget(debugPort),cdp=await connectCdp(target.webSocketDebuggerUrl);
+ try{
+  await Promise.all([cdp.send('Runtime.enable'),cdp.send('Page.enable')]);
+  const load=waitForEvent(cdp,'Page.loadEventFired');
+  const navigation=await cdp.send('Page.navigate',{url:`${origin}/index.html`});
+  if(navigation.errorText)throw Error('Retired Other Office navigation failed: '+navigation.errorText);
+  await load;
+  await waitForCondition(cdp,"(()=>window.firebase?.auth?.().currentUser===null&&document.body.classList.contains('auth-locked'))()",'Retired Other Office fail-closed sign-out',12000);
+  const state=await timetableToolState(cdp);
+  for(const key of ['bulkAdd','addOne','select','manageUsers','facultyDashboard','outlook','publish','adminMenu','myTeaching','afcRequest','myHistory','myTimetable']){
+   if(state[key]!==false)throw Error('retired Other Office exposed '+key+'; state='+JSON.stringify(state));
+  }
+ }finally{
+  cdp.close();
+  await closeTarget(debugPort,target.id);
+ }
+}
 async function timetableToolState(cdp){
  const result=await cdp.send('Runtime.evaluate',{expression:"(()=>{const visible=id=>{const el=document.getElementById(id);return !!el&&!el.classList.contains('hidden')},menu=document.getElementById('cal-admin-menu');return{uid:window.firebase?.auth?.().currentUser?.uid||'',bulkAdd:visible('bulk-add-session-btn'),addOne:visible('add-session-btn'),select:visible('selection-controls'),manageUsers:visible('manage-users-btn'),facultyDashboard:visible('faculty-dashboard-btn'),outlook:visible('outlook-invite-btn'),publish:visible('publish-firestore-schedule'),adminMenu:visible('cal-admin-menu'),adminMenuLabel:(menu?.querySelector('summary')?.textContent||'').trim(),myTeaching:visible('my-teaching-btn'),afcRequest:visible('afc-request-btn'),myHistory:visible('my-change-history-btn'),myTimetable:visible('my-timetable-btn')}})()",returnByValue:true});
  if(result.exceptionDetails)throw Error('Timetable role tool inspection failed: '+exceptionText(result.exceptionDetails));
@@ -522,11 +541,10 @@ async function timetableToolState(cdp){
 async function verifyTimetableRoleMatrix({debugPort,origin,setupCdp}){
  const cases=[
   {uid:'uid-developer',label:'Developer',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true,adminMenu:true,adminMenuLabel:'Admin tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
-  {uid:'uid-owner',label:'Owner',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:true,facultyDashboard:true,outlook:true,publish:true,adminMenu:true,adminMenuLabel:'Admin tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
+  {uid:'uid-owner',label:'Owner',expect:{bulkAdd:false,addOne:false,select:true,manageUsers:true,facultyDashboard:true,outlook:true,publish:true,adminMenu:true,adminMenuLabel:'Admin tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
   {uid:'uid-admin',label:'Administrator',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:true,publish:true,adminMenu:true,adminMenuLabel:'Admin tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
   {uid:'uid-adc-1',label:'ADC',expect:{bulkAdd:true,addOne:true,select:true,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,adminMenu:true,adminMenuLabel:'ADC tools',myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
   {uid:'uid-lab-1',label:'LAB',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,adminMenu:false,myTeaching:false,afcRequest:false,myHistory:false,myTimetable:false}},
-  {uid:'uid-otheroffice',label:'Other Office',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:false,outlook:false,publish:false,adminMenu:false,myTeaching:false,afcRequest:false,myHistory:true,myTimetable:false}},
   {uid:'uid-hicc-1',label:'HICC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:true,facultyDashboard:true,outlook:false,publish:false,adminMenu:true,adminMenuLabel:'HICC tools',myTeaching:true,afcRequest:true,myHistory:true,myTimetable:false}},
   {uid:'uid-visc-1',label:'VISC',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false,adminMenu:false,myTeaching:true,afcRequest:true,myHistory:true,myTimetable:false}},
   {uid:'uid-fac-001',label:'Faculty',expect:{bulkAdd:false,addOne:false,select:false,manageUsers:false,facultyDashboard:true,outlook:false,publish:false,adminMenu:false,myTeaching:true,afcRequest:true,myHistory:true,myTimetable:false}}
@@ -537,14 +555,9 @@ async function verifyTimetableRoleMatrix({debugPort,origin,setupCdp}){
     if(['uid-hicc-1','uid-visc-1','uid-fac-001'].includes(entry.uid))await waitForCondition(cdp,"(()=>!document.getElementById('faculty-dashboard-btn')?.classList.contains('hidden'))()",'Timetable '+entry.label+' Faculty Dashboard link',12000);
     const state=await timetableToolState(cdp);
     for(const [key,expected] of Object.entries(entry.expect))if(state[key]!==expected)throw Error('expected '+key+'='+expected+' but got '+state[key]+'; state='+JSON.stringify(state));
-    if(entry.uid==='uid-otheroffice'){
-     const seeded=await cdp.send('Runtime.evaluate',{expression:"(async()=>{const db=firebase.firestore(),stamp=firebase.firestore.Timestamp.now();await db.collection('session_change_log').doc('other-office-self').set({sessionId:'self-history',action:'update',course:'HISTORY',topic:'OTHER-OFFICE-SELF-HISTORY',changedBy:'uid-otheroffice',changedByName:'Other Office',changedAt:stamp,changes:[{field:'topic',label:'Session name',before:'Before',after:'OTHER-OFFICE-SELF-HISTORY'}]});await db.collection('session_change_log').doc('other-office-foreign').set({sessionId:'foreign-history',action:'update',course:'HISTORY',topic:'FOREIGN-HISTORY-MUST-NOT-SHOW',changedBy:'uid-developer',changedByName:'VISTA Developer',changedAt:stamp,changes:[{field:'topic',label:'Session name',before:'Before',after:'FOREIGN-HISTORY-MUST-NOT-SHOW'}]});document.getElementById('my-change-history-btn')?.click();return true})()",returnByValue:true,awaitPromise:true});
-     if(seeded.exceptionDetails)throw Error('Other Office history fixture failed: '+exceptionText(seeded.exceptionDetails));
-     await waitForCondition(cdp,"(()=>{const panel=document.getElementById('afc-panel'),text=document.getElementById('afc-panel-content')?.textContent||'',status=document.getElementById('audit-status')?.textContent||'';return panel?.hidden===false&&text.includes('OTHER-OFFICE-SELF-HISTORY')&&!text.includes('FOREIGN-HISTORY-MUST-NOT-SHOW')&&status.includes('your changes only')})()",'Other Office self-only Change History',12000);
-     await cdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true});
-    }
    });
   }
+  await verifyRetiredOtherOffice({debugPort,origin,setupCdp});
  }finally{
   await setStoredDemoRole(setupCdp,'uid-developer');
  }
@@ -572,7 +585,7 @@ async function verifyDemoAdcLabHandoff({debugPort,origin,setupCdp}){
    if(!/Topic/.test(item.missing)||item.status!=='READY'||item.openDisabled)throw Error('LAB did not receive READY Topic work after ADC LAB create: '+JSON.stringify(item));
   });
   await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-admin',label:'ADFA receives Faculty assignment work'},async cdp=>{
-   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')})()",'ADFA Work Queue after ADC create',12000);
+   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')})()",'ADFAD Work Queue after ADC create',12000);
    await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('ucvm-work-queue-btn')?.click();return true})()",returnByValue:true});
    const item=await waitForCondition(cdp,`(()=>{const row=[...document.querySelectorAll('#ucvm-work-queue-panel [data-work-session]')].find(node=>node.dataset.workSession===${JSON.stringify(sessionId)}&&node.dataset.workStage==='adfa');if(!row)return false;return{missing:(row.querySelector('.work-queue-item-missing')?.textContent||'').trim(),status:(row.querySelector('.work-queue-pill')?.textContent||'').trim(),openDisabled:!!row.querySelector('[data-work-open]')?.disabled}})()`,'ADFA Faculty assignment work item',12000);
    if(!/Faculty assignment/.test(item.missing)||item.status!=='WAITING FOR LAB'||item.openDisabled!==true)throw Error('ADFA did not receive the ordered Faculty assignment prompt: '+JSON.stringify(item));
@@ -775,7 +788,7 @@ async function verifyDemoWorkQueue({debugPort,origin,setupCdp}){
   if(!/^All Work \([1-9]\d*\)$/.test(before.label))throw Error('Developer Work Queue button must carry a positive count: '+before.label);
   const opened=await cdp.send('Runtime.evaluate',{expression:clickExpression('ucvm-work-queue-btn'),returnByValue:true});
   if(opened.exceptionDetails||!opened.result?.value)throw Error('Work Queue button could not be clicked');
-  await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),text=p?.textContent||'';return !!p&&!p.classList.contains('hidden')&&/ADC Work/.test(text)&&/LAB Work/.test(text)&&/READY/.test(text)&&/WAITING/.test(text)})()",'Work Queue panel content',12000);
+  await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),text=p?.textContent||'';return !!p&&!p.classList.contains('hidden')&&/ADC\\/DVM Work/.test(text)&&/LAB Work/.test(text)&&/READY/.test(text)&&/WAITING/.test(text)})()",'Work Queue panel content',12000);
   // Closing only hides the panel.
   await cdp.send('Runtime.evaluate',{expression:"(()=>{document.querySelector('#ucvm-work-queue-panel [data-work-close]')?.click();return true})()",returnByValue:true});
   await waitForCondition(cdp,"(()=>{const p=document.getElementById('ucvm-work-queue-panel'),b=document.getElementById('ucvm-work-queue-btn');return !!p&&p.classList.contains('hidden')&&!!b&&!b.classList.contains('hidden')})()",'Work Queue closed with the button retained',12000);
@@ -800,9 +813,9 @@ async function verifyDemoWorkQueue({debugPort,origin,setupCdp}){
  });
 
  // A role with no outstanding required work must not show a Work Queue button.
- await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-admin',label:'ADFA Work Queue'},async cdp=>{
+ await withDemoRolePage({debugPort,origin,setupCdp,page:'index.html',uid:'uid-admin',label:'ADFAD Work Queue'},async cdp=>{
   await ready(cdp);
-  await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&b.classList.contains('hidden')})()",'ADFA Work Queue hidden when nothing is outstanding',12000);
+  await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&b.classList.contains('hidden')})()",'ADFAD Work Queue hidden when nothing is outstanding',12000);
  });
  }finally{
   try{await setStoredDemoRole(setupCdp,'uid-developer');await setupCdp.send('Runtime.evaluate',{expression:"(()=>{window.UCVM_PAGES_DEMO?.reset?.();return true})()",returnByValue:true})}catch(_){}
@@ -904,10 +917,10 @@ async function verifyDemoScopedEditor({debugPort,origin,setupCdp}){
    if(seeded.exceptionDetails)throw Error('ADFA work fixture failed: '+exceptionText(seeded.exceptionDetails));
    const seededValue=seeded.result?.value;
    if(!seededValue?.id)throw Error('No session available to create ADFA work');
-   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')&&/ADFA Work \\(\\d+\\)/.test((b.textContent||'').trim())})()",'ADFA Work Queue button',12000);
+   await waitForCondition(cdp,"(()=>{const b=document.getElementById('ucvm-work-queue-btn');return !!b&&!b.classList.contains('hidden')&&/ADFAD Work \\(\\d+\\)/.test((b.textContent||'').trim())})()",'ADFAD Work Queue button',12000);
    await cdp.send('Runtime.evaluate',{expression:"(()=>{document.getElementById('ucvm-work-queue-btn').click();return true})()",returnByValue:true});
    const opened=await waitForCondition(cdp,"(()=>{const b=document.querySelector('#ucvm-work-queue-panel [data-work-open]:not([disabled])');if(!b)return false;b.click();return true})()",'ADFA Open Work target',12000);
-   if(!opened)throw Error('ADFA Work Queue exposed no openable item');
+   if(!opened)throw Error('ADFAD Work Queue exposed no openable item');
    await waitForCondition(cdp,"(()=>!!document.querySelector('[data-selection-row]'))()",'ADFA scoped editor opened from the Work Queue',12000);
    const state=await readEditor(cdp);
    if(!state.open)throw Error('ADFA scoped editor did not open');

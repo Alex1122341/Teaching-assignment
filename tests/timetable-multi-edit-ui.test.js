@@ -98,8 +98,11 @@ test('selection pickers render chips into their sibling containers',()=>{
 
 test('scoped Work Queue editor derives field ownership from the persisted scoped stage',()=>{
  const js=read('timetable.js');
- assert.match(js,/function selectionRole\(\)\{if\(scopedWork\?\.stage\)return scopedWork\.stage;/);
- assert.doesNotMatch(js,/function selectionRole\(\)[^\n]*activeScoped/);
+ const start=js.indexOf('function selectionRole');
+ const end=js.indexOf('function selectionCapabilities',start);
+ const fn=js.slice(start,end);
+ assert.match(fn,/if\(scopedWork\?\.stage\)return scopedWork\.stage/);
+ assert.doesNotMatch(fn,/activeScoped/);
 });
 
 test('selection save pairs source calendar and audit writes and uses resumable progress batches',()=>{
@@ -153,7 +156,7 @@ test('ADC multi-edit emits sanitized assignment recheck instead of opening ADFA 
  const start=js.indexOf('async function saveSelectedChanges');
  const end=js.indexOf('\n  function openSessionDetail',start);
  const fn=js.slice(start,end);
- assert.match(fn,/const overrides=canEditFaculty\?confirmSchedulingChanges/);
+ assert.match(fn,/const overrides=needsDoe\?confirmSchedulingChanges/);
  assert.match(fn,/ucvm:assignment-recheck-required/);
  assert.match(fn,/facultyDisplayName/);
 });
@@ -183,4 +186,75 @@ test('ADC Add One keeps LAB Topic locked but successful FormData includes the TB
  assert.match(fn,/topicInput\.readOnly=isLab/);
  assert.doesNotMatch(fn,/topicInput\.disabled=isLab/);
  assert.match(fn,/new FormData\(e\.target\)/);
+});
+
+test('Subject selection uses the active catalog and a Subject-only save bypasses DOE work',()=>{
+ const js=read('timetable.js');
+ assert.match(js,/db\.collection\('teaching_subjects'\)\.get\(\)/);
+ assert.match(js,/subjectOptions\.map\(option=>option\.key\)/);
+ const start=js.indexOf('async function openSessionForm');
+ const end=js.indexOf('\n  function input(',start);
+ const form=js.slice(start,end);
+ assert.match(form,/subjectChoices\(s\.subjectKey\)/);
+ assert.match(form,/Choose an active Subject from the catalog/);
+ assert.match(form,/if\(subjectOnly\)next=\{\.\.\.existing,subjectKey\}/);
+ assert.match(form,/if\(existing&&!subjectOnly\)/);
+ assert.match(form,/const needsDoe=canEditInstructor&&!subjectOnly/);
+ assert.match(form,/UCVM_TIMETABLE_SELECTION\.workingRevisionChange\(existing,next,currentUser,timestamp/);
+ assert.match(form,/if\(revision\)batch\.update\(db\.collection\('teaching_assignment_submissions'\)\.doc\(revision.id\),revision.data\)/);
+});
+
+test('trusted Teaching Assignment ownership editor is directory-backed and derives package identity outside the UI',()=>{
+ const js=read('timetable.js');
+ assert.match(js,/teaching_assignment_groups/);
+ assert.match(js,/teaching_responsibilities/);
+ assert.match(js,/ensureTeachingAssignmentDirectory/);
+ assert.match(js,/data-selection-field="teachingAssignmentGroupId"/);
+ assert.match(js,/data-selection-field="responsibleHiccResponsibilityId"/);
+ assert.doesNotMatch(js,/data-selection-field="teachingAssignmentSubmissionId"/);
+ assert.match(js,/allowTeachingAssignmentOwnership:selectionOwnershipAllowed\(\)/);
+ assert.match(js,/teachingAssignmentGroups:\[\.\.\.teachingAssignmentGroupDirectory\.values\(\)\]/);
+ assert.match(js,/teachingResponsibilities:\[\.\.\.teachingResponsibilityDirectory\.values\(\)\]/);
+});
+
+test('Owner ADFAD General uses ownership-only ta_config rather than inheriting ADC or Faculty editing',()=>{
+ const js=read('timetable.js');
+ const start=js.indexOf('function selectionRole');
+ const end=js.indexOf('function selectionPolicy',start);
+ const fn=js.slice(start,end);
+ assert.match(fn,/UCVM\.general\(currentUser\)&&canConfigureTeachingAssignmentOwnership\(\)\)return'ta_config'/);
+ assert.match(fn,/hasOfficeAccess\('adc'\)\)return'adc'/);
+ assert.match(fn,/selectionOwnershipAllowed/);
+});
+
+test('Teaching Assignment ownership participates in stale checks and metadata-only saves bypass DOE',()=>{
+ const js=read('timetable.js');
+ const start=js.indexOf('async function saveSelectedChanges');
+ const end=js.indexOf('\n  function openSessionDetail',start);
+ const fn=js.slice(start,end);
+ for(const field of ['teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId'])assert.match(fn,new RegExp(field));
+ assert.match(fn,/onlyNonDoeMetadataChanged/);
+ assert.match(fn,/nonDoeMetadataCount/);
+ assert.match(fn,/const needsDoe=canEditFaculty&&preflight\.updates\.length>0&&nonDoeMetadataCount===0/);
+});
+
+test('internal package locator stays absent from the sanitized Working calendar projection',()=>{
+ const projection=read('calendar-session.js');
+ assert.doesNotMatch(projection,/teachingAssignmentSubmissionId/);
+ // Safe year/group/responsibility metadata lets ADC configure ownership without
+ // reading private /sessions. The adapter derives the package ID in memory.
+ for(const field of ['academicYear','teachingAssignmentGroupId','responsibleHiccResponsibilityId'])assert.match(projection,new RegExp(field),field);
+ const timetable=read('timetable.js');
+ assert.match(timetable,/createOwnershipAdapter\(\{db,actor:currentUser,configurationReady:canConfigureTeachingAssignmentOwnership/);
+ assert.match(timetable,/commitOwnership:\(update,log\)=>ownershipAdapter.save\(update,log\)/);
+});
+
+test('Teaching Assignment directory permission failure disables ownership configuration without failing timetable data',()=>{
+ const js=read('timetable.js');
+ const start=js.indexOf('async function ensureTeachingAssignmentDirectory');
+ const end=js.indexOf('function canConfigureTeachingAssignmentOwnership',start);
+ const fn=js.slice(start,end);
+ assert.match(fn,/permission-denied/);
+ assert.match(fn,/teachingAssignmentDirectoryReady=false/);
+ assert.match(fn,/return teachingAssignmentDirectory\(\)/);
 });

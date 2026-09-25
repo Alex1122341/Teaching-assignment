@@ -9,7 +9,7 @@ const outArg=args.indexOf('--output');
 const output=path.resolve(root,outArg>=0&&args[outArg+1]?args[outArg+1]:'output/doe-api');
 const shared=[
  'doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js',
- 'index-maintenance.js','data-index.js','faculty-doe.js','scheduling-core.js','calendar-session.js'
+ 'index-maintenance.js','data-index.js','faculty-doe.js','scheduling-core.js','calendar-session.js','temporal-role-assignment.js'
 ];
 function copyFile(rel){
  const from=path.join(root,rel),to=path.join(output,rel);

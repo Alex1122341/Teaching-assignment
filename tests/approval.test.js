@@ -366,9 +366,11 @@ test('workflow distinguishes office approvers from ADFA private approvers',()=>{
  assert.match(s,/change_request_approvals/);
 });
 
-test('ADC and LAB queues are driven by their office approval records rather than broad public request reads',()=>{
+test('ADC and LAB queues are driven by granted office approval records rather than broad public request reads',()=>{
  const s=source();
- assert.match(s,/where\('office','==',office\(\)\)/);
+ assert.match(s,/granted=approvalOffices\(\)/);
+ assert.match(s,/where\('office','==',granted\[0\]\)/);
+ assert.match(s,/where\('office','in',granted\)/);
  assert.match(s,/officeView\.queueLabel/);
 });
 

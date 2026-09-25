@@ -4,9 +4,9 @@ const path=require('node:path');
 const {createRequire}=require('node:module');
 
 const LAB_PROJECT_ID='vista-teaching-lab';
-const ROLES=new Set(['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab']);
+const ROLES=new Set(['developer','owner','administrator','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab']);
 const FACULTY_ROLES=new Set(['hicc','visc','faculty']);
-const OFFICE_ROLES=new Set(['other_office','adc','lab']);
+const OFFICE_ROLES=new Set(['adc','lab']);
 const text=value=>String(value??'').trim();
 
 function readArg(argv,name,fallback=''){
@@ -69,6 +69,7 @@ function actorFromEnv(env=process.env){
 }
 
 function buildProfile(options,{actor=actorFromEnv(),now=new Date()}={}){
+  if(!ROLES.has(options?.role))throw Error('Unsupported lab account role.');
   const profile={
     name:options.displayName,
     email:options.email,

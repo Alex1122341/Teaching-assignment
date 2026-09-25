@@ -25,6 +25,7 @@
   let authSettings = loadAuthSettings();
   let auth = null;
   let db = null;
+  let subjectOptions = [];
   let timetableDoeRuntime = null;
   let authInitialized = false;
   let recaptchaVerifier = null;
@@ -79,9 +80,20 @@
   function capabilities(stage=''){const profile=currentUser?.profile||{role:currentUser?.role||''};return window.UCVM_OFFICE_CAPABILITIES.forProfile(profile,stage?{stage}:{});}
   function canAddSessions(){return capabilities().canAddSessions;}
   function canAddOneSession(){return capabilities().canAddOneSession;}
-  function canSelectSessions(){return capabilities().canSelectSessions;}
+  function canSelectSessions(){return capabilities().canSelectSessions||UCVM.general(currentUser);}
   function canEdit(){const c=capabilities();return c.canEditCourseFields||c.canEditInstructor;}
   function hasOfficeAccess(stage){return window.UCVM_OFFICE_CAPABILITIES.hasOfficeAccess(currentUser?.profile||{role:currentUser?.role||''},stage);}
+  async function loadSubjectOptions(){
+    const catalog=window.UCVM_SUBJECT_CATALOG;
+    if(!db||!catalog){subjectOptions=[];return subjectOptions}
+    try{const snapshot=await db.collection('teaching_subjects').get();subjectOptions=catalog.activeOptions(snapshot.docs.map(doc=>({id:doc.id,...doc.data()})));return subjectOptions}
+    catch(error){console.error('[Teaching Subjects]',error);subjectOptions=[];toast('Teaching Subjects could not be loaded; classification is unavailable.',true);return subjectOptions}
+  }
+  function subjectChoices(current=''){
+    const key=String(current||''),known=subjectOptions.some(option=>option.key===key);
+    return `<option value="">No Subject</option>${key&&!known?`<option value="${escapeHtml(key)}" selected>${escapeHtml(key)} (existing; unavailable)</option>`:''}`+
+      subjectOptions.map(option=>`<option value="${escapeHtml(option.key)}" ${option.key===key?'selected':''}>${escapeHtml(option.label)}</option>`).join('');
+  }
   function sessionCollection(){const role=UCVM.role(currentUser?.role);return role==='other_office'||(['adc','lab'].includes(role)&&!hasOfficeAccess('adfa'))?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;}
   function getTimetableDoeRuntime(){
     if(timetableDoeRuntime&&timetableDoeRuntime.db===db)return timetableDoeRuntime;
@@ -202,7 +214,9 @@
   let allSessionsLoading = null;
   const profileSnapshots=new Map();
   const labGroupDirectory=new Map(),labRosterDirectory=new Map();
+  const teachingAssignmentGroupDirectory=new Map(),teachingResponsibilityDirectory=new Map();
   let labWorkflowLoaded=false,labWorkflowLoading=null;
+  let teachingAssignmentDirectoryLoaded=false,teachingAssignmentDirectoryReady=false,teachingAssignmentDirectoryLoading=null;
   function pageProfile(){return currentUser?{...currentUser.profile,name:currentUser.name,email:currentUser.email,role:currentUser.role,facultyId:currentUser.profile?.facultyId||''}:null}
   function pageSessions(){return[...sessionCache.values()]}
   function workflowContext(){return{rosters:Object.fromEntries([...labRosterDirectory.entries()].map(([id,row])=>[id,row])),labGroups:[...labGroupDirectory.values()]}}
@@ -217,6 +231,40 @@
       labWorkflowLoaded=true;publishPageData();return workflowContext();
     }).finally(()=>{labWorkflowLoading=null});
     return labWorkflowLoading;
+  }
+  function mayConfigureTeachingAssignmentOwnership(){
+    return Boolean(currentUser)&&(UCVM.general(currentUser)||hasOfficeAccess('adc'));
+  }
+  function teachingAssignmentDirectory(){
+    return{groups:[...teachingAssignmentGroupDirectory.values()],responsibilities:[...teachingResponsibilityDirectory.values()],ready:teachingAssignmentDirectoryReady};
+  }
+  async function ensureTeachingAssignmentDirectory(force=false){
+    if(!db||!mayConfigureTeachingAssignmentOwnership()){
+      teachingAssignmentGroupDirectory.clear();teachingResponsibilityDirectory.clear();
+      teachingAssignmentDirectoryLoaded=false;teachingAssignmentDirectoryReady=false;
+      return teachingAssignmentDirectory();
+    }
+    if(teachingAssignmentDirectoryLoaded&&!force)return teachingAssignmentDirectory();
+    if(teachingAssignmentDirectoryLoading)return teachingAssignmentDirectoryLoading;
+    teachingAssignmentDirectoryLoading=Promise.all([
+      db.collection('teaching_assignment_groups').get(),
+      db.collection('teaching_responsibilities').get()
+    ]).then(([groups,responsibilities])=>{
+      teachingAssignmentGroupDirectory.clear();teachingResponsibilityDirectory.clear();
+      for(const doc of groups.docs)teachingAssignmentGroupDirectory.set(String(doc.id),{id:doc.id,...doc.data()});
+      for(const doc of responsibilities.docs)teachingResponsibilityDirectory.set(String(doc.id),{id:doc.id,...doc.data()});
+      teachingAssignmentDirectoryLoaded=true;teachingAssignmentDirectoryReady=true;publishPageData();
+      return teachingAssignmentDirectory();
+    }).catch(error=>{
+      teachingAssignmentGroupDirectory.clear();teachingResponsibilityDirectory.clear();
+      teachingAssignmentDirectoryLoaded=true;teachingAssignmentDirectoryReady=false;
+      if(!['permission-denied','failed-precondition'].includes(error?.code))console.error('[Teaching Assignment directory]',error);
+      return teachingAssignmentDirectory();
+    }).finally(()=>{teachingAssignmentDirectoryLoading=null});
+    return teachingAssignmentDirectoryLoading;
+  }
+  function canConfigureTeachingAssignmentOwnership(){
+    return teachingAssignmentDirectoryReady&&mayConfigureTeachingAssignmentOwnership();
   }
   function publishPageData(){for(const callback of pageDataSubscribers){try{callback()}catch(error){console.error('[page data subscriber]',error)}}}
   function cacheSessionRange(range,rows){
@@ -297,6 +345,7 @@
   const sessionSelection = window.UCVM_TIMETABLE_SELECTION.create(200);
   const selectionViewFlow = window.UCVM_TIMETABLE_SELECTION.createViewFlow();
   const selectedSessionOriginals = new Map();
+  const selectionLabRosterDrafts = new Map();
   let selectionMode = false;
   let reviewingSelection = false;
   let scopedWork = null;
@@ -541,10 +590,10 @@
     for(const row of reviews)for(const check of row.checks)warnings.push(`${row.session.course||'Course'} ${row.session.date}: ${check.assignment.name||'Faculty'} - ${assignmentAvailabilityDetail(check.av,row.session.date,row.session.start,row.session.end)}`);
     if(!warnings.length)return new Map();
     const conflict=reviews.some(row=>row.conflicts.length);
-    const question=conflict?'TIMETABLE CONFLICT DETECTED. Override and save? This override will be recorded in the audit log.':'Availability check incomplete or unavailable. Continue as ADFA?';
+    const question=conflict?'TIMETABLE CONFLICT DETECTED. Override and save? This override will be recorded in the audit log.':'Availability check incomplete or unavailable. Continue as ADFAD?';
     if(!confirm(`${question}\n\n${warnings.join('\n')}`))return null;
     return new Map(reviews.filter(row=>row.conflicts.length).map(row=>[String(row.session.id),{
-      ...approvalScheduling.overrideAudit({uid:currentUser.uid,name:currentUser.name||'ADFA administrator'},row.conflicts),
+      ...approvalScheduling.overrideAudit({uid:currentUser.uid,name:currentUser.name||'ADFAD administrator'},row.conflicts),
       confirmedAt:firebase.firestore.FieldValue.serverTimestamp()
     }]));
   }
@@ -1053,7 +1102,7 @@
       el.addEventListener('click',()=>{
         if(!selectionMode){openSessionDetail(el.dataset.sessionId);return}
         if(isReadOnlySynthetic(s)){toast(s?.isUniversityClosure?'University closure records are read-only institutional calendar entries.':'CCC records are read-only and cannot be selected.',true);return}
-        if(!window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),s).canSelect){toast('LAB accounts can select LAB sessions only.',true);return}
+        if(!selectionPolicy(s).canSelect){toast('This session is not selectable for the current work context.',true);return}
         try{
           const selected=sessionSelection.toggle(el.dataset.sessionId);
           if(selected&&s)selectedSessionOriginals.set(String(s.id),JSON.parse(JSON.stringify(s)));
@@ -1073,13 +1122,18 @@
 
   async function startSessionSelection(){
     if(!canSelectSessions())return;
-    scopedWork=null;
+    scopedWork=null;selectionLabRosterDrafts.clear();
+    const ordinarySelection=capabilities().canSelectSessions===true;
+    if(mayConfigureTeachingAssignmentOwnership())await ensureTeachingAssignmentDirectory();
+    if(!ordinarySelection&&UCVM.general(currentUser)&&!canConfigureTeachingAssignmentOwnership()){
+      toast('Teaching Assignment ownership configuration is unavailable until its security rules are enabled.',true);return;
+    }
     if(capabilities().canEditInstructor)await ensureFacultyDirectory();
     selectionViewFlow.begin(viewMode);
     selectionMode=true;reviewingSelection=false;document.body.classList.add('session-selection-mode');updateSelectionControls();render();
   }
   function cancelSessionSelection(){
-    viewMode=selectionViewFlow.finish();selectionMode=false;reviewingSelection=false;scopedWork=null;sessionSelection.clear();selectedSessionOriginals.clear();document.body.classList.remove('session-selection-mode');updateSelectionControls();setViewButtons();refreshSessionScope();
+    viewMode=selectionViewFlow.finish();selectionMode=false;reviewingSelection=false;scopedWork=null;selectionLabRosterDrafts.clear();sessionSelection.clear();selectedSessionOriginals.clear();document.body.classList.remove('session-selection-mode');updateSelectionControls();setViewButtons();refreshSessionScope();
   }
   function updateSelectionControls(){
     const active=$('selection-active-actions');
@@ -1092,6 +1146,7 @@
     if(!selectionMode||!sessionSelection.size)return;
     if(selectionCapabilities().canEditInstructor)await ensureFacultyDirectory();
     if(selectionCapabilities().canEditLabGroups)await ensureLabWorkflowContext();
+    if(selectionCapabilities().canEditCourseFields)await loadSubjectOptions();
     reviewingSelection=true;viewMode=selectionViewFlow.review();setViewButtons();render();
   }
 
@@ -1115,6 +1170,7 @@
     }
     if(!target)return false;
     if(stage==='lab')await ensureLabWorkflowContext();
+    if(stage==='adc')await ensureTeachingAssignmentDirectory();
     const workflow=window.UCVM_SESSION_WORKFLOW,status=workflow?.stageStatus?.(target,stage,workflowContext());
     if(!status||status.status!=='ready')return false;
     if(targetDate){
@@ -1122,7 +1178,7 @@
       if(position){selectedSemester=position.semester;selectedWeek=position.week}
     }
     if(capabilities(stage).canEditInstructor)await ensureFacultyDirectory();
-    scopedWork={sessionId:id,stage};
+    scopedWork={sessionId:id,stage};selectionLabRosterDrafts.clear();
     selectionViewFlow.begin(viewMode);
     selectionMode=true;reviewingSelection=false;
     document.body.classList.add('session-selection-mode');
@@ -1153,32 +1209,125 @@
     if(summary)summary.textContent=checked.length?`${checked.length} LAB group${checked.length===1?'':'s'} selected`:'Choose LAB group';
     if(chips)chips.innerHTML=checked.map(input=>{const group=labGroupDirectory.get(String(input.value));return `<span>Group ${escapeHtml(group?.groupCode||input.value)}</span>`}).join('');
   }
-  function selectionRole(){if(scopedWork?.stage)return scopedWork.stage;const role=UCVM.role(currentUser?.role);return role==='developer'?'developer':hasOfficeAccess('adc')?'adc':role;}
+  function captureSelectionLabRosterDrafts(){
+    document.querySelectorAll('[data-selection-lab-roster]').forEach(input=>{
+      const id=String(input.dataset.selectionLabRoster||'').trim();
+      if(id)selectionLabRosterDrafts.set(id,String(input.value||''));
+    });
+  }
+  function selectedLabGroupIdsFromEditor(){
+    return[...new Set([...document.querySelectorAll('[data-selection-lab-group-option]:checked')].map(input=>String(input.value||'').trim()).filter(Boolean))];
+  }
+  function renderSelectionLabRosters(){
+    const host=$('selection-lab-rosters');
+    if(!host)return;
+    captureSelectionLabRosterDrafts();
+    const ids=selectedLabGroupIdsFromEditor();
+    if(!ids.length){host.innerHTML='<div class="selection-faculty-readonly">Choose at least one LAB group to edit its roster.</div>';return}
+    host.innerHTML=`<div class="login-cheatsheet"><strong>LAB group rosters</strong><br>Student IDs stay in the private roster collection and are never copied to the public calendar or session audit.</div>`
+      +ids.map(id=>{
+        const group=labGroupDirectory.get(id)||{},code=String(group.groupCode||id),existing=labRosterDirectory.get(id)?.studentIds||[];
+        const value=selectionLabRosterDrafts.has(id)?selectionLabRosterDrafts.get(id):existing.join('\n');
+        return `<label class="form-field"><span class="form-label">Group ${escapeHtml(code)} roster</span><textarea class="form-input" rows="6" spellcheck="false" data-selection-lab-roster="${escapeHtml(id)}" placeholder="One student ID per line">${escapeHtml(value)}</textarea><small>One student ID per line. Invalid or duplicate rows block the save.</small></label>`;
+      }).join('');
+  }
+  function buildSelectionLabRosterPlans(rows,timestamp){
+    if(scopedWork?.stage!=='lab'||selectionCapabilities().canEditLabRoster!==true)return{plans:[],errors:[]};
+    const api=window.UCVM_LAB_GROUPS;
+    if(!api?.parseRoster||!api?.rosterFor)return{plans:[],errors:['LAB roster tools are unavailable. Reload the page before saving.']};
+    captureSelectionLabRosterDrafts();
+    const row=rows?.[0]||{},ids=[...new Set((row.labGroupIds||[]).map(value=>String(value||'').trim()).filter(Boolean))],errors=[],drafts=new Map();
+    for(const id of ids){
+      const group=labGroupDirectory.get(id);
+      if(!group){errors.push(`LAB group ${id} is unavailable. Reopen the Work Queue item.`);continue}
+      const code=String(group.groupCode||id).toUpperCase(),raw=selectionLabRosterDrafts.has(id)?selectionLabRosterDrafts.get(id):(labRosterDirectory.get(id)?.studentIds||[]).join('\n');
+      const parsed=api.parseRoster(raw,{defaultGroupCode:code});
+      for(const invalid of parsed.invalid||[])errors.push(`Group ${code}, line ${invalid.line}: enter a 6–12 digit student ID.`);
+      for(const duplicate of parsed.duplicates||[])errors.push(`Group ${code}, line ${duplicate.line}: duplicate student ID.`);
+      for(const entry of parsed.entries||[])if(String(entry.groupCode||'').toUpperCase()!==code)errors.push(`Group ${code}, line ${entry.line}: roster rows in this box must belong to Group ${code}.`);
+      const studentIds=(parsed.entries||[]).map(entry=>String(entry.studentId||'').trim()).filter(Boolean);
+      if(!studentIds.length)errors.push(`Group ${code}: add at least one student ID before saving.`);
+      drafts.set(id,studentIds);
+    }
+    const course=String(row.course||''),relevant=[...labGroupDirectory.values()].filter(group=>String(group.course||'')===course||ids.includes(String(group.groupId||'')));
+    const owners=new Map();
+    for(const group of relevant){
+      const id=String(group.groupId||''),code=String(group.groupCode||id).toUpperCase(),studentIds=drafts.has(id)?drafts.get(id):(labRosterDirectory.get(id)?.studentIds||[]);
+      for(const raw of studentIds){
+        const studentId=String(raw||'').trim();if(!studentId)continue;
+        const previous=owners.get(studentId);
+        if(previous&&previous.id!==id)errors.push(`Student ${studentId} cannot be assigned to both Group ${previous.code} and Group ${code}.`);
+        else owners.set(studentId,{id,code});
+      }
+    }
+    const plans=[];
+    for(const [id,studentIds] of drafts){
+      const before=(labRosterDirectory.get(id)?.studentIds||[]).map(String);
+      if(JSON.stringify(before)===JSON.stringify(studentIds))continue;
+      plans.push({groupId:id,data:api.rosterFor(id,{studentIds,updatedAt:timestamp,updatedBy:currentUser.uid,updatedByName:currentUser.name||currentUser.email||''})});
+    }
+    return{plans,errors:[...new Set(errors)]};
+  }
+  function labRosterAuditChanges(plans=[]){
+    return plans.map(plan=>{
+      const id=String(plan.groupId||''),group=labGroupDirectory.get(id)||{},code=String(group.groupCode||id),before=(labRosterDirectory.get(id)?.studentIds||[]).length,after=(plan.data?.studentIds||[]).length;
+      return{field:'labRoster',label:`LAB roster · Group ${code}`,before:`${before} student${before===1?'':'s'}`,after:`${after} student${after===1?'':'s'}`};
+    });
+  }
+  function selectionRole(){
+    if(scopedWork?.stage)return scopedWork.stage;
+    const role=UCVM.role(currentUser?.role);
+    if(role==='developer')return'developer';
+    if(hasOfficeAccess('adc'))return'adc';
+    if(UCVM.general(currentUser)&&canConfigureTeachingAssignmentOwnership())return'ta_config';
+    return role;
+  }
   function selectionCapabilities(){const role=selectionRole();return role==='developer'?capabilities():capabilities(role);}
-  function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session);}
+  function selectionOwnershipAllowed(){
+    if(!canConfigureTeachingAssignmentOwnership())return false;
+    if(scopedWork)return scopedWork.stage==='adc';
+    return['developer','adc','ta_config'].includes(selectionRole());
+  }
+  function selectionPolicy(session){return window.UCVM_TIMETABLE_SELECTION.editPolicy(selectionRole(),session,{allowTeachingAssignmentOwnership:selectionOwnershipAllowed()});}
+  function teachingAssignmentGroupChoices(current=''){
+    const id=String(current||''),rows=[...teachingAssignmentGroupDirectory.values()].filter(row=>row.active!==false).sort((a,b)=>String(a.name||a.id).localeCompare(String(b.name||b.id))),known=rows.some(row=>String(row.id)===id);
+    return '<option value="">Unassigned</option>'+(!known&&id?`<option value="${escapeHtml(id)}" selected>${escapeHtml(id)} (existing; unavailable)</option>`:'')+rows.map(row=>`<option value="${escapeHtml(row.id)}" ${String(row.id)===id?'selected':''}>${escapeHtml(row.name||row.id)}</option>`).join('');
+  }
+  function teachingAssignmentHiccChoices(groupId,current=''){
+    const group=teachingAssignmentGroupDirectory.get(String(groupId||'')),id=String(current||''),ids=Array.isArray(group?.hiccResponsibilityIds)?group.hiccResponsibilityIds.map(String):[],rows=ids.map(key=>teachingResponsibilityDirectory.get(key)).filter(row=>row&&row.kind==='hicc'&&row.active!==false),known=rows.some(row=>String(row.id)===id);
+    return '<option value="">Select HICC responsibility</option>'+(!known&&id?`<option value="${escapeHtml(id)}" selected>${escapeHtml(id)} (existing; unavailable)</option>`:'')+rows.map(row=>`<option value="${escapeHtml(row.id)}" ${String(row.id)===id?'selected':''}>${escapeHtml(row.label||row.id)}</option>`).join('');
+  }
+  function updateSelectionOwnershipRow(tr,clearHicc=false){
+    const group=tr?.querySelector('[data-selection-field="teachingAssignmentGroupId"]'),hicc=tr?.querySelector('[data-selection-field="responsibleHiccResponsibilityId"]');if(!group||!hicc)return;
+    const keep=clearHicc?'':hicc.value;hicc.innerHTML=teachingAssignmentHiccChoices(group.value,keep);if(clearHicc)hicc.value='';
+  }
   function lockedAttr(enabled){return enabled?'':'disabled class="role-locked-field"';}
   function renderSelectionEditor(){
     if($('calendar-body').querySelector('[data-selection-row]'))return;
     const data=window.UCVM_TIMETABLE_SELECTION.selectedRows([...selectedSessionOriginals.values()],sessionSelection.ids());
     renderedSessions=data;
     $('cal-label').textContent=`Review ${data.length} selected session${data.length===1?'':'s'}`;
-    const canEditFaculty=selectionCapabilities().canEditInstructor;
-    const rows=data.map(s=>{const policy=selectionPolicy(s),field=name=>lockedAttr(policy.fields[name]);return `<tr data-selection-row data-session-edit-id="${escapeHtml(s.id)}">
+    const canEditFaculty=selectionCapabilities().canEditInstructor,canEditLabRoster=scopedWork?.stage==='lab'&&selectionCapabilities().canEditLabRoster===true,canEditOwnership=selectionOwnershipAllowed();
+    const rows=data.map(s=>{const policy=selectionPolicy(s),field=name=>lockedAttr(policy.fields[name]),ownershipCells=canEditOwnership?`<td><select data-selection-field="teachingAssignmentGroupId">${teachingAssignmentGroupChoices(s.teachingAssignmentGroupId)}</select></td><td><select data-selection-field="responsibleHiccResponsibilityId">${teachingAssignmentHiccChoices(s.teachingAssignmentGroupId,s.responsibleHiccResponsibilityId)}</select></td>`:'';return `<tr data-selection-row data-session-edit-id="${escapeHtml(s.id)}">
       <td><input type="date" data-selection-field="date" value="${escapeHtml(s.date)}" ${field('date')}></td>
       <td><select data-selection-field="year" ${field('year')}>${[1,2,3,4].map(year=>`<option ${Number(s.year)===year?'selected':''}>${year}</option>`).join('')}</select></td>
       <td><input data-selection-field="course" value="${escapeHtml(s.course)}" ${field('course')}></td>
+      <td><select data-selection-field="subjectKey" ${field('subjectKey')}>${subjectChoices(s.subjectKey)}</select></td>
       <td><input data-selection-field="type" value="${escapeHtml(s.type)}" ${field('type')}></td>
       <td><input type="time" data-selection-field="start" value="${escapeHtml(s.start)}" ${field('start')}></td>
       <td><input type="time" data-selection-field="end" value="${escapeHtml(s.end)}" ${field('end')}></td>
       <td><input data-selection-field="topic" value="${escapeHtml(s.topic)}" ${field('topic')}></td>
       <td><input data-selection-field="room" value="${escapeHtml(s.room)}" ${field('room')}></td>
       <td>${policy.fields.labGroups?`<details class="selection-faculty-picker selection-lab-group-picker" data-selection-field="labGroups"><summary>Choose LAB group</summary><div class="selection-faculty-menu"><div class="selection-faculty-options">${selectionLabGroupOptions(s)||'<div class="selection-faculty-readonly">No active LAB groups for this course.</div>'}</div></div></details><div class="selection-faculty-chips"></div>`:`<div class="role-locked-field selection-lab-group-readonly">${escapeHtml((s.labGroupIds||[]).join(', ')||'—')}</div>`}</td>
-      <td>${policy.fields.faculty?`<details class="selection-faculty-picker" data-selection-field="faculty"><summary>Choose faculty</summary><div class="selection-faculty-menu"><div class="selection-faculty-options">${selectionFacultyOptions(s)}</div></div></details><div class="selection-faculty-chips"></div>`:`<div class="role-locked-field selection-faculty-readonly">${escapeHtml(s.instructor||'TBD')}</div>`}</td>
+      <td>${policy.fields.faculty?`<details class="selection-faculty-picker" data-selection-field="faculty"><summary>Choose faculty</summary><div class="selection-faculty-menu"><div class="selection-faculty-options">${selectionFacultyOptions(s)}</div></div></details><div class="selection-faculty-chips"></div>`:`<div class="role-locked-field selection-faculty-readonly">${escapeHtml(s.instructor||'TBD')}</div>`}</td>${ownershipCells}
     </tr>`}).join('');
     const note=canEditFaculty?'Open Faculty to choose one or more people; authoritative DOE is recalculated by the trusted backend after save when the HTTP DOE API is unavailable.':'Grey fields are context only; your office can edit only its assigned fields.';
-    $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>LAB Groups</th><th>Faculty</th></tr></thead><tbody>${rows}</tbody></table></div><div class="selection-save-bar"><span>${note}</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
+    const ownershipHeaders=canEditOwnership?'<th>TA Group</th><th>Responsible HICC</th>':'';
+    $('calendar-body').innerHTML=`<div class="selection-errors hidden" id="selection-errors" role="alert"></div><div class="selection-sheet-wrap"><table class="selection-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Subject</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>LAB Groups</th><th>Faculty</th>${ownershipHeaders}</tr></thead><tbody>${rows}</tbody></table></div>${canEditLabRoster?'<div id="selection-lab-rosters" class="selection-lab-rosters"></div>':''}<div class="selection-save-bar"><span>${note}</span><button class="btn btn-secondary" id="selection-back-btn">Back to selection</button><button class="btn btn-primary" id="selection-save-btn">Save selected changes</button></div>`;
     document.querySelectorAll('.selection-faculty-picker:not(.selection-lab-group-picker)').forEach(picker=>{picker.querySelectorAll('[data-selection-faculty-option]').forEach(input=>input.onchange=()=>updateSelectionFacultyPicker(picker));updateSelectionFacultyPicker(picker)});
-    document.querySelectorAll('.selection-lab-group-picker').forEach(picker=>{picker.querySelectorAll('[data-selection-lab-group-option]').forEach(input=>input.onchange=()=>updateSelectionLabGroupPicker(picker));updateSelectionLabGroupPicker(picker)});
+    document.querySelectorAll('.selection-lab-group-picker').forEach(picker=>{picker.querySelectorAll('[data-selection-lab-group-option]').forEach(input=>input.onchange=()=>{updateSelectionLabGroupPicker(picker);renderSelectionLabRosters()});updateSelectionLabGroupPicker(picker)});
+    document.querySelectorAll('[data-selection-field="teachingAssignmentGroupId"]').forEach(select=>{select.onchange=()=>updateSelectionOwnershipRow(select.closest('[data-selection-row]'),true);updateSelectionOwnershipRow(select.closest('[data-selection-row]'),false)});
+    if(canEditLabRoster)renderSelectionLabRosters();
     $('selection-back-btn').onclick=()=>{const wasScoped=Boolean(scopedWork);reviewingSelection=false;viewMode=selectionViewFlow.finish();setViewButtons();render();refreshSessionScope();if(wasScoped)cancelSessionSelection()};
     $('selection-save-btn').onclick=saveSelectedChanges;
   }
@@ -1188,12 +1337,13 @@
       const id=String(tr.dataset.sessionEditId),original=originals.get(id),value=field=>tr.querySelector(`[data-selection-field="${field}"]`).value,policy=selectionPolicy(original);
       const facultyInputs=[...tr.querySelectorAll('[data-selection-faculty-option]:checked')],ids=policy.fields.faculty?facultyInputs.map(option=>String(option.value)):[...(original.facultyIds||[])].map(String);
       const groupInputs=[...tr.querySelectorAll('[data-selection-lab-group-option]:checked')],labGroupIds=policy.fields.labGroups?groupInputs.map(option=>String(option.value)):[...(original.labGroupIds||[])].map(String);
+      const canEditOwnership=selectionOwnershipAllowed()&&policy.fields.teachingAssignmentGroupId&&policy.fields.responsibleHiccResponsibilityId,teachingAssignmentGroupId=canEditOwnership?String(tr.querySelector('[data-selection-field="teachingAssignmentGroupId"]')?.value||''):String(original.teachingAssignmentGroupId||''),responsibleHiccResponsibilityId=canEditOwnership?String(tr.querySelector('[data-selection-field="responsibleHiccResponsibilityId"]')?.value||''):String(original.responsibleHiccResponsibilityId||'');
       let type=value('type'),start=value('start'),end=value('end'),topic=value('topic'),date=value('date');
       if(selectionRole()==='adc'&&String(type).toUpperCase()==='LAB'&&String(original.type||'').toUpperCase()!=='LAB')topic='TBD';
       const position=academicPositionForDate(parseYmd(date)),originalIds=[...(original.facultyIds||[]),...(original.assignments||[]).map(a=>a.ucid||a.facultyId)].filter(Boolean).map(String),assignmentChanged=policy.fields.faculty&&(ids.join('|')!==[...new Set(originalIds)].join('|')||type!==String(original.type||'')||start!==String(original.start||'')||end!==String(original.end||'')||topic!==String(original.topic||''));
       const assignments=assignmentChanged?ids.map(facultyId=>{const faculty=facultyDirectory.find(f=>String(f.__id)===facultyId),previous=(original.assignments||[]).find(a=>String(a.ucid||a.facultyId||'')===facultyId)||{},role=previous.role||defaultTeachingRole(type),hours=swapNumeric(previous.creditedHours)??blockHours(start,end,{timeUnknown:original.timeUnknown===true&&start===String(original.start||'')&&end===String(original.end||'')});return{...previous,ucid:facultyId,facultyId,name:swapFacultyName(faculty),role,topic,creditedHours:hours,source:'Multi-session timetable edit'}}):(original.assignments||[]);
       const course=value('course');
-      return{...original,id,date,week:position.week,semester:position.semester,year:Number(value('year')),course,courseName:course===String(original.course||'')?original.courseName:(COURSES.find(c=>String(c.code)===course)?.name||''),type,start,end,topic,room:value('room'),timeUnknown:start===String(original.start||'')&&end===String(original.end||'')?Boolean(original.timeUnknown):false,assignments,facultyIds:ids,instructor:assignments.length?assignments.map(a=>a.name).filter(Boolean).join('; '):String(original.instructor||''),labDetails:assignmentChanged?labDetailsFromAssignments(type,assignments,topic):original.labDetails,labGroupIds};
+      return{...original,id,date,week:position.week,semester:position.semester,year:Number(value('year')),course,courseName:course===String(original.course||'')?original.courseName:(COURSES.find(c=>String(c.code)===course)?.name||''),subjectKey:value('subjectKey'),type,start,end,topic,room:value('room'),timeUnknown:start===String(original.start||'')&&end===String(original.end||'')?Boolean(original.timeUnknown):false,assignments,facultyIds:ids,instructor:assignments.length?assignments.map(a=>a.name).filter(Boolean).join('; '):String(original.instructor||''),labDetails:assignmentChanged?labDetailsFromAssignments(type,assignments,topic):original.labDetails,labGroupIds,teachingAssignmentGroupId,responsibleHiccResponsibilityId,teachingAssignmentSubmissionId:String(original.teachingAssignmentSubmissionId||'')};
     });
   }
   async function saveSelectedChanges(){
@@ -1206,16 +1356,46 @@
     let rows=readSelectionRows();
     if(scoped&&(rows.length!==1||String(rows[0].id)!==activeScoped.sessionId)){toast('Scoped Work Queue save is limited to the assigned session.',true);return}
     await ensureSessionsForDates(rows.map(row=>row.date),true);
-    if(scoped){if(activeScoped.stage==='lab')await ensureLabWorkflowContext(true);const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,workflowContext());const before=originals[0],keys=['date','year','course','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
-    const doePrepared=new Map(),doeRuntime=canEditFaculty?getTimetableDoeRuntime():null,originalById=new Map(originals.map(row=>[String(row.id),row]));
-    if(canEditFaculty)rows=await Promise.all(rows.map(async row=>{const prepared=await doeRuntime.adapter.prepareSession(originalById.get(String(row.id))||null,row,{trigger:'multi_session_edit'});doePrepared.set(String(row.id),prepared);return prepared.session}));
-    const plan=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,{role:selectionRole()});
-    if(canEditFaculty){
+    if(scoped){if(activeScoped.stage==='lab')await ensureLabWorkflowContext(true);const live=[...sessionCache.values()].find(row=>String(row.id)===activeScoped.sessionId),status=window.UCVM_SESSION_WORKFLOW?.stageStatus?.(live,activeScoped.stage,workflowContext());const before=originals[0],keys=['date','year','course','subjectKey','type','start','end','topic','room','assignments','facultyIds','instructor','labGroupIds','teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId'];if(!live||!status||status.status!=='ready'){toast('This work item is no longer READY. Reopen it from Work Queue.',true);return}if(keys.some(key=>JSON.stringify(live?.[key]??null)!==JSON.stringify(before?.[key]??null))){toast('This session changed after the Work Queue item was opened. Reopen it before saving.',true);return}}
+    const rosterResult=buildSelectionLabRosterPlans(rows,timestamp),rosterPlans=rosterResult.plans,rosterAuditChanges=labRosterAuditChanges(rosterPlans);
+    if(rosterResult.errors.length){errorBox.innerHTML=rosterResult.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
+    const originalById=new Map(originals.map(row=>[String(row.id),row]));
+    const selectionOptions={role:selectionRole(),activeSubjectKeys:subjectOptions.map(option=>option.key),allowTeachingAssignmentOwnership:selectionOwnershipAllowed(),teachingAssignmentGroups:[...teachingAssignmentGroupDirectory.values()],teachingResponsibilities:[...teachingResponsibilityDirectory.values()]};
+    const preflight=window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,selectionOptions);
+    if(preflight.errors.length){errorBox.innerHTML=preflight.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
+    const nonDoeMetadataCount=preflight.logs.filter(log=>window.UCVM_TIMETABLE_SELECTION.onlyNonDoeMetadataChanged(log.before,log.after)).length;
+    if(canEditFaculty&&nonDoeMetadataCount&&nonDoeMetadataCount!==preflight.updates.length){errorBox.textContent='Save Subject/Teaching Assignment metadata-only rows separately from scheduling or Faculty changes.';errorBox.classList.remove('hidden');return}
+    const needsDoe=canEditFaculty&&preflight.updates.length>0&&nonDoeMetadataCount===0;
+    const doePrepared=new Map(),doeRuntime=needsDoe?getTimetableDoeRuntime():null;
+    if(needsDoe)rows=await Promise.all(rows.map(async row=>{const prepared=await doeRuntime.adapter.prepareSession(originalById.get(String(row.id))||null,row,{trigger:'multi_session_edit'});doePrepared.set(String(row.id),prepared);return prepared.session}));
+    const plan=needsDoe?window.UCVM_TIMETABLE_SELECTION.planChanges(originals,rows,currentUser,timestamp,facultyById,selectionOptions):preflight;
+    if(rosterAuditChanges.length&&plan.logs.length===1)plan.logs[0].changes=[...(plan.logs[0].changes||[]),...rosterAuditChanges];
+    if(needsDoe){
       for(const log of plan.logs){const prepared=doePrepared.get(String(log.sessionId));const changes=doeAuditChanges(prepared?.doeChanges);if(changes.length){log.changes.push(...changes);log.doeChanges=prepared.doeChanges}}
     }
     if(plan.errors.length){errorBox.innerHTML=plan.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('');errorBox.classList.remove('hidden');return}
-    if(!plan.updates.length){toast('No selected session values changed.');return}
-    const overrides=canEditFaculty?confirmSchedulingChanges(plan.logs.map(log=>({id:log.sessionId,...log.after}))):new Map();if(overrides===null)return;
+    if(!plan.updates.length&&!rosterPlans.length){toast('No selected session or LAB roster values changed.');return}
+    if(!plan.updates.length&&rosterPlans.length){
+      button.disabled=true;button.textContent='Saving LAB roster...';
+      try{
+        const batch=db.batch(),row=rows[0]||originals[0]||{};
+        for(const roster of rosterPlans)batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);
+        batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{
+          action:'lab_roster_update',override:null,requestId:'',sessionId:String(row.id||activeScoped?.sessionId||''),course:String(row.course||''),date:String(row.date||'').slice(0,10),topic:String(row.topic||''),instructors:[],
+          changes:rosterAuditChanges,changedBy:currentUser.uid,changedByName:currentUser.name||currentUser.email||'',changedByEmail:'',changedAt:timestamp
+        });
+        await batch.commit();
+        await ensureLabWorkflowContext(true);
+        cancelSessionSelection();
+        toast(`${rosterPlans.length} LAB roster${rosterPlans.length===1?'':'s'} saved.`);
+      }catch(error){
+        console.error('[LAB roster save]',error);
+        errorBox.textContent='Nothing was saved. Check the roster values, connection, or permissions, then try again.';
+        errorBox.classList.remove('hidden');button.disabled=false;button.textContent='Save selected changes';
+      }
+      return;
+    }
+    const overrides=needsDoe?confirmSchedulingChanges(plan.logs.map(log=>({id:log.sessionId,...log.after}))):new Map();if(overrides===null)return;
     for(const log of plan.logs)log.override=overrides.get(String(log.sessionId))||null;
     plan.updates=plan.updates.map(update=>({...update,data:{...firestoreSafeSessionPatch(update.data),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp}}));
     const resumeComparable=data=>{const copy=JSON.parse(JSON.stringify(data||{}));if(Array.isArray(copy.assignments))for(const assignment of copy.assignments)delete assignment.doeCalculationId;return copy};
@@ -1223,7 +1403,7 @@
     button.dataset.planKey=planKey;button.disabled=true;button.textContent=resumeFrom?`Resuming ${resumeFrom}/${plan.updates.length}...`:'Saving...';
     try{
       let result;
-      if(canEditFaculty){
+      if(needsDoe){
         let completedRows=resumeFrom;
         for(let index=resumeFrom;index<plan.updates.length;index++){
           const update=plan.updates[index],log=plan.logs[index];
@@ -1236,10 +1416,12 @@
         }
         result={committed:true,completedRows,errors:[]};
       }else{
-        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),queueRef:()=>db.collection('doe_recalculation_requests').doc(),queueData:(update,log,ref)=>queuedDoeRequestData(update.after||log.after,ref.id,'office_multi_session_edit',update.data.updatedAt||log.changedAt,log.before),onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
+        let rosterWritesStaged=false;
+        const ownershipAdapter=window.UCVM_TIMETABLE_SELECTION.createOwnershipAdapter({db,actor:currentUser,configurationReady:canConfigureTeachingAssignmentOwnership,calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),sessionCollection:SESSION_COLLECTION,logCollection:SESSION_LOG_COLLECTION});
+        result=await window.UCVM_TIMETABLE_SELECTION.commitPlan(plan,{commitOwnership:(update,log)=>ownershipAdapter.save(update,log),packageRef:id=>db.collection('teaching_assignment_submissions').doc(id),increment:value=>firebase.firestore.FieldValue.increment(value),batch:()=>db.batch(),sessionRef:id=>db.collection(SESSION_COLLECTION).doc(id),calendarRef:id=>db.collection('calendar_sessions').doc(id),calendarFromSource:(row,id)=>window.UCVM_CALENDAR_SESSION.fromSource(row,id),logRef:()=>db.collection(SESSION_LOG_COLLECTION).doc(),queueRef:()=>db.collection('doe_recalculation_requests').doc(),queueData:(update,log,ref)=>queuedDoeRequestData(update.after||log.after,ref.id,'office_multi_session_edit',update.data.updatedAt||log.changedAt,log.before),stageExtraWrites:rosterPlans.length?({batch})=>{if(rosterWritesStaged)return 0;for(const roster of rosterPlans)batch.set(db.collection('lab_group_rosters').doc(roster.groupId),roster.data);rosterWritesStaged=true;return rosterPlans.length}:null,onProgress:progress=>{button.textContent=`Saving ${progress.completedRows}/${progress.totalRows}...`;button.dataset.resumeFrom=String(progress.completedRows)},afterBatch:async({logs})=>{invalidateAllSessions();if(activeScoped?.stage==='lab'&&rosterPlans.length)await ensureLabWorkflowContext(true);if(selectionRole()==='adc'){for(const log of logs){const before=log.before||{},after=log.after||{};if(String(before.instructor||'').trim()&&['date','start','end'].some(field=>String(before[field]||'')!==String(after[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:log.sessionId,course:after.course,date:after.date,start:after.start,end:after.end,type:after.type,topic:after.topic,facultyDisplayName:after.instructor||before.instructor||''}}))}}}}},{chunkSize:SESSION_SAVE_BATCH_ROWS,resumeFrom});
       }
-      const count=result.completedRows;delete button.dataset.resumeFrom;delete button.dataset.planKey;cancelSessionSelection();toast(`${count} session${count===1?'':'s'} updated with audit history.`);
-    }catch(error){console.error('[multi-session save]',error);const completed=Number(error.completedRows||0);button.dataset.resumeFrom=String(completed);errorBox.textContent=completed?`${completed} of ${plan.updates.length} sessions were saved. The remaining rows were not saved. Check the connection or permissions, then click Resume save.`:error.committed?'The first batch was saved, but follow-up maintenance failed. Keep this review open and ask an administrator to verify indexes.':'Nothing was saved. Check your connection and permissions, then try again.';errorBox.classList.remove('hidden');button.disabled=false;button.textContent=completed?'Resume save':'Save selected changes'}
+      const count=result.completedRows;delete button.dataset.resumeFrom;delete button.dataset.planKey;cancelSessionSelection();toast(`${count} session${count===1?'':'s'} updated with audit history${rosterPlans.length?` and ${rosterPlans.length} LAB roster${rosterPlans.length===1?'':'s'} saved`:''}.`);
+    }catch(error){console.error('[multi-session save]',error);const completed=Number(error.completedRows||0);button.dataset.resumeFrom=String(completed);errorBox.textContent=error.ownershipSave?`${completed?completed+' session(s) saved. ':''}${error.message}`:completed?`${completed} of ${plan.updates.length} sessions were saved. The remaining rows were not saved. Check the connection or permissions, then click Resume save.`:error.committed?'The first batch was saved, but follow-up maintenance failed. Keep this review open and ask an administrator to verify indexes.':'Nothing was saved. Check your connection and permissions, then try again.';errorBox.classList.remove('hidden');button.disabled=false;button.textContent=completed?'Resume save':'Save selected changes'}
   }
 
   function openSessionDetail(id) {
@@ -1310,7 +1492,7 @@
       <td><input data-bulk-field="end" data-index="${index}" type="time" value="${escapeHtml(row.end)}"></td>
       <td><input class="bulk-topic ${labLocked?'role-locked-field':''}" data-bulk-field="topic" data-index="${index}" value="${escapeHtml(labLocked?'TBD':row.topic)}" placeholder="Session topic" ${labLocked?'disabled':''}></td>
       <td><input data-bulk-field="room" data-index="${index}" value="${escapeHtml(row.room)}" placeholder="Room"></td>
-      <td><input class="bulk-faculty ${canEditFaculty?'':'role-locked-field'}" data-bulk-field="faculty" data-index="${index}" value="${escapeHtml(canEditFaculty?row.faculty:'')}" list="bulk-faculty-list" placeholder="${canEditFaculty?'Name, email or UCID; separate with ;':'Instructor assignment is managed by ADFA'}" ${canEditFaculty?'':'disabled'}></td>
+      <td><input class="bulk-faculty ${canEditFaculty?'':'role-locked-field'}" data-bulk-field="faculty" data-index="${index}" value="${escapeHtml(canEditFaculty?row.faculty:'')}" list="bulk-faculty-list" placeholder="${canEditFaculty?'Name, email or UCID; separate with ;':'Instructor assignment is managed by ADFAD'}" ${canEditFaculty?'':'disabled'}></td>
       <td><button type="button" class="bulk-remove" data-bulk-remove="${index}" aria-label="Remove row ${index+1}">×</button></td>
     </tr>`}).join('');
     $('bulk-row-count').textContent=`${bulkRows.length} / ${MAX_BULK_SESSION_ROWS} rows`;
@@ -1401,7 +1583,7 @@
       <div class="bulk-toolbar"><button type="button" class="btn btn-secondary" id="bulk-add-row">+ Add row</button><button type="button" class="btn btn-secondary" id="bulk-duplicate-row">Duplicate last row</button><button type="button" class="btn btn-secondary" id="bulk-paste-rows">Paste Excel rows</button><span class="bulk-count" id="bulk-row-count"></span></div>
       <div class="bulk-paste-panel hidden" id="bulk-paste-panel"><label class="form-label" for="bulk-paste-text">Paste columns: Date, Year, Course, Type, Start, End, Topic, Room, Faculty</label><textarea id="bulk-paste-text" placeholder="2026-09-14&#9;1&#9;CCC&#9;CCC&#9;07:30&#9;17:00&#9;CCC Day&#9;&#9;Faculty Name"></textarea><div><button type="button" class="btn btn-primary" id="bulk-paste-apply">Add pasted rows</button></div></div>
       <datalist id="bulk-faculty-list">${facultyOptions}</datalist><div class="bulk-sheet-wrap"><table class="bulk-sheet"><thead><tr><th>Date</th><th>Year</th><th>Course</th><th>Type</th><th>Start</th><th>End</th><th>Topic</th><th>Room</th><th>Faculty</th><th></th></tr></thead><tbody id="bulk-session-body"></tbody></table></div><div class="bulk-errors hidden" id="bulk-errors"></div>
-    </div><div class="modal-footer"><span class="form-hint">Maximum 200 rows. ${canEditFaculty?'Faculty may be separated with semicolons.':'Faculty assignment is handled by ADFA.'}</span><div><button type="button" class="btn btn-secondary" id="bulk-cancel">Cancel</button> <button class="btn btn-primary" type="submit">Save all sessions</button></div></div></form>`);
+    </div><div class="modal-footer"><span class="form-hint">Maximum 200 rows. ${canEditFaculty?'Faculty may be separated with semicolons.':'Faculty assignment is handled by ADFAD.'}</span><div><button type="button" class="btn btn-secondary" id="bulk-cancel">Cancel</button> <button class="btn btn-primary" type="submit">Save all sessions</button></div></div></form>`);
     document.querySelector('#modal .modal-box')?.classList.add('bulk-wide');renderBulkRows();
     $('bulk-add-row').onclick=()=>{if(bulkRows.length>=MAX_BULK_SESSION_ROWS){toast(`Maximum ${MAX_BULK_SESSION_ROWS} rows.`,true);return}bulkRows.push(blankBulkRow(bulkRows.at(-1)||{}));renderBulkRows()};
     $('bulk-duplicate-row').onclick=()=>{if(bulkRows.length>=MAX_BULK_SESSION_ROWS){toast(`Maximum ${MAX_BULK_SESSION_ROWS} rows.`,true);return}bulkRows.push(blankBulkRow({...bulkRows.at(-1),date:bulkRows.at(-1)?.date}));renderBulkRows()};
@@ -1415,12 +1597,14 @@
     if (existing ? !(canEditCourseFields||canEditInstructor) : !canAddOneSession()) { toast('This account cannot use the single-session editor.', true); return; }
     if (!liveScheduleAvailable()) { toast('The live Firestore timetable is unavailable. Sync it from Faculty Dashboard first.', true); return; }
     if(canEditInstructor)await ensureFacultyDirectory();
+    if(canEditCourseFields)await loadSubjectOptions();
     const s = existing || {
       id: '', date: ymd(weekStart(selectedWeek, selectedSemester)), week: selectedWeek, semester:selectedSemester, year:1,
       course:'200', type:'LEC', topic:'New Session', instructor:'', room:'', start:'09:00', end:'10:00', assignments:[]
     };
     let editorAssignments=sessionAssignmentsForSwap(s).map((a,i)=>({...a,__editorKey:`existing-${i}-${Date.now()}`}));
     if(!editorAssignments.length&&canEditInstructor) editorAssignments=[];
+    const initialEditorAssignments=JSON.stringify(editorAssignments);
     const renderInstructorEditor=()=>{
       const host=$('instructor-lines'); if(!host)return;
       const isAdmin=canEditInstructor;
@@ -1452,11 +1636,12 @@
         ${input('date','Date','date',s.date)}
         ${select('year','Year',[1,2,3,4],s.year)}
         ${select('course','Course',courseCodes(),s.course)}
+        <div class="form-field"><label class="form-label" for="subjectKey">Subject</label><select class="form-select" id="subjectKey" name="subjectKey" ${canEditCourseFields?'':'disabled'}>${subjectChoices(s.subjectKey)}</select></div>
         ${select('type','Type',['LEC','LAB','SRL','Quiz/Midterm','OSCE','Exam'],s.type)}
         ${input('start','Start','time',s.start,'',!s.timeUnknown)}
         ${input('end','End','time',s.end,'',!s.timeUnknown)}
         ${input('topic','Topic','text',s.topic,'full')}
-        <div class="form-field instructor-editor"><label class="form-label">Instructor(s)</label><div id="instructor-lines" class="instructor-lines"></div>${canEditInstructor?'<button type="button" class="btn btn-secondary instructor-add" id="add-instructor-line">+ Add instructor</button><div class="instructor-note">One instructor per line. Select from the active faculty directory. Availability checks both Away from Campus and overlapping live timetable courses at the selected date and time. AFC only reports Unavailable; timetable conflicts continue to show the conflicting course/time. Unavailable or uncertain selections show a warning; admins may override. Add/remove controls are administrator-only. Existing teaching role and DOE credit stay with the line when you change the selected faculty.</div>':'<div class="instructor-note">Instructor assignments are managed by ADFA.</div>'}</div>
+        <div class="form-field instructor-editor"><label class="form-label">Instructor(s)</label><div id="instructor-lines" class="instructor-lines"></div>${canEditInstructor?'<button type="button" class="btn btn-secondary instructor-add" id="add-instructor-line">+ Add instructor</button><div class="instructor-note">One instructor per line. Select from the active faculty directory. Availability checks both Away from Campus and overlapping live timetable courses at the selected date and time. AFC only reports Unavailable; timetable conflicts continue to show the conflicting course/time. Unavailable or uncertain selections show a warning; admins may override. Add/remove controls are administrator-only. Existing teaching role and DOE credit stay with the line when you change the selected faculty.</div>':'<div class="instructor-note">Instructor assignments are managed by ADFAD.</div>'}</div>
         ${input('room','Room','text',s.room)}
       </div></div>
       <div class="modal-footer"><div>${existing ? '<button type="button" class="btn-danger-text" id="delete-session">Delete Session</button>' : ''}</div><div><button type="button" class="btn btn-secondary" id="cancel-session">Cancel</button> <button class="btn btn-primary" type="submit">Save Live Session</button></div></div>
@@ -1464,11 +1649,11 @@
     renderInstructorEditor();
     const syncTopicOwnership=()=>{if(actorRole!=='adc')return;const topicInput=$('topic'),typeInput=$('type');if(!topicInput||!typeInput)return;const isLab=String(typeInput.value||'').toUpperCase()==='LAB';if(isLab)topicInput.value='TBD';topicInput.readOnly=isLab;topicInput.classList.toggle('role-locked-field',isLab)};
     // The same canonical capabilities that drive the selection editor drive this
-    // modal. ADFA is faculty-only, so every scheduling field is locked here too
+    // modal. ADFAD is faculty-only, so every scheduling field is locked here too
     // rather than left editable.
     const lockSchedulingFields=()=>{
       if(canEditCourseFields)return;
-      for(const id of ['date','year','course','type','start','end','topic','room']){const el=$(id);if(!el)continue;el.disabled=true;el.classList.add('role-locked-field')}
+      for(const id of ['date','year','course','subjectKey','type','start','end','topic','room']){const el=$(id);if(!el)continue;el.disabled=true;el.classList.add('role-locked-field')}
     };
     lockSchedulingFields();
     syncTopicOwnership();if($('type'))$('type').addEventListener('change',syncTopicOwnership);
@@ -1485,6 +1670,8 @@
       const form = new FormData(e.target), date=String(form.get('date')||'');
       const topic=String(form.get('topic')||'').trim(), type=String(form.get('type')||'').trim(), start=String(form.get('start')||''), end=String(form.get('end')||'');
       const timeUnknown=existing?.timeUnknown===true&&start===String(existing.start||'')&&end===String(existing.end||'');
+      const subjectKey=canEditCourseFields?String(form.get('subjectKey')||''):String(existing?.subjectKey||'');
+      if(subjectKey!==String(existing?.subjectKey||'')&&subjectKey&&(!window.UCVM_SUBJECT_CATALOG||window.UCVM_SUBJECT_CATALOG.normalizeKey(subjectKey)!==subjectKey||!subjectOptions.some(option=>option.key===subjectKey))){toast('Choose an active Subject from the catalog.',true);return}
       if(!scheduling.normalizeDate(date)||!String(form.get('course')||'').trim()||!type||!topic||scheduling.validateInterval(start,end,{timeUnknown}).status==='invalid'){toast('Enter a valid date, course, type, topic and time range.',true);return;}
       await ensureSessionsForDates([date],true);
       const pos = academicPositionForDate(parseYmd(date));
@@ -1492,36 +1679,44 @@
       const preservedInstructor=canEditInstructor?assignments.map(a=>a.name).join('; '):String(existing?.instructor||'');
       let next = {
         id: existing?.id || `S${Date.now()}`,
+        ...Object.fromEntries(['academicYear','teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId'].filter(key=>existing?.[key]!==undefined).map(key=>[key,existing[key]])),
         ...(existing?.auditEventId ? {auditEventId: existing.auditEventId} : {}),
         date, week:pos.week, semester:pos.semester, year:Number(form.get('year')),
-        course:form.get('course'), courseName:(COURSES.find(c=>String(c.code)===String(form.get('course')))||{}).name||existing?.courseName||'', type, topic, instructor:preservedInstructor, room:form.get('room'),
-        start, end, timeUnknown, assignments, ...(canEditInstructor?{labDetails:labDetailsFromAssignments(type,assignments,topic)}:{}), sourceSystem:'Synchronized live timetable'
+        course:form.get('course'), courseName:(COURSES.find(c=>String(c.code)===String(form.get('course')))||{}).name||existing?.courseName||'', ...((subjectKey||existing?.subjectKey!==undefined)?{subjectKey}:{}), type, topic, instructor:preservedInstructor, room:form.get('room'),
+        start, end, timeUnknown, assignments:canEditInstructor?assignments:(existing?.assignments||[]), ...(Array.isArray(existing?.labGroupIds)?{labGroupIds:existing.labGroupIds}:{}), ...(canEditInstructor?{labDetails:labDetailsFromAssignments(type,assignments,topic)}:{}), sourceSystem:'Synchronized live timetable'
       };
+      const subjectOnly=Boolean(existing)&&JSON.stringify(editorAssignments)===initialEditorAssignments&&
+        window.UCVM_TIMETABLE_SELECTION.onlySubjectChanged(existing,{...next,assignments:existing.assignments,
+          facultyIds:existing.facultyIds,instructor:existing.instructor,labDetails:existing.labDetails,labGroupIds:existing.labGroupIds});
+      if(subjectOnly)next={...existing,subjectKey};
+      const needsDoe=canEditInstructor&&!subjectOnly;
       let doeResult={calculationRecords:[],doeChanges:[]},doeRuntime=null;
-      if(canEditInstructor){
+      if(needsDoe){
         try{doeRuntime=getTimetableDoeRuntime();doeResult=await doeRuntime.adapter.prepareSession(existing||null,next,{trigger:existing?'session_updated':'session_created'});next=doeResult.session}
         catch(error){console.error('[DOE timetable calculation]',error);toast(`Session save blocked: ${error.message||'DOE calculation is unavailable.'}`,true);return}
       }
-      const overrides=canEditInstructor?confirmSchedulingChanges([next]):new Map();if(overrides===null)return;
+      const overrides=needsDoe?confirmSchedulingChanges([next]):new Map();if(overrides===null)return;
       try {
         const timestamp=firebase.firestore.FieldValue.serverTimestamp();
         let savedNext=next;
-        if(canEditInstructor){
+        if(needsDoe){
           const saved=await doeRuntime.api.saveSessionChange({academicYear:doeResult.academicYear||next.academicYear||'',sessionId:next.id,afterSession:next,trigger:existing?'session_updated':'session_created'});
           savedNext=saved.session||next;
           const auditChanges=[...UCVM_AUDIT_DETAILS.diff(existing,savedNext,'session'),...doeAuditChanges(saved.doeChanges||[])];
           await db.collection(SESSION_LOG_COLLECTION).doc().set({action:existing?'update':'create',override:overrides.get(String(next.id))||null,sessionId:next.id,course:savedNext.course,date:savedNext.date,topic:savedNext.topic,instructors:(savedNext.assignments||[]).map(a=>({ucid:a.ucid||null,name:a.name,role:a.role,doeCredit:a.doeCredit??null,doePolicyVersionId:a.doePolicyVersionId||'',doeCalculationId:a.doeCalculationId||''})),changes:auditChanges,doeChanges:saved.doeChanges||[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:currentUser.email||'',changedAt:timestamp});
         }else{
           const ref=db.collection(SESSION_COLLECTION).doc(next.id),calendarRef=db.collection(CALENDAR_SESSION_COLLECTION).doc(next.id),batch=db.batch();
-          if(existing)batch.update(ref,{date:next.date,week:next.week,semester:next.semester,year:next.year,course:next.course,courseName:next.courseName,type:next.type,topic:next.topic,room:next.room,start:next.start,end:next.end,timeUnknown:next.timeUnknown,updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
+          if(existing)batch.update(ref,{date:next.date,week:next.week,semester:next.semester,year:next.year,course:next.course,courseName:next.courseName,...(subjectKey!==String(existing.subjectKey||'')?{subjectKey}:{}),type:next.type,topic:next.topic,room:next.room,start:next.start,end:next.end,timeUnknown:next.timeUnknown,updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
           else batch.set(ref,{...firestoreSafeSession({...next,assignments:[],instructor:''}),updatedBy:currentUser.uid,updatedByName:currentUser.name,updatedAt:timestamp});
           batch.set(calendarRef,window.UCVM_CALENDAR_SESSION.fromSource(next,next.id));
           batch.set(db.collection(SESSION_LOG_COLLECTION).doc(),{action:existing?'update':'create',override:null,sessionId:next.id,course:next.course,date:next.date,topic:next.topic,instructors:[],changes:UCVM_AUDIT_DETAILS.diff(existing,next,'session'),doeChanges:[],changedBy:currentUser.uid,changedByName:currentUser.name,changedByEmail:'',changedAt:timestamp});
-          if(existing){const queueRef=db.collection('doe_recalculation_requests').doc();batch.set(queueRef,queuedDoeRequestData(next,queueRef.id,'office_session_updated',timestamp,existing));}
+          if(existing&&!subjectOnly){const queueRef=db.collection('doe_recalculation_requests').doc();batch.set(queueRef,queuedDoeRequestData(next,queueRef.id,'office_session_updated',timestamp,existing));}
+          const revision=window.UCVM_TIMETABLE_SELECTION.workingRevisionChange(existing,next,currentUser,timestamp,value=>firebase.firestore.FieldValue.increment(value));
+          if(revision)batch.update(db.collection('teaching_assignment_submissions').doc(revision.id),revision.data);
           await batch.commit();
         }
         invalidateAllSessions();
-        if(canEditInstructor)await updateDerivedIndexes([{before:existing||null,after:savedNext}]);
+        if(needsDoe)await updateDerivedIndexes([{before:existing||null,after:savedNext}]);
         if(actorRole==='adc'&&existing&&String(existing.instructor||'').trim()&&['date','start','end'].some(field=>String(existing[field]||'')!==String(savedNext[field]||''))){window.dispatchEvent(new CustomEvent('ucvm:assignment-recheck-required',{detail:{sessionId:savedNext.id,course:savedNext.course,date:savedNext.date,start:savedNext.start,end:savedNext.end,type:savedNext.type,topic:savedNext.topic,facultyDisplayName:savedNext.instructor}}))}
         closeModal();
         toast(existing?'Live session updated.':'Live session added.');
@@ -1539,7 +1734,7 @@
   }
 
   async function deleteSession(id) {
-    if (!UCVM.admin(currentUser)) { toast('ADFA permission is required.', true); return; }
+    if (!UCVM.admin(currentUser)) { toast('ADFAD permission is required.', true); return; }
     const s = sessions.find(x => x.id === id); if (!s) return;
     if (!liveScheduleAvailable()) { toast('Live Schedule is not initialized.', true); return; }
     if (!confirm(`Delete ${s.course} - ${s.topic} from the live schedule?`)) return;
@@ -1658,7 +1853,7 @@
           } else if (code === 'ucvm/profile-inactive') {
             msg = 'This account exists but active is not true in Firestore.';
           } else if (code === 'ucvm/invalid-role') {
-            msg = 'Firestore role must be a supported UCVM role, including developer, owner, administrator, faculty, HICC, VISC, ADC or LAB.';
+            msg = 'Firestore role must be a supported UCVM role, including developer, owner, administrator, faculty, HICC, VISC, ADC/DVM or LAB.';
           }
           setAppLocked(true, 'Access denied. Sign in with an authorized account.');
           await auth.signOut().catch(() => {});
@@ -1710,7 +1905,7 @@
     showModal(`
       <div class="modal-header"><div class="modal-title">Email Sign In</div><div class="modal-subtitle">Uses Firebase Email/Password authentication.</div></div>
       <form id="email-login-form"><div class="modal-body">
-        <div class="login-cheatsheet">Use the email address registered by ADFA General. New faculty accounts must change their temporary password after signing in.</div>
+        <div class="login-cheatsheet">Use the email address registered by ADFAD General. New faculty accounts must change their temporary password after signing in.</div>
         <div class="form-field"><label class="form-label">Email</label><input class="form-input" id="login-email" name="email" type="email" placeholder="name@ucalgary.ca" autocomplete="username" required></div>
         <div class="form-field"><label class="form-label">Password</label><input class="form-input" id="login-password" name="password" type="password" autocomplete="current-password" required></div>
       </div><div class="modal-footer"><button type="button" class="btn btn-secondary" id="email-back">Back</button><button class="btn btn-primary" type="submit">Sign in with Email</button></div></form>`);
@@ -1888,7 +2083,7 @@
     $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || accessRole === 'hicc'));
     $('faculty-dashboard-btn').classList.toggle('hidden', !(isAdmin||facultySelfService));
     const toolMenu=$('cal-admin-menu'),toolSummary=toolMenu?.querySelector('summary');
-    if(toolSummary)toolSummary.textContent=isAdmin?'Admin tools':accessRole==='adc'?'ADC tools':accessRole==='hicc'?'HICC tools':'Tools';
+    if(toolSummary)toolSummary.textContent=isAdmin?'Admin tools':accessRole==='adc'?'ADC/DVM tools':accessRole==='hicc'?'HICC tools':'Tools';
     toolMenu?.classList.toggle('hidden',!showTools);
     $('my-teaching-btn').classList.toggle('hidden',!facultySelfService);
     $('afc-request-btn').classList.toggle('hidden',!facultySelfService);
@@ -1989,7 +2184,7 @@
     downloadFile(`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//UCVM//Outlook Teaching Invitations//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:REQUEST\r\n${events}\r\nEND:VCALENDAR\r\n`,'text/calendar;charset=utf-8','ucvm-outlook-invite-package.ics');
   }
   async function openOutlookInviteDialog(){
-    if(!UCVM.admin(currentUser)){toast('ADFA permission is required.',true);return}
+    if(!UCVM.admin(currentUser)){toast('ADFAD permission is required.',true);return}
     try{
       const [all]=await Promise.all([ensureAllSessions(),ensureFacultyDirectory()]);if(showCcc)await loadCccEvents();
       const today=ymd(new Date());

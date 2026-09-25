@@ -18,7 +18,7 @@
  if(root)root.UCVM_WORK_QUEUE=api;
 })(typeof window!=='undefined'?window:null,function(){
  'use strict';
- const STAGE_LABEL={adc:'ADC',lab:'LAB',adfa:'ADFA'};
+ const STAGE_LABEL={adc:'ADC/DVM',lab:'LAB',adfa:'ADFAD'};
  const PANEL_ID='ucvm-work-queue-panel';
  const BUTTON_ID='ucvm-work-queue-btn';
  const text=value=>String(value??'').trim();
@@ -90,7 +90,7 @@
    +`<div class="work-queue-item-head"><strong>${esc(heading)}</strong><span class="work-queue-pill ${esc(item.status)}">${status}</span></div>`
    +`<div class="work-queue-item-meta">${esc(when||'Schedule not set')}</div>`
    +`<div class="work-queue-item-missing">Missing: ${esc((item.missingLabels||[]).join(', ')||'—')}</div>`
-   +`<button type="button" class="btn btn-primary" data-work-open="${esc(item.sessionId)}" data-work-open-stage="${esc(item.stage)}"${item.status==='ready'?'':' disabled'}>Open Work</button>`
+   +`<button type="button" class="btn btn-primary" data-work-open="${esc(item.sessionId)}" data-work-open-stage="${esc(item.stage)}" data-work-open-date="${esc(text(session.date).slice(0,10))}"${item.status==='ready'?'':' disabled'}>Open Work</button>`
    +`</li>`;
  }
 
@@ -121,11 +121,11 @@
     if(close){closePanel();return}
     const open=target?.closest?.('[data-work-open]');
     if(!open||open.disabled)return;
-    const sessionId=text(open.dataset?.workOpen),stage=text(open.dataset?.workOpenStage);
+    const sessionId=text(open.dataset?.workOpen),stage=text(open.dataset?.workOpenStage),date=text(open.dataset?.workOpenDate).slice(0,10);
     if(!sessionId)return;
     // Opening real work closes the panel but never removes the button.
     closePanel();
-    if(typeof onOpen==='function')onOpen({sessionId,stage,role:currentRole});
+    if(typeof onOpen==='function')onOpen({sessionId,stage,date,role:currentRole});
    });
    host.appendChild(panel);
    return panel;
@@ -184,18 +184,22 @@
   };
   // Opening Work goes to the real Select Sessions context for the target session
   // instead of opening another read-only information modal.
-  const defaultOpen=async({sessionId,stage})=>{
+  const defaultOpen=async({sessionId,stage,date=''})=>{
    try{
+    // Resolve the date before entering the scoped editor. The queue already knows
+    // the session date, so pass it through; this lets the page reload a session
+    // that was evicted from its cache between render and click.
+    const session=(page.sessions()||[]).find(row=>String(row.id)===String(sessionId));
+    const targetDate=String(date||session?.date||'').slice(0,10);
     // The timetable page owns the scoped editor. Using its entry point means the
     // Work Queue reuses the real Select Sessions editor, and a role without
     // unrestricted selection (LAB) still reaches the session it owns.
     if(typeof page.openScopedEditor==='function'){
-     await page.openScopedEditor(sessionId,{stage});
+     await page.openScopedEditor(sessionId,{stage,date:targetDate});
      return;
     }
-    const session=(page.sessions()||[]).find(row=>String(row.id)===String(sessionId));
-    const date=String(session?.date||'').slice(0,10);
-    if(date&&typeof page.ensureSessionsForRange==='function')await page.ensureSessionsForRange(date,date);
+    const dateValue=targetDate;
+    if(dateValue&&typeof page.ensureSessionsForRange==='function')await page.ensureSessionsForRange(dateValue,dateValue);
     document.getElementById('cal-list-btn')?.click();
     const row=await waitFor(()=>document.querySelector(`[data-session-id="${String(sessionId).replace(/["\\]/g,'')}"]`));
     if(!row)return;
