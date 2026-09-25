@@ -247,11 +247,12 @@ A temporary beta may therefore be hybrid by domain while migration is in progres
 
 ```text
 Identity/profile      -> Azure SQL
-Session reads         -> Azure SQL
-Session writes        -> Firestore until accepted
+Session read slice    -> Azure SQL, read-only until SQL writes are implemented
 AFC                   -> Firestore until accepted
 DOE                   -> current approved path until accepted
 ```
+
+When the session read backend is `azure-sql`, session mutation controls must fail closed rather than write Firestore and then display stale SQL data. Firestore session editing remains available only when the session backend is explicitly configured as `firestore`. A later reviewed slice may add SQL session writes and then re-enable editing in Azure SQL mode.
 
 This supersedes the "no hybrid Azure release" restriction from the 2026-09-24 cutover design for the beta only.
 
@@ -452,6 +453,7 @@ It should implement only:
 - `GET /api/v1/me`;
 - `GET /api/v1/sessions`;
 - a frontend read adapter sufficient to prove timetable/session reads through Azure SQL;
+- an explicit read-only guard that disables session mutations while the session backend is `azure-sql`;
 - tests and beta-only deployment wiring.
 
 No AFC, workflow, DOE write migration, or mass Firestore removal belongs in the first implementation PR.
