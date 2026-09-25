@@ -875,11 +875,14 @@ Require `004_swa_beta_permissions.sql` to:
 python -m unittest tests.python.test_swa_beta_permissions_contract -v
 ```
 
-- [ ] **Step 3: Implement SQLCMD-variable permission script**
+- [ ] **Step 3: Implement the static permission script**
 
-Use a required SQLCMD variable `PawsSwaBetaPassword`, create the contained user only when absent, then:
+The SQL file assumes the fixed contained user already exists; the PowerShell operator script creates/rotates that user in memory so no password ever appears in a tracked SQL file.
 
 ```sql
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name=N'paws_swa_beta')
+    THROW 50001, 'Contained user paws_swa_beta must exist before permissions are applied.', 1;
+
 GRANT SELECT ON OBJECT::paws.UserProfile TO [paws_swa_beta];
 GRANT INSERT ON OBJECT::paws.UserProfile TO [paws_swa_beta];
 GRANT SELECT ON OBJECT::paws.Faculty TO [paws_swa_beta];
@@ -888,7 +891,7 @@ GRANT SELECT ON OBJECT::paws.vCalendarSession TO [paws_swa_beta];
 DENY SELECT, INSERT, UPDATE, DELETE ON SCHEMA::staging TO [paws_swa_beta];
 ```
 
-Do not grant UPDATE/DELETE for this read slice.
+Do not grant UPDATE/DELETE on `paws.*` for this read slice.
 
 - [ ] **Step 4: Write failing PowerShell config contract test**
 
@@ -906,21 +909,50 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\powershell\test_
 
 - [ ] **Step 6: Implement preview-first operator script**
 
-Sequence:
+Use the existing Azure SQL access helper already used by migration tooling for the operator connection. The apply path must create or rotate the contained user before executing the static grant file:
+
+```powershell
+$principalName = 'paws_swa_beta'
+$passwordPlain = Read-SecureSecretAsPlainText -Prompt 'Temporary beta SQL password'
+$escaped = $passwordPlain.Replace("'", "''")
+$userSql = @"
+IF EXISTS (SELECT 1 FROM sys.database_principals WHERE name=N'$principalName')
+    ALTER USER [$principalName] WITH PASSWORD = N'$escaped';
+ELSE
+    CREATE USER [$principalName] WITH PASSWORD = N'$escaped';
+"@
+
+Invoke-PawsSqlNonQuery -Connection $operatorConnection -Sql $userSql
+Invoke-PawsSqlFile -Connection $operatorConnection -Path $permissionsPath
+
+$connectionString = "Server=tcp:$SqlServer,1433;Initial Catalog=$Database;Persist Security Info=False;User ID=$principalName;Password=$passwordPlain;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+
+& $az staticwebapp appsettings set `
+  --name $StaticWebAppName `
+  --resource-group $ResourceGroup `
+  --setting-names `
+    "PAWS_SQL_CONNECTION_STRING=$connectionString" `
+    'PAWS_SQL_READS=on' `
+    'PAWS_SQL_AUTH=on' `
+    "FIREBASE_PROJECT_ID=$FirebaseProjectId" `
+    "FIREBASE_SERVICE_ACCOUNT_JSON=$firebaseServiceAccountJson" | Out-Null
+
+$passwordPlain = $null
+$connectionString = $null
+$firebaseServiceAccountJson = $null
+```
+
+The final implementation may use helper names already present in `tools/azure_sql_migration/sql_access.ps1`; if those helpers have different exact names, use those existing names rather than introducing duplicate connection logic.
+
+Before this apply block, the script must:
 1. pin current subscription/resource group/SWA/SQL names;
 2. verify Azure CLI login;
 3. verify exact target SWA/database;
-4. preview only resource names and required setting names;
-5. apply mode reads Firebase service-account JSON from operator-supplied local file;
-6. verify `project_id`;
-7. securely prompt/generate SQL password in memory;
-8. apply `004_swa_beta_permissions.sql` using approved DB operator identity;
-9. build SQL connection string in memory;
-10. set five SWA application settings;
-11. clear secret variables;
-12. verify only setting names are present.
+4. make `-Preview` output only resource names and the five setting names;
+5. read Firebase service-account JSON from an operator-supplied local file;
+6. verify its `project_id` equals `FIREBASE_PROJECT_ID`.
 
-Never save/print either secret.
+Never save or print either secret.
 
 - [ ] **Step 7: Document operator order**
 
