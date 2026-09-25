@@ -1,49 +1,17 @@
 'use strict';
 
-const DEFAULT_SERVER='ucvm-teaching-lab-xz-20260911.database.windows.net';
-const DEFAULT_DATABASE='teaching-assignment-lab';
-const SQL_RESOURCE='https://database.windows.net/';
+const {DEFAULT_SERVER,DEFAULT_DATABASE,SQL_RESOURCE,appServiceManagedIdentityToken,createSqlPoolRunner}=require('./sql-connection.js');
 
 const text=value=>String(value??'').trim();
 const validDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(text(value));
 
-async function appServiceManagedIdentityToken({env=process.env,fetchImpl=globalThis.fetch}={}){
-  const endpoint=text(env.IDENTITY_ENDPOINT),header=text(env.IDENTITY_HEADER);
-  if(!endpoint||!header||typeof fetchImpl!=='function'){
-    throw Object.assign(Error('Azure App Service managed identity is not available.'),{code:'SQL_IDENTITY_UNAVAILABLE',statusCode:503});
-  }
-  const url=new URL(endpoint);
-  url.searchParams.set('resource',SQL_RESOURCE);
-  url.searchParams.set('api-version','2019-08-01');
-  const response=await fetchImpl(url,{method:'GET',headers:{'X-IDENTITY-HEADER':header}});
-  if(!response.ok){
-    throw Object.assign(Error('Azure managed identity token request failed.'),{code:'SQL_IDENTITY_TOKEN_FAILED',statusCode:503});
-  }
-  const payload=await response.json();
-  const token=text(payload?.access_token);
-  if(!token)throw Object.assign(Error('Azure managed identity returned no SQL access token.'),{code:'SQL_IDENTITY_TOKEN_MISSING',statusCode:503});
-  return token;
-}
-
-function createSqlSessionRepository({sqlModule=null,tokenProvider=appServiceManagedIdentityToken,server=DEFAULT_SERVER,database=DEFAULT_DATABASE}={}){
+function createSqlSessionRepository({poolRunner=null,sqlModule=null,tokenProvider=appServiceManagedIdentityToken,connectionString='',server=DEFAULT_SERVER,database=DEFAULT_DATABASE}={}){
   const serverName=text(server)||DEFAULT_SERVER,databaseName=text(database)||DEFAULT_DATABASE;
-  async function withPool(work){
-    const sql=sqlModule||require('mssql');
-    const token=await tokenProvider();
-    const pool=new sql.ConnectionPool({
-      server:serverName,
-      database:databaseName,
-      port:1433,
-      options:{encrypt:true,trustServerCertificate:false,enableArithAbort:true},
-      authentication:{type:'azure-active-directory-access-token',options:{token}}
-    });
-    await pool.connect();
-    try{return await work(pool,sql)}finally{try{await pool.close()}catch{}}
-  }
+  const withPool=poolRunner||createSqlPoolRunner({sqlModule,tokenProvider,connectionString,server:serverName,database:databaseName});
 
   async function ping(){
     return withPool(async pool=>{
-      await pool.request().query('SELECT TOP (1) 1 AS ok FROM paws.Session;');
+      await pool.request().query('SELECT TOP (1) 1 AS ok FROM paws.vCalendarSession;');
       return true;
     });
   }

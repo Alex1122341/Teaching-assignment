@@ -11,7 +11,9 @@ on:
       - "tools/reset_paws_azure_sql_exact.ps1"
       - "tools/load_paws_azure_sql_empty.ps1"
       - "tools/bootstrap_paws_azure_runtime.ps1"
+      - "tools/configure_paws_swa_beta.ps1"
       - "tests/python/test_azure_sql_*.py"
+      - "tests/python/test_swa_beta_permissions_contract.py"
       - "tests/powershell/**"
       - "tools/requirements-azure-sql-migration.txt"
       - "docs/azure-sql-migration.md"
@@ -28,6 +30,7 @@ on:
       - "tools/reset_paws_azure_sql_exact.ps1"
       - "tools/load_paws_azure_sql_empty.ps1"
       - "tests/python/test_azure_sql_*.py"
+      - "tests/python/test_swa_beta_permissions_contract.py"
       - "tests/powershell/**"
       - "tools/requirements-azure-sql-migration.txt"
       - "docs/azure-sql-migration.md"
@@ -56,7 +59,8 @@ jobs:
             'tools/plan_paws_azure_sql_reset.ps1',
             'tools/reset_paws_azure_sql_exact.ps1',
             'tools/load_paws_azure_sql_empty.ps1',
-            'tools/bootstrap_paws_azure_runtime.ps1'
+            'tools/bootstrap_paws_azure_runtime.ps1',
+            'tools/configure_paws_swa_beta.ps1'
           )) {
             $tokens = $null
             $errors = $null
@@ -77,3 +81,8 @@ jobs:
       - name: Run PowerShell loader helper regression test
         shell: pwsh
         run: ./tests/powershell/test_azure_sql_loader_helpers.ps1
+      - name: Run SWA beta configuration contract test
+        shell: pwsh
+        run: ./tests/powershell/test_swa_beta_config_contract.ps1
+      - name: Run SWA beta SQL permission contract test
+        run: python -m unittest tests.python.test_swa_beta_permissions_contract -v

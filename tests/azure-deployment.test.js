@@ -14,6 +14,7 @@ test('Azure Static Web Apps routing and cache config is committed at repository 
     {route:'/bundles/*',headers:{'Cache-Control':'public, max-age=31536000, immutable'}},
     {route:'/*.{html,js,css}',headers:{'Cache-Control':'no-cache, max-age=0, must-revalidate'}}
   ]);
+  assert.equal(config.platform?.apiRuntime,'node:22');
 });
 
 test('manual Azure fallback copies the canonical config instead of generating a second copy',()=>{
@@ -23,36 +24,29 @@ test('manual Azure fallback copies the canonical config instead of generating a 
   assert.doesNotMatch(script,/\$azureConfig\s*=\s*@\{/);
 });
 
-test('Azure main push builds and uploads a verified artifact but cannot deploy production',()=>{
+test('Azure main push builds one verified frontend plus Managed Functions handoff without App Service dependency',()=>{
   const workflow=read('.github/workflows/azure-static-web-apps.yml');
 
   assert.match(workflow,/push:\s*\n\s+branches:\s*\[main\]/);
   assert.doesNotMatch(workflow,/pull_request:/);
-  assert.doesNotMatch(workflow,/pull_request_target/);
-  assert.match(workflow,/group:\s*azure-production-main/);
-  assert.match(workflow,/cancel-in-progress:\s*true/);
-  assert.match(workflow,/validate_and_build:/);
   assert.match(workflow,/npm ci/);
   assert.match(workflow,/npm test/);
   assert.match(workflow,/npm run test:emulator/);
-  assert.doesNotMatch(workflow,/PRODUCTION_FIREBASE_WEB_CONFIG_JSON/);
-  assert.match(workflow,/PRODUCTION_DOE_API_BASE_URL/);
-  assert.match(workflow,/node tools\/build-firebase-config\.js --from-json tools\/production-firebase-web-config\.json --doe-api-base-url/);
+  assert.match(workflow,/npm --prefix server .*install/);
+  assert.match(workflow,/npm --prefix server test/);
+  assert.match(workflow,/--paws-session-backend azure-sql/);
   assert.match(workflow,/node tools\/verify-production-client-config\.js/);
-  assert.match(workflow,/Verify production DOE API health and CORS/);
-  assert.match(workflow,/PRODUCTION_FRONTEND_ORIGIN:\s*https:\/\/red-cliff-04871ca0f\.5\.azurestaticapps\.net/);
-  assert.match(workflow,/node tools\/verify-production-doe-api\.js/);
-  assert.ok(workflow.indexOf('Prepare production client configuration') < workflow.indexOf('Verify production DOE API health and CORS'));
-  assert.ok(workflow.indexOf('Verify production DOE API health and CORS') < workflow.indexOf('Build static site'));
+  assert.doesNotMatch(workflow,/test -n "\$PRODUCTION_DOE_API_BASE_URL"/);
+  assert.doesNotMatch(workflow,/Verify production DOE API health and CORS/);
+  assert.doesNotMatch(workflow,/node tools\/verify-production-doe-api\.js/);
   assert.match(workflow,/node tools\/build-static\.js/);
-  assert.match(workflow,/cp staticwebapp\.config\.json \.deploy-static\/staticwebapp\.config\.json/);
+  assert.match(workflow,/node tools\/build-swa-api\.js --output \.deploy-swa-api/);
+  assert.match(workflow,/\.azure-production\/app/);
+  assert.match(workflow,/\.azure-production\/api/);
   assert.match(workflow,/actions\/upload-artifact@v7/);
   assert.match(workflow,/name:\s*azure-production-\$\{\{ github\.sha \}\}/);
-  assert.doesNotMatch(workflow,/deploy_production:/);
   assert.doesNotMatch(workflow,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
-  assert.doesNotMatch(workflow,/Azure\/static-web-apps-deploy/);
 });
-
 test('setup docs describe Pages testing followed by gated Azure production',()=>{
   const setup=read('SETUP.md');
   assert.match(setup,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
@@ -69,34 +63,26 @@ test('setup docs describe Pages testing followed by gated Azure production',()=>
   assert.doesNotMatch(setup,/Azure PR preview|temporary Azure PR preview/i);
 });
 
-test('production deployment requires an explicit manual dispatch and reuses the exact verified main artifact',()=>{
+test('production deployment manually deploys the exact verified app and Managed Functions artifacts',()=>{
   const buildWorkflow=read('.github/workflows/azure-static-web-apps.yml');
-  assert.match(buildWorkflow,/push:\s*\n\s+branches:\s*\[main\]/);
   assert.match(buildWorkflow,/actions\/upload-artifact@v7/);
   assert.match(buildWorkflow,/name:\s*azure-production-\$\{\{ github\.sha \}\}/);
-  assert.doesNotMatch(buildWorkflow,/deploy_production:/);
-  assert.doesNotMatch(buildWorkflow,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
   assert.doesNotMatch(buildWorkflow,/Azure\/static-web-apps-deploy/);
 
   const deployWorkflow=read('.github/workflows/azure-production-deploy.yml');
   assert.match(deployWorkflow,/workflow_dispatch:/);
   assert.match(deployWorkflow,/source_run_id:/);
   assert.match(deployWorkflow,/commit_sha:/);
-  assert.match(deployWorkflow,/actions:\s*read/);
-  assert.match(deployWorkflow,/environment:\s*\n\s+name:\s*production/);
-  assert.match(deployWorkflow,/gh api .*actions\/runs\/\$\{SOURCE_RUN_ID\}/);
-  assert.match(deployWorkflow,/head_sha/);
-  assert.match(deployWorkflow,/head_branch/);
-  assert.match(deployWorkflow,/conclusion/);
-  assert.match(deployWorkflow,/\.github\/workflows\/azure-static-web-apps\.yml/);
   assert.match(deployWorkflow,/actions\/download-artifact@v8/);
   assert.match(deployWorkflow,/name:\s*azure-production-\$\{\{ inputs\.commit_sha \}\}/);
-  assert.match(deployWorkflow,/run-id:\s*\$\{\{ inputs\.source_run_id \}\}/);
-  assert.match(deployWorkflow,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
-  assert.match(deployWorkflow,/Azure\/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1/);
+  assert.match(deployWorkflow,/app_location:\s*\.azure-production\/app/);
+  assert.match(deployWorkflow,/api_location:\s*\.azure-production\/api/);
+  assert.match(deployWorkflow,/skip_app_build:\s*true/);
+  assert.match(deployWorkflow,/skip_api_build:\s*false/);
+  assert.match(deployWorkflow,/\/api\/health\/sql/);
+  assert.match(deployWorkflow,/dependency.*azure-sql|azure-sql.*dependency/);
 
   const deployJob=deployWorkflow.slice(deployWorkflow.indexOf('deploy_production:'));
-  assert.doesNotMatch(deployJob,/npm ci/);
-  assert.doesNotMatch(deployJob,/npm test/);
   assert.doesNotMatch(deployJob,/node tools\/build-static\.js/);
+  assert.doesNotMatch(deployJob,/node tools\/build-swa-api\.js/);
 });

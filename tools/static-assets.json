@@ -29,6 +29,7 @@
   "index-maintenance.js",
   "faculty-access.css",
   "firebase-config.js",
+  "paws-data-client.js",
   "faculty-access.js",
   "session-workflow.js",
   "work-queue.js",

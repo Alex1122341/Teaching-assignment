@@ -40,8 +40,17 @@ function normalizeDoeApiBaseUrl(value) {
   return text;
 }
 
-function render(config,{doeApiBaseUrl=''}={}) {
+function normalizePawsSessionBackend(value) {
+  const backend = String(value || '').trim().toLowerCase() || 'firestore';
+  if (!['firestore','azure-sql'].includes(backend)) {
+    throw new Error('PAWS session backend must be either "firestore" or "azure-sql".');
+  }
+  return backend;
+}
+
+function render(config,{doeApiBaseUrl='',pawsSessionBackend='firestore'}={}) {
   const apiBase = normalizeDoeApiBaseUrl(doeApiBaseUrl);
+  const sessionBackend = normalizePawsSessionBackend(pawsSessionBackend);
   return `'use strict';
 // GENERATED FILE - do not edit by hand.
 // Regenerate with: node tools/build-firebase-config.js --project <project-id>
@@ -52,6 +61,7 @@ function render(config,{doeApiBaseUrl=''}={}) {
 
   const config = ${JSON.stringify(config, null, 2)};
   const doeApiBaseUrl = ${JSON.stringify(apiBase)};
+  const pawsSessionBackend = ${JSON.stringify(sessionBackend)};
 
   const host = String((root.location && root.location.hostname) || '').toLowerCase();
   const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '' || host === '0.0.0.0';
@@ -60,6 +70,7 @@ function render(config,{doeApiBaseUrl=''}={}) {
   root.UCVM_FIREBASE_EMULATOR = isLocal;
   root.UCVM_FIREBASE_PROJECT_ID = config.projectId;
   root.UCVM_DOE_API_BASE_URL = doeApiBaseUrl;
+  root.UCVM_PAWS_SESSION_BACKEND = pawsSessionBackend;
 })(typeof window !== 'undefined' ? window : null);
 `;
 }
@@ -100,14 +111,16 @@ function generate({args=process.argv.slice(2),env=process.env}={}) {
   }
 
   const doeApiBaseUrl = normalizeDoeApiBaseUrl(argValue(args,'--doe-api-base-url') || env.DOE_API_BASE_URL || '');
-  return {config,doeApiBaseUrl};
+  const pawsSessionBackend = normalizePawsSessionBackend(argValue(args,'--paws-session-backend') || env.PAWS_SESSION_BACKEND || 'firestore');
+  return {config,doeApiBaseUrl,pawsSessionBackend};
 }
 
 function main() {
-  const {config,doeApiBaseUrl} = generate();
-  fs.writeFileSync(target, render(config,{doeApiBaseUrl}));
+  const {config,doeApiBaseUrl,pawsSessionBackend} = generate();
+  fs.writeFileSync(target, render(config,{doeApiBaseUrl,pawsSessionBackend}));
   console.log(`Wrote ${path.relative(root, target)} for project "${config.projectId}".`);
   console.log(`DOE API endpoint: ${doeApiBaseUrl ? 'configured' : 'not configured'}.`);
+  console.log(`PAWS session backend: ${pawsSessionBackend}.`);
   console.log('Configuration values were not printed.');
 }
 
@@ -119,4 +132,4 @@ if (require.main === module) {
   }
 }
 
-module.exports={argValue,normalizeDoeApiBaseUrl,render,normalize,generate,main};
+module.exports={argValue,normalizeDoeApiBaseUrl,normalizePawsSessionBackend,render,normalize,generate,main};

@@ -1,22 +1,12 @@
 'use strict';
 
-const {DEFAULT_SERVER,DEFAULT_DATABASE,appServiceManagedIdentityToken}=require('./sql-session-repository.js');
+const {DEFAULT_SERVER,DEFAULT_DATABASE,appServiceManagedIdentityToken,createSqlPoolRunner}=require('./sql-connection.js');
 const text=value=>String(value??'').trim();
 const email=value=>text(value).toLowerCase();
 
-function createSqlUserRepository({sqlModule=null,tokenProvider=appServiceManagedIdentityToken,server=DEFAULT_SERVER,database=DEFAULT_DATABASE}={}){
+function createSqlUserRepository({poolRunner=null,sqlModule=null,tokenProvider=appServiceManagedIdentityToken,connectionString='',server=DEFAULT_SERVER,database=DEFAULT_DATABASE}={}){
   const serverName=text(server)||DEFAULT_SERVER,databaseName=text(database)||DEFAULT_DATABASE;
-  async function withPool(work){
-    const sql=sqlModule||require('mssql');
-    const token=await tokenProvider();
-    const pool=new sql.ConnectionPool({
-      server:serverName,database:databaseName,port:1433,
-      options:{encrypt:true,trustServerCertificate:false,enableArithAbort:true},
-      authentication:{type:'azure-active-directory-access-token',options:{token}}
-    });
-    await pool.connect();
-    try{return await work(pool,sql)}finally{try{await pool.close()}catch{}}
-  }
+  const withPool=poolRunner||createSqlPoolRunner({sqlModule,tokenProvider,connectionString,server:serverName,database:databaseName});
   const map=row=>row?{
     uid:text(row.FirebaseUid),email:email(row.Email),name:text(row.DisplayName),role:text(row.BaseRole).toLowerCase(),
     facultyId:text(row.FacultyId),active:Boolean(row.Active),mustChangePassword:Boolean(row.MustChangePassword),
