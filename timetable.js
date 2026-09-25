@@ -1330,8 +1330,9 @@
       $('detail-close').onclick=closeModal;
       return;
     }
-    const edit = !isReadOnlySynthetic(s)&&canEdit() ? `<button class="btn btn-primary" id="detail-edit">Edit Session</button>` : '';
-    const swap = !isReadOnlySynthetic(s)&&isAdmin() ? `<button class="btn btn-primary" id="detail-swap">SWAP Faculty</button>` : '';
+    const sessionWritesEnabled=sessionMutationsAllowed();
+    const edit = sessionWritesEnabled&&!isReadOnlySynthetic(s)&&canEdit() ? `<button class="btn btn-primary" id="detail-edit">Edit Session</button>` : '';
+    const swap = sessionWritesEnabled&&!isReadOnlySynthetic(s)&&isAdmin() ? `<button class="btn btn-primary" id="detail-swap">SWAP Faculty</button>` : '';
     const labDetails = Array.isArray(s.labDetails) && s.labDetails.length > 1
       ? `<div class="login-cheatsheet"><strong>Lab stations / activities</strong><br><br>${s.labDetails.map(d => `<div style="margin-bottom:8px"><strong>${escapeHtml(d.topic)}</strong>${d.instructor ? `<br>${escapeHtml(d.instructor)}` : ''}${d.room ? `<br><span style="color:var(--text-3)">${escapeHtml(d.room)}</span>` : ''}</div>`).join('')}</div>`
       : '';
