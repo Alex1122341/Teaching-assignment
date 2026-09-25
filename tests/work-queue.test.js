@@ -137,8 +137,8 @@ test('Open Work closes the panel and reports the target session and stage',()=>{
  controller.open();
  const button=controller.panel.children.find(child=>child.dataset?.workOpen!==undefined&&child.dataset.workOpen!=='');
  // The panel body is rendered as markup; simulate the delegated click contract.
- controller.panel.listeners.click[0]({target:{closest:selector=>selector==='[data-work-open]'?{disabled:false,dataset:{workOpen:'s-lec',workOpenStage:'adc'}}:null}});
- assert.deepEqual(JSON.parse(JSON.stringify(opened)),[{sessionId:'s-lec',stage:'adc',role:'adc'}]);
+ controller.panel.listeners.click[0]({target:{closest:selector=>selector==='[data-work-open]'?{disabled:false,dataset:{workOpen:'s-lec',workOpenStage:'adc',workOpenDate:'2027-01-11'}}:null}});
+ assert.deepEqual(JSON.parse(JSON.stringify(opened)),[{sessionId:'s-lec',stage:'adc',date:'2027-01-11',role:'adc'}]);
  assert.equal(controller.isOpen(),false);
  assert.equal(controller.isButtonMounted(),true);
  assert.equal(button===undefined||true,true);

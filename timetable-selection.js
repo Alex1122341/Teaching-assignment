@@ -6,6 +6,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
  const isReadOnlySynthetic=row=>Boolean(row?.isCcc||row?.isUniversityClosure);
  const facultyId=assignment=>text(assignment?.facultyId||assignment?.ucid);
  const facultyIds=row=>[...new Set((Array.isArray(row?.facultyIds)&&row.facultyIds.length?row.facultyIds:(row?.assignments||[]).map(facultyId)).map(text).filter(Boolean))];
+ const relatedFacultyIds=(...rows)=>[...new Set(rows.flatMap(row=>facultyIds(row||{})))].sort();
  const clone=value=>JSON.parse(JSON.stringify(value??null));
  const canonical=value=>{if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])]));return value};
  const equal=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
@@ -136,7 +137,7 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
    }
    if(equal(before,after))continue;
    updates.push({id:text(row.id),data,after});
-   logs.push({sessionId:text(row.id),action:'batch_update',changedBy:text(actor?.uid),changedByEmail:text(actor?.email),changedByName:text(actor?.name),changedAt:timestamp,before,after,changes:auditChanges(before,after),course:after.course,date:after.date,topic:after.topic,rowNumber:index+1});
+   logs.push({sessionId:text(row.id),action:'batch_update',relatedFacultyIds:relatedFacultyIds(before,after),changedBy:text(actor?.uid),changedByEmail:text(actor?.email),changedByName:text(actor?.name),changedAt:timestamp,before,after,changes:auditChanges(before,after),course:after.course,date:after.date,topic:after.topic,rowNumber:index+1});
   }
   return{updates,logs,errors:[]};
  }
@@ -291,5 +292,5 @@ window.UCVM_TIMETABLE_SELECTION=(()=>{
   }
   return Object.freeze({prepareSession,academicYearForSession,bundleForYear});
  }
- return{create,createViewFlow,editPolicy,validateRow,selectedRows,planChanges,commitPlan,createDoeAdapter,createDoeApiAdapter,academicYearForSession};
+ return{create,createViewFlow,editPolicy,validateRow,selectedRows,planChanges,commitPlan,createDoeAdapter,createDoeApiAdapter,academicYearForSession,relatedFacultyIds};
 })();
