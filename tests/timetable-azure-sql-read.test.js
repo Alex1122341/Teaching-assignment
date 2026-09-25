@@ -72,3 +72,13 @@ test('Faculty-shaped Azure SQL reads trust the server-side actor scope for My Ti
   assert.match(body,/roleIsFaculty\(currentUser\)/);
   assert.match(body,/return true/);
 });
+
+
+test('Azure SQL read-only mode hides session-detail edit and swap controls',()=>{
+  const start=source.indexOf('function openSessionDetail');
+  assert.ok(start>=0,'openSessionDetail must exist');
+  const body=source.slice(start,start+2200);
+  assert.match(body,/sessionWritesEnabled\s*=\s*sessionMutationsAllowed\(\)/);
+  assert.match(body,/const edit\s*=\s*sessionWritesEnabled\s*&&/);
+  assert.match(body,/const swap\s*=\s*sessionWritesEnabled\s*&&/);
+});
