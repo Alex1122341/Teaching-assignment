@@ -133,11 +133,15 @@ For the beta only, use a dedicated least-privilege Azure SQL credential stored i
 Recommended configuration contract:
 
 ```text
-PAWS_SQL_CONNECTION_STRING=<server-side only>
+PAWS_SQL_CONNECTION_STRING
 PAWS_SQL_READS=on
 PAWS_SQL_AUTH=on
-FIREBASE_PROJECT_ID=<approved project>
+FIREBASE_PROJECT_ID
 ```
+
+`PAWS_SQL_CONNECTION_STRING` is configured only in Static Web Apps server-side Application Settings and its secret value is never documented in the repository.
+
+`FIREBASE_PROJECT_ID` must exactly match the Firebase project already configured in the accepted beta frontend build. The implementation must derive/verify that project from the existing beta Firebase configuration and fail closed on mismatch rather than silently switching authentication projects.
 
 Rules:
 - never emit the SQL connection string into frontend JavaScript;
