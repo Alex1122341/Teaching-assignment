@@ -80,7 +80,10 @@ test('submit writes public workflow approvals optional private and audit in one 
   assert.ok(writes.some(w=>w.path===`change_request_workflow/${id}`));
   assert.ok(writes.some(w=>w.path===`change_request_approvals/${id}_adfa`));
   assert.ok(writes.some(w=>w.path===`change_request_private/${id}`));
-  assert.ok(writes.some(w=>w.path.startsWith('change_request_audit/')));
+  const auditWrite=writes.find(w=>w.path.startsWith('change_request_audit/'));
+  assert.ok(auditWrite);
+  assert.equal(auditWrite.data.requesterUid,'u1');
+  assert.equal(auditWrite.data.sessionId,'s1');
   const publicWrite=writes.find(w=>w.path===`change_requests/${id}`).data;
   assert.doesNotMatch(JSON.stringify(publicWrite),/1001|opaque-k2|facultyId|candidateKey/);
 });

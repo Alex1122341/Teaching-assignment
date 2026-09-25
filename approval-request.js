@@ -119,7 +119,7 @@ window.UCVM_APPROVAL_REQUEST=(()=>{
     batch.set(db.collection('change_request_workflow').doc(requestRef.id),records.workflow);
     for(const approval of records.approvals)batch.set(db.collection('change_request_approvals').doc(approval.id),approval);
     if(records.privateRecord)batch.set(db.collection('change_request_private').doc(requestRef.id),records.privateRecord);
-    batch.set(db.collection('change_request_audit').doc(),{requestId:requestRef.id,event:'request_submitted',revision:1,status:'pending',changedBy:text(requester.uid),changedByName:text(requester.name),changedAt:now});
+    batch.set(db.collection('change_request_audit').doc(),{requestId:requestRef.id,requesterUid:text(records.publicRecord.requesterUid),sessionId:text(records.publicRecord.sessionId),event:'request_submitted',revision:1,status:'pending',changedBy:text(requester.uid),changedByName:text(requester.name),changedAt:now});
     const notifications=window.UCVM_WORKFLOW_NOTIFICATIONS;
     if(notifications)for(const office of records.workflow.requiredOffices)notifications.emitBatch(batch,db,{kind:'request_assigned',office,request:{id:requestRef.id,...records.publicRecord},session:{id:records.publicRecord.sessionId,...records.publicRecord.basePublic,...records.publicRecord.patchPublic}},now);
     await batch.commit();

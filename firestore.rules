@@ -8,7 +8,20 @@ service cloud.firestore {
   function admin(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
   function general(){return ready() && profile().role in ['developer','owner','adfa_general'];}
   function historyAll(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
-  function historyReader(d){return historyAll() || (ready() && !(profile().role in ['adc','lab']) && d.changedBy == request.auth.uid);}
+  function historyActor(d){return ready() && d.keys().hasAny(['changedBy']) && d.changedBy == request.auth.uid;}
+  function linkedFacultyHistory(d){let p=profile();let fid=p.keys().hasAny(['facultyId']) ? p.facultyId : '';let direct=d.keys().hasAny(['facultyId']) ? d.facultyId : '';let related=d.keys().hasAny(['relatedFacultyIds']) ? d.relatedFacultyIds : [];return ready() && fid is string && fid.size() > 0 && (direct == fid || fid in related);}
+  function safeOfficeSessionHistory(d){let instructors=d.keys().hasAny(['instructors']) ? d.instructors : [];return d.keys().hasOnly(['action','override','requestId','sessionId','course','date','topic','instructors','before','after','rowNumber','changes','changedBy','changedByName','changedByEmail','changedAt'])
+   && instructors is list && instructors.size() == 0
+   && (!d.keys().hasAny(['before']) || (d.before is map && !d.before.keys().hasAny(['studentIds','studentNames','roster','rosters','assignments','facultyIds'])))
+   && (!d.keys().hasAny(['after']) || (d.after is map && !d.after.keys().hasAny(['studentIds','studentNames','roster','rosters','assignments','facultyIds'])));}
+  function safeWorkflowHistory(d){let rid=d.keys().hasAny(['requestId']) ? d.requestId : '';let requester=d.keys().hasAny(['requesterUid']) ? d.requesterUid : '';let sid=d.keys().hasAny(['sessionId']) ? d.sessionId : '';let event=d.keys().hasAny(['event']) ? d.event : '';let fields=d.keys().hasAny(['changedFields']) ? d.changedFields : [];return d.keys().hasOnly(['requestId','requesterUid','sessionId','event','revision','status','office','message','changedFields','changedBy','changedByName','changedAt'])
+   && rid is string && requester is string && sid is string && event is string && fields is list;}
+  function workflowHistoryReader(d){let p=profile();let requester=d.keys().hasAny(['requesterUid']) ? d.requesterUid : '';let sid=d.keys().hasAny(['sessionId']) ? d.sessionId : '';let fid=p.keys().hasAny(['facultyId']) ? p.facultyId : '';let currentFacultyIds=(sid is string && sid.size() > 0 && exists(sessionPath(sid))) ? get(sessionPath(sid)).data.facultyIds : [];return historyAll() || (safeWorkflowHistory(d) && ready() && (historyActor(d) || requester == request.auth.uid || (!restrictedOffice() && fid is string && fid.size() > 0 && currentFacultyIds is list && fid in currentFacultyIds)));}
+  function sessionHistoryReader(d){let p=profile();let sid=d.keys().hasAny(['sessionId']) ? d.sessionId : '';let fid=p.keys().hasAny(['facultyId']) ? p.facultyId : '';let actorAllowed=historyActor(d) && (!restrictedOffice() || safeOfficeSessionHistory(d));let currentFacultyIds=(sid is string && sid.size() > 0 && exists(sessionPath(sid))) ? get(sessionPath(sid)).data.facultyIds : [];return historyAll() || actorAllowed || linkedFacultyHistory(d) || (ready() && fid is string && fid.size() > 0 && currentFacultyIds is list && fid in currentFacultyIds);}
+  function facultyHistoryReader(d){return historyAll() || (!restrictedOffice() && (historyActor(d) || linkedFacultyHistory(d)));}
+  function accountHistoryReader(d){let target=d.keys().hasAny(['targetUid']) ? d.targetUid : '';return historyAll() || (!restrictedOffice() && (historyActor(d) || (ready() && target == request.auth.uid)));}
+  function afcHistoryReader(d){let actor=d.keys().hasAny(['changedBy']) ? d.changedBy : '';let requester=d.keys().hasAny(['requesterUid']) ? d.requesterUid : '';let reportTo=d.keys().hasAny(['reportToUid']) ? d.reportToUid : '';return historyAll() || (!restrictedOffice() && ready() && (actor == request.auth.uid || requester == request.auth.uid || reportTo == request.auth.uid));}
+  function historyReader(d){return historyAll() || (!restrictedOffice() && historyActor(d));}
   function hicc(){return ready() && profile().role == 'hicc';}
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
   function explicitRole(r){return r in ['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
@@ -110,10 +123,11 @@ service cloud.firestore {
    && changed.hasOnly(['status','decidedBy','decidedByName','decidedAt','pushBackReason','updatedAt']) && d.status in ['approved','push_back','rejected'] && d.decidedBy == request.auth.uid && d.decidedAt == request.time && d.updatedAt == request.time
    && ((d.status == 'push_back' && d.pushBackReason.size() > 0 && d.pushBackReason.size() <= 1000) || (d.status != 'push_back' && d.pushBackReason == '')) && officeDecisionParentMatches(parentBefore,parentAfter,d) && (d.status != 'approved' || approvalOrderSatisfied(d.requestId,actorOffice));}
   function validOfficeApprovalCancel(id,d,actorOffice){let parentAfter=getAfter(requestPublicPath(d.requestId)).data;let changed=d.diff(resource.data).affectedKeys();return resource.data.office != actorOffice && resource.data.status in ['pending','push_back'] && d.status == 'cancelled' && changed.hasOnly(['status','updatedAt']) && d.updatedAt == request.time && parentAfter.status == 'rejected' && getAfter(requestApprovalPath(d.requestId,actorOffice)).data.status == 'rejected';}
-  // Approval stages are strictly serial: ADC -> LAB -> ADFA. Approving is only
-  // allowed once every earlier required office has already approved. Reject and
-  // push_back are deliberately not gated so an office can still return work.
-  function approvalOrderSatisfied(requestId,actorOffice){let workflow=getAfter(requestWorkflowPath(requestId)).data;let adcReady=!('adc' in workflow.requiredOffices) || actorOffice == 'adc' || getAfter(requestApprovalPath(requestId,'adc')).data.status == 'approved';let labReady=!('lab' in workflow.requiredOffices) || actorOffice in ['adc','lab'] || getAfter(requestApprovalPath(requestId,'lab')).data.status == 'approved';return adcReady && labReady;}
+  // ADC and LAB own independent public scopes and may approve in parallel.
+  // ADFA is the dependent/final stage: when it is the actor, every required
+  // ADC/LAB approval must already be complete. Reject and push_back are never
+  // blocked by this dependency.
+  function approvalOrderSatisfied(requestId,actorOffice){let workflow=getAfter(requestWorkflowPath(requestId)).data;let adcReady=actorOffice != 'adfa' || !('adc' in workflow.requiredOffices) || getAfter(requestApprovalPath(requestId,'adc')).data.status == 'approved';let labReady=actorOffice != 'adfa' || !('lab' in workflow.requiredOffices) || getAfter(requestApprovalPath(requestId,'lab')).data.status == 'approved';return adcReady && labReady;}
   function validRequesterApprovalResubmitUpdate(id,d,parentBefore,parentAfter,changed){let oldWorkflow=get(requestWorkflowPath(d.requestId)).data;let newWorkflow=getAfter(requestWorkflowPath(d.requestId)).data;return d.status == 'pending'
    ? (d.requestId == resource.data.requestId && d.office == resource.data.office && d.revision == parentAfter.revision && approvalMatchesWorkflow(id,d,newWorkflow) && d.decidedBy == '' && d.decidedByName == '' && d.decidedAt == null && d.pushBackReason == '' && d.updatedAt == request.time
       && (officeReturned(parentBefore,oldWorkflow,d.office) || !(d.office in oldWorkflow.requiredOffices) || (d.office == 'adfa' && oldWorkflow.hasFacultyChange == true && resubmitScheduleChanged(parentBefore,parentAfter))))
@@ -184,8 +198,8 @@ service cloud.firestore {
    && sourceMatchesPublicPatch(resource.data,request.resource.data,parentBefore) && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && calendarMatchesSourceAfter(id);}
   function routedSessionApply(id){let rid=request.resource.data.get('approvalRequestId','');return teachingWritesOpen() && rid is string && rid.size() > 0 && routedSessionApplyFor(id,rid);}
   function validRoutedAuditCreate(){let d=request.resource.data;let parent=getAfter(requestPublicPath(d.requestId)).data;return routedRequest(parent)
-   && d.keys().hasOnly(['requestId','event','revision','status','office','message','changedFields','changedBy','changedByName','changedAt'])
-   && d.requestId is string && d.requestId.size() > 0 && d.revision is int && d.changedBy == request.auth.uid && d.changedByName is string && d.changedAt == request.time
+   && d.keys().hasOnly(['requestId','requesterUid','sessionId','event','revision','status','office','message','changedFields','changedBy','changedByName','changedAt'])
+   && d.requestId is string && d.requestId.size() > 0 && d.requesterUid == parent.requesterUid && d.sessionId == parent.sessionId && d.revision is int && d.changedBy == request.auth.uid && d.changedByName is string && d.changedAt == request.time
    && d.get('status','') is string && d.get('office','') is string && d.get('message','') is string && d.get('changedFields',[]) is list
    && ((d.event == 'request_submitted' && parent.requesterUid == request.auth.uid && parent.status == 'pending' && d.revision == 1)
     || (d.event in ['request_withdrawn','request_resubmitted'] && parent.requesterUid == request.auth.uid)
@@ -521,7 +535,7 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /change_request_audit/{id} {
-   allow read: if admin();
+   allow read: if workflowHistoryReader(resource.data);
    allow create: if teachingWritesOpen() && validRoutedAuditCreate();
    allow update,delete: if false;
   }
@@ -652,19 +666,19 @@ service cloud.firestore {
    allow delete: if false;
   }
   match /session_change_log/{id} {
-   allow read: if historyReader(resource.data);
+   allow read: if sessionHistoryReader(resource.data);
    allow create: if teachingWritesOpen() && ((admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time) || officeSessionAuditCreate());
    allow update: if false;
    allow delete: if false;
   }
   match /faculty_change_log/{id} {
-   allow read: if historyReader(resource.data);
+   allow read: if facultyHistoryReader(resource.data);
    allow create: if teachingWritesOpen() && admin() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time;
    allow update: if false;
    allow delete: if false;
   }
   match /account_audit/{id} {
-   allow read: if historyReader(resource.data);
+   allow read: if accountHistoryReader(resource.data);
    allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time && (general() || (hicc() && request.resource.data.action == 'group_members_updated' && get(/databases/$(database)/documents/faculty_groups/$(request.resource.data.groupId)).data.ownerUid == request.auth.uid));
    allow update,delete: if false;
   }
@@ -680,7 +694,7 @@ service cloud.firestore {
     allow update,delete: if false;
    }
   }
-  match /afc_audit/{id} {allow read: if privateReader() && (historyAll() || resource.data.changedBy == request.auth.uid || resource.data.requesterUid == request.auth.uid || resource.data.reportToUid == request.auth.uid); allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time; allow update,delete: if false;}
+  match /afc_audit/{id} {allow read: if afcHistoryReader(resource.data); allow create: if privateReader() && request.resource.data.changedBy == request.auth.uid && request.resource.data.changedAt == request.time; allow update,delete: if false;}
   match /lab_groups/{id} {
    allow read: if ready() && (officeName() != '' || facultyMember() || general());
    allow create,update: if teachingWritesOpen() && labGroupWrite(id);
