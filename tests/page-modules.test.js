@@ -34,7 +34,7 @@ test('timetable role navigation separates admin tools from faculty self-service'
  for(const role of [null,'developer','owner','administrator','adc','lab','other_office','hicc','visc','faculty']){
   const currentUser=role?{role,name:'Test'}:null,elements=new Map();
   const $=id=>{if(!elements.has(id)){const summary={textContent:''};elements.set(id,{classList:{toggle(name,value){this[name]=value;},add(name){this[name]=true},contains(name){return Boolean(this[name]);}},addEventListener(_name,fn){this.click=fn;},querySelector(selector){return id==='cal-admin-menu'&&selector==='summary'?summary:null},_summary:summary});}return elements.get(id);};
-  const normalized=normalize(role),context={$ ,currentUser,UCVM:{role:value=>normalize(value),admin,general},canEdit:()=>role==='developer',canAddSessions:()=>['developer','adc'].includes(role),canAddOneSession:()=>['developer','adc'].includes(role),canSelectSessions:()=>['developer','adc'].includes(role),updateScheduleSourceUI(){},roleIsFaculty:facultyFacing,myTimetableOnly:false,window:{location:{href:''}}};
+  const normalized=normalize(role),context={$ ,currentUser,UCVM:{role:value=>normalize(value),admin,general},canEdit:()=>role==='developer',canAddSessions:()=>['developer','adc'].includes(role),canAddOneSession:()=>['developer','adc'].includes(role),canSelectSessions:()=>['developer','adc'].includes(role),sessionMutationsAllowed:()=>true,updateScheduleSourceUI(){},roleIsFaculty:facultyFacing,myTimetableOnly:false,window:{location:{href:''}}};
   vm.runInNewContext(ui+'\nupdateAuthUI();\n'+binding,context);
   const dashboard=$('faculty-dashboard-btn'),facultySelf=facultyFacing(currentUser),isAdmin=admin(currentUser),selfHistory=facultySelf||normalized==='other_office',toolRole=isAdmin||normalized==='adc'||normalized==='hicc';
   assert.equal(dashboard.classList.hidden,!(isAdmin||facultySelf),String(role));
@@ -70,13 +70,13 @@ test('timetable accepts current Developer Owner and Administrator roles',()=>{
 });
 
 
-test('empty timetable ranges remain connected and allow creating the first session',()=>{
+test('empty timetable ranges remain connected while Azure SQL mode stays read-only',()=>{
  const source=read('timetable.js');
- assert.match(source,/function liveScheduleAvailable\(\)\{return scheduleSource === 'firestore' \|\| scheduleSource === 'firestore-empty';\}/);
- assert.match(source,/if \(!liveScheduleAvailable\(\)\) \{ toast\('The live Firestore timetable is unavailable\./);
+ assert.match(source,/function liveScheduleAvailable\(\)\{return \['firestore','firestore-empty','azure-sql','azure-sql-empty'\]\.includes\(scheduleSource\)\}/);
  assert.match(source,/Live Firestore schedule · No sessions in this view/);
+ assert.match(source,/Azure SQL schedule · No sessions in this view · Read-only beta/);
  assert.match(source,/publish\.textContent = connected \? 'Synced Schedule Ready'/);
- assert.match(source,/async function openBulkSessionForm\(\)[\s\S]*?if\(!liveScheduleAvailable\(\)\)\{toast\('The live Firestore timetable is unavailable\.'/);
+ assert.match(source,/async function openBulkSessionForm\(\)[\s\S]*?assertSessionMutationsAllowed\(\);[\s\S]*?if\(!liveScheduleAvailable\(\)\)\{toast\('The live Firestore timetable is unavailable\.'/);
 });
 
 
