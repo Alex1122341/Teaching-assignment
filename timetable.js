@@ -241,7 +241,7 @@
         throw Object.assign(new Error('Azure SQL timetable client is unavailable.'),{code:'SQL_SESSION_CLIENT_UNAVAILABLE'});
       }
       if(!sessionRangeLoads.has(key))sessionRangeLoads.set(key,window.UCVM_PAWS_DATA.listSessions({start:range.start,end:range.end}).then(rows=>{
-        const clean=Array.isArray(rows)?rows:[];
+        const clean=Array.isArray(rows)?rows.map(normalizeSqlSessionForTimetable):[];
         cacheSessionRange(range,clean);publishPageData();return clean.slice();
       }).finally(()=>sessionRangeLoads.delete(key)));
       return sessionRangeLoads.get(key);
@@ -439,6 +439,18 @@
   }
 
   function sessionBackend(){return window.UCVM_PAWS_DATA?.sessionBackend?.()||'firestore'}
+  function normalizeSqlSessionForTimetable(row){
+    const date=String(row?.date||'').slice(0,10);
+    const position=academicPositionForDate(parseYmd(date));
+    return{
+      ...(row||{}),
+      date,
+      week: position.week,
+      semester: position.semester,
+      assignments:Array.isArray(row?.assignments)?row.assignments:[],
+      facultyIds:Array.isArray(row?.facultyIds)?row.facultyIds:[]
+    };
+  }
   function sessionMutationsAllowed(){return !window.UCVM_PAWS_DATA||window.UCVM_PAWS_DATA.sessionWritesEnabled()}
   function assertSessionMutationsAllowed(){
     if(sessionMutationsAllowed())return true;
@@ -786,6 +798,7 @@
   function isReadOnlySynthetic(session){return Boolean(session?.isCcc||session?.isUniversityClosure)}
   function sessionBelongsToCurrentFaculty(s){
     if(!currentUser)return false;
+    if(sessionBackend()==='azure-sql'&&roleIsFaculty(currentUser))return true;
     const facultyId=String(currentUser.profile?.facultyId||'').trim();
     const aliases=new Set([currentUser.instructorName,currentUser.name,currentUser.email].map(swapNameKey).filter(Boolean));
     const assignments=Array.isArray(s.assignments)?s.assignments:[];
