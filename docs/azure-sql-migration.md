@@ -166,6 +166,87 @@ A successful result must demonstrate:
 
 Phase 1 does not switch the PAWS frontend to Azure SQL. Firebase Authentication remains, and the later API/frontend cutover will move business-data reads and writes behind the Azure App Service API.
 
+## Beta runtime: Static Web Apps Managed Functions -> Azure SQL
+
+The current beta runtime path is intentionally different from the later App Service + Managed Identity design. It reuses the existing Free Static Web App and places a thin Managed Functions boundary between browser JavaScript and Azure SQL:
+
+```text
+Firebase-authenticated browser
+        |
+        | same-origin /api/*
+        v
+ucvm-teaching-lab-web Managed Functions
+        |
+        | server-side beta SQL credential
+        v
+teaching-assignment-lab
+        |
+        +-- paws.*       application runtime
+        +-- staging.*    denied to runtime principal
+```
+
+The browser never receives a SQL connection string and never connects to SQL directly. The first accepted slice reads identity/profile and timetable sessions only. Session mutations remain disabled while the browser is configured for `azure-sql`, so the beta does not create a hidden Azure-SQL-read/Firestore-write split.
+
+The dedicated beta SQL principal is `paws_swa_beta`. Its tracked permission file is `database/azure-sql/004_swa_beta_permissions.sql`. The first slice grants only:
+
+- `SELECT` on `paws.UserProfile`;
+- `INSERT` on `paws.UserProfile` for approved first-link provisioning;
+- `SELECT` on `paws.Faculty`;
+- `SELECT` on `paws.SessionAssignment`;
+- `SELECT` on `paws.vCalendarSession`;
+- an explicit deny for read/write access to `staging`.
+
+The password is not stored in that SQL file or in GitHub. `tools/configure_paws_swa_beta.ps1` creates/rotates the contained user in memory and then applies the static grant file.
+
+### Preview the beta configuration target
+
+Run:
+
+```powershell
+.\tools\configure_paws_swa_beta.ps1 -Preview
+```
+
+The preview is read-only with respect to PAWS application resources: it validates the pinned subscription, resource group, Static Web App, SQL server/database and reports the expected application-setting names. Review this output before any apply.
+
+### Apply only after explicit approval
+
+The live configuration command is intentionally separate:
+
+```powershell
+.\tools\configure_paws_swa_beta.ps1 `
+  -Apply `
+  -FirebaseServiceAccountPath "C:\private\tester-teaching-service-account.json"
+```
+
+The operator supplies only a **local file path**. Do not paste Firebase Admin JSON, database passwords, ID tokens, device codes, or connection strings into documentation, issues, PR comments, or chat.
+
+On apply the script:
+
+1. verifies the exact existing SWA and Azure SQL targets;
+2. validates the local Firebase service-account project ID;
+3. collects the approved bootstrap account identity locally and serializes `PAWS_ACCOUNT_BOOTSTRAP_JSON` in memory;
+4. generates a strong SQL password in memory unless `-PromptForSqlPassword` is explicitly requested;
+5. uses the existing Entra SQL access helper to create/rotate `paws_swa_beta`;
+6. applies `004_swa_beta_permissions.sql`;
+7. constructs the SQL connection string in memory;
+8. writes the six required SWA server-side Application Settings;
+9. verifies the required setting **names only** and clears secret-bearing variables.
+
+The six setting names are:
+
+```text
+PAWS_SQL_CONNECTION_STRING
+PAWS_SQL_READS
+PAWS_SQL_AUTH
+PAWS_ACCOUNT_BOOTSTRAP_JSON
+FIREBASE_PROJECT_ID
+FIREBASE_SERVICE_ACCOUNT_JSON
+```
+
+After configuration, the release remains gated: a successful `main` Azure build produces the exact `.azure-production/app` + `.azure-production/api` handoff, and the manual Azure Production Deploy workflow must use that build's source run ID and exact commit SHA. The deploy job then requires `/api/health/sql` to report healthy Azure SQL connectivity.
+
+The App Service bootstrap below is a later production-grade path. It is **not a prerequisite for the current SWA Managed Functions beta**.
+
 ## Runtime bootstrap: App Service -> Azure SQL
 
 After the authoritative import is complete, `tools/bootstrap_paws_azure_runtime.ps1` performs the guarded one-time runtime wiring:
