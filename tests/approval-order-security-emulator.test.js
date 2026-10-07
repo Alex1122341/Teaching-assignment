@@ -1,7 +1,6 @@
 'use strict';
-// Emulator proof that approval stages are strictly serial: ADC -> LAB -> ADFA.
-// A later office must not be able to write an approval while an earlier required
-// office is still pending, even by writing Firestore directly.
+// Emulator proof that ADC and LAB may decide their independent scopes in
+// parallel while ADFA remains the dependent/final stage.
 const {test,before,after}=require('node:test');
 const fs=require('node:fs'),path=require('node:path');
 const enabled=!!process.env.FIRESTORE_EMULATOR_HOST;let env;
@@ -34,10 +33,10 @@ after(async()=>{if(env)await env.cleanup()});
 
 const approve=(db,office,stamp)=>{const batch=db.batch();batch.update(db.doc(`change_request_approvals/r3_${office}`),{status:'approved',decidedBy:office,decidedByName:office.toUpperCase(),decidedAt:stamp,pushBackReason:'',updatedAt:stamp});batch.update(db.doc('change_requests/r3'),{updatedAt:stamp});return batch.commit();};
 
-check('LAB cannot approve while ADC is still pending',async()=>{
- const {assertFails}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
+check('LAB can approve while ADC is still pending',async()=>{
+ const {assertSucceeds}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
  const db=env.authenticatedContext('lab').firestore();
- await assertFails(approve(db,'lab',serverTimestamp()));
+ await assertSucceeds(approve(db,'lab',serverTimestamp()));
 });
 
 check('ADFA cannot approve while ADC is still pending',async()=>{
@@ -46,25 +45,13 @@ check('ADFA cannot approve while ADC is still pending',async()=>{
  await assertFails(approve(db,'adfa',serverTimestamp()));
 });
 
-check('ADC approves its own scope first',async()=>{
+check('ADC can approve after LAB without resetting LAB',async()=>{
  const {assertSucceeds}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
  const db=env.authenticatedContext('adc').firestore();
  await assertSucceeds(approve(db,'adc',serverTimestamp()));
 });
 
-check('ADFA still cannot approve while the applicable LAB stage is pending',async()=>{
- const {assertFails}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
- const db=env.authenticatedContext('adfa').firestore();
- await assertFails(approve(db,'adfa',serverTimestamp()));
-});
-
-check('LAB approves after ADC',async()=>{
- const {assertSucceeds}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
- const db=env.authenticatedContext('lab').firestore();
- await assertSucceeds(approve(db,'lab',serverTimestamp()));
-});
-
-check('ADFA approves last, once every earlier required office has approved',async()=>{
+check('ADFA approves once both independent scopes are complete',async()=>{
  const {assertSucceeds}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
  const db=env.authenticatedContext('adfa').firestore();
  await assertSucceeds(approve(db,'adfa',serverTimestamp()));
@@ -96,11 +83,9 @@ check('Developer cross-office testing still respects the stage order',async()=>{
  });
  const db=env.authenticatedContext('developer').firestore();
  const decide=async(office,stamp)=>{const batch=db.batch();batch.update(db.doc(`change_request_approvals/r5_${office}`),{status:'approved',decidedBy:'developer',decidedByName:'VISTA Developer',decidedAt:stamp,pushBackReason:'',updatedAt:stamp});batch.update(db.doc('change_requests/r5'),{updatedAt:stamp});return batch.commit()};
- // Developer cannot jump straight to ADFA or LAB while ADC is pending.
- await assertFails(decide('adfa',serverTimestamp()));
- await assertFails(decide('lab',serverTimestamp()));
- await assertSucceeds(decide('adc',serverTimestamp()));
- await assertFails(decide('adfa',serverTimestamp()));
+ // Developer may exercise LAB before ADC, but ADFA must still wait for both.
  await assertSucceeds(decide('lab',serverTimestamp()));
+ await assertFails(decide('adfa',serverTimestamp()));
+ await assertSucceeds(decide('adc',serverTimestamp()));
  await assertSucceeds(decide('adfa',serverTimestamp()));
 });

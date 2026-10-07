@@ -138,12 +138,18 @@
     const subscribers=new Set();
     const seedRows=Array.isArray(seed?.documents)?seed.documents:[];
     const seedMap=Object.fromEntries(seedRows.map(row=>[String(row.path),dehydrate(row.data)]));
+    const seedVersion=Number(seed?.version)||1;
     let records;
     try{
-      const saved=storage?.getItem(STORAGE_KEY);
-      records=saved?JSON.parse(saved):clone(seedMap);
+      const saved=storage?.getItem(STORAGE_KEY),parsed=saved?JSON.parse(saved):null;
+      // Seed-version mismatch means a new deployment changed the canonical demo
+      // fixtures. Discard the old browser-local snapshot so timetable, workflow,
+      // notifications and audit views cannot keep displaying stale seed data.
+      records=parsed&&parsed.__ucvmSeedVersion===seedVersion&&parsed.records&&typeof parsed.records==='object'
+        ? parsed.records
+        : clone(seedMap);
     }catch(_){records=clone(seedMap)}
-    const persist=()=>{try{storage?.setItem(STORAGE_KEY,JSON.stringify(records))}catch(_){}};
+    const persist=()=>{try{storage?.setItem(STORAGE_KEY,JSON.stringify({__ucvmSeedVersion:seedVersion,records}))}catch(_){}};
     const notify=()=>{for(const callback of subscribers){try{callback()}catch(error){console.error('[Pages demo subscriber]',error)}}};
     const read=path=>Object.prototype.hasOwnProperty.call(records,path)?clone(records[path]):undefined;
     const write=(path,data,options={})=>{

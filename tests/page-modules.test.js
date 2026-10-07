@@ -36,7 +36,7 @@ test('timetable role navigation separates admin tools from faculty self-service'
   const $=id=>{if(!elements.has(id)){const summary={textContent:''};elements.set(id,{classList:{toggle(name,value){this[name]=value;},add(name){this[name]=true},contains(name){return Boolean(this[name]);}},addEventListener(_name,fn){this.click=fn;},querySelector(selector){return id==='cal-admin-menu'&&selector==='summary'?summary:null},_summary:summary});}return elements.get(id);};
   const normalized=normalize(role),context={$ ,currentUser,UCVM:{role:value=>normalize(value),admin,general},canEdit:()=>role==='developer',canAddSessions:()=>['developer','adc'].includes(role),canAddOneSession:()=>['developer','adc'].includes(role),canSelectSessions:()=>['developer','adc'].includes(role),updateScheduleSourceUI(){},roleIsFaculty:facultyFacing,myTimetableOnly:false,window:{location:{href:''}}};
   vm.runInNewContext(ui+'\nupdateAuthUI();\n'+binding,context);
-  const dashboard=$('faculty-dashboard-btn'),facultySelf=facultyFacing(currentUser),isAdmin=admin(currentUser),selfHistory=facultySelf||normalized==='other_office',toolRole=isAdmin||normalized==='adc'||normalized==='hicc';
+  const dashboard=$('faculty-dashboard-btn'),facultySelf=facultyFacing(currentUser),isAdmin=admin(currentUser),selfHistory=Boolean(currentUser),toolRole=isAdmin||normalized==='adc'||normalized==='hicc';
   assert.equal(dashboard.classList.hidden,!(isAdmin||facultySelf),String(role));
   dashboard.click();assert.equal(context.window.location.href,isAdmin||facultySelf?'faculty-admin.html':'',String(role));
   assert.equal($('my-teaching-btn').classList.hidden,!facultySelf,role+' My Teaching');
@@ -84,7 +84,7 @@ test('Other Office uses the sanitized calendar collection and history-only timet
  const source=read('timetable.js');
  assert.match(source,/function sessionCollection\(\)\{const role=UCVM\.role\(currentUser\?\.role\);return role==='other_office'\|\|\(\['adc','lab'\]\.includes\(role\)&&!hasOfficeAccess\('adfa'\)\)\?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;\}/);
  assert.match(source,/facultySelfService=roleIsFaculty\(currentUser\)/);
- assert.match(source,/selfHistory=facultySelfService\|\|accessRole==='other_office'/);
+ assert.match(source,/selfHistory=Boolean\(currentUser\)/);
  assert.match(source,/my-teaching-btn'[\s\S]*!facultySelfService/);
  assert.match(source,/afc-request-btn'[\s\S]*!facultySelfService/);
  assert.match(source,/my-change-history-btn'[\s\S]*!selfHistory/);

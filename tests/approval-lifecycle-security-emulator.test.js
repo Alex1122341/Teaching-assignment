@@ -63,6 +63,6 @@ check('last required office may apply an approved non-Faculty request exactly th
  batch.set(db.doc('calendar_sessions/s1'),{...calendar,date:'2027-03-23'});
  batch.update(db.doc('change_requests/r1'),{status:'approved',editableFields:[],requesterMessage:'',appliedRevision:1,appliedAt:stamp,updatedAt:stamp});
  batch.set(db.collection('session_change_log').doc(),{action:'approved_session_edit',override:null,requestId:'r1',sessionId:'s1',course:'505',date:'2027-03-23',topic:'Old topic',instructors:[],changes:[{field:'date',before:'2027-03-22',after:'2027-03-23'}],changedBy:'adc',changedByName:'ADC',changedByEmail:'',changedAt:stamp});
- batch.set(db.collection('change_request_audit').doc(),{requestId:'r1',event:'request_applied',revision:1,office:'adc',changedBy:'adc',changedByName:'ADC',changedAt:stamp});
+ batch.set(db.collection('change_request_audit').doc(),{requestId:'r1',requesterUid:'faculty',sessionId:'s1',event:'request_applied',revision:1,office:'adc',changedBy:'adc',changedByName:'ADC',changedAt:stamp});
  await assertSucceeds(batch.commit());
 });

@@ -18,6 +18,17 @@ test('Pages demo store supports reads, writes, merge and reset without cloud sta
   assert.equal(store.read('sessions/s1').note,undefined);
 });
 
+test('Pages demo resets persisted browser data when the canonical seed version changes',()=>{
+  const memory=new Map(),storage={getItem:key=>memory.get(key)||null,setItem:(key,value)=>memory.set(key,value)};
+  const first=runtime.createStore({version:1,documents:[{path:'sessions/s1',data:{topic:'Old seed'}}]},storage);
+  first.update('sessions/s1',{topic:'Browser edit'});
+  assert.equal(first.read('sessions/s1').topic,'Browser edit');
+  const same=runtime.createStore({version:1,documents:[{path:'sessions/s1',data:{topic:'Old seed'}}]},storage);
+  assert.equal(same.read('sessions/s1').topic,'Browser edit');
+  const upgraded=runtime.createStore({version:2,documents:[{path:'sessions/s1',data:{topic:'New seed'}}]},storage);
+  assert.equal(upgraded.read('sessions/s1').topic,'New seed');
+});
+
 test('Pages demo query filter helper covers timetable query operators',()=>{
   const row={date:'2027-01-11',facultyIds:['f1','f2'],year:2};
   assert.equal(runtime.filterMatches(row,'date','>=','2027-01-01'),true);

@@ -16,15 +16,42 @@ test('only ADFA administrators can see everyone history', () => {
   assert.equal(historyAll({role:'faculty'}), false);
 });
 
-test('self-only history queries filter every collection by actor uid', () => {
+test('My Change History is relationship-scoped rather than actor-only', () => {
   const source = read('faculty-access.js');
-  assert.match(source, /historyAll/);
-  assert.match(source, /where\('changedBy','==',user\.uid\)/);
-  assert.match(source, /account_audit/);
+  assert.match(source, /personalOnly=false/);
+  assert.match(source, /session_change_log','session','changedBy'/);
+  assert.match(source, /session_change_log','session','sessionId'/);
+  assert.match(source, /faculty_change_log','faculty','facultyId'/);
+  assert.match(source, /account_audit','account','targetUid'/);
+  assert.match(source, /afc_audit','afc','requesterUid'/);
+  assert.match(source, /afc_audit','afc','reportToUid'/);
+  assert.match(source, /change_request_audit','workflow','changedBy'/);
+  assert.match(source, /change_request_audit','workflow','requesterUid'/);
+  assert.match(source, /change_request_audit','workflow','sessionId'/);
+  assert.match(source, /sessions, AFC and changes related to you/);
 });
 
-test('Firestore history rules distinguish ADFA administrators from Other Office', () => {
+test('personal timetable panel explicitly requests personal rather than admin-wide history', () => {
+  const source = read('afc-timetable-panel.js');
+  assert.match(source, /UCVM\.logs\(content,[\s\S]*personalOnly:\s*true/);
+});
+
+test('Firestore personal history rules include actor, linked session, faculty, account, AFC and workflow relationships', () => {
   const rules = read('firestore.rules');
-  assert.match(rules, /function historyAll\(\)/);
-  assert.match(rules, /historyAll\(\) \|\| resource\.data\.changedBy == request\.auth\.uid/);
+  assert.match(rules, /function sessionHistoryReader\(d\)/);
+  assert.match(rules, /exists\(sessionPath\(sid\)\)/);
+  assert.match(rules, /get\(sessionPath\(sid\)\)\.data\.facultyIds/);
+  assert.match(rules, /function facultyHistoryReader\(d\)/);
+  assert.match(rules, /function accountHistoryReader\(d\)/);
+  assert.match(rules, /function afcHistoryReader\(d\)/);
+  assert.match(rules, /function workflowHistoryReader\(d\)/);
+  assert.match(rules, /requester == request\.auth\.uid/);
+  assert.match(rules, /match \/change_request_audit\/\{id\}[\s\S]*workflowHistoryReader\(resource\.data\)/);
+});
+
+test('restricted office personal session history remains sanitized', () => {
+  const rules = read('firestore.rules');
+  assert.match(rules, /function safeOfficeSessionHistory\(d\)/);
+  assert.match(rules, /!restrictedOffice\(\) \|\| safeOfficeSessionHistory\(d\)/);
+  assert.match(rules, /studentIds.*studentNames.*roster.*rosters.*assignments.*facultyIds/);
 });
