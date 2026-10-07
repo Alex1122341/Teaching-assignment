@@ -49,6 +49,26 @@ check('LAB may create a group and its roster',async()=>{
  await assertSucceeds(fire.doc('lab_group_rosters/g-b').set({groupId:'g-b',studentIds:['30012347'],updatedBy:'lab',updatedByName:'LAB',updatedAt:stamp}));
 });
 
+check('LAB scoped work can save topic, group, sanitized calendar, audit and private roster atomically',async()=>{
+ const {assertSucceeds}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore'),fire=db('lab'),stamp=serverTimestamp();
+ const topic='Neuro updated',labGroupIds=['g-a'];
+ const calendar=JSON.parse(JSON.stringify(projectionContext.window.UCVM_CALENDAR_SESSION.fromSource({...SOURCE,topic,labGroupIds},'s1')));
+ const batch=fire.batch();
+ batch.update(fire.doc('sessions/s1'),{topic,labGroupIds,updatedBy:'lab',updatedByName:'LAB',updatedAt:stamp});
+ batch.set(fire.doc('calendar_sessions/s1'),calendar);
+ batch.set(fire.collection('session_change_log').doc(),{
+  action:'batch_update',sessionId:'s1',course:'601',date:'2027-06-01',topic,
+  instructors:[],changes:[{field:'topic',label:'Session name',before:'Neuro',after:topic}],
+  changedBy:'lab',changedByName:'LAB',changedByEmail:'',changedAt:stamp
+ });
+ batch.set(fire.doc('lab_group_rosters/g-a'),{groupId:'g-a',studentIds:['30012345','30012346','30012349'],updatedBy:'lab',updatedByName:'LAB',updatedAt:stamp});
+ await assertSucceeds(batch.commit());
+ const roster=await fire.doc('lab_group_rosters/g-a').get();
+ if(!roster.exists||roster.data().studentIds.length!==3)throw Error('LAB roster write did not persist.');
+ const publicCalendar=await fire.doc('calendar_sessions/s1').get();
+ if(JSON.stringify(publicCalendar.data()).includes('30012349'))throw Error('Student ID leaked into calendar projection.');
+});
+
 check('Developer and Owner may manage groups and rosters',async()=>{
  const {assertSucceeds}=require('@firebase/rules-unit-testing'),{serverTimestamp}=require('firebase/firestore');
  for(const uid of ['developer','owner']){

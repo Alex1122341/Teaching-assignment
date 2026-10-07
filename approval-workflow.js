@@ -67,6 +67,8 @@
  const ownAliases=()=>new Set([me?.name,me?.instructor,me?.facultyDirectoryMatch?.name,user?.displayName].map(norm).filter(Boolean));
  const peopleName=p=>String(p?.name||p?.email||p?.uid||'');
  const assignedArray=s=>Array.isArray(s?.assignments)&&s.assignments.length?s.assignments.map(a=>({...a})):(String(s?.instructor||'').split(';').map(x=>x.trim()).filter(Boolean).map(name=>({name,ucid:'',role:s?.type||''})));
+ const auditFacultyIds=s=>[...new Set([...(Array.isArray(s?.facultyIds)?s.facultyIds:[]),...assignedArray(s).map(a=>a?.facultyId||a?.ucid)].map(v=>String(v||'').trim()).filter(Boolean))];
+ const auditRelatedFacultyIds=(...rows)=>[...new Set(rows.flatMap(row=>auditFacultyIds(row||{})))].sort();
  const sameVal=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
  const ymd=v=>String(v||'').slice(0,10);
  const num=UCVM.number;
@@ -174,13 +176,30 @@
  function listenRequests(){
   if(requestUnsub){requestUnsub();requestUnsub=null}
   if(!user)return;
-  const token=++requestLoadToken,currentOffice=office();
-  if(currentOffice==='adc'||currentOffice==='lab'){
-   const q=db.collection(APPROVALS).where('office','==',office());
+  const token=++requestLoadToken,granted=approvalOffices();
+  // Restricted ADC/LAB accounts subscribe by their actual officeAccess grants,
+  // not only by their primary role. This keeps delegated ADC<->LAB work aligned
+  // with the same role matrix used by Work Queue and Firestore rules.
+  if(!isAdfaApprover()&&granted.length){
+   const q=granted.length===1
+    ?db.collection(APPROVALS).where('office','==',granted[0])
+    :db.collection(APPROVALS).where('office','in',granted);
    requestUnsub=q.onSnapshot(async snap=>{
     try{
-     const own=snap.docs.map(d=>({id:d.id,...d.data()})),rows=[];
-     for(const approval of own){const full=await loadRoutedBundle(String(approval.requestId||''),approval);if(full)rows.push(full)}
+     const own=snap.docs.map(d=>({id:d.id,...d.data()})),byRequest=new Map();
+     for(const approval of own){
+      const requestId=String(approval.requestId||'');
+      if(!requestId)continue;
+      if(!byRequest.has(requestId))byRequest.set(requestId,[]);
+      byRequest.get(requestId).push(approval);
+     }
+     const rows=[];
+     for(const [requestId,approvals] of byRequest){
+      const full=await loadRoutedBundle(requestId);
+      if(!full)continue;
+      for(const approval of approvals)if(approval.office)full._approvals[approval.office]=approval;
+      rows.push(full);
+     }
      commitRequestRows(rows,token);
     }catch(e){if(token===requestLoadToken){requestsReady=true;console.warn('[workflow office requests]',e);injectButtons()}}
    },e=>{if(token===requestLoadToken){requestsReady=true;console.warn('[workflow office requests]',e);injectButtons()}});
@@ -366,7 +385,7 @@
   const faculty=view.faculty.proposedName?`<div class="workflow-approval-change${officeContext&&!isDeveloper()&&!granted.includes('adfa')?' role-locked-field':''}"><strong>Faculty Assignment</strong>${view.faculty.currentName?`${esc(view.faculty.currentName)} → `:''}${esc(view.faculty.proposedName)}${officeContext?` <span class="workflow-pill">ADFA: ${esc(officeStatusText(r,'adfa'))}</span>`:''}</div>`:'';
   return rows+faculty;
  }
-function routedOfficeActionHtml(r,currentOffice){
+ function routedOfficeActionHtml(r,currentOffice){
   const own=r?._approvals?.[currentOffice];if(!own||own.status!=='pending'||r.status!=='pending')return'';
   // Approvals are strictly serial: ADC -> LAB -> ADFA. An office whose earlier
   // required offices are still pending sees a waiting note instead of Approve.
@@ -497,7 +516,7 @@ function routedOfficeActionHtml(r,currentOffice){
   await db.runTransaction(async tx=>{const bundle=await readRoutedBundleTx(tx,id,{includePrivate:workflow.hasFacultyChange,includeCalendar:!workflow.hasFacultyChange,includeSource:workflow.hasFacultyChange});if(bundle.request.status!=='pending')throw Error('This request is no longer pending.');if(bundle.request.appliedRevision===bundle.request.revision||bundle.request.appliedAt)throw Error('This request revision was already applied.');if(!lifecycle.requiredApproved(bundle.workflow,bundle.approvals))throw Error('All required office approvals must be complete before applying this request.');if(bundle.workflow.hasFacultyChange&&currentOffice!=='adfa')throw Error('ADFA must complete a request that changes Faculty assignment.');const now=stamp();let applyPlan,before;
     if(bundle.workflow.hasFacultyChange){applyPlan=preflight?.plan;before=facultySource||bundle.source;if(!applyPlan||!serverSavedFaculty?.session)throw Error('Authoritative DOE session save is missing.')}
     else{applyPlan=finalizer.planPublicApply({request:bundle.request,calendar:bundle.calendar});before=bundle.calendar;tx.set(db.doc(`${SESSIONS}/${bundle.request.sessionId}`),{...applyPlan.sourcePatch,approvalRequestId:id,approvalRevision:bundle.request.revision,updatedBy:user.uid,updatedByName:me?.name||user.email||'',updatedAt:now},{merge:true});tx.set(bundle.calendarRef,applyPlan.calendar)}
-    const after=bundle.workflow.hasFacultyChange?(serverSavedFaculty?.session||before):{...before,...applyPlan.sourcePatch};beforeAfter={before,after};const changes=applyPlan.changedFields.map(field=>({field,before:before?.[field]??null,after:after?.[field]??null}));tx.set(logRef,{action:bundle.workflow.hasFacultyChange?'swap_faculty':'approved_session_edit',override:conflictOverride,requestId:id,sessionId:bundle.request.sessionId,course:after.course||bundle.request.course||'',date:ymd(after.date),topic:after.topic||'',instructors:bundle.workflow.hasFacultyChange?assignedArray(after).map(a=>a.name).filter(Boolean):[],changes,doeChanges:bundle.workflow.hasFacultyChange?(serverSavedFaculty?.doeChanges||[]):[],changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:now});tx.set(auditRef,{requestId:id,event:'request_applied',revision:bundle.request.revision,office:currentOffice,changedBy:user.uid,changedByName:me?.name||user.email||'',changedAt:now});tx.update(bundle.requestRef,{status:'approved',editableFields:[],requesterMessage:'',appliedRevision:bundle.request.revision,appliedAt:now,updatedAt:now});
+    const after=bundle.workflow.hasFacultyChange?(serverSavedFaculty?.session||before):{...before,...applyPlan.sourcePatch};beforeAfter={before,after};const changes=applyPlan.changedFields.map(field=>({field,before:before?.[field]??null,after:after?.[field]??null}));tx.set(logRef,{action:bundle.workflow.hasFacultyChange?'swap_faculty':'approved_session_edit',relatedFacultyIds:auditRelatedFacultyIds(before,after),override:conflictOverride,requestId:id,sessionId:bundle.request.sessionId,course:after.course||bundle.request.course||'',date:ymd(after.date),topic:after.topic||'',instructors:bundle.workflow.hasFacultyChange?assignedArray(after).map(a=>a.name).filter(Boolean):[],changes,doeChanges:bundle.workflow.hasFacultyChange?(serverSavedFaculty?.doeChanges||[]):[],changedBy:user.uid,changedByName:me?.name||user.email||'',changedByEmail:user.email||'',changedAt:now});tx.set(auditRef,{requestId:id,event:'request_applied',revision:bundle.request.revision,office:currentOffice,changedBy:user.uid,changedByName:me?.name||user.email||'',changedAt:now});tx.update(bundle.requestRef,{status:'approved',editableFields:[],requesterMessage:'',appliedRevision:bundle.request.revision,appliedAt:now,updatedAt:now});
     if(notifications)for(const name of bundle.workflow.requiredOffices||[])notifications.emitBatch(tx,db,{kind:'request_applied',office:name,request:bundle.request,session:{id:bundle.request.sessionId,...applyPlan.calendar}},now);
    });
   if(isAdfaApprover()&&beforeAfter)await window.UCVM_PAGE_DATA?.updateDerivedIndexes?.([beforeAfter]);toast('All required approvals are complete. Changes applied to the live timetable.');closeModal();

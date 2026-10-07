@@ -156,8 +156,8 @@ A routed request is one logical change spread over five collections.
 `scopeSignatures` (office → signature), `updatedAt`.
 
 ### `change_request_approvals/{requestId}_{office}` — per-office decision
-`requestId`, `office`, `revision`, `fields`, `scopeSignature`, `status`,
-`decidedBy`, `decidedByName`, `decidedAt`, `message`, `updatedAt`.
+`id`, `requestId`, `office`, `revision`, `fields`, `scopeSignature`, `status`,
+`decidedBy`, `decidedByName`, `decidedAt`, `pushBackReason`, `updatedAt`.
 
 **Invariant:** a decision only counts when `status == 'approved'` **and** `fields`
 and `scopeSignature` still match the workflow. Changing a draft invalidates prior
@@ -246,7 +246,16 @@ interrupted import recoverable rather than permanently locking teaching writes.
 
 `session_change_log` / `faculty_change_log` shape: `action`, `override`,
 `requestId`, `sessionId`, `course`, `date`, `topic`, `instructors`, `changes`,
-`changedBy`, `changedByName`, `changedByEmail`, `changedAt`.
+`relatedFacultyIds`, `changedBy`, `changedByName`, `changedByEmail`, `changedAt`.
+
+`relatedFacultyIds`, when the writer has private Faculty relationship
+context, is the de-duplicated union of Faculty IDs linked to the session
+immediately before and after the event. It is audit relationship metadata, not a
+public-calendar field. It lets a Faculty/HICC/VISC account read stable related
+session history even after reassignment or session deletion without a second
+rules lookup into the current `sessions` document. ADC/LAB clients must not
+receive private Faculty IDs; their remaining audience-propagation gap is tracked
+separately until a trusted backend or opaque audience-key design is available.
 
 **A correction is a new event.** `update` and `delete` are denied on all six.
 

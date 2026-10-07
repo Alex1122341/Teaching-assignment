@@ -61,6 +61,7 @@ test('change planner suppresses unchanged rows and pairs each update with one au
  assert.equal(plan.updates[0].id,'s1');
  assert.deepEqual(plan.updates[0].data.facultyIds,['1002']);
  assert.equal(plan.logs[0].sessionId,'s1');
+ assert.deepEqual(plan.logs[0].relatedFacultyIds,['1001','1002']);
  assert.equal(plan.logs[0].action,'batch_update');
  assert.equal(plan.logs[0].changedBy,'admin-1');
  assert.equal(plan.logs[0].before.topic,'Passports');

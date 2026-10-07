@@ -132,6 +132,7 @@ test('R02 ADFA faculty-only edit carries the private assignment fields into the 
  assert.equal(plan.updates[0].data.instructor,'Blair Faculty');
  assert.equal(Object.hasOwn(plan.updates[0].data,'labDetails'),false);
  assert.deepEqual(plan.logs[0].changes.map(change=>change.field),['assignments']);
+ assert.deepEqual(plan.logs[0].relatedFacultyIds,['1001','1002']);
 });
 
 test('R02 ADFA is faculty-only and cannot change date or course',()=>{
