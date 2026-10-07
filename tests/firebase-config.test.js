@@ -110,7 +110,7 @@ test('lab Firebase Web config is pinned tools-only and supports one-command refr
   assert.equal(manifest.includes('tools/lab-firebase-web-config.json'),false);
   const workflow=read('.github/workflows/github-pages-test.yml');
   assert.doesNotMatch(workflow,/--from-json tools\/lab-firebase-web-config\.json/);
-  assert.doesNotMatch(workflow,/LAB_FIREBASE_WEB_CONFIG_JSON/);
+  assert.match(workflow,/vars\.LAB_FIREBASE_WEB_CONFIG_JSON/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
   const pkg=JSON.parse(read('package.json'));
   assert.equal(pkg.scripts['config:pin:lab'],'node tools/pin-lab-firebase-web-config.js');

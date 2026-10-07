@@ -1,4 +1,4 @@
-/* ADC / LAB Faculty suggestions.
+/* Safe Faculty candidates and legacy ADC / LAB suggestion metadata.
  *
  * A suggestion is NOT an assignment. It is workflow metadata only and must never
  * be written into `assignments[]`. Only ADFA or Developer performs the final
@@ -18,6 +18,8 @@
 })(typeof window!=='undefined'?window:null,function(){
  'use strict';
  const OFFICES=['adc','lab'];
+ // HICC uses independent actor contribution records, never a shared legacy bucket.
+ const CONTRIBUTION_SOURCES=Object.freeze(['adc','lab','hicc']);
  // The only fields a stored suggestion may contain.
  const ALLOWED_KEYS=['candidateKey','displayName','suggestedByOffice','suggestedBy','suggestedAt'];
  // Anything here means private data leaked into a suggestion payload.
@@ -45,9 +47,22 @@
   if(leaked.length)throw Error(`A Faculty suggestion must not carry private fields: ${leaked.join(', ')}`);
   return true;
  }
+ /* Canonical candidate boundary shared by legacy suggestions and contributions.
+  * Keys must come from the sanitized candidate directory; no private ID fallback.
+  * Unknown metadata is omitted and known private fields are refused.
+  */
+ function safeCandidate(record){
+  if(!record||typeof record!=='object'||Array.isArray(record))throw Error('Invalid Faculty suggestion.');
+  assertSafe(record);
+  const key=typeof record.candidateKey==='string'?record.candidateKey.trim():'';
+  const name=typeof record.displayName==='string'?record.displayName.trim():'';
+  if(!key||key.length>256||/[@\u0000-\u001f\u007f]/.test(key))throw Error('A Faculty suggestion requires a bounded opaque candidate key.');
+  if(!name||name.length>200||/[\u0000-\u001f\u007f]/.test(name))throw Error('A Faculty suggestion requires a bounded display name.');
+  return{candidateKey:key,displayName:name};
+ }
  function sanitize(record={}){
-  const out={};
-  for(const key of ALLOWED_KEYS)if(record[key]!==undefined)out[key]=record[key];
+  const out=safeCandidate(record);
+  for(const key of ALLOWED_KEYS)if(key!=='candidateKey'&&key!=='displayName'&&record[key]!==undefined)out[key]=record[key];
   return out;
  }
 
@@ -56,13 +71,9 @@
  function createSuggestion({candidateKey='',displayName='',office='',actor={},at=null}={}){
   const normalizedOffice=text(office).toLowerCase();
   if(!OFFICES.includes(normalizedOffice))throw Error('Only ADC or LAB may suggest Faculty.');
-  const key=text(candidateKey);
-  if(!key)throw Error('A Faculty suggestion requires an opaque candidate key.');
-  const name=text(displayName);
-  if(!name)throw Error('A Faculty suggestion requires a display name.');
+  const candidate=safeCandidate({candidateKey,displayName});
   const record={
-   candidateKey:key,
-   displayName:name,
+   ...candidate,
    suggestedByOffice:normalizedOffice,
    suggestedBy:text(actor.uid||actor.email||''),
    suggestedAt:at
@@ -122,13 +133,13 @@
 
  /* Verify a suggestion payload is free of private data before it is stored. */
  function assertStorable(metadata={}){
-  for(const office of OFFICES)for(const row of bucketFor(metadata,office))assertSafe(row);
+  for(const office of OFFICES)for(const row of bucketFor(metadata,office))safeCandidate(row);
   return true;
  }
 
  return Object.freeze({
-  OFFICES,ALLOWED_KEYS,FORBIDDEN_KEYS,
-  isForbiddenKey,forbiddenKeysPresent,assertSafe,sanitize,
+  OFFICES,CONTRIBUTION_SOURCES,ALLOWED_KEYS,FORBIDDEN_KEYS,
+  isForbiddenKey,forbiddenKeysPresent,assertSafe,safeCandidate,sanitize,
   createSuggestion,emptyMetadata,addSuggestion,removeSuggestion,suggestionsFor,describeForAdfa,
   suggestionToAssignment,assertStorable
  });

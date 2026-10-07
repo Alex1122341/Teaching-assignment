@@ -42,7 +42,7 @@
  }
  function hasOfficeAccess(profileOrRole,office){return officesForProfile(profileOrRole).includes(normalize(office));}
  function officeForRole(role){role=roleOf(role);return role==='adc'?'adc':role==='lab'?'lab':adfaRoles.includes(role)?'adfa':'';}
- function isOfficeAccount(profileOrRole){return officesForProfile(profileOrRole).length>0||roleOf(profileOrRole)==='other_office';}
+ function isOfficeAccount(profileOrRole){return officesForProfile(profileOrRole).length>0;}
  function blank(){
   return{canViewCalendar:false,
    canAddSessions:false,canAddOneSession:false,canSelectSessions:false,
@@ -50,6 +50,11 @@
    canEditLabTopic:false,canEditLabGroups:false,canEditLabRoster:false,
    canSuggestFaculty:false,
    canReviewAdcScope:false,canReviewLabScope:false,canReviewAdfaScope:false,
+   canViewTeachingAssignmentWorking:false,
+   canViewHiccPackage:false,canEditHiccTopic:false,canSuggestHiccFaculty:false,
+   canSubmitHiccPackage:false,canReviseHiccPackage:false,canFinalSubmitHiccPackage:false,
+   canViewViscPackages:false,canApproveViscPackage:false,canPushBackViscPackage:false,
+   canPublishTimetable:false,
    canViewFullApprovalOverview:false,
    canOverride:false};
  }
@@ -66,15 +71,29 @@
  }
  function forProfile(profileOrRole,options={}){
   const role=roleOf(profileOrRole),c=blank();
+  if(![...adfaRoles,...facultyRoles,'adc','lab'].includes(role))return Object.freeze(c);
   c.canViewCalendar=isOfficeAccount(profileOrRole)||facultyRoles.includes(role);
   if(role==='developer'){Object.keys(c).forEach(key=>{c[key]=true});return Object.freeze(c)}
   const granted=officesForProfile(profileOrRole),stage=normalize(options.stage);
   const active=stage?(granted.includes(stage)?[stage]:[]):granted;
   for(const office of active)applyOffice(c,office);
-  // System-level overview and override authority stay tied to the primary role,
-  // never to an office checkbox.
+  const ta=options?.teachingAssignment&&typeof options.teachingAssignment==='object'?options.teachingAssignment:{},taState=normalize(ta.state);
+  const hiccCurrent=ta.hiccAssigned===true&&ta.ownsPackage===true&&ta.hasAcademicScope===true;
+  if(hiccCurrent){
+   c.canViewTeachingAssignmentWorking=true;c.canViewHiccPackage=true;c.canEditHiccTopic=true;c.canSuggestHiccFaculty=true;
+   if(taState==='draft'||taState==='changes_requested')c.canSubmitHiccPackage=true;
+   if(taState==='changes_requested')c.canReviseHiccPackage=true;
+   if(taState==='visc_approved'&&ta.viscApprovalCurrent===true)c.canFinalSubmitHiccPackage=true;
+  }
+  const viscCurrent=ta.viscAssigned===true&&ta.leadsGroup===true;
+  if(viscCurrent){
+   c.canViewTeachingAssignmentWorking=true;c.canViewViscPackages=true;
+   if(taState==='visc_review'){c.canApproveViscPackage=true;c.canPushBackViscPackage=true}
+  }
+  // System-level overview, timetable publication and override authority stay tied
+  // to high-trust primary roles, never to an office checkbox or responsibility.
   if(['owner','administrator','admin','adfa_general','adfa_regular'].includes(role))c.canViewFullApprovalOverview=true;
-  if(role==='owner'||role==='adfa_general')c.canOverride=true;
+  if(role==='owner'||role==='adfa_general'){c.canOverride=true;c.canPublishTimetable=true}
   return Object.freeze(c);
  }
  function forRole(role){return forProfile({role});}

@@ -10,7 +10,7 @@ window.UCVM_APPROVAL_LIFECYCLE=(()=>{
   // Approval stages are strictly serial: ADC -> LAB -> ADFA. A later office may
   // not act while an earlier required office is still pending.
   const STAGE_ORDER={adc:0,lab:1,adfa:2};
-  const STAGE_LABEL={adc:'ADC',lab:'LAB',adfa:'ADFA'};
+  const STAGE_LABEL={adc:'ADC/DVM',lab:'LAB',adfa:'ADFAD'};
   function orderedOffices(workflow={}){
     return [...new Set(workflow?.requiredOffices||[])]
       .filter(name=>STAGE_ORDER[name]!==undefined)

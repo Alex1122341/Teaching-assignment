@@ -41,6 +41,12 @@ const DOE_CEILING = {
   documentReads: 70,
   existenceChecks: 15
 };
+const TEACHING_ASSIGNMENT_CEILING = {
+  // Separate from routed approvals and DOE: responsibility lookup is its own
+  // authorization domain and must not consume either established ceiling.
+  documentReads: 7,
+  existenceChecks: 1
+};
 
 function count(source, pattern) {
   return (source.match(pattern) || []).length;
@@ -52,15 +58,21 @@ function checks(source) {
   return count(source, /\bexistsAfter\(/g) + count(source, /(?<!After)\bexists\(/g);
 }
 function splitRuleDomains() {
-  const helperStart = rules.indexOf('  function doeAdmin()');
-  const helperEnd = rules.indexOf('  function swapIndexShapeValid', helperStart);
-  const matchStart = rules.indexOf('  match /doe_policies/{id}');
-  const matchEnd = rules.indexOf('  match /account_audit/{id}', matchStart);
-  assert.ok(helperStart >= 0 && helperEnd > helperStart && matchStart > helperEnd && matchEnd > matchStart,
-    'DOE/core rule-domain boundaries must remain explicit for budget review.');
+  const doeHelperStart = rules.indexOf('  function doeAdmin()');
+  const taHelperStart = rules.indexOf('  function taCanonicalId', doeHelperStart);
+  const taHelperEnd = rules.indexOf('  function swapIndexShapeValid', taHelperStart);
+  const taMatchStart = rules.indexOf('  match /teaching_assignment_groups/{id}');
+  const taMatchEnd = rules.indexOf('  match /faculty_groups/{id}', taMatchStart);
+  const doeMatchStart = rules.indexOf('  match /doe_policies/{id}');
+  const doeMatchEnd = rules.indexOf('  match /account_audit/{id}', doeMatchStart);
+  assert.ok(doeHelperStart >= 0 && taHelperStart > doeHelperStart && taHelperEnd > taHelperStart &&
+    taMatchStart > taHelperEnd && taMatchEnd > taMatchStart && doeMatchStart > taMatchEnd && doeMatchEnd > doeMatchStart,
+    'Core/Teaching Assignment/DOE rule-domain boundaries must remain explicit for budget review.');
   return {
-    doe: rules.slice(helperStart, helperEnd) + rules.slice(matchStart, matchEnd),
-    core: rules.slice(0, helperStart) + rules.slice(helperEnd, matchStart) + rules.slice(matchEnd)
+    doe: rules.slice(doeHelperStart, taHelperStart) + rules.slice(doeMatchStart, doeMatchEnd),
+    teachingAssignment: rules.slice(taHelperStart, taHelperEnd) + rules.slice(taMatchStart, taMatchEnd),
+    core: rules.slice(0, doeHelperStart) + rules.slice(taHelperEnd, taMatchStart) +
+      rules.slice(taMatchEnd, doeMatchStart) + rules.slice(doeMatchEnd)
   };
 }
 
@@ -86,6 +98,15 @@ test('core and DOE existence checks stay within their reviewed domain budgets', 
     `core rules now contain ${coreValue} existence checks (ceiling ${CORE_CEILING.existenceChecks}).`);
   assert.ok(doeValue <= DOE_CEILING.existenceChecks,
     `DOE rules now contain ${doeValue} existence checks (ceiling ${DOE_CEILING.existenceChecks}).`);
+});
+
+test('Teaching Assignment responsibility lookups stay within their own reviewed budget', () => {
+  const domain = splitRuleDomains().teachingAssignment;
+  const readValue = reads(domain), checkValue = checks(domain);
+  assert.ok(readValue <= TEACHING_ASSIGNMENT_CEILING.documentReads,
+    `Teaching Assignment rules now contain ${readValue} document reads (ceiling ${TEACHING_ASSIGNMENT_CEILING.documentReads}).`);
+  assert.ok(checkValue <= TEACHING_ASSIGNMENT_CEILING.existenceChecks,
+    `Teaching Assignment rules now contain ${checkValue} existence checks (ceiling ${TEACHING_ASSIGNMENT_CEILING.existenceChecks}).`);
 });
 
 test('the routed approval path still proves its companion writes', () => {

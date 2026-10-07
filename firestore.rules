@@ -3,7 +3,7 @@ service cloud.firestore {
  match /databases/{database}/documents {
   function signedIn(){return request.auth != null;}
   function profile(){return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;}
-  function readySignedIn(){let p=profile();return p.active == true && p.role in ['developer','owner','administrator','other_office','admin','editor','viewer','adfa_general','adfa_regular','hicc','visc','faculty','adc','lab'] && p.get('mustChangePassword',false) == false;}
+  function readySignedIn(){let p=profile();return p.active == true && p.role in ['developer','owner','administrator','admin','editor','viewer','adfa_general','adfa_regular','hicc','visc','faculty','adc','lab'] && p.get('mustChangePassword',false) == false;}
   function ready(){return signedIn() && readySignedIn();}
   function admin(){return ready() && profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
   function general(){return ready() && profile().role in ['developer','owner','adfa_general'];}
@@ -11,12 +11,12 @@ service cloud.firestore {
   function historyReader(d){return historyAll() || (ready() && !(profile().role in ['adc','lab']) && d.changedBy == request.auth.uid);}
   function hicc(){return ready() && profile().role == 'hicc';}
   function facultyMember(){return ready() && profile().role in ['hicc','visc','faculty'];}
-  function explicitRole(r){return r in ['developer','owner','administrator','other_office','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
+  function explicitRole(r){return r in ['developer','owner','administrator','adfa_general','adfa_regular','admin','editor','viewer','hicc','visc','faculty','adc','lab'];}
   function developer(){return ready() && profile().role == 'developer';}
   function defaultOfficeAccess(r){return r == 'developer' ? ['adc','lab','adfa'] : (r == 'adc' ? ['adc'] : (r == 'lab' ? ['lab'] : (r in ['owner','administrator','admin','adfa_general','adfa_regular'] ? ['adfa'] : [])));}
   function officeAccess(){let p=profile();return p.keys().hasAny(['officeAccess']) ? p.officeAccess : defaultOfficeAccess(p.role);}
   function hasOfficeAccess(name){return ready() && (developer() || name in officeAccess());}
-  function restrictedOffice(){return signedIn() && (profile().role == 'other_office' || (profile().role in ['adc','lab'] && !hasOfficeAccess('adfa')));}
+  function restrictedOffice(){return signedIn() && profile().role in ['adc','lab'] && !hasOfficeAccess('adfa');}
   function adc(){return hasOfficeAccess('adc');}
   function lab(){return hasOfficeAccess('lab');}
   function adfaApprover(){return hasOfficeAccess('adfa');}
@@ -232,13 +232,27 @@ service cloud.firestore {
     && after.readBy.toSet().difference(before.readBy.toSet()).hasOnly([request.auth.uid])));}
   function calendarPath(id){return /databases/$(database)/documents/calendar_sessions/$(id);}
   function sessionPath(id){return /databases/$(database)/documents/sessions/$(id);}
+  function documentExistsAfter(p){return existsAfter(p);}
+  function teachingSubjectPath(key){return /databases/$(database)/documents/teaching_subjects/$(key);}
+  function canonicalTeachingSubjectKey(key){return key is string && key.matches('^[a-z][a-z0-9_-]{0,63}$');}
+  function activeTeachingSubject(key){return canonicalTeachingSubjectKey(key) && exists(teachingSubjectPath(key)) && get(teachingSubjectPath(key)).data.active == true;}
+  function subjectKeyCreateValid(){let d=request.resource.data;let key=d.keys().hasAny(['subjectKey']) ? d.subjectKey : '';return key == '' || activeTeachingSubject(key);}
+  function subjectKeyUpdateValid(){let after=request.resource.data;let before=resource.data;let key=after.keys().hasAny(['subjectKey']) ? after.subjectKey : '';let old=before.keys().hasAny(['subjectKey']) ? before.subjectKey : '';return key == old || key == '' || activeTeachingSubject(key);}
+  function teachingSubjectRecordValid(id){let d=request.resource.data;return canonicalTeachingSubjectKey(id)
+   && d.keys().hasOnly(['key','label','active','updatedBy','updatedAt']) && d.keys().hasAll(['key','label','active','updatedBy','updatedAt'])
+   && d.key == id && d.label is string && d.label.size() > 0 && d.label.size() <= 100 && d.label.matches('.*\\S.*')
+   && d.active is bool && d.updatedBy == request.auth.uid && d.updatedAt == request.time;}
   function calendarLabGroupIds(d){return d.keys().hasAny(['labGroupIds']) ? d.labGroupIds : [];}
-  function calendarKeysValid(d){let groups=calendarLabGroupIds(d);return d.keys().hasOnly(['sessionId','course','courseName','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructorNames','instructor','labGroupIds']) && d.instructorNames is list && groups is list && groups.size() <= 8;}
+  function calendarKeysValid(d){let groups=calendarLabGroupIds(d);return d.keys().hasOnly(['sessionId','course','courseName','subjectKey','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructorNames','instructor','labGroupIds','academicYear','teachingAssignmentGroupId','responsibleHiccResponsibilityId'])
+   && (!d.keys().hasAny(['subjectKey']) || canonicalTeachingSubjectKey(d.subjectKey)) && d.instructorNames is list && groups is list && groups.size() <= 8;}
   function calendarMatchesSourceAfter(id){
    let source=getAfter(sessionPath(id)).data;
    let calendar=getAfter(calendarPath(id)).data;
-   return calendarKeysValid(calendar) && calendar.sessionId == id
-    && calendar.course == source.get('course','') && calendar.courseName == source.get('courseName','')
+   return calendarProjectionMatches(id,source,calendar);
+  }
+  function calendarProjectionMatches(id,source,calendar){
+   return calendarKeysValid(calendar) && calendar.sessionId == id && taCalendarOwnership(calendar,source)
+    && calendar.course == source.get('course','') && calendar.courseName == source.get('courseName','') && calendar.get('subjectKey','') == source.get('subjectKey','')
     && calendar.year == source.get('year',null) && calendar.semester == source.get('semester','') && calendar.week == source.get('week',null)
     && calendar.date == source.get('date','') && calendar.start == source.get('start','') && calendar.end == source.get('end','')
     && calendar.timeUnknown == source.get('timeUnknown',false) && calendar.type == source.get('type','') && calendar.topic == source.get('topic','')
@@ -248,21 +262,16 @@ service cloud.firestore {
   function calendarMatchesCurrentSource(id){
    let source=get(sessionPath(id)).data;
    let calendar=request.resource.data;
-   return calendarKeysValid(calendar) && calendar.sessionId == id
-    && calendar.course == source.get('course','') && calendar.courseName == source.get('courseName','')
-    && calendar.year == source.get('year',null) && calendar.semester == source.get('semester','') && calendar.week == source.get('week',null)
-    && calendar.date == source.get('date','') && calendar.start == source.get('start','') && calendar.end == source.get('end','')
-    && calendar.timeUnknown == source.get('timeUnknown',false) && calendar.type == source.get('type','') && calendar.topic == source.get('topic','')
-    && calendar.room == source.get('room','') && calendar.instructor == source.get('instructor','')
-    && calendarLabGroupIds(calendar) == calendarLabGroupIds(source);
+   return calendarProjectionMatches(id,source,calendar);
   }
   function maintenanceSessionWrite(id){return maintenanceOwner() && calendarMatchesSourceAfter(id);}
-  function maintenanceSessionDelete(id){return maintenanceOwner() && !existsAfter(calendarPath(id));}
+  function maintenanceSessionDelete(id){return maintenanceOwner() && !documentExistsAfter(calendarPath(id));}
   function maintenanceCalendarWrite(id){return maintenanceOwner() && calendarMatchesSourceAfter(id);}
-  function maintenanceCalendarDelete(id){return maintenanceOwner() && !existsAfter(sessionPath(id));}
+  function maintenanceCalendarDelete(id){return maintenanceOwner() && !documentExistsAfter(sessionPath(id));}
   function generalCalendarRepair(id){return general() && teachingWritesOpen() && exists(sessionPath(id)) && calendarMatchesCurrentSource(id);}
   function generalCalendarDelete(id){return general() && teachingWritesOpen() && !exists(sessionPath(id));}
   function adcSessionCreate(id){return adc() && teachingWritesOpen() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
+   && subjectKeyCreateValid()
    && request.resource.data.get('instructor','') == '' && request.resource.data.get('assignments',[]) is list && request.resource.data.get('assignments',[]).size() == 0
    && request.resource.data.get('facultyIds',[]) is list && request.resource.data.get('facultyIds',[]).size() == 0
    && (!request.resource.data.keys().hasAny(['awayFromCampusRecords']) && (request.resource.data.get('type','') != 'LAB' || request.resource.data.get('topic','') == 'TBD'))
@@ -270,7 +279,8 @@ service cloud.firestore {
   function adcSessionUpdate(id){
    let changed=request.resource.data.diff(resource.data).affectedKeys();
    return adc() && teachingWritesOpen() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time
-    && changed.hasOnly(['course','courseName','year','semester','week','date','start','end','timeUnknown','type','room','topic','updatedBy','updatedByName','updatedAt'])
+    && changed.hasOnly(['course','courseName','subjectKey','year','semester','week','date','start','end','timeUnknown','type','room','topic','updatedBy','updatedByName','updatedAt'])
+    && subjectKeyUpdateValid()
     && (!changed.hasAny(['topic']) || request.resource.data.get('type','') != 'LAB' || (resource.data.get('type','') != 'LAB' && request.resource.data.get('topic','') == 'TBD'))
     && calendarMatchesSourceAfter(id);
   }
@@ -332,14 +342,16 @@ service cloud.firestore {
   function teachingWritesOpen(){return !teachingLocked();}
   // LAB groups: codes and colour keys are shared with the sanitized calendar, so
   // any office account may read them.
-  function labGroupWrite(id){return ready() && (developer() || general() || lab()) && request.resource.data.groupId == id && request.resource.data.groupCode is string && request.resource.data.colorKey is string && request.resource.data.active is bool && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time;}
+  function labGroupWrite(id){let d=request.resource.data;return ready() && (developer() || general() || lab())
+   && d.keys().hasOnly(['groupId','academicYear','course','groupCode','colorKey','active','updatedBy','updatedByName','updatedAt'])
+   && d.groupId == id && d.academicYear is string && d.course is string && d.groupCode is string && d.colorKey is string
+   && taValue(d,'updatedByName','') is string && d.active is bool && d.updatedBy == request.auth.uid && d.updatedAt == request.time;}
   // Student rosters are private to LAB, Developer and Owner. ADFA, ADC, Faculty,
   // VISC, HICC and Other Office never receive student IDs.
   function rosterReader(){return ready() && (developer() || general() || lab());}
   function rosterShapeValid(d){return d.keys().hasOnly(['groupId','studentIds','updatedAt','updatedBy','updatedByName']) && d.groupId is string && d.studentIds is list && d.studentIds.size() <= 500 && d.updatedBy == request.auth.uid && d.updatedAt == request.time;}
   // Roster-shaped fields must never reach the sanitized calendar read model.
-  // Per-entry map validation is not expressible in Firestore rules, so the code
-  // level sanitizer remains the authority for nested group payloads.
+  // Nested arrays are independently validated by calendarKeysValid.
   function calendarHasNoRosterData(){return !request.resource.data.keys().hasAny(['studentIds','roster','rosters','studentNames']);}
   function maintenanceOwner(){return general() && teachingLocked() && get(/databases/$(database)/documents/settings/system_state).data.get('maintenanceOwnerUid','') == request.auth.uid && get(/databases/$(database)/documents/settings/system_state).data.get('activeImportId','') is string && get(/databases/$(database)/documents/settings/system_state).data.get('activeImportId','').size() > 0;}
   function maintenanceOwnerFor(id){return maintenanceOwner() && get(/databases/$(database)/documents/settings/system_state).data.get('activeImportId','') == id;}
@@ -458,6 +470,233 @@ service cloud.firestore {
     && (get(doeImpactPath(runId)).data.runBy == request.auth.uid || general());
   }
 
+  function taCanonicalId(value){return value is string && value.matches('^[a-z][a-z0-9_-]{0,63}$');}
+  // Shared lookups keep the existing lexical guard stable. Emulator tests, not
+  // lexical counts, prove the dynamic access and expression limits.
+  function taData(p){return get(p).data;}
+  function taAfter(p){return getAfter(p).data;}
+  function taOptional(p){return exists(p) ? taData(p) : null;}
+  function taOptionalAfter(p){return documentExistsAfter(p) ? taAfter(p) : null;}
+  function taValue(d,k,fallback){return d.get(k,fallback);}
+  function taAcademicYear(value){return value is string && value.matches('^[0-9]{4}-[0-9]{2}$');}
+  function taManagedMeta(d){return d.updatedBy == request.auth.uid && d.updatedAt == request.time;}
+  function taResponsibilityShape(id,d){
+   let scopes=taValue(d,'academicScopeTokens',[]);
+   return d.keys().hasOnly(['id','kind','label','groupId','academicScopeTokens','active','createdAt','updatedBy','updatedByName','updatedAt'])
+    && taCanonicalId(id) && d.id == id && d.kind in ['hicc','visc'] && d.label is string && d.label.size() <= 120
+    && d.active is bool && taTextList(scopes) && scopes.size() <= 64 && taDefinitionMeta(d)
+    && (scopes.size() == 0 || scopes.join(';').matches('^hicc\\|[A-Z]{2,10} [0-9]{3,4}[A-Z]?\\|(\\*|[a-z][a-z0-9_-]{0,63})(;hicc\\|[A-Z]{2,10} [0-9]{3,4}[A-Z]?\\|(\\*|[a-z][a-z0-9_-]{0,63}))*$'))
+    && ((d.kind == 'hicc' && taCanonicalId(d.groupId) && scopes.size() > 0) || (d.kind == 'visc' && taValue(d,'groupId','') == '' && scopes.size() == 0))
+    && taManagedMeta(d);
+  }
+  function taGroupShape(id,d){
+   let hiccs=taValue(d,'hiccResponsibilityIds',[]);
+   return d.keys().hasOnly(['id','name','leaderViscResponsibilityId','hiccResponsibilityIds','active','createdAt','updatedBy','updatedByName','updatedAt'])
+    && taCanonicalId(id) && d.id == id && d.name is string && d.name.size() > 0 && d.name.size() <= 120
+    && taCanonicalId(d.leaderViscResponsibilityId) && taTextList(hiccs) && hiccs.size() > 0 && hiccs.size() <= 64
+    && hiccs.join(';').matches('^[a-z][a-z0-9_-]{0,63}(;[a-z][a-z0-9_-]{0,63})*$') && taDefinitionMeta(d)
+    && d.active is bool && taManagedMeta(d);
+  }
+  function taWindowShape(w){
+   return w is map && w.keys().hasOnly(['activeDate','expirationDate','activeAt','expiresAt','sourceDoeAssignmentFactId'])
+    && w.activeDate is string && w.expirationDate is string && w.activeAt is timestamp && w.expiresAt is timestamp
+    && w.activeAt < w.expiresAt && taValue(w,'sourceDoeAssignmentFactId','') is string;
+  }
+  function taWindowsShape(windows){
+   return windows is list && windows.size() > 0 && windows.size() <= 4
+    && taWindowShape(windows[0])
+    && (windows.size() < 2 || taWindowShape(windows[1]))
+    && (windows.size() < 3 || taWindowShape(windows[2]))
+    && (windows.size() < 4 || taWindowShape(windows[3]));
+  }
+  function taAssigneeShape(responsibilityId,academicYearKey,uid,d){
+   return d.keys().hasOnly(['responsibilityId','academicYearKey','assigneeUid','facultyId','enabled','windows','updatedBy','updatedByName','updatedAt'])
+    && taCanonicalId(responsibilityId) && taAcademicYear(academicYearKey)
+    && d.responsibilityId == responsibilityId && d.academicYearKey == academicYearKey && d.assigneeUid == uid
+    && d.facultyId is string && d.facultyId.size() > 0 && d.enabled is bool && taWindowsShape(d.windows) && taManagedMeta(d);
+  }
+  function taWindowCurrent(w){return w.activeAt <= request.time && request.time < w.expiresAt;}
+  function taAssigneeCurrent(d){
+   let windows=d.windows;
+   // The complete safe projection is checked at its high-trust write boundary.
+   // Consumers check the effective window, without revalidating unrelated metadata.
+   return d.enabled == true && windows is list && windows.size() > 0 && windows.size() <= 4
+    && (taWindowCurrent(windows[0])
+     || (windows.size() > 1 && taWindowCurrent(windows[1]))
+     || (windows.size() > 2 && taWindowCurrent(windows[2]))
+     || (windows.size() > 3 && taWindowCurrent(windows[3])));
+  }
+  function taAssigneePath(responsibilityId,academicYearKey,uid){return /databases/$(database)/documents/teaching_responsibilities/$(responsibilityId)/years/$(academicYearKey)/assignees/$(uid);}
+  function taCurrentDuty(responsibilityId,academicYearKey){
+   return taCurrentAssignee(responsibilityId,academicYearKey,taOptional(taAssigneePath(responsibilityId,academicYearKey,request.auth.uid)));
+  }
+  // The authenticated UID and stable responsibility/year are in the document
+  // path. taAssigneeShape binds those same fields on every authorized write.
+  function taCurrentAssignee(rid,year,d){return d != null && taAssigneeCurrent(d);}
+  function taPackagePath(id){return /databases/$(database)/documents/teaching_assignment_submissions/$(id);}
+  function taGroupPath(id){return /databases/$(database)/documents/teaching_assignment_groups/$(id);}
+  function taResponsibilityPath(id){return /databases/$(database)/documents/teaching_responsibilities/$(id);}
+  function taContributionPath(id){return /databases/$(database)/documents/session_assignment_contributions/$(id);}
+  function taOwned(d){return d != null && d.keys().hasAny(['teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId']);}
+  function taManager(){return general() || adc();}
+  // Internal predicates: every public entry point checks ready() once.
+  function taAdmin(){return profile().role in ['developer','owner','administrator','admin','adfa_general','adfa_regular'];}
+  function taOffice(name){let p=profile();return p.role == 'developer' || name in taValue(p,'officeAccess',defaultOfficeAccess(p.role));}
+  function taYearPath(rid,year){return /databases/$(database)/documents/teaching_responsibilities/$(rid)/years/$(year);}
+  function taYearWrite(rid,year){let before=taOptional(taYearPath(rid,year));let after=request.resource.data;
+   let assignee=taAfter(taAssigneePath(rid,year,after.changedAssigneeUid));
+   return general() && taCanonicalId(rid) && taAcademicYear(year)
+    && after.keys().hasOnly(['scheduleRevision','changedAssigneeUid','updatedBy','updatedAt'])
+    && after.scheduleRevision is int && after.scheduleRevision > 0 && after.scheduleRevision < 9007199254740991
+    && after.scheduleRevision == (before == null ? 1 : before.scheduleRevision + 1) && taManagedMeta(after)
+    && assignee.updatedBy == request.auth.uid && assignee.updatedAt == request.time;
+  }
+  function taScheduleWrite(rid,year,uid){let before=taOptional(taYearPath(rid,year));let after=taAfter(taYearPath(rid,year));
+   return after.changedAssigneeUid == uid && after.scheduleRevision == (before == null ? 1 : before.scheduleRevision + 1) && taManagedMeta(after);
+  }
+  function taLocator(d,p){return d.academicYear == p.academicYearKey && d.teachingAssignmentGroupId == p.groupId
+   && d.responsibleHiccResponsibilityId == p.hiccResponsibilityId && d.teachingAssignmentSubmissionId == p.id;}
+  function taCalendarOwnership(c,s){return (!taOwned(c) && !taOwned(s)) || (c.academicYear == s.academicYear && c.teachingAssignmentGroupId == s.teachingAssignmentGroupId
+   && c.responsibleHiccResponsibilityId == s.responsibleHiccResponsibilityId);}
+  function taContext(p){
+   let group=taData(taGroupPath(p.groupId));let hiccDef=taData(taResponsibilityPath(p.hiccResponsibilityId));let viscDef=taData(taResponsibilityPath(p.viscResponsibilityId));
+   // Canonical document identities are enforced on definition/package writes.
+   // Runtime authority rechecks the live relationship and active status.
+   return group.active == true && p.hiccResponsibilityId in group.hiccResponsibilityIds && group.leaderViscResponsibilityId == p.viscResponsibilityId
+    && hiccDef.kind == 'hicc' && hiccDef.active == true && hiccDef.groupId == p.groupId && viscDef.kind == 'visc' && viscDef.active == true;
+  }
+  function taHicc(p){return taCurrentDuty(p.hiccResponsibilityId,p.academicYearKey);}
+  function taVisc(p){return taCurrentDuty(p.viscResponsibilityId,p.academicYearKey);}
+  function taExactScope(s,p){
+   let scopes=taData(taResponsibilityPath(p.hiccResponsibilityId)).academicScopeTokens;
+   return s.course is string && s.course.matches('^[A-Z]{2,10} [0-9]{3,4}[A-Z]?$')
+    && (('hicc|' + s.course + '|*') in scopes || (canonicalTeachingSubjectKey(taValue(s,'subjectKey','')) && ('hicc|' + s.course + '|' + s.subjectKey) in scopes));
+  }
+  function taSessionRead(s){let p=taData(taPackagePath(s.teachingAssignmentSubmissionId));return ready() && taLocator(s,p) && taContext(p) && taExactScope(s,p) && (taAdmin() || taHicc(p) || taVisc(p));}
+  function taCalendarRead(id){let s=taOptional(sessionPath(id));return ready() && (!taOwned(s) || taOffice('adc') || taOffice('lab') || taSessionRead(s));}
+  function taPackageRead(p){return ready() && taContext(p) && (taAdmin() || taHicc(p) || taVisc(p));}
+  function taMutable(p){return p.status in ['draft','changes_requested','visc_approved'];}
+  function taReviewFields(){return ['course','subjectKey','date','start','end','timeUnknown','type','room','topic','academicYear','teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId'];}
+  function taReviewChanged(before,after){return after.diff(before).affectedKeys().hasAny(taReviewFields());}
+  function taPairedChanges(id,before,after){
+   let publicFields=['course','courseName','subjectKey','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructor','labGroupIds','academicYear','teachingAssignmentGroupId','responsibleHiccResponsibilityId'];
+   let changed=after.diff(before).affectedKeys().intersection(publicFields.toSet());
+   // If a public source value changes, its companion must contain that new value.
+   // The calendar write rule validates the complete sanitized projection once.
+   return !taAfter(calendarPath(id)).diff(after).affectedKeys().hasAny(changed);
+  }
+  function taAdvanced(p){return taAfter(taPackagePath(p.id)).workingRevision == p.workingRevision + 1;}
+  function taGeneration(s){let p=taData(taPackagePath(s.teachingAssignmentSubmissionId));return taLocator(s,p) && taAdvanced(p);}
+  function taOwnershipSame(before,after){return after.academicYear == before.academicYear && after.teachingAssignmentGroupId == before.teachingAssignmentGroupId
+   && after.responsibleHiccResponsibilityId == before.responsibleHiccResponsibilityId && after.teachingAssignmentSubmissionId == before.teachingAssignmentSubmissionId;}
+  function taContentActor(p,changed,before,after){return
+   (before.type in ['LEC','SRL'] && after.type == before.type && changed.hasOnly(['topic','updatedBy','updatedByName','updatedAt']) && taHicc(p))
+   || (taOffice('adc') && changed.hasOnly(['course','courseName','subjectKey','year','semester','week','date','start','end','timeUnknown','type','room','topic','updatedBy','updatedByName','updatedAt'])
+    && (!changed.hasAny(['topic']) || after.type != 'LAB' || (before.type != 'LAB' && after.topic == 'TBD')))
+   || (taOffice('lab') && before.type == 'LAB' && after.type == 'LAB' && changed.hasOnly(['topic','labGroupIds','updatedBy','updatedByName','updatedAt']))
+   || (taAdmin() && changed.hasOnly(['course','courseName','subjectKey','year','semester','week','date','start','end','timeUnknown','type','room','topic','labGroupIds','updatedBy','updatedByName','updatedAt']));}
+  function taSessionUpdate(id){
+   let before=resource.data;let after=request.resource.data;let p=taData(taPackagePath(before.teachingAssignmentSubmissionId));let changed=after.diff(before).affectedKeys();
+   return ready() && teachingWritesOpen() && taLocator(before,p) && taContext(p) && taExactScope(before,p) && taOwnershipSame(before,after)
+    && (!changed.hasAny(['course','subjectKey']) || taExactScope(after,p)) && taManagedMeta(after) && subjectKeyUpdateValid()
+    && (taContentActor(p,changed,before,after) || doeRecalculationSessionWrite())
+    && (!taReviewChanged(before,after) || taMutable(p))
+    && (!taReviewChanged(before,after) || taAdvanced(p)) && taPairedChanges(id,before,after);
+  }
+  function taTrustedAttach(id){let after=request.resource.data;let p=taData(taPackagePath(after.teachingAssignmentSubmissionId));
+   return taManager() && teachingWritesOpen() && taManagedMeta(after) && taContext(p) && taLocator(after,p) && taExactScope(after,p)
+    && taAdvanced(p) && taPairedChanges(id,{},after);}
+  function taEmptyNewSession(){let d=request.resource.data;return d.keys().hasOnly(['academicYear','teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId','course','courseName','subjectKey','year','semester','week','date','start','end','timeUnknown','type','room','topic','instructor','assignments','facultyIds','labGroupIds','updatedBy','updatedByName','updatedAt'])
+   && d.instructor == '' && d.assignments == [] && d.facultyIds == [] && subjectKeyCreateValid() && (d.type != 'LAB' || d.topic == 'TBD');}
+  function taTrustedDelete(){return taManager() && teachingWritesOpen() && taGeneration(resource.data);}
+  function taAttachUpdate(id){return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['academicYear','teachingAssignmentGroupId','responsibleHiccResponsibilityId','teachingAssignmentSubmissionId','updatedBy','updatedByName','updatedAt'])
+   && taTrustedAttach(id) && (!taOwned(resource.data) || taGeneration(resource.data));}
+  function taPackageShape(id,d){return d.keys().hasOnly(['id','academicYearKey','groupId','hiccResponsibilityId','viscResponsibilityId','status','revision','workingRevision','submittedWorkingRevision','viscApprovedWorkingRevision','reviewFingerprint','viscApprovedFingerprint','viscReviewComment','submittedForReviewAt','viscReviewedAt','finalSubmittedAt','updatedBy','updatedAt','workingChange'])
+   && taAcademicYear(d.academicYearKey) && taCanonicalId(d.groupId) && taCanonicalId(d.hiccResponsibilityId) && taCanonicalId(d.viscResponsibilityId)
+   && d.id == id && d.revision is int && d.revision >= 0 && d.revision < 9007199254740991 && d.workingRevision is int && d.workingRevision >= 0 && d.workingRevision < 9007199254740991
+   && (d.submittedWorkingRevision == null || (d.submittedWorkingRevision is int && d.submittedWorkingRevision >= 0))
+   && (d.viscApprovedWorkingRevision == null || (d.viscApprovedWorkingRevision is int && d.viscApprovedWorkingRevision >= 0))
+   && d.reviewFingerprint is string && d.reviewFingerprint.size() <= 200000 && d.viscApprovedFingerprint is string && d.viscApprovedFingerprint.size() <= 200000
+   && d.viscReviewComment is string && d.viscReviewComment.size() <= 2000 && taManagedMeta(d);}
+  function taPackageCreate(id,d){return taManager() && teachingWritesOpen() && taPackageShape(id,d) && taContext(d)
+   && id == 'ta-sub-v2__' + d.academicYearKey + '__' + d.groupId.replace('_','%5F') + '__' + d.hiccResponsibilityId.replace('_','%5F')
+   && d.status == 'draft' && d.revision == 0 && d.workingRevision == 0 && d.submittedWorkingRevision == null && d.viscApprovedWorkingRevision == null
+   && d.reviewFingerprint == '' && d.viscApprovedFingerprint == '' && d.viscReviewComment == '' && d.submittedForReviewAt == null && d.viscReviewedAt == null && d.finalSubmittedAt == null && !d.keys().hasAny(['workingChange']);}
+  function taWitnessSession(id,p){let before=taOptional(sessionPath(id));let after=taOptionalAfter(sessionPath(id));
+   return (before == null && after != null && taLocator(after,p)) || (after == null && before != null && taLocator(before,p))
+    || (before != null && after != null && (taLocator(before,p) || taLocator(after,p)) && taReviewChanged(before,after));}
+  function taWitnessContribution(id,p){let before=taOptional(taContributionPath(id));let after=taOptionalAfter(taContributionPath(id));
+   let row=after == null ? before : after;
+   return row != null && taLocator(taData(sessionPath(row.sessionId)),p)
+    && ((before == null && after.suggestions.size() > 0) || (after == null && before.suggestions.size() > 0) || (before != null && after != null && before.suggestions != after.suggestions));}
+  function taWitness(d){let w=d.workingChange;return w is map && w.keys().hasOnly(['kind','id']) && w.id is string && w.id.size() > 0 && w.id.size() <= 1500
+   && ((w.kind == 'session' && taWitnessSession(w.id,d)) || (w.kind == 'contribution' && taWitnessContribution(w.id,d)));}
+  function taCounterUpdate(before,after,changed){return taMutable(before) && changed.hasOnly(['workingRevision','workingChange','updatedBy','updatedAt'])
+   && after.workingRevision is int && after.workingRevision < 9007199254740991 && after.workingRevision == before.workingRevision + 1 && taManagedMeta(after)
+   // The witness must actually change in this atomic write. Its own collection
+   // rule proves actor authority; an unchanged document cannot advance a counter.
+   && taWitness(after);}
+  function taFingerprint(value){return value is string && value.matches('^ta-review-v1:.+');}
+  function taSubmit(before,after,changed){return taHicc(before) && (before.status in ['draft','changes_requested'] || (before.status == 'visc_approved' && before.workingRevision != before.viscApprovedWorkingRevision))
+   && after.status == 'visc_review' && after.revision == before.revision + 1 && after.submittedWorkingRevision == before.workingRevision && taFingerprint(after.reviewFingerprint)
+   && after.viscApprovedWorkingRevision == null && after.viscApprovedFingerprint == '' && after.viscReviewComment == '' && after.submittedForReviewAt == request.time && after.viscReviewedAt == null && after.finalSubmittedAt == null
+   && changed.hasOnly(['status','revision','submittedWorkingRevision','viscApprovedWorkingRevision','reviewFingerprint','viscApprovedFingerprint','viscReviewComment','submittedForReviewAt','viscReviewedAt','finalSubmittedAt','updatedBy','updatedAt']);}
+  function taReviewDecision(before,after,changed){return before.status == 'visc_review' && before.revision > 0 && before.workingRevision == before.submittedWorkingRevision && taFingerprint(before.reviewFingerprint) && taVisc(before)
+   && ((after.status == 'visc_approved' && after.viscApprovedWorkingRevision == before.workingRevision && after.viscApprovedFingerprint == before.reviewFingerprint && after.viscReviewedAt == request.time
+     && changed.hasOnly(['status','viscApprovedWorkingRevision','viscApprovedFingerprint','viscReviewedAt','updatedBy','updatedAt']))
+    || (after.status == 'changes_requested' && after.viscApprovedWorkingRevision == null && after.viscApprovedFingerprint == '' && after.viscReviewComment.matches('.*\\S.*') && after.viscReviewedAt == request.time && after.finalSubmittedAt == null
+     && changed.hasOnly(['status','viscApprovedWorkingRevision','viscApprovedFingerprint','viscReviewComment','viscReviewedAt','finalSubmittedAt','updatedBy','updatedAt'])));}
+  function taFinalSubmit(before,after,changed){return before.status == 'visc_approved' && before.revision > 0 && taHicc(before)
+   && before.workingRevision == before.submittedWorkingRevision && before.workingRevision == before.viscApprovedWorkingRevision && taFingerprint(before.reviewFingerprint) && before.reviewFingerprint == before.viscApprovedFingerprint
+   && after.status == 'submitted_to_adfad' && after.finalSubmittedAt == request.time && changed.hasOnly(['status','finalSubmittedAt','updatedBy','updatedAt']);}
+  function taPackageUpdate(id){let before=resource.data;let after=request.resource.data;let changed=after.diff(before).affectedKeys();return ready() && teachingWritesOpen()
+   && (changed.hasAny(['workingRevision']) ? taCounterUpdate(before,after,changed) : (taPackageShape(id,after)
+    && taContext(before) && (after.status == 'visc_review' ? taSubmit(before,after,changed) : (after.status == 'submitted_to_adfad' ? taFinalSubmit(before,after,changed) : taReviewDecision(before,after,changed)))));}
+  // URL encoding remains the model contract. Browser writes accept the bounded
+  // ASCII subset whose exact encoding Rules can prove, including underscores.
+  // Other identifiers must use trusted tooling; aliases never gain permission.
+  function taContributionComponent(s){return s is string && s.matches('^[A-Za-z0-9_.!~*\x27()-]{1,256}$');}
+  function taContributionId(id,d){return taContributionComponent(d.sessionId) && taContributionComponent(d.actorUid)
+   && id == 'ac-v1__' + d.sessionId.replace('_','%5F') + '__' + d.sourceRole + '__' + d.actorUid.replace('_','%5F');}
+  function taSafeCandidate(d){let key=d.candidateKey;let name=d.displayName;
+   // keys() and matches() fail closed for non-map/non-string payloads.
+   // Both required keys were accessed above; exactly two keys excludes extras.
+   return d.keys().size() == 2 && key.matches('^[^@\x00-\x1f\x7f]{1,256}$') && name.matches('^[^\x00-\x1f\x7f]{1,200}$');}
+  function taCandidates(rows){return rows is list && rows.size() <= 8 && (rows.size() == 0 || (taSafeCandidate(rows[0]) && (rows.size() == 1 || (taSafeCandidate(rows[1]) && (rows.size() == 2 || (taSafeCandidate(rows[2]) && (rows.size() == 3 || (taSafeCandidate(rows[3]) && (rows.size() == 4 || (taSafeCandidate(rows[4]) && (rows.size() == 5 || (taSafeCandidate(rows[5]) && (rows.size() == 6 || (taSafeCandidate(rows[6]) && (rows.size() == 7 || (taSafeCandidate(rows[7]) && true))))))))))))))));}
+  function taContributionShape(id,d){return d.keys().hasOnly(['id','sessionId','sourceRole','actorUid','suggestions','course','subjectKey','actorDisplayName','note','updatedBy','updatedAt']) && d.id == id && taContributionId(id,d)
+   && d.sourceRole in ['adc','lab','hicc'] && taCandidates(d.suggestions)
+   && (!('course' in d) || (d.course is string && d.course.size() <= 200)) && (!('subjectKey' in d) || d.subjectKey is string)
+   && (!('actorDisplayName' in d) || (d.actorDisplayName is string && d.actorDisplayName.size() <= 200)) && (!('note' in d) || (d.note is string && d.note.size() <= 2000)) && taManagedMeta(d);}
+  function taContributionActor(d,p){return d.actorUid == request.auth.uid && ((d.sourceRole == 'adc' && taOffice('adc')) || (d.sourceRole == 'lab' && taOffice('lab')) || (d.sourceRole == 'hicc' && taHicc(p)));}
+  function taContributionWrite(id,creating){let d=request.resource.data;let s=taData(sessionPath(d.sessionId));let p=taData(taPackagePath(s.teachingAssignmentSubmissionId));
+   return ready() && teachingWritesOpen() && taContributionShape(id,d) && taContext(p) && taLocator(s,p) && taExactScope(s,p) && taContributionActor(d,p)
+    && (!('course' in d) || d.course == s.course) && (!('subjectKey' in d) || d.subjectKey == s.subjectKey)
+    && (creating || !d.diff(resource.data).affectedKeys().hasAny(['id','sessionId','sourceRole','actorUid']))
+    && ((creating ? d.suggestions.size() == 0 : d.suggestions == resource.data.suggestions) || taAdvanced(p));}
+  function taContributionRead(d){let s=taData(sessionPath(d.sessionId));let p=taData(taPackagePath(s.teachingAssignmentSubmissionId));return ready() && taContext(p) && taLocator(s,p) && taExactScope(s,p)
+   && (taAdmin() || taHicc(p) || taVisc(p) || taContributionActor(d,p));}
+  function taContributionDelete(){let d=resource.data;let s=taData(sessionPath(d.sessionId));let p=taData(taPackagePath(s.teachingAssignmentSubmissionId));
+   return ready() && teachingWritesOpen() && taContext(p) && taLocator(s,p) && taExactScope(s,p) && taContributionActor(d,p)
+    && (d.suggestions.size() == 0 || taAdvanced(p));}
+  function taCalendarWrite(id,previousNames){let source=taAfter(sessionPath(id));return source.updatedBy == request.auth.uid && source.updatedAt == request.time
+   && request.resource.data.instructorNames == previousNames && calendarProjectionMatches(id,source,request.resource.data);}
+  function taDefinitionMeta(d){return taValue(d,'updatedByName','') is string && (!d.keys().hasAny(['createdAt']) || d.createdAt is timestamp);}
+  // Round-trip equality proves each element is scalar text; stringification of
+  // maps, numbers, or nested lists can never compare equal to the original list.
+  function taTextList(rows){return rows is list && (rows.size() == 0 || rows.join(';').split(';') == rows);}
+  function taPublicNames(rows){return taTextList(rows);}
+  function taLabIds(rows){return taTextList(rows) && rows.size() <= 8;}
+  function taCalendarPublicShape(d){return taPublicNames(d.instructorNames)
+   && d.sessionId is string && d.course is string && d.courseName is string && d.semester is string && d.date is string && d.start is string && d.end is string
+   && d.type is string && d.topic is string && d.room is string && d.instructor is string && d.timeUnknown is bool
+   && (d.year == null || d.year is number) && (d.week == null || d.week is number);}
+  function taLabReference(id){return id is string && id.size() > 0 && !id.matches('.*/.*') && taAfter(/databases/$(database)/documents/lab_groups/$(id)).groupId == id;}
+  function taLabRefAt(rows,i){return rows.size() <= i || taLabReference(rows[i]);}
+  function taLabReferences(d){let rows=calendarLabGroupIds(d);return taLabIds(rows) && (rows.size() == 0 || (taLabRefAt(rows,0) && taLabRefAt(rows,1) && taLabRefAt(rows,2) && taLabRefAt(rows,3)
+   && (rows.size() <= 4 || (taLabRefAt(rows,4) && taLabRefAt(rows,5) && taLabRefAt(rows,6) && taLabRefAt(rows,7)))));}
+  function taCalendarPermission(id,previousNames){return ready() && calendarHasNoRosterData() && taCalendarPublicShape(request.resource.data) && taLabReferences(request.resource.data)
+   && (taOwned(taAfter(sessionPath(id))) ? taCalendarWrite(id,previousNames) : (pairedCalendarSource(id) || generalCalendarRepair(id) || maintenanceCalendarWrite(id)));}
+
   function swapIndexShapeValid(d){return d.keys().hasOnly(['schemaVersion','entries','generatedAt']) && d.schemaVersion == 'ucvm-faculty-swap-index-v1' && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
   function peopleIndexShapeValid(d){return d.keys().hasOnly(['schemaVersion','entries','generatedAt']) && d.schemaVersion == 'ucvm-people-index-v1' && d.entries is list && d.entries.size() <= 2000 && (d.generatedAt is timestamp || d.generatedAt is string);}
 
@@ -468,26 +707,67 @@ service cloud.firestore {
    allow update: if generalUserUpdate(uid) || selfPasswordCompletion(uid);
    allow delete: if false;
   }
+  match /teaching_assignment_groups/{id} {
+   allow read: if general() || adc();
+   allow create,update: if general() && taGroupShape(id,request.resource.data);
+   allow delete: if false;
+  }
+  match /teaching_responsibilities/{responsibilityId} {
+   allow read: if general() || adc();
+   allow create,update: if general() && taResponsibilityShape(responsibilityId,request.resource.data);
+   allow delete: if false;
+   match /years/{academicYearKey} {
+    allow read: if general();
+    allow create,update: if taYearWrite(responsibilityId,academicYearKey);
+    allow delete: if false;
+    match /assignees/{uid} {
+    allow get: if general() || (ready() && request.auth.uid == uid);
+    allow list: if general();
+    allow create,update: if general() && taAssigneeShape(responsibilityId,academicYearKey,uid,request.resource.data) && taScheduleWrite(responsibilityId,academicYearKey,uid);
+    allow delete: if false;
+   }
+   }
+  }
+  match /teaching_assignment_submissions/{id} {
+   allow get: if taManager() || taPackageRead(resource.data);
+   allow list: if taPackageRead(resource.data);
+   allow create: if taPackageCreate(id,request.resource.data);
+   allow update: if taPackageUpdate(id);
+   allow delete: if false;
+  }
+  match /session_assignment_contributions/{id} {
+   allow read: if taContributionRead(resource.data);
+   allow create: if taContributionWrite(id,true);
+   allow update: if taContributionWrite(id,false);
+   allow delete: if taContributionDelete();
+  }
   match /faculty_groups/{id} {
    allow read: if privateReader() && (admin() || request.auth.uid == resource.data.ownerUid || request.auth.uid in resource.data.memberUids);
    allow create: if generalGroupWrite() && request.resource.data.createdAt == request.time;
    allow update: if generalGroupWrite() || hiccMemberUpdate();
    allow delete: if general();
   }
-  match /calendar_sessions/{id} {
+  match /teaching_subjects/{subjectKey} {
    allow read: if ready();
-   // General/Owner repair is checked first so a direct sanitized projection repair
-   // short-circuits before the paired-write and maintenance branches spend the
-   // Firestore rules expression budget. The authorized cases are unchanged.
-   allow create: if calendarHasNoRosterData() && (generalCalendarRepair(id) || officeCalendarCreate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id));
-   allow update: if calendarHasNoRosterData() && (generalCalendarRepair(id) || officeCalendarUpdate(id) || adminCalendarWrite(id) || maintenanceCalendarWrite(id));
-   allow delete: if (teachingWritesOpen() && admin() && !existsAfter(sessionPath(id))) || maintenanceCalendarDelete(id) || generalCalendarDelete(id);
+   allow create,update: if admin() && teachingSubjectRecordValid(subjectKey);
+   allow delete: if admin();
+  }
+  match /calendar_sessions/{id} {
+   allow read: if taCalendarRead(id);
+   // A current paired source write already proves the writer and lock boundary
+   // in /sessions. Rechecking every role here exhausts the ten-document budget
+   // for eight LAB group references. Standalone repairs keep their original gate.
+   allow create: if taCalendarPermission(id,[]);
+   allow update: if taCalendarPermission(id,resource.data.instructorNames);
+   allow delete: if (teachingWritesOpen() && admin() && !documentExistsAfter(sessionPath(id))) || maintenanceCalendarDelete(id) || generalCalendarDelete(id);
   }
   match /sessions/{id} {
-   allow read: if privateReader();
-   allow create: if adcSessionCreate(id) || (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general()) && calendarMatchesSourceAfter(id)) || maintenanceSessionWrite(id);
-   allow update: if sessionApprovalMarkerChanged() ? routedSessionApply(id) : (adcSessionUpdate(id) || labSessionUpdate(id) || (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || doeRecalculationSessionWrite() || maintenanceSessionWrite(id));
-   allow delete: if (teachingWritesOpen() && admin() && !existsAfter(calendarPath(id))) || maintenanceSessionDelete(id);
+   // Scoped faculty use the sanitized calendar. Existing source assignments may
+   // contain UCIDs and DOE even when trusted ownership is newly attached.
+   allow read: if taOwned(resource.data) ? (taAdmin() && taSessionRead(resource.data)) : privateReader();
+   allow create: if taOwned(request.resource.data) ? (taTrustedAttach(id) && taEmptyNewSession()) : (maintenanceSessionWrite(id) || adcSessionCreate(id) || (teachingWritesOpen() && admin() && clientCreatedSessionHasNoAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && subjectKeyCreateValid() && (!request.resource.data.keys().hasAny(['sourceWorkbook','sourceSchema','bulkImportedAt','bulkImportedBy']) || general()) && calendarMatchesSourceAfter(id)));
+   allow update: if (taOwned(resource.data) || taOwned(request.resource.data)) ? (taOwned(resource.data) && taOwnershipSame(resource.data,request.resource.data) ? taSessionUpdate(id) : taAttachUpdate(id)) : (sessionApprovalMarkerChanged() ? routedSessionApply(id) : (maintenanceSessionWrite(id) || (admin() && teachingWritesOpen() && !doeRecalculationMarkerChanged() && clientKeptSessionAuditMarker() && request.resource.data.updatedBy == request.auth.uid && request.resource.data.updatedAt == request.time && subjectKeyUpdateValid() && (!bulkSessionImportChange() || general()) && calendarMatchesSourceAfter(id)) || adcSessionUpdate(id) || labSessionUpdate(id) || doeRecalculationSessionWrite()));
+   allow delete: if taOwned(resource.data) ? (taTrustedDelete() && !documentExistsAfter(calendarPath(id))) : ((teachingWritesOpen() && admin() && !documentExistsAfter(calendarPath(id))) || maintenanceSessionDelete(id));
   }
   match /faculty/{id} {
    allow get: if admin() || ownFacultyId(id);
@@ -688,7 +968,7 @@ service cloud.firestore {
   }
   match /lab_group_rosters/{id} {
    allow read: if rosterReader();
-   allow create,update: if teachingWritesOpen() && rosterReader() && rosterShapeValid(request.resource.data) && request.resource.data.groupId == id;
+   allow create,update: if teachingWritesOpen() && rosterReader() && rosterShapeValid(request.resource.data) && request.resource.data.groupId == id && taLabReference(id);
    allow delete: if false;
   }
   match /{document=**} {allow read,write: if false;}

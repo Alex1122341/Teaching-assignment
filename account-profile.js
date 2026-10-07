@@ -7,7 +7,7 @@
  'use strict';
  const text=value=>String(value??'').trim();
  const facultyFacingRole=role=>['faculty','hicc','visc'].includes(role);
- const rolesAllowed=['faculty','hicc','visc','adc','lab','other_office','administrator','owner','developer'];
+ const rolesAllowed=['faculty','hicc','visc','adc','lab','administrator','owner','developer'];
  const officeRoles=['adc','lab','administrator','owner','developer'];
  const allowedOfficeAccess=role=>role==='developer'||['administrator','owner'].includes(role)?['adc','lab','adfa']:['adc','lab'].includes(role)?['adc','lab']:[];
  const normalizeOfficeAccess=(value,allowed=['adc','lab','adfa'])=>[...new Set((Array.isArray(value)?value:[]).map(item=>text(item).toLowerCase()).filter(item=>allowed.includes(item)))];

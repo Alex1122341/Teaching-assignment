@@ -5,6 +5,51 @@ const load=()=>{const ctx={window:{}};vm.runInNewContext(fs.readFileSync(path.jo
 const arr=value=>Array.from(value||[]);
 const plain=value=>JSON.parse(JSON.stringify(value));
 
+test('actor contributions share one safe candidate projection with legacy suggestions',()=>{
+ const api=load(),input={candidateKey:' opaque-1 ',displayName:' Dr X ',sourceRole:'hicc',note:'internal'};
+ const candidate=api.safeCandidate(input);
+ assert.deepEqual(plain(candidate),{candidateKey:'opaque-1',displayName:'Dr X'});
+ assert.deepEqual(arr(api.CONTRIBUTION_SOURCES),['adc','lab','hicc']);
+ assert.deepEqual(arr(api.OFFICES),['adc','lab']);
+ const legacy=api.createSuggestion({candidateKey:input.candidateKey,displayName:input.displayName,office:'adc'});
+ assert.deepEqual(plain(api.safeCandidate(legacy)),plain(candidate));
+ candidate.displayName='Changed';
+ assert.equal(input.displayName,' Dr X ');
+ assert.equal(input.note,'internal');
+});
+
+test('safe candidates reject malformed scalar identity/name values and bounded overflow',()=>{
+ const api=load();
+ for(const value of [null,{},[],12,true,'','   ']){
+  assert.throws(()=>api.safeCandidate({candidateKey:value,displayName:'Dr X'}));
+  assert.throws(()=>api.safeCandidate({candidateKey:'opaque-1',displayName:value}));
+ }
+ assert.throws(()=>api.safeCandidate({candidateKey:'x'.repeat(257),displayName:'Dr X'}));
+ assert.throws(()=>api.safeCandidate({candidateKey:'opaque-1',displayName:'x'.repeat(201)}));
+ for(const candidateKey of ['faculty@example.test','opaque\nkey','opaque\u0000key']){
+  assert.throws(()=>api.safeCandidate({candidateKey,displayName:'Dr X'}));
+ }
+ assert.doesNotThrow(()=>api.safeCandidate({candidateKey:'x'.repeat(256),displayName:'x'.repeat(200)}));
+});
+
+test('the canonical candidate boundary refuses known private fields and drops all other metadata',()=>{
+ const api=load();
+ for(const field of ['ucid','UCID','email','facultyId','employeeId','doeCredit','afcReason','hrData','salary']){
+  assert.throws(()=>api.safeCandidate({candidateKey:'opaque-1',displayName:'Dr X',[field]:'secret'}));
+ }
+ const result=api.safeCandidate({candidateKey:'opaque-1',displayName:'Dr X',rawPrivateFacultyId:'secret',
+  targetDOE:99,DOEVariance:1,privateProfile:{medical:'secret'},note:'internal',updatedAt:'NOW'});
+ assert.deepEqual(plain(result),{candidateKey:'opaque-1',displayName:'Dr X'});
+});
+
+test('legacy writers also reject nested candidate fields instead of leaking private objects',()=>{
+ const api=load();
+ assert.throws(()=>api.sanitize({candidateKey:{ucid:'secret'},displayName:'Dr X'}));
+ assert.throws(()=>api.createSuggestion({candidateKey:'opaque-1',displayName:{email:'secret'},office:'adc'}));
+ assert.throws(()=>api.addSuggestion(api.emptyMetadata(),{candidateKey:'opaque-1',displayName:'Dr X',suggestedByOffice:'adc',email:'secret'}));
+ assert.throws(()=>api.assertStorable({adc:[{candidateKey:'opaque-1',displayName:{email:'secret'}}]}));
+});
+
 test('ADC and LAB can each raise a suggestion with an opaque candidate key',()=>{
  const api=load();
  let metadata=api.emptyMetadata();

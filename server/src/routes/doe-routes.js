@@ -61,6 +61,13 @@ function createDoeRoutes({calculationService,rulebookService,worksheetService,wo
           const result=await calculationService.listRoleAssignments({actor,facultyId:decodeURIComponent(facultyRolesMatch[1]),academicYear:String(query.academicYear||'')});
           return{statusCode:200,body:result};
         }
+        const roleYearCopyMatch=path.match(/^\/api\/doe\/role-assignment-years\/([^/]+)\/copy-from\/([^/]+)$/);
+        if(method==='POST'&&roleYearCopyMatch){
+          if(!generalRoles.has(text(actor?.role)))throw new ApiError('FORBIDDEN','This account cannot copy annual DOE role assignments.',403);
+          if(!calculationService?.copyRoleAssignmentsYear)throw new ApiError('CALCULATION_SERVICE_UNAVAILABLE','DOE role-assignment copy service is unavailable.',503);
+          const result=await calculationService.copyRoleAssignmentsYear({actor,targetYear:decodeURIComponent(roleYearCopyMatch[1]),sourceYear:decodeURIComponent(roleYearCopyMatch[2])});
+          return{statusCode:200,body:result};
+        }
         const roleAssignmentMatch=path.match(/^\/api\/doe\/role-assignments\/([^/]+)$/);
         if(method==='DELETE'&&roleAssignmentMatch){
           if(!adminRoles.has(text(actor?.role)))throw new ApiError('FORBIDDEN','This account cannot deactivate DOE role assignments.',403);

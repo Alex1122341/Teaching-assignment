@@ -1,14 +1,16 @@
 'use strict';
 const crypto=require('node:crypto');
 const {ApiError}=require('../http/errors.js');
+const temporalRoles=require('../../../temporal-role-assignment.js');
 
 const text=value=>String(value??'').trim();
 const own=(object,key)=>Object.prototype.hasOwnProperty.call(object||{},key);
 const blockedFactKeys=new Set([
-  'doeCredit','resultDoe','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId',
+  'doeCredit','resultDoe','doeCalculatedCredit','doePolicyVersionId','doeRuleId','doeRuleKey','doeCalculationId',
   'calculationId','policyVersionId','ruleId','ruleKey','parameters','ruleSnapshot'
 ]);
 const persistRoles=new Set(['developer','owner','administrator','admin','adfa_general','adfa_regular']);
+const bulkRoleCopyRoles=new Set(['developer','owner','adfa_general']);
 
 function cleanFacts(raw={}){
   const facts={};
@@ -176,23 +178,38 @@ function createCalculationService({repository,engine,idFactory=()=>`calc-${crypt
     if(!year)throw new ApiError('ACADEMIC_YEAR_REQUIRED','Academic Year is required.',422);
     if(!faculty)throw new ApiError('FACULTY_ID_REQUIRED','Faculty ID is required.',422);
     const cleanRoleFacts=cleanFacts(facts),assignmentFactId=text(cleanRoleFacts.assignmentFactId)||text(assignmentIdFactory());
-    const calculationFacts={...cleanRoleFacts,assignmentFactId,academicYear:year,facultyId:faculty,category:'role',assignmentId:assignmentFactId,sourceEntityType:'doe_assignment',sourceEntityId:assignmentFactId,trigger:'role_assignment_save'};
+    let window;
+    try{window=temporalRoles.normalizeWindow({academicYear:year,activeDate:cleanRoleFacts.activeDate,expirationDate:cleanRoleFacts.expirationDate})}
+    catch(error){throw new ApiError('ROLE_DATE_WINDOW_INVALID',error.message,422)}
+    let doeOverride;
+    try{doeOverride=temporalRoles.normalizeDoeOverride(cleanRoleFacts.doeOverride)}
+    catch(error){throw new ApiError('ROLE_DOE_OVERRIDE_INVALID',error.message,422)}
+    const policyFacts={...cleanRoleFacts};
+    for(const field of ['assignmentFactId','activeDate','expirationDate','doeOverride'])delete policyFacts[field];
+    const calculationFacts={...policyFacts,assignmentFactId,academicYear:year,facultyId:faculty,category:'role',assignmentId:assignmentFactId,sourceEntityType:'doe_assignment',sourceEntityId:assignmentFactId,trigger:'role_assignment_save'};
     const prepared=await prepareAssignmentCalculation({actor,academicYear:year,facts:calculationFacts,trigger:'role_assignment_save'});
-    const computed={publicResult:prepared.calculation};
+    const policyCalculatedDoe=Number(prepared.calculation.resultDoe);
+    const appliedDoe=temporalRoles.effectiveDoe(policyCalculatedDoe,doeOverride);
+    const calculationText=doeOverride===null?prepared.calculation.calculationText:`${prepared.calculation.calculationText}; manual role override = ${Number(appliedDoe).toFixed(2)}%`;
+    const computed={publicResult:{...prepared.calculation,calculatedDoe:policyCalculatedDoe,overrideDoe:doeOverride,resultDoe:appliedDoe,calculationText}};
     const calculationId=text(prepared.calculation.calculationId),calculatedAt=text(prepared.calculation.calculatedAt);
-    const calculationRecord=prepared.calculationRecord;
+    const calculationRecord={...prepared.calculationRecord,resultDoe:appliedDoe,policyCalculatedDoe,overrideDoe:doeOverride,calculationText,
+      factsSnapshot:{...prepared.calculationRecord.factsSnapshot,activeDate:window.activeDate,expirationDate:window.expirationDate,doeOverride}};
     const persistedFacts=cleanFacts(cleanRoleFacts);
     delete persistedFacts.assignmentFactId;
+    persistedFacts.activeDate=window.activeDate;persistedFacts.expirationDate=window.expirationDate;persistedFacts.doeOverride=doeOverride;
     const assignment={
       assignmentFactId,academicYear:year,facultyId:faculty,category:'role',...persistedFacts,facts:structuredClone(persistedFacts),active:true,
-      doeCredit:computed.publicResult.resultDoe,doePolicyVersionId:computed.publicResult.policyVersionId,
+      activeDate:window.activeDate,expirationDate:window.expirationDate,doeCalculatedCredit:policyCalculatedDoe,doeOverride,
+      doeCredit:appliedDoe,doePolicyVersionId:computed.publicResult.policyVersionId,
       doeRuleId:computed.publicResult.ruleId,doeRuleKey:computed.publicResult.ruleKey,doeCalculationId:calculationId,
       updatedBy:text(actor.uid),updatedByName:text(actor.name),updatedByEmail:text(actor.email),updatedAt:calculatedAt
     };
     const auditRecord={
       auditId:`role-save-${assignmentFactId}-${calculationId}`,policyVersionId:computed.publicResult.policyVersionId,
       action:'doe_assignment_saved',entityType:'doe_assignment',entityId:assignmentFactId,academicYear:year,facultyId:faculty,
-      resultDoe:computed.publicResult.resultDoe,ruleId:computed.publicResult.ruleId,ruleKey:computed.publicResult.ruleKey,
+      activeDate:window.activeDate,expirationDate:window.expirationDate,calculatedDoe:policyCalculatedDoe,overrideDoe:doeOverride,
+      resultDoe:appliedDoe,ruleId:computed.publicResult.ruleId,ruleKey:computed.publicResult.ruleKey,
       changedBy:text(actor.uid),changedByName:text(actor.name),changedByEmail:text(actor.email),changedAt:calculatedAt
     };
     await repository.saveDoeAssignmentCalculation({assignment,calculationRecord,auditRecord});
@@ -205,7 +222,48 @@ function createCalculationService({repository,engine,idFactory=()=>`calc-${crypt
     const faculty=text(facultyId),year=text(academicYear);
     if(!faculty)throw new ApiError('FACULTY_ID_REQUIRED','Faculty ID is required.',422);
     if(!year)throw new ApiError('ACADEMIC_YEAR_REQUIRED','Academic Year is required.',422);
-    return repository.listFacultyRoleAssignments(faculty,year);
+    const rows=await repository.listFacultyRoleAssignments(faculty,year),asOf=temporalRoles.dateInTimeZone(clock());
+    return rows.map(row=>({...row,effectiveStatus:temporalRoles.statusAt({academicYear:year,...row},asOf)}));
+  }
+
+  function copiedRoleFacts(row,sourceYear,targetYear){
+    const original=row?.facts&&typeof row.facts==='object'&&!Array.isArray(row.facts)?cleanFacts(row.facts):{};
+    const facts={...original};
+    for(const key of ['assignmentFactId','activeDate','expirationDate','doeOverride','notes','copiedFromAssignmentFactId','copiedFromAcademicYear'])delete facts[key];
+    const roleType=text(row?.roleType||facts.roleType);if(roleType)facts.roleType=roleType;
+    const courseCode=text(row?.courseCode||row?.course||facts.courseCode||facts.course);if(courseCode)facts.courseCode=courseCode;
+    const subjectKey=text(row?.subjectKey||row?.subject||facts.subjectKey||facts.subject);if(subjectKey)facts.subjectKey=subjectKey;
+    const responsibilityId=text(row?.responsibilityId||facts.responsibilityId);if(responsibilityId)facts.responsibilityId=responsibilityId;
+    const shifted=temporalRoles.shiftWindow({academicYear:sourceYear,activeDate:row?.activeDate,expirationDate:row?.expirationDate},sourceYear,targetYear);
+    return{...facts,activeDate:shifted.activeDate,expirationDate:shifted.expirationDate,doeOverride:null,notes:'',
+      copiedFromAssignmentFactId:text(row?.assignmentFactId),copiedFromAcademicYear:sourceYear};
+  }
+
+  async function copyRoleAssignmentsYear({actor={},sourceYear,targetYear}={}){
+    if(!bulkRoleCopyRoles.has(text(actor.role).toLowerCase()))throw new ApiError('FORBIDDEN','This account cannot copy an annual DOE role-assignment set.',403);
+    if(!repository.listRoleAssignmentsForYear)throw new ApiError('ASSIGNMENT_REPOSITORY_REQUIRED','Annual DOE role-assignment repository is unavailable.',500);
+    const source=text(sourceYear),target=text(targetYear),sourceStart=temporalRoles.startYear(source),targetStart=temporalRoles.startYear(target);
+    if(sourceStart===null||targetStart===null)throw new ApiError('ACADEMIC_YEAR_REQUIRED','Source and target Academic Years must use YYYY-YY.',422);
+    if(targetStart!==sourceStart+1)throw new ApiError('ROLE_COPY_YEAR_INVALID','Role assignments may only be copied into the immediately following Academic Year.',422);
+    const [sourceRows,targetRows]=await Promise.all([repository.listRoleAssignmentsForYear(source),repository.listRoleAssignmentsForYear(target)]);
+    const existing=(targetRows||[]).filter(row=>text(row?.category).toLowerCase()==='role');
+    if(existing.length)throw new ApiError('ROLE_COPY_TARGET_NOT_EMPTY','Target Academic Year already contains DOE role assignments. Copy first, then make smaller edits.',409,{targetYear:target,count:existing.length});
+    const rows=(sourceRows||[]).filter(row=>text(row?.category).toLowerCase()==='role'&&row?.active!==false);
+    const prepared=[];
+    for(const row of rows){
+      const facultyId=text(row?.facultyId);
+      if(!facultyId)throw new ApiError('FACULTY_ID_REQUIRED','A source role assignment is missing Faculty identity.',422,{assignmentFactId:text(row?.assignmentFactId)});
+      const facts=copiedRoleFacts(row,source,target),policyFacts={...facts};
+      for(const key of ['activeDate','expirationDate','doeOverride','notes','copiedFromAssignmentFactId','copiedFromAcademicYear'])delete policyFacts[key];
+      await computeAssignment({academicYear:target,facts:{...policyFacts,facultyId,category:'role'}});
+      prepared.push({facultyId,facts});
+    }
+    const assignments=[];
+    for(const item of prepared){
+      const saved=await saveRoleAssignment({actor,academicYear:target,facultyId:item.facultyId,facts:item.facts});
+      assignments.push(saved.assignment);
+    }
+    return{sourceYear:source,targetYear:target,copied:assignments.length,assignments};
   }
 
   async function deactivateRoleAssignment({actor={},assignmentFactId}={}){
@@ -227,7 +285,7 @@ function createCalculationService({repository,engine,idFactory=()=>`calc-${crypt
     return repository.deactivateDoeAssignment({assignmentFactId:id,auditRecord});
   }
 
-  return Object.freeze({calculateAssignment,prepareAssignmentCalculation,saveRoleAssignment,listRoleAssignments,deactivateRoleAssignment});
+  return Object.freeze({calculateAssignment,prepareAssignmentCalculation,saveRoleAssignment,listRoleAssignments,copyRoleAssignmentsYear,deactivateRoleAssignment});
 }
 
 module.exports={cleanFacts,createCalculationService};

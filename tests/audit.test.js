@@ -117,7 +117,7 @@ test('R02 ADFA is faculty-only and cannot change a scheduling field',()=>{
  const edited={...plain(original),room:'B202'};
  const plan=plain(api.planChanges([original],[edited],actor,123,faculty,{role:'administrator'}));
  assert.deepEqual(plan.updates,[]);
- assert.ok(plan.errors.some(error=>/ADFA cannot change room/i.test(error)),JSON.stringify(plan.errors));
+ assert.ok(plan.errors.some(error=>/ADFAD cannot change room/i.test(error)),JSON.stringify(plan.errors));
 });
 
 test('R02 ADFA faculty-only edit carries the private assignment fields into the source patch',()=>{
@@ -139,7 +139,7 @@ test('R02 ADFA is faculty-only and cannot change date or course',()=>{
  const edited={...plain(original),date:'2027-01-11',week:1,semester:'winter',course:'305',courseName:'Clinical Skills II'};
  const plan=plain(api.planChanges([original],[edited],actor,123,faculty,{role:'administrator'}));
  assert.deepEqual(plan.updates,[]);
- const refusal=plan.errors.find(error=>/ADFA cannot change/i.test(error));
+ const refusal=plan.errors.find(error=>/ADFAD cannot change/i.test(error));
  assert.ok(refusal,JSON.stringify(plan.errors));
  assert.match(refusal,/date/);
  assert.match(refusal,/course/);

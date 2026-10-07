@@ -90,6 +90,42 @@ test('Teaching Summary uses the authoritative bulk DOE list instead of the legac
 });
 
 
+test('annual role-copy control uses the authoritative DOE API and clears case-specific carryover',()=>{
+ const html=read('faculty-admin.html'),source=read('faculty-admin-enhancements.js'),client=read('doe-api-client.js');
+ assert.match(html,/role-copy-previous-year/);
+ assert.match(source,/copyRoleAssignmentsYear/);
+ assert.match(source,/Manual DOE overrides and special notes will NOT be copied/);
+ assert.match(client,/role-assignment-years/);
+ assert.match(client,/copyRoleAssignmentsYear/);
+});
+
+test('DOE role editor exposes dated responsibility windows and negative manual overrides without automatic proration',()=>{
+ const source=read('faculty-admin-enhancements.js'),helper=read('temporal-role-assignment.js');
+ assert.match(source,/ucvm-role-active-date/);
+ assert.match(source,/ucvm-role-expiration-date/);
+ assert.match(source,/ucvm-role-doe-override/);
+ assert.doesNotMatch(source,/ucvm-role-doe-override[^\n]*min="0"/);
+ assert.match(source,/effectiveDoe\(result\.resultDoe,facts\.doeOverride\)/);
+ assert.match(helper,/half-open|\[activeDate, expirationDate\)/i);
+});
+
+test('Roles and Appointments exposes temporal status filtering notes and server role history',()=>{
+ const html=read('faculty-admin.html'),enhancement=read('faculty-admin-enhancements.js'),core=read('faculty-admin.js');
+ assert.match(html,/role-status-filter/);
+ for(const label of ['Active','Scheduled','Expired','Inactive \/ deactivated'])assert.match(html,new RegExp(label));
+ assert.match(enhancement,/roleAssignmentRecords/);
+ assert.match(enhancement,/r\.notes/);
+ assert.match(core,/roleAssignmentRecords/);
+ assert.match(core,/statusAt/);
+});
+
+test('Current HICC and VISC KPI counts are temporal rather than annual-role counts',()=>{
+ const source=read('faculty-admin.js'),start=source.indexOf('function updateKpis'),end=source.indexOf('function unique',start),fn=source.slice(start,end);
+ assert.match(fn,/roleAssignmentRecords/);
+ assert.match(fn,/statusAt/);
+ assert.match(fn,/===['"]active['"]/);
+});
+
 test('DOE role editor loads, updates, and deactivates authoritative server assignments',()=>{
  const client=read('doe-api-client.js');
  assert.match(client,/listRoleAssignments/);
@@ -157,7 +193,8 @@ test('bulk DOE summary carries current role assignments without full worksheet d
  const rows=await createWorksheetService({repository}).listFacultyDoe({academicYear:'2027-28'});
  assert.equal(rows[0].roleAssignmentCount,1);
  assert.deepEqual(rows[0].roleAssignments,[{
-  assignmentFactId:'role-1',roleType:'HICC',courseCode:'VTMD 204',subjectKey:'',resultDoe:12,status:'calculated',ruleKey:'role.hicc',ruleId:'',reference:null
+  assignmentFactId:'role-1',roleType:'HICC',courseCode:'VTMD 204',subjectKey:'',resultDoe:12,status:'calculated',ruleKey:'role.hicc',ruleId:'',reference:null,
+  activeDate:'',expirationDate:'',notes:'',calculatedDoe:null,overrideDoe:null
  }]);
  assert.equal(Object.hasOwn(rows[0].roleAssignments[0],'calculationRecord'),false);
 });
@@ -172,13 +209,15 @@ test('Faculty Dashboard exposes one shared bulk DOE cache to deferred enhancemen
  assert.doesNotMatch(enhancement.slice(start,end),/UCVM_DOE_API\.listFacultyDoe/);
 });
 
-test('Roles and Appointments lists current server role assignments before legacy migration evidence',()=>{
+test('Roles and Appointments lists server role timeline before legacy migration evidence',()=>{
  const source=read('faculty-admin-enhancements.js');
  const start=source.indexOf('function appendManagedRoleRows');
  const end=source.indexOf('function queueManagedRoles',start);
  const fn=source.slice(start,end);
- assert.match(fn,/roleAssignments/);
- assert.match(fn,/Current server/);
+ assert.match(fn,/roleAssignmentRecords/);
+ assert.match(fn,/roleStatus/);
+ assert.match(fn,/activeDate/);
+ assert.match(fn,/expirationDate/);
  assert.match(fn,/Legacy/);
 });
 
@@ -217,14 +256,15 @@ test('legacy workload import status is labelled as evidence rather than current 
 });
 
 
-test('Faculty Profile role section includes current server assignments even when the legacy source summary has no roles',()=>{
+test('Faculty Profile role section includes server role timeline even when legacy source summary has no roles',()=>{
  const source=read('faculty-admin.js');
  const start=source.indexOf('function serverRoleRows');
  const end=source.indexOf('function activityAssignmentId',start);
  const fn=source.slice(start,end);
  assert.ok(start>=0&&end>start);
- assert.match(fn,/roleAssignments/);
- assert.match(fn,/Current server/);
+ assert.match(fn,/roleAssignmentRecords/);
+ assert.match(fn,/statusAt/);
+ assert.match(fn,/Status \/ dates/);
  assert.match(fn,/Source evidence/);
  assert.doesNotMatch(fn,/if\(!s\|\|!s\.roles\?\.length\)return/);
 });

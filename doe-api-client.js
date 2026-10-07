@@ -62,6 +62,7 @@
    previewFacultyTransfer:payload=>request('/api/doe/faculty-transfer/preview',{method:'POST',body:payload}),
    saveSessionChange:payload=>request('/api/doe/session-changes',{method:'POST',body:payload}),
    listRoleAssignments:(facultyId,academicYear)=>request(`/api/doe/faculty/${enc(facultyId)}/role-assignments?academicYear=${enc(academicYear)}`),
+   copyRoleAssignmentsYear:(sourceYear,targetYear)=>request(`/api/doe/role-assignment-years/${enc(targetYear)}/copy-from/${enc(sourceYear)}`,{method:'POST'}),
    saveRoleAssignment:payload=>request('/api/doe/role-assignments',{method:'POST',body:payload}),
    deactivateRoleAssignment:assignmentFactId=>request(`/api/doe/role-assignments/${enc(assignmentFactId)}`,{method:'DELETE'})
   });
@@ -134,7 +135,7 @@
  }
  let singleton=null;
  const defaultClient=()=>singleton||(singleton=createClient());
- const methods=['listPolicies','listVersions','loadPolicyBundle','listAudit','getImpactPreview','getPolicyYear','copyPolicyYear','createPolicyYear','cloneAsDraft','validateDraft','testRule','runImpactPreview','publish','archive','previewRecalculate','runRecalculate','saveRule','saveException','saveReference','saveReservePolicy','saveCourseMapping','saveSubjectMapping','getFacultyWorksheet','saveFacultyTarget','listFacultyDoe','previewAssignment','previewSessionChange','previewFacultyTransfer','listRoleAssignments','saveRoleAssignment','deactivateRoleAssignment'];
+ const methods=['listPolicies','listVersions','loadPolicyBundle','listAudit','getImpactPreview','getPolicyYear','copyPolicyYear','createPolicyYear','cloneAsDraft','validateDraft','testRule','runImpactPreview','publish','archive','previewRecalculate','runRecalculate','saveRule','saveException','saveReference','saveReservePolicy','saveCourseMapping','saveSubjectMapping','getFacultyWorksheet','saveFacultyTarget','listFacultyDoe','previewAssignment','previewSessionChange','previewFacultyTransfer','listRoleAssignments','copyRoleAssignmentsYear','saveRoleAssignment','deactivateRoleAssignment'];
  const api={createClient,isConfigured:()=>Boolean(defaultBaseUrl()),baseUrl:defaultBaseUrl,canQueueSessionChanges,prepareQueuedSessionChange,academicYearForSession,stripAssignmentDoe};
  for(const method of methods)api[method]=(...args)=>defaultClient()[method](...args);
  api.saveSessionChange=payload=>api.isConfigured()?defaultClient().saveSessionChange(payload):saveQueuedSessionChange(payload);

@@ -6,21 +6,23 @@ const {createCalculationService}=require('../src/doe/calculation-service.js');
 const admin={uid:'g1',name:'General',email:'g@example.test',role:'adfa_general'};
 const engine={matchRule(){return{source:'rule',rule:{}}},calculate(){return{resultDoe:1,policyVersionId:'v1',ruleId:'r1',ruleKey:'role.test',inputs:{},parameters:{},ruleSnapshot:{}}}};
 
-test('role assignment management lists active faculty facts and deactivates with audit',async()=>{
+test('role assignment management lists annual faculty role records and deactivates with audit',async()=>{
  const calls=[];
  const rows=[
-  {assignmentFactId:'role-1',academicYear:'2027-28',facultyId:'f1',category:'role',roleType:'HICC',courseCode:'VTMD 204',active:true},
-  {assignmentFactId:'role-old',academicYear:'2027-28',facultyId:'f1',category:'role',roleType:'VISC',subjectKey:'anatomy',active:false}
+  {assignmentFactId:'role-1',academicYear:'2027-28',facultyId:'f1',category:'role',roleType:'HICC',courseCode:'VTMD 204',activeDate:'2027-09-01',expirationDate:'2028-05-01',active:true},
+  {assignmentFactId:'role-old',academicYear:'2027-28',facultyId:'f1',category:'role',roleType:'VISC',subjectKey:'anatomy',activeDate:'2027-09-01',expirationDate:'2028-05-01',active:false}
  ];
  const repository={
   async getActivePolicyBundle(){return{rules:[],exceptions:[]}},
-  async listFacultyRoleAssignments(facultyId,academicYear){calls.push(['list',facultyId,academicYear]);return rows.filter(row=>row.active!==false)},
+  async listFacultyRoleAssignments(facultyId,academicYear){calls.push(['list',facultyId,academicYear]);return rows},
   async getDoeAssignment(id){calls.push(['get',id]);return rows.find(row=>row.assignmentFactId===id)||null},
   async deactivateDoeAssignment(input){calls.push(['deactivate',input]);const row=rows.find(item=>item.assignmentFactId===input.assignmentFactId);row.active=false;return{...row}}
  };
- const service=createCalculationService({repository,engine,clock:()=>new Date('2026-09-20T01:00:00Z'),auditIdFactory:()=> 'audit-1'});
+ const service=createCalculationService({repository,engine,clock:()=>new Date('2027-10-20T01:00:00Z'),auditIdFactory:()=> 'audit-1'});
  const list=await service.listRoleAssignments({actor:admin,facultyId:'f1',academicYear:'2027-28'});
- assert.deepEqual(list.map(row=>row.assignmentFactId),['role-1']);
+ assert.deepEqual(list.map(row=>row.assignmentFactId),['role-1','role-old']);
+ assert.equal(list[0].effectiveStatus,'active');
+ assert.equal(list[1].effectiveStatus,'inactive');
  const removed=await service.deactivateRoleAssignment({actor:admin,assignmentFactId:'role-1'});
  assert.equal(removed.active,false);
  const write=calls.find(row=>row[0]==='deactivate')[1];

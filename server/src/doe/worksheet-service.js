@@ -54,7 +54,7 @@ function createWorksheetService({repository}={}){
   return{
    facultyId:text(source.facultyId||facultyId),academicYear:text(source.academicYear||academicYear),displayName:text(source.displayName),stream:text(source.stream),
    status:errors.length?'needs_review':'calculated',policyVersionId:policyVersion(lines),target:{...(source.target||{})},reservePolicy:{...(source.reservePolicy||{})},reserve,
-   lines,sections,errors,
+   lines,roleAssignmentRecords:(Array.isArray(source.roleAssignmentRecords)?source.roleAssignmentRecords:[]).map(row=>({...row})),sections,errors,
    totals:{
     scheduledTeachingDoe:sections.scheduledTeaching.subtotal,roleDoe:sections.roles.subtotal,rawSupervisionDoe:sections.supervision.rawSubtotal,
     appliedSupervisionDoe:sections.supervision.appliedSubtotal,adjustmentDoe:sections.adjustments.subtotal,
@@ -80,7 +80,13 @@ function createWorksheetService({repository}={}){
    const lines=Array.isArray(row.lines)?row.lines:[],roleLines=lines.filter(line=>lineSection(line.category)==='roles');
    const roleAssignments=roleLines.filter(line=>text(line.sourceEntityType)==='doe_assignment').map(line=>({
     assignmentFactId:text(line.assignmentFactId||line.sourceEntityId),roleType:text(line.roleType),courseCode:text(line.courseCode),subjectKey:text(line.subjectKey),
-    resultDoe:finite(line.resultDoe),status:text(line.status),ruleKey:text(line.ruleKey),ruleId:text(line.ruleId),reference:line.reference||null
+    resultDoe:finite(line.resultDoe),status:text(line.status),ruleKey:text(line.ruleKey),ruleId:text(line.ruleId),reference:line.reference||null,
+    activeDate:text(line.activeDate),expirationDate:text(line.expirationDate),notes:text(line.notes),calculatedDoe:finite(line.calculatedDoe),overrideDoe:finite(line.overrideDoe)
+   }));
+   const roleAssignmentRecords=(row.roleAssignmentRecords||[]).map(record=>({
+    assignmentFactId:text(record.assignmentFactId),roleType:text(record.roleType||record.teachingRole),courseCode:text(record.courseCode||record.course),subjectKey:text(record.subjectKey||record.subject),
+    activeDate:text(record.activeDate),expirationDate:text(record.expirationDate),notes:text(record.notes||record.facts?.notes),active:record.active!==false,
+    calculatedDoe:finite(record.doeCalculatedCredit),overrideDoe:finite(record.doeOverride),resultDoe:finite(record.doeCredit),ruleKey:text(record.doeRuleKey),ruleId:text(record.doeRuleId)
    }));
    const lineIssueCodes=lines.map(line=>text(line.errorCode)).filter(Boolean),worksheetIssueCodes=(row.errors||[]).map(error=>text(error.code)).filter(Boolean);
    const issueCodes=[...new Set([...lineIssueCodes,...worksheetIssueCodes])];
@@ -92,7 +98,7 @@ function createWorksheetService({repository}={}){
    const adjustmentLineCount=lines.filter(line=>lineSection(line.category)==='adjustments').length;
    return{
     facultyId:row.facultyId,displayName:row.displayName,academicYear:row.academicYear,policyVersionId:row.policyVersionId,status:row.status,lastCalculatedAt:row.lastCalculatedAt,
-    target:{...(row.target||{})},roleAssignmentCount:roleAssignments.length,roleAssignments,
+    target:{...(row.target||{})},roleAssignmentCount:roleAssignments.length,roleAssignments,roleAssignmentRecords,
     teachingLineCount,supervisionLineCount,adjustmentLineCount,serverFactCount:lines.length,unratedLineCount,missingMappingCount,issueCount:(row.errors||[]).length,issueCodes,
     ...row.totals
    };

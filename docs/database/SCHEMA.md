@@ -156,8 +156,8 @@ A routed request is one logical change spread over five collections.
 `scopeSignatures` (office → signature), `updatedAt`.
 
 ### `change_request_approvals/{requestId}_{office}` — per-office decision
-`requestId`, `office`, `revision`, `fields`, `scopeSignature`, `status`,
-`decidedBy`, `decidedByName`, `decidedAt`, `message`, `updatedAt`.
+`id`, `requestId`, `office`, `revision`, `fields`, `scopeSignature`, `status`,
+`decidedBy`, `decidedByName`, `decidedAt`, `pushBackReason`, `updatedAt`.
 
 **Invariant:** a decision only counts when `status == 'approved'` **and** `fields`
 and `scopeSignature` still match the workflow. Changing a draft invalidates prior

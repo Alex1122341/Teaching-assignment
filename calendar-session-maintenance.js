@@ -1,7 +1,7 @@
 'use strict';
 window.UCVM_CALENDAR_SESSION_MAINTENANCE=(()=>{
  const sanitizer=window.UCVM_CALENDAR_SESSION;if(!sanitizer)throw Error('UCVM_CALENDAR_SESSION is required.');
- const allowed=new Set(['sessionId','course','courseName','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructorNames','instructor','labGroupIds']);
+ const allowed=new Set(['sessionId','course','courseName','subjectKey','year','semester','week','date','start','end','timeUnknown','type','topic','room','instructorNames','instructor','labGroupIds','academicYear','teachingAssignmentGroupId','responsibleHiccResponsibilityId']);
  const firestoreDocId=Symbol('firestoreDocId');
  const idOf=row=>String(row?.[firestoreDocId]||row?.id||row?.__id||row?.sessionId||'').trim();
  const stable=value=>JSON.stringify(value,Object.keys(value||{}).sort());

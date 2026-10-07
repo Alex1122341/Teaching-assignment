@@ -79,6 +79,13 @@
     {
       "output": "bundles/timetable-app.bundle.js",
       "sources": [
+        "subject-catalog.js",
+        "assignment-contributions.js",
+        "temporal-role-assignment.js",
+        "academic-responsibility.js",
+        "teaching-responsibility.js",
+        "teaching-assignment-review.js",
+        "teaching-assignment-groups.js",
         "office-capabilities.js",
         "workflow-notifications.js",
         "maintenance-state.js",
@@ -118,6 +125,9 @@
         "bulk-import-backup.js",
         "bulk-import-firestore.js",
         "bulk-import-controller.js",
+        "temporal-role-assignment.js",
+        "subject-catalog.js",
+        "subject-catalog-admin.js",
         "faculty-admin.js"
       ],
       "pages": [
@@ -137,6 +147,11 @@
     {
       "output": "bundles/user-management.bundle.js",
       "sources": [
+        "subject-catalog.js",
+        "temporal-role-assignment.js",
+        "academic-responsibility.js",
+        "teaching-responsibility.js",
+        "teaching-assignment-groups.js",
         "account-profile.js",
         "user-management.js"
       ],

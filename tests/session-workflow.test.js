@@ -55,7 +55,7 @@ test('LEC: ADFA waits while ADC required work is incomplete',()=>{
  const evaluation=w.evaluateSessionWorkflow(session);
  assert.equal(evaluation.stages.adc.status,'ready');
  assert.equal(evaluation.stages.adfa.status,'waiting');
- assert.equal(evaluation.stages.adfa.waitingFor,'ADC');
+ assert.equal(evaluation.stages.adfa.waitingFor,'ADC/DVM');
 });
 
 // ---------------------------------------------------------------- SRL
@@ -86,11 +86,11 @@ test('LAB: LAB work is waiting while ADC is incomplete',()=>{
  const w=load(),session=lab({start:''});
  const evaluation=w.evaluateSessionWorkflow(session);
  assert.equal(evaluation.stages.lab.status,'waiting');
- assert.equal(evaluation.stages.lab.waitingFor,'ADC');
+ assert.equal(evaluation.stages.lab.waitingFor,'ADC/DVM');
  const items=w.workflowItemsForRole([session],'lab');
  assert.equal(items.length,1);
  assert.equal(items[0].status,'waiting');
- assert.equal(items[0].waitingFor,'ADC');
+ assert.equal(items[0].waitingFor,'ADC/DVM');
 });
 
 test('LAB: after ADC completes, missing topic/group/roster makes LAB ready',()=>{
