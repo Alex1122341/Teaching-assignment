@@ -30,3 +30,26 @@ test('SQL auth rejects inactive SQL profiles',async()=>{
   });
   await assert.rejects(()=>provider.verify('token'),error=>error.code==='PROFILE_INACTIVE');
 });
+
+
+test('SQL auth redacts Firebase Admin token-verification internals',async()=>{
+  const provider=createFirebaseSqlAuthProvider({
+    adminAuth:{verifyIdToken:async()=>{throw Error('firebase admin internal detail')}},
+    userRepository:{provision:async()=>{throw Error('must not run')}}
+  });
+  await assert.rejects(
+    ()=>provider.verify('token'),
+    error=>error.code==='AUTH_REQUIRED'&&error.statusCode===401&&!/internal detail/i.test(error.message)
+  );
+});
+
+test('SQL auth redacts unexpected SQL profile repository errors',async()=>{
+  const provider=createFirebaseSqlAuthProvider({
+    adminAuth:{verifyIdToken:async()=>({uid:'u1',email:'u@example.test'})},
+    userRepository:{provision:async()=>{throw Error('sql driver internal detail')}}
+  });
+  await assert.rejects(
+    ()=>provider.verify('token'),
+    error=>error.code==='SQL_PROFILE_UNAVAILABLE'&&error.statusCode===503&&!/driver internal/i.test(error.message)
+  );
+});

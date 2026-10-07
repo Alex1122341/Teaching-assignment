@@ -79,6 +79,7 @@
     {
       "output": "bundles/timetable-app.bundle.js",
       "sources": [
+        "paws-data-client.js",
         "office-capabilities.js",
         "workflow-notifications.js",
         "maintenance-state.js",

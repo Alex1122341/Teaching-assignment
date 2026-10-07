@@ -232,10 +232,21 @@
   }
   async function ensureSessionsForRange(start,end){
     const range={start:String(start||'').slice(0,10),end:String(end||'').slice(0,10)};
-    if(!db||!currentUser||!range.start||!range.end||range.start>range.end)return[];
+    if(!currentUser||!range.start||!range.end||range.start>range.end)return[];
     const covered=sessionCacheRanges.some(item=>item.start<=range.start&&item.end>=range.end);
     if(covered)return pageSessions().filter(row=>row.date>=range.start&&row.date<=range.end);
-    const key=`${range.start}:${range.end}`;
+    const key=`${sessionBackend()}:${range.start}:${range.end}`;
+    if(sessionBackend()==='azure-sql'){
+      if(!window.UCVM_PAWS_DATA?.listSessions){
+        throw Object.assign(new Error('Azure SQL timetable client is unavailable.'),{code:'SQL_SESSION_CLIENT_UNAVAILABLE'});
+      }
+      if(!sessionRangeLoads.has(key))sessionRangeLoads.set(key,window.UCVM_PAWS_DATA.listSessions({start:range.start,end:range.end}).then(rows=>{
+        const clean=Array.isArray(rows)?rows.map(normalizeSqlSessionForTimetable):[];
+        cacheSessionRange(range,clean);publishPageData();return clean.slice();
+      }).finally(()=>sessionRangeLoads.delete(key)));
+      return sessionRangeLoads.get(key);
+    }
+    if(!db)return[];
     if(!sessionRangeLoads.has(key))sessionRangeLoads.set(key,sessionQueryForRange(range).get().then(snapshot=>{
       const rows=snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));
       cacheSessionRange(range,rows);publishPageData();return rows.slice();
@@ -243,7 +254,15 @@
     return sessionRangeLoads.get(key);
   }
   async function ensureSessionsForDates(values,force=false){
-    const dates=UCVM_DATA_INDEX.dateChunks(values).flat(),missing=force?dates:dates.filter(date=>!sessionCacheDates.has(date)&&!sessionCacheRanges.some(range=>range.start<=date&&date<=range.end));
+    const dates=UCVM_DATA_INDEX.dateChunks(values).flat().map(String).sort();
+    if(sessionBackend()==='azure-sql'){
+      if(!dates.length)return[];
+      if(force)dates.forEach(date=>sessionCacheDates.delete(date));
+      const rows=await ensureSessionsForRange(dates[0],dates[dates.length-1]);
+      dates.forEach(date=>sessionCacheDates.add(date));
+      return rows.filter(row=>dates.includes(String(row.date||'').slice(0,10)));
+    }
+    const missing=force?dates:dates.filter(date=>!sessionCacheDates.has(date)&&!sessionCacheRanges.some(range=>range.start<=date&&date<=range.end));
     await Promise.all(UCVM_DATA_INDEX.dateChunks(missing).map(dateChunk=>{
       const key=(force?'fresh:':'')+dateChunk.join('|');
       if(!sessionDateLoads.has(key))sessionDateLoads.set(key,db.collection(sessionCollection()).where('date','in',dateChunk).get(force?{source:'server'}:undefined).then(snapshot=>{
@@ -419,7 +438,27 @@
     return clean;
   }
 
-  function liveScheduleAvailable(){return scheduleSource === 'firestore' || scheduleSource === 'firestore-empty';}
+  function sessionBackend(){return window.UCVM_PAWS_DATA?.sessionBackend?.()||'firestore'}
+  function normalizeSqlSessionForTimetable(row){
+    const date=String(row?.date||'').slice(0,10);
+    const position=academicPositionForDate(parseYmd(date));
+    return{
+      ...(row||{}),
+      date,
+      week: position.week,
+      semester: position.semester,
+      assignments:Array.isArray(row?.assignments)?row.assignments:[],
+      facultyIds:Array.isArray(row?.facultyIds)?row.facultyIds:[]
+    };
+  }
+  function sessionMutationsAllowed(){return !window.UCVM_PAWS_DATA||window.UCVM_PAWS_DATA.sessionWritesEnabled()}
+  function assertSessionMutationsAllowed(){
+    if(sessionMutationsAllowed())return true;
+    const error=new Error('Session changes are temporarily read-only while the beta timetable is using Azure SQL.');
+    error.code='SQL_SESSION_WRITES_NOT_READY';
+    throw error;
+  }
+  function liveScheduleAvailable(){return ['firestore','firestore-empty','azure-sql','azure-sql-empty'].includes(scheduleSource)}
 
   function updateScheduleSourceUI() {
     const connected = liveScheduleAvailable();
@@ -427,7 +466,9 @@
     if (text && currentUser) {
       if (scheduleSource === 'firestore') text.textContent = `Authorized: ${currentUser.role} · Live Firestore schedule`;
       else if (scheduleSource === 'firestore-empty') text.textContent = `Authorized: ${currentUser.role} · Live Firestore schedule · No sessions in this view`;
-      else if (scheduleSource === 'firestore-error') text.textContent = `Authorized: ${currentUser.role} · Timetable unavailable`;
+      else if (scheduleSource === 'azure-sql') text.textContent = `Authorized: ${currentUser.role} · Azure SQL schedule · Read-only beta`;
+      else if (scheduleSource === 'azure-sql-empty') text.textContent = `Authorized: ${currentUser.role} · Azure SQL schedule · No sessions in this view · Read-only beta`;
+      else if (scheduleSource === 'azure-sql-error'||scheduleSource === 'firestore-error') text.textContent = `Authorized: ${currentUser.role} · Timetable unavailable`;
       else text.textContent = `Authorized: ${currentUser.role} · Connecting to live timetable`;
     }
     const publish = $('publish-firestore-schedule');
@@ -453,11 +494,36 @@
   }
 
   function subscribeSessions() {
-    if (!db || !currentUser) return;
+    if (!currentUser) return;
     const range=visibleSessionRange(), key=`${viewMode}:${range.start}:${range.end}`;
     if(sessionUnsubscribe&&sessionRangeKey===key)return;
     if (sessionUnsubscribe) { try { sessionUnsubscribe(); } catch (_) {} }
     sessionRangeKey=key;
+
+    if(sessionBackend()==='azure-sql'){
+      let cancelled=false;
+      sessionUnsubscribe=()=>{cancelled=true};
+      ensureSessionsForRange(range.start,range.end).then(rows=>{
+        if(cancelled)return;
+        sessions=rows.slice();
+        publishPageData();
+        window.dispatchEvent(new Event('ucvm:sessions-updated'));
+        scheduleSource = rows.length ? 'azure-sql' : 'azure-sql-empty';
+        populateCourseFilter();
+        updateScheduleSourceUI();
+        render();
+      }).catch(err=>{
+        if(cancelled)return;
+        console.error('[Azure SQL sessions]',err);
+        sessions=[];scheduleSource='azure-sql-error';
+        populateCourseFilter();updateScheduleSourceUI();
+        toast('The Azure SQL timetable could not be read. Reload or retry when the backend is available.',true);
+        render();
+      });
+      return;
+    }
+
+    if (!db) return;
     sessionUnsubscribe = sessionQueryForRange(range).onSnapshot(snapshot => {
       sessions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       cacheSessionRange(range,sessions);
@@ -479,6 +545,13 @@
   async function ensureAllSessions(){
     if(allSessionsCache)return allSessionsCache.slice();
     if(allSessionsLoading)return allSessionsLoading;
+    if(sessionBackend()==='azure-sql'){
+      allSessionsLoading=ensureSessionsForRange('0001-01-01','9999-12-31').then(rows=>{
+        allSessionsCache=rows.slice();
+        return allSessionsCache.slice();
+      }).finally(()=>{allSessionsLoading=null});
+      return allSessionsLoading;
+    }
     allSessionsLoading=db.collection(sessionCollection()).get().then(snapshot=>{
       allSessionsCache=snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));
       return allSessionsCache.slice();
@@ -621,6 +694,7 @@
   function swapPct(v,d=2){return v===null?'—':`${Number(v).toFixed(d)}%`}
 
   async function openSwapModal(sessionId,initialAssignmentIndex=0){
+    assertSessionMutationsAllowed();
     if(!UCVM.admin(currentUser)){toast('Admin permission is required to swap faculty.',true);return;}
     if(scheduleSource!=='firestore'){toast('The synchronized live timetable must be loaded first.',true);return;}
     const s=sessions.find(x=>x.id===sessionId); if(!s)return;
@@ -724,6 +798,7 @@
   function isReadOnlySynthetic(session){return Boolean(session?.isCcc||session?.isUniversityClosure)}
   function sessionBelongsToCurrentFaculty(s){
     if(!currentUser)return false;
+    if(sessionBackend()==='azure-sql'&&roleIsFaculty(currentUser))return true;
     const facultyId=String(currentUser.profile?.facultyId||'').trim();
     const aliases=new Set([currentUser.instructorName,currentUser.name,currentUser.email].map(swapNameKey).filter(Boolean));
     const assignments=Array.isArray(s.assignments)?s.assignments:[];
@@ -1072,6 +1147,7 @@
   }
 
   async function startSessionSelection(){
+    assertSessionMutationsAllowed();
     if(!canSelectSessions())return;
     scopedWork=null;
     if(capabilities().canEditInstructor)await ensureFacultyDirectory();
@@ -1104,6 +1180,7 @@
    * opens the review view, where editPolicy() locks every field the role does not
    * own. No second session editor is introduced. */
   async function openScopedEditor(sessionId,options={}){
+    assertSessionMutationsAllowed();
     const id=String(sessionId||'').trim(),stage=String(options.stage||'').trim().toLowerCase();
     if(!id||!['adc','lab','adfa'].includes(stage)||!hasOfficeAccess(stage))return false;
     const find=()=>[...sessionCache.values()].find(row=>String(row.id)===id)||null;
@@ -1197,6 +1274,7 @@
     });
   }
   async function saveSelectedChanges(){
+    assertSessionMutationsAllowed();
     const activeScoped=typeof scopedWork==='undefined'?null:scopedWork;
     const scoped=activeScoped&&sessionSelection.size===1&&sessionSelection.ids()[0]===activeScoped.sessionId&&hasOfficeAccess(activeScoped.stage);
     if(!canSelectSessions()&&!scoped){toast('Selection permission is required.',true);return}
@@ -1252,8 +1330,9 @@
       $('detail-close').onclick=closeModal;
       return;
     }
-    const edit = !isReadOnlySynthetic(s)&&canEdit() ? `<button class="btn btn-primary" id="detail-edit">Edit Session</button>` : '';
-    const swap = !isReadOnlySynthetic(s)&&isAdmin() ? `<button class="btn btn-primary" id="detail-swap">SWAP Faculty</button>` : '';
+    const sessionWritesEnabled=sessionMutationsAllowed();
+    const edit = sessionWritesEnabled&&!isReadOnlySynthetic(s)&&canEdit() ? `<button class="btn btn-primary" id="detail-edit">Edit Session</button>` : '';
+    const swap = sessionWritesEnabled&&!isReadOnlySynthetic(s)&&isAdmin() ? `<button class="btn btn-primary" id="detail-swap">SWAP Faculty</button>` : '';
     const labDetails = Array.isArray(s.labDetails) && s.labDetails.length > 1
       ? `<div class="login-cheatsheet"><strong>Lab stations / activities</strong><br><br>${s.labDetails.map(d => `<div style="margin-bottom:8px"><strong>${escapeHtml(d.topic)}</strong>${d.instructor ? `<br>${escapeHtml(d.instructor)}` : ''}${d.room ? `<br><span style="color:var(--text-3)">${escapeHtml(d.room)}</span>` : ''}</div>`).join('')}</div>`
       : '';
@@ -1393,6 +1472,7 @@
     return{saved:true,completedRows,totalRows:prepared.length,sessions:prepared};
   }
   async function openBulkSessionForm(){
+    assertSessionMutationsAllowed();
     if(!canAddSessions()){toast('This account cannot add timetable sessions.',true);return}
     if(!liveScheduleAvailable()){toast('The live Firestore timetable is unavailable.',true);return}
     const canEditFaculty=capabilities().canEditInstructor;if(canEditFaculty)await ensureFacultyDirectory();bulkRows=[blankBulkRow()];
@@ -1411,6 +1491,7 @@
   }
 
   async function openSessionForm(existing = null) {
+    assertSessionMutationsAllowed();
     const access=capabilities(),canEditInstructor=access.canEditInstructor,canEditCourseFields=access.canEditCourseFields,actorRole=UCVM.role(currentUser?.role);
     if (existing ? !(canEditCourseFields||canEditInstructor) : !canAddOneSession()) { toast('This account cannot use the single-session editor.', true); return; }
     if (!liveScheduleAvailable()) { toast('The live Firestore timetable is unavailable. Sync it from Faculty Dashboard first.', true); return; }
@@ -1482,6 +1563,7 @@
     if ($('delete-session')) $('delete-session').onclick = () => deleteSession(existing.id);
     $('session-form').onsubmit = async e => {
       e.preventDefault();
+      assertSessionMutationsAllowed();
       const form = new FormData(e.target), date=String(form.get('date')||'');
       const topic=String(form.get('topic')||'').trim(), type=String(form.get('type')||'').trim(), start=String(form.get('start')||''), end=String(form.get('end')||'');
       const timeUnknown=existing?.timeUnknown===true&&start===String(existing.start||'')&&end===String(existing.end||'');
@@ -1539,6 +1621,7 @@
   }
 
   async function deleteSession(id) {
+    assertSessionMutationsAllowed();
     if (!UCVM.admin(currentUser)) { toast('ADFA permission is required.', true); return; }
     const s = sessions.find(x => x.id === id); if (!s) return;
     if (!liveScheduleAvailable()) { toast('Live Schedule is not initialized.', true); return; }
@@ -1881,9 +1964,10 @@
     const showTools=isAdmin||accessRole==='adc'||accessRole==='hicc';
     b.textContent = currentUser ? `${currentUser.name} - ${currentUser.role}` : 'Sign in';
     b.classList.toggle('is-admin', isAdmin);
-    $('bulk-add-session-btn').classList.toggle('hidden', !canAddSessions());
-    $('add-session-btn').classList.toggle('hidden', !canAddOneSession());
-    $('selection-controls').classList.toggle('hidden', !canSelectSessions());
+    const sessionWritesEnabled=sessionMutationsAllowed();
+    $('bulk-add-session-btn').classList.toggle('hidden', !canAddSessions()||!sessionWritesEnabled);
+    $('add-session-btn').classList.toggle('hidden', !canAddOneSession()||!sessionWritesEnabled);
+    $('selection-controls').classList.toggle('hidden', !canSelectSessions()||!sessionWritesEnabled);
     $('outlook-invite-btn').classList.toggle('hidden', !isAdmin);
     $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || accessRole === 'hicc'));
     $('faculty-dashboard-btn').classList.toggle('hidden', !(isAdmin||facultySelfService));

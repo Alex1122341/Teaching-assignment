@@ -14,7 +14,7 @@ concurrency:
 jobs:
   validate_and_build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -31,7 +31,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         run: npm ci
 
       - name: Run static and unit tests
@@ -40,6 +40,15 @@ jobs:
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator
 
+      - name: Install server dependencies
+        run: npm --prefix server install --no-audit --no-fund
+
+      - name: Run server tests
+        run: npm --prefix server test
+
+      - name: Resolve Managed Functions lockfile
+        run: npm --prefix swa-api install --package-lock-only --ignore-scripts --no-audit --no-fund
+
       - name: Prepare production client configuration
         shell: bash
         env:
@@ -47,15 +56,12 @@ jobs:
           EXPECTED_FIREBASE_PROJECT_ID: tester-teaching
         run: |
           set -euo pipefail
-          test -n "$PRODUCTION_DOE_API_BASE_URL"
-          node tools/build-firebase-config.js --from-json tools/production-firebase-web-config.json --doe-api-base-url "$PRODUCTION_DOE_API_BASE_URL"
+          args=(--from-json tools/production-firebase-web-config.json --paws-session-backend azure-sql)
+          if [[ -n "${PRODUCTION_DOE_API_BASE_URL:-}" ]]; then
+            args+=(--doe-api-base-url "$PRODUCTION_DOE_API_BASE_URL")
+          fi
+          node tools/build-firebase-config.js "${args[@]}"
           node tools/verify-production-client-config.js
-
-      - name: Verify production DOE API health and CORS
-        env:
-          PRODUCTION_DOE_API_BASE_URL: ${{ vars.PRODUCTION_DOE_API_BASE_URL }}
-          PRODUCTION_FRONTEND_ORIGIN: https://red-cliff-04871ca0f.5.azurestaticapps.net
-        run: node tools/verify-production-doe-api.js
 
       - name: Build static site
         run: node tools/build-static.js
@@ -63,11 +69,29 @@ jobs:
       - name: Stage Azure configuration
         run: cp staticwebapp.config.json .deploy-static/staticwebapp.config.json
 
+      - name: Build Managed Functions source artifact
+        run: node tools/build-swa-api.js --output .deploy-swa-api
+
+      - name: Assemble exact Azure production handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .azure-production
+          mkdir -p .azure-production/app .azure-production/api
+          cp -a .deploy-static/. .azure-production/app/
+          cp -a .deploy-swa-api/. .azure-production/api/
+          test -f .azure-production/app/index.html
+          test -f .azure-production/app/staticwebapp.config.json
+          test -f .azure-production/api/index.js
+          test -f .azure-production/api/host.json
+          test -f .azure-production/api/package.json
+          test -f .azure-production/api/package-lock.json
+
       - name: Upload verified production artifact
         uses: actions/upload-artifact@v7
         with:
           name: azure-production-${{ github.sha }}
-          path: .deploy-static
+          path: .azure-production
           if-no-files-found: error
           retention-days: 7
           include-hidden-files: true

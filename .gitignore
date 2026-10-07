@@ -9,3 +9,5 @@ output/
 .deploy-static/
 __pycache__/
 .deploy-metadata/
+.deploy-swa-api/
+.azure-production/

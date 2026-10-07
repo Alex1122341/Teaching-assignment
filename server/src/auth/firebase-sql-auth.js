@@ -25,13 +25,27 @@ function createFirebaseSqlAuthProvider({adminAuth,userRepository,bootstrapProfil
   if(!userRepository?.provision)throw new Error('SQL user repository is required.');
   return{
     async verify(idToken){
-      const decoded=await adminAuth.verifyIdToken(String(idToken));
+      let decoded;
+      try{
+        decoded=await adminAuth.verifyIdToken(String(idToken));
+      }catch{
+        throw Object.assign(Error('Authentication token is invalid or expired.'),{code:'AUTH_REQUIRED',statusCode:401});
+      }
       const uid=text(decoded?.uid),mail=normalizeEmail(decoded?.email);
       if(!uid||!mail)throw Object.assign(Error('Verified Firebase token must include UID and email.'),{code:'PROFILE_REQUIRED',statusCode:403});
-      const profile=await userRepository.provision({
-        uid,email:mail,name:text(decoded?.name),
-        bootstrap:bootstrapProfiles[mail]||null
-      });
+
+      let profile;
+      try{
+        profile=await userRepository.provision({
+          uid,email:mail,name:text(decoded?.name),
+          bootstrap:bootstrapProfiles[mail]||null
+        });
+      }catch(error){
+        const status=Number(error?.statusCode);
+        if(Number.isInteger(status)&&status>=400&&status<500)throw error;
+        throw Object.assign(Error('PAWS SQL profile service is unavailable.'),{code:'SQL_PROFILE_UNAVAILABLE',statusCode:503});
+      }
+
       if(!profile?.active)throw Object.assign(Error('This PAWS account is inactive.'),{code:'PROFILE_INACTIVE',statusCode:403});
       return profile;
     }

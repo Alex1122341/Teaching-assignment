@@ -2,7 +2,7 @@
 const http=require('node:http');
 const {errorPayload,statusFor}=require('./http/errors.js');
 const {createDoeRoutes}=require('./routes/doe-routes.js');
-const {createDataRoutes}=require('./routes/data-routes.js');
+const {createDataApi}=require('./data/data-api.js');
 
 function jsonBody(req){
   return new Promise((resolve,reject)=>{
@@ -34,7 +34,7 @@ function createHandler({authProvider,services={},allowedOrigins=[]}={}){
   if(!authProvider?.verify)throw new Error('authProvider.verify is required.');
   const originAllowlist=new Set((Array.isArray(allowedOrigins)?allowedOrigins:[]).map(value=>String(value||'').trim().replace(/\/+$/,'')).filter(Boolean));
   const doeRoutes=services.doeRoutes||(services.calculationService?createDoeRoutes({calculationService:services.calculationService,rulebookService:services.rulebookService,worksheetService:services.worksheetService,workflowPreviewService:services.workflowPreviewService,policyAdminService:services.policyAdminService,targetService:services.targetService}):null);
-  const dataRoutes=services.dataRoutes||(services.sessionReadService?createDataRoutes({sessionReadService:services.sessionReadService}):null);
+  const dataApi=services.dataApi||createDataApi({authProvider,sessionReadService:services.sessionReadService,dataRoutes:services.dataRoutes});
   return async function handler(req,res){
     try{
       const url=new URL(req.url,'http://localhost');
@@ -50,12 +50,14 @@ function createHandler({authProvider,services={},allowedOrigins=[]}={}){
       if(req.method==='GET'&&url.pathname==='/api/health'){
         return writeJson(res,200,{ok:true,service:'ucvm-doe-api'});
       }
-      if(req.method==='GET'&&url.pathname==='/api/health/sql'){
-        if(!services.sessionReadService?.ping){
-          return writeJson(res,503,{ok:false,service:'ucvm-doe-api',dependency:'azure-sql',code:'SQL_HEALTH_UNAVAILABLE'});
-        }
-        await services.sessionReadService.ping();
-        return writeJson(res,200,{ok:true,service:'ucvm-doe-api',dependency:'azure-sql'});
+      if(url.pathname==='/api/health/sql'||url.pathname==='/api/v1/me'||url.pathname==='/api/v1/sessions'||url.pathname==='/api/data/sessions'){
+        const routed=await dataApi.handle({
+          method:req.method,
+          path:url.pathname,
+          headers:req.headers,
+          query:Object.fromEntries(url.searchParams.entries())
+        });
+        if(routed)return writeJson(res,routed.statusCode,routed.body);
       }
       if(!url.pathname.startsWith('/api/doe/')&&!url.pathname.startsWith('/api/data/')&&!url.pathname.startsWith('/api/v1/')){
         return writeJson(res,404,{code:'NOT_FOUND',message:'Route not found.'});
@@ -69,14 +71,7 @@ function createHandler({authProvider,services={},allowedOrigins=[]}={}){
         return writeJson(res,401,{code:'AUTH_REQUIRED',message:'Authentication is required.'});
       }
       req.actor=actor;
-      if(req.method==='GET'&&url.pathname==='/api/v1/me'){
-        return writeJson(res,200,{uid:actor.uid,email:actor.email,name:actor.name,role:actor.role,facultyId:actor.facultyId||'',officeName:actor.officeName||'',mustChangePassword:actor.mustChangePassword===true});
-      }
       req.body=await jsonBody(req);
-      if(dataRoutes&&(url.pathname.startsWith('/api/data/')||url.pathname.startsWith('/api/v1/'))){
-        const routed=await dataRoutes.handle({method:req.method,path:url.pathname,actor:req.actor,body:req.body,query:Object.fromEntries(url.searchParams.entries())});
-        if(routed)return writeJson(res,routed.statusCode,routed.body);
-      }
       if(doeRoutes){
         const routed=await doeRoutes.handle({method:req.method,path:url.pathname,actor:req.actor,body:req.body,query:Object.fromEntries(url.searchParams.entries())});
         if(routed)return writeJson(res,routed.statusCode,routed.body);

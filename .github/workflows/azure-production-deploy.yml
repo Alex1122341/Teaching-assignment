@@ -23,7 +23,7 @@ concurrency:
 jobs:
   deploy_production:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment:
       name: production
       url: https://red-cliff-04871ca0f.5.azurestaticapps.net
@@ -47,28 +47,41 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: azure-production-${{ inputs.commit_sha }}
-          path: .deploy-static
+          path: .azure-production
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.source_run_id }}
 
       - name: Verify production artifact handoff
         run: |
-          test -f .deploy-static/index.html
-          test -f .deploy-static/staticwebapp.config.json
+          set -euo pipefail
+          test -f .azure-production/app/index.html
+          test -f .azure-production/app/staticwebapp.config.json
+          test -f .azure-production/api/index.js
+          test -f .azure-production/api/host.json
+          test -f .azure-production/api/package.json
+          test -f .azure-production/api/package-lock.json
 
-      - name: Deploy approved artifact to Azure Static Web Apps
+      - name: Deploy approved app and Managed Functions to Azure Static Web Apps
         id: azure-deploy
         uses: Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           action: upload
-          app_location: .deploy-static
-          api_location: ''
+          app_location: .azure-production/app
+          api_location: .azure-production/api
           output_location: ''
           skip_app_build: true
-          skip_api_build: true
+          skip_api_build: false
           production_branch: main
+
+      - name: Verify deployed Azure SQL health
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_json="$(curl --fail --silent --show-error --retry 5 --retry-delay 5 "https://red-cliff-04871ca0f.5.azurestaticapps.net/api/health/sql")"
+          test "$(jq -r '.ok' <<< "$health_json")" = "true"
+          test "$(jq -r '.dependency' <<< "$health_json")" = "azure-sql"
 
       - name: Publish Azure URL in job summary
         run: |

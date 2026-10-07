@@ -1,6 +1,7 @@
 'use strict';
 const {createApp}=require('./app.js');
 const {createFirebaseAuthProvider}=require('./auth/firebase-auth.js');
+const {firebaseAdminOptionsFromEnv,createFirebaseAdminClients}=require('./auth/firebase-admin.js');
 const {createFirebaseSqlAuthProvider,bootstrapProfilesFromEnv}=require('./auth/firebase-sql-auth.js');
 const {createRepository}=require('./doe/firestore-repository.js');
 const {createCalculationService}=require('./doe/calculation-service.js');
@@ -22,62 +23,10 @@ function allowedOriginsFromEnv(value=process.env.ALLOWED_ORIGINS){
   return String(value||'').split(',').map(item=>item.trim()).filter(Boolean);
 }
 
-function firebaseAdminOptionsFromEnv(env=process.env){
-  const projectId=String(env?.FIREBASE_PROJECT_ID||'').trim();
-  const raw=String(env?.FIREBASE_SERVICE_ACCOUNT_JSON||'').trim();
-  let serviceAccount=null;
-  if(raw){
-    try{serviceAccount=JSON.parse(raw)}
-    catch(cause){
-      const error=Error('FIREBASE_SERVICE_ACCOUNT_JSON must be valid JSON.');
-      error.code='FIREBASE_CONFIG_INVALID';
-      error.cause=cause;
-      throw error;
-    }
-    if(!serviceAccount||typeof serviceAccount!=='object'||!String(serviceAccount.client_email||'').trim()||!String(serviceAccount.private_key||'').trim()){
-      const error=Error('FIREBASE_SERVICE_ACCOUNT_JSON must include client_email and private_key.');
-      error.code='FIREBASE_CONFIG_INVALID';
-      throw error;
-    }
-  }
-  return{projectId,serviceAccount};
-}
-
 function createProductionDependencies({adminModule,env=process.env}={}){
-  let admin=adminModule;
-  try{
-    if(!admin)admin={
-      app:require('firebase-admin/app'),
-      auth:require('firebase-admin/auth'),
-      firestore:require('firebase-admin/firestore')
-    };
-  }catch(error){
-    error.message=`firebase-admin is required to start the DOE API: ${error.message}`;
-    throw error;
-  }
-  const config=firebaseAdminOptionsFromEnv(env);
-  let firestore,adminAuth;
-  if(admin?.app&&admin?.auth&&admin?.firestore&&typeof admin.app.getApps==='function'){
-    const options={};
-    if(config.projectId)options.projectId=config.projectId;
-    if(config.serviceAccount)options.credential=admin.app.cert(config.serviceAccount);
-    const apps=admin.app.getApps();
-    const app=apps.length?apps[0]:admin.app.initializeApp(options);
-    firestore=admin.firestore.getFirestore(app);
-    adminAuth=admin.auth.getAuth(app);
-  }else if(Array.isArray(admin?.apps)&&typeof admin.initializeApp==='function'){
-    if(!admin.apps.length){
-      const options={};
-      if(config.projectId)options.projectId=config.projectId;
-      if(config.serviceAccount)options.credential=admin.credential.cert(config.serviceAccount);
-      admin.initializeApp(options);
-    }
-    firestore=admin.firestore();
-    adminAuth=admin.auth();
-  }else throw Error('Firebase Admin SDK shape is unsupported.');
+  const {firestore,adminAuth}=createFirebaseAdminClients({adminModule,env,includeFirestore:true});
   return{authProvider:createFirebaseAuthProvider({adminAuth,firestore}),firestore,adminAuth};
 }
-
 function createProductionServices({firestore,engine=DOE_ENGINE,sessionReadService=null}={}){
   const repository=createRepository(firestore);
   const calculationService=createCalculationService({repository,engine});

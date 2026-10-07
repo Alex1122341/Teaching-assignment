@@ -35,3 +35,27 @@ test('SQL session repository reads only the canonical paws view and maps calenda
 test('SQL session repository fails closed when managed identity is unavailable',async()=>{
   await assert.rejects(()=>appServiceManagedIdentityToken({env:{},fetchImpl:async()=>{}}),error=>error.code==='SQL_IDENTITY_UNAVAILABLE');
 });
+
+
+test('SQL health ping uses only an object granted to the SWA beta principal',async()=>{
+  const queries=[];
+  const repository=createSqlSessionRepository({
+    poolRunner:async work=>work({
+      request(){
+        return{
+          async query(sql){
+            queries.push(sql);
+            if(/FROM\s+paws\.Session\b/i.test(sql)){
+              throw Object.assign(Error('permission denied'),{code:'EACCES'});
+            }
+            return{recordset:[]};
+          }
+        };
+      }
+    },{})
+  });
+  assert.equal(await repository.ping(),true);
+  assert.equal(queries.length,1);
+  assert.match(queries[0],/FROM\s+paws\.vCalendarSession\b/i);
+  assert.doesNotMatch(queries[0],/FROM\s+paws\.Session\b/i);
+});
