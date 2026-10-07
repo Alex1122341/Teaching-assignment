@@ -489,15 +489,21 @@ function publicSessionMap(session) {
   };
 }
 
-function buildRequests(sessions) {
+function buildRequests(sessions, calendar) {
   const random = mulberry32(4242);
   const docs = [];
-  const targets = sessions.filter(s => s.data.type === 'LAB').slice(0, 3);
+  const requestGroup = buildGroups().find(row => row.path === 'faculty_groups/group-neuro');
+  if (!requestGroup) throw new Error('Missing group-neuro fixture for routed HICC requests.');
+  const requestGroupId = requestGroup.path.replace('faculty_groups/', '');
+  const requestGroupName = requestGroup.data.name;
+  const requestGroupCourses = new Set(requestGroup.data.courseIds || []);
+  const targets = sessions.filter(s => s.data.type === 'LAB' && requestGroupCourses.has(s.data.course)).slice(0, 3);
+  if (targets.length < 3) throw new Error('Not enough LAB sessions in group-neuro course scope for routed request fixtures.');
 
   const specs = [
-    {id: 'req-001', status: 'pending', offices: ['lab'], scopes: {lab: ['topic']}, fields: ['topic'], revision: 1, lab: true},
-    {id: 'req-002', status: 'update_required', offices: ['adc', 'lab'], scopes: {adc: ['date'], lab: ['topic']}, fields: ['date', 'topic'], revision: 2, lab: true},
-    {id: 'req-003', status: 'approved', offices: ['adc', 'lab', 'adfa'], scopes: {adc: ['date'], lab: ['topic'], adfa: ['assignments']}, fields: ['date', 'topic', 'assignments'], revision: 1, lab: true}
+    {id: 'req-001', status: 'pending', offices: ['lab'], scopes: {lab: ['topic']}, fields: ['topic'], editableFields: [], revision: 1, lab: true},
+    {id: 'req-002', status: 'update_required', offices: ['adc', 'lab'], scopes: {adc: ['date'], lab: ['topic']}, fields: ['date', 'topic'], editableFields: ['date'], approvalStatus: {adc: 'push_back', lab: 'pending'}, revision: 2, lab: true},
+    {id: 'req-003', status: 'approved', offices: ['adc', 'lab', 'adfa'], scopes: {adc: ['date'], lab: ['topic'], adfa: ['assignments', 'instructor']}, fields: ['date', 'topic', 'assignments', 'instructor'], editableFields: [], revision: 1, lab: true}
   ];
 
   specs.forEach((spec, index) => {
@@ -507,7 +513,10 @@ function buildRequests(sessions) {
     const patch = {...base};
     if (spec.scopes.adc) patch.date = isoDate(d.date, 2);
     if (spec.scopes.lab) patch.topic = 'Advanced ' + d.topic;
-    if (spec.scopes.adfa) patch.instructor = 'Avery Lindqvist, Mira Okonkwo';
+    if (spec.scopes.adfa) {
+      const replacement = FACULTY_SEED[2];
+      patch.instructor = fullName(replacement);
+    }
 
     docs.push({
       path: `change_requests/${spec.id}`,
@@ -518,17 +527,17 @@ function buildRequests(sessions) {
         requesterRole: 'hicc',
         sessionId: session.path.replace('sessions/', ''),
         requestType: spec.scopes.adfa ? 'faculty_swap' : 'session_edit',
-        scope: 'group',
-        groupId: 'group-neuro',
-        groupName: 'Neurology Rotation',
+        scope: 'hicc',
+        groupId: requestGroupId,
+        groupName: requestGroupName,
         status: spec.status,
         revision: spec.revision,
         basePublic: base,
         patchPublic: patch,
-        currentFacultyName: d.instructor,
+        currentFacultyName: spec.scopes.adfa ? (d.assignments[0]?.name || '') : '',
         proposedFacultyName: spec.scopes.adfa ? 'Mira Okonkwo' : '',
-        editableFields: spec.fields,
-        requesterMessage: 'Requested change for the rotation.',
+        editableFields: spec.editableFields || [],
+        requesterMessage: spec.status === 'update_required' ? 'Please revise the rotation date.' : '',
         reason: spec.scopes.adfa ? 'Coverage conflict with clinical duty.' : '',
         course: d.course,
         date: d.date,
@@ -564,39 +573,43 @@ function buildRequests(sessions) {
     });
 
     for (const office of spec.offices) {
-      const approved = spec.status === 'approved';
+      const status = spec.approvalStatus?.[office] || (spec.status === 'approved' ? 'approved' : 'pending');
+      const decided = ['approved', 'push_back', 'rejected'].includes(status);
       docs.push({
         path: `change_request_approvals/${spec.id}_${office}`,
         data: {
+          id: `${spec.id}_${office}`,
           requestId: spec.id,
           office,
           revision: spec.revision,
           fields: scopes[office],
           scopeSignature: signatures[office],
-          status: approved ? 'approved' : 'pending',
-          decidedBy: approved ? `uid-${office === 'adfa' ? 'adfa-regular' : office + '-1'}` : '',
-          decidedByName: approved ? `${office.toUpperCase()} Reviewer` : '',
-          decidedAt: approved ? stamp(-150) : null,
-          message: '',
+          status,
+          decidedBy: decided ? `uid-${office === 'adfa' ? 'adfa-regular' : office + '-1'}` : '',
+          decidedByName: decided ? `${office.toUpperCase()} Reviewer` : '',
+          decidedAt: decided ? stamp(-150) : null,
+          pushBackReason: status === 'push_back' ? 'Please revise the rotation date.' : '',
           updatedAt: stamp(-150)
         }
       });
     }
 
-    docs.push({
-      path: `change_request_private/${spec.id}`,
-      data: {
-        requestId: spec.id,
-        requesterUid: 'uid-hicc-1',
-        revision: spec.revision,
-        assignmentChange: {
-          assignmentIndex: 0,
-          from: {facultyId: 'fac-001', candidateKey: '', kind: ''},
-          to: spec.scopes.adfa ? {facultyId: '', candidateKey: 'cand-003', kind: ''} : {facultyId: 'fac-001', candidateKey: '', kind: ''}
-        },
-        updatedAt: stamp(-200 + index * 10)
-      }
-    });
+    if (spec.scopes.adfa) {
+      docs.push({
+        path: `change_request_private/${spec.id}`,
+        data: {
+          requestId: spec.id,
+          requesterUid: 'uid-hicc-1',
+          revision: spec.revision,
+          assignmentChange: {
+            assignmentIndex: 0,
+            from: {facultyId: d.assignments[0]?.facultyId || '', candidateKey: '', kind: ''},
+            to: {facultyId: '', candidateKey: 'cand-003', kind: ''}
+          },
+          updatedAt: stamp(-200 + index * 10)
+        }
+      });
+    }
 
     docs.push({
       path: `change_request_audit/${spec.id}_submitted`,
@@ -631,21 +644,68 @@ function buildRequests(sessions) {
         }
       });
     }
+
+    if (spec.status === 'approved') {
+      const replacement = FACULTY_SEED[2], outgoing = d.assignments[0] || {};
+      const replacementRole = outgoing.role || 'Lab Lead';
+      const replacementHours = Number(outgoing.creditedHours) || 2;
+      const replacementRate = Number(outgoing.doeRate) || DEFAULT_RATE[replacementRole] || DEFAULT_RATE['Lab Lead'];
+      const assignments = [
+        {
+          ucid: replacement.id,
+          facultyId: replacement.id,
+          name: fullName(replacement),
+          role: replacementRole,
+          topic: patch.topic,
+          creditedHours: replacementHours,
+          doeRate: replacementRate,
+          doeCredit: credit(replacementHours, replacementRate),
+          source: 'Seed approved request'
+        },
+        ...d.assignments.slice(1).map(row => ({...row, topic: patch.topic}))
+      ];
+      Object.assign(d, {
+        date: patch.date,
+        topic: patch.topic,
+        instructor: assignments.map(row => row.name).filter(Boolean).join('; '),
+        instructorNames: assignments.map(row => row.name),
+        facultyIds: assignments.map(row => row.facultyId),
+        assignments,
+        approvalRequestId: spec.id,
+        approvalRevision: spec.revision,
+        updatedBy: 'uid-adfa-regular',
+        updatedByName: 'ADFA Regular',
+        updatedAt: stamp(-100)
+      });
+      const sessionId = session.path.replace('sessions/', '');
+      const calendarRow = calendar.find(row => row.path === `calendar_sessions/${sessionId}`);
+      if (!calendarRow) throw new Error(`Missing calendar projection for approved request session ${sessionId}`);
+      Object.assign(calendarRow.data, {
+        date: d.date,
+        topic: d.topic,
+        instructor: d.instructor,
+        instructorNames: [...d.instructorNames]
+      });
+    }
   });
 
   return docs;
 }
 
-function buildNotifications(sessions) {
-  const session = sessions.find(s => s.data.type === 'LAB');
+function buildNotifications(sessions, requests) {
+  const request = requests.find(row => row.path === 'change_requests/req-001');
+  if (!request) throw new Error('Missing req-001 fixture for workflow notification.');
+  const sessionId = request.data.sessionId;
+  const session = sessions.find(row => row.path === `sessions/${sessionId}`);
+  if (!session) throw new Error(`Missing canonical session ${sessionId} for workflow notification.`);
   const d = session.data;
   return [{
     path: 'workflow_notifications/notif-001',
     data: {
       recipientOffice: 'lab',
       kind: 'request_assigned',
-      requestId: 'req-001',
-      sessionId: session.path.replace('sessions/', ''),
+      requestId: request.path.replace('change_requests/', ''),
+      sessionId,
       course: d.course,
       date: d.date,
       start: d.start,
@@ -953,10 +1013,12 @@ function buildDataset() {
   const users = buildUsers();
   const faculty = buildFaculty();
   const {sessions, calendar} = buildSessionsAndCalendar();
+  const requests = buildRequests(sessions, calendar);
+  // Apply approved synthetic workflow state before computing derived settings
+  // and notifications so every demo surface observes the same canonical data.
   const settings = buildSettings(sessions, faculty);
   const {groups: labGroups, rosters: labRosters} = buildLabGroupsAndRosters();
-  const requests = buildRequests(sessions);
-  const notifications = buildNotifications(sessions);
+  const notifications = buildNotifications(sessions, requests);
   const afc = buildAfc();
   const audit = buildAuditLogs(sessions);
   const bulkImport = buildBulkImport();
