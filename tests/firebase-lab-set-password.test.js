@@ -76,6 +76,8 @@ test('workflow uses the protected environment secret and has no password text in
   assert.match(source,/name:\s*firebase-lab-admin/);
   assert.match(source,/cache-dependency-path:\s*package-lock\.json/);
   assert.equal(fs.existsSync(path.join(root,'package-lock.json')),true);
+  assert.match(source,/npm --prefix server install --no-audit --no-fund/);
+  assert.doesNotMatch(source,/npm --prefix server ci/);
   assert.match(source,/FIREBASE_PROJECT_ID:\s*vista-teaching-lab/);
   assert.match(source,/FIREBASE_SERVICE_ACCOUNT_JSON:\s*\$\{\{\s*secrets\.FIREBASE_LAB_SERVICE_ACCOUNT_JSON\s*\}\}/);
   assert.match(source,/LAB_SYNTHETIC_ACCOUNT_PASSWORD:\s*\$\{\{\s*secrets\.LAB_SYNTHETIC_ACCOUNT_PASSWORD\s*\}\}/);
