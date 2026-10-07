@@ -1,0 +1,31 @@
+name: AI Orchestration Checks
+on:
+  pull_request:
+    paths:
+      - '.ai/**'
+      - 'tools/ai/**'
+      - 'tests/ai-orchestration.test.js'
+      - '.github/workflows/ai-*.yml'
+      - 'package.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ai-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # Evidence may refer to an ancestor commit.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - run: node --test tests/ai-orchestration.test.js
+      - run: node tools/ai/cli.js validate
+        env:
+          GITHUB_HEAD_REF: ${{ github.head_ref || github.ref_name }}

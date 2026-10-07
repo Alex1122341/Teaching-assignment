@@ -1,0 +1,37 @@
+{
+  "issue": 900001,
+  "title": "Synthetic documentation handoff demo",
+  "category": "documentation",
+  "risk": "low",
+  "preferred_implementer": "hy4",
+  "problem_statement": "Show a reproducible task lifecycle without model APIs.",
+  "current_behavior": "The temporary fixture note has no handoff guidance.",
+  "required_behavior": "The fixture note says that merge approval remains human.",
+  "business_rules": [
+    "Synthetic fixture only; never alter VISTA business behavior."
+  ],
+  "roles_affected": [],
+  "expected_files": [
+    "demo-note.md"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "description": "demo-note.md contains Human merge only."
+    }
+  ],
+  "required_tests": [
+    "unit"
+  ],
+  "forbidden_changes": [
+    "No production changes",
+    "No model API calls",
+    "No real or automatic merge"
+  ],
+  "known_dependencies": [
+    "Node and Git"
+  ],
+  "open_questions": [],
+  "protected_changes": [],
+  "role_checks": []
+}
