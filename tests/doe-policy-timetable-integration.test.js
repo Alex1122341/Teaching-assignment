@@ -188,3 +188,44 @@ test('faculty swap re-evaluates DOE through API and persists through server sess
   assert.doesNotMatch(fn,/stageCalculationRecord|UCVM_DOE_POLICY_FIRESTORE/);
   assert.match(fn,/doeAuditChanges/);
 });
+
+function transactionalFakeDb(initial){
+  const docs=new Map(Object.entries(initial).map(([key,value])=>[key,structuredClone(value)]));
+  const refFor=(name,id)=>({path:`${name}/${id}`});
+  const snapshot=ref=>({exists:docs.has(ref.path),id:ref.path.split('/').pop(),data:()=>structuredClone(docs.get(ref.path))});
+  return{
+    docs,
+    collection:name=>({doc:id=>refFor(name,id)}),
+    runTransaction:async fn=>fn({
+      get:async ref=>snapshot(ref),
+      update:(ref,patch)=>docs.set(ref.path,{...docs.get(ref.path),...structuredClone(patch)}),
+      set:(ref,row)=>docs.set(ref.path,structuredClone(row))
+    })
+  };
+}
+function firstPublicationDocs(currentActiveVersionId=''){
+  const v='ucvm-workload-2027-28-v1';
+  return{
+    'doe_policies/ucvm-workload-2027-28':{policyId:'ucvm-workload-2027-28',academicYear:'2027-28',currentActiveVersionId},
+    [`doe_policy_versions/${v}`]:{policyVersionId:v,policyId:'ucvm-workload-2027-28',academicYear:'2027-28',status:'draft',revision:1,
+      lastValidatedRevision:1,lastValidationPassed:true,rulesChecksum:'sum-1',lastImpactRunId:'run-1',lastImpactRevision:1,lastImpactChecksum:'sum-1',lastImpactDatasetChecksum:'data-1'},
+    'doe_impact_runs/run-1':{impactRunId:'run-1',policyVersionId:v,policyRevision:1,policyChecksum:'sum-1',inputDatasetChecksum:'data-1',activeVersionIdAtPreview:'',status:'passed',errorCount:0}
+  };
+}
+const firstPublishRequest={policyVersionId:'ucvm-workload-2027-28-v1',expectedRevision:1,policyChecksum:'sum-1',impactRunId:'run-1',
+  inputDatasetChecksum:'data-1',expectedActiveVersionId:'',publication:{publicationId:'pub-1',policyVersionId:'ucvm-workload-2027-28-v1'},actor:{uid:'general'}};
+
+test('Firestore DOE repository publishes the first version of an Academic Year that has no Active version',async()=>{
+  const FIRESTORE=require('../doe-policy-firestore.js'),db=transactionalFakeDb(firstPublicationDocs(''));
+  const result=await FIRESTORE.createFirestoreRepository({db}).publishVersion(firstPublishRequest);
+  assert.equal(result.version.status,'active');
+  assert.equal(db.docs.get('doe_policies/ucvm-workload-2027-28').currentActiveVersionId,'ucvm-workload-2027-28-v1');
+  assert.ok(db.docs.has('doe_publications/pub-1'));
+});
+
+test('Firestore DOE repository rejects a first publication when another version became Active after preview',async()=>{
+  const FIRESTORE=require('../doe-policy-firestore.js'),db=transactionalFakeDb(firstPublicationDocs('ucvm-workload-2027-28-v9'));
+  await assert.rejects(()=>FIRESTORE.createFirestoreRepository({db}).publishVersion(firstPublishRequest),error=>error&&error.code==='PREVIEW_STALE');
+  assert.equal(db.docs.get('doe_policy_versions/ucvm-workload-2027-28-v1').status,'draft');
+  assert.ok(!db.docs.has('doe_publications/pub-1'));
+});

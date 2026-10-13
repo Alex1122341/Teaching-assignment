@@ -358,7 +358,8 @@
    }
    const policy=stores.policies.get(text(version.policyId));
    if(!policy)throw new RepositoryError('POLICY_NOT_FOUND','DOE policy was not found.',{policyId:text(version.policyId)});
-   if(!text(expectedActiveVersionId)||text(run.activeVersionIdAtPreview)!==text(expectedActiveVersionId)||text(policy.currentActiveVersionId)!==text(expectedActiveVersionId)){
+   // Empty expectedActiveVersionId is valid for a year with no Active version (first publication).
+   if(text(run.activeVersionIdAtPreview)!==text(expectedActiveVersionId)||text(policy.currentActiveVersionId)!==text(expectedActiveVersionId)){
     throw new RepositoryError('PREVIEW_STALE','DOE policy Active version changed after Impact Preview.',{policyVersionId:text(policyVersionId),impactRunId:text(impactRunId)});
    }
    const previousId=text(policy.currentActiveVersionId);

@@ -604,7 +604,9 @@
     text(run.policyChecksum)!==checksum||
     Number(version.lastImpactRevision)!==revision||
     text(version.lastImpactChecksum)!==checksum||
-    !expectedActiveVersionId||
+    // An empty value is valid: it means the Academic Year had no Active version when the
+    // preview ran (first publication of a new year, or after the Active version was archived).
+    // Exact equality still rejects a preview made before another version became Active.
     text(policy.currentActiveVersionId)!==expectedActiveVersionId
    ){
     throw new DoeServiceError('PREVIEW_STALE','Impact Preview is stale for the current Draft revision.',{impactRunId:runId});

@@ -303,7 +303,8 @@
     const policySnapshot=await transaction.get(policyRef);
     if(!policySnapshot.exists)throw new RepositoryError('POLICY_NOT_FOUND','DOE policy was not found.',{policyId});
     const policy=normalizeDomainObject(policySnapshot.data()),previousId=text(policy.currentActiveVersionId);
-    if(!text(expectedActiveVersionId)||text(run.activeVersionIdAtPreview)!==text(expectedActiveVersionId)||previousId!==text(expectedActiveVersionId)){
+    // Empty expectedActiveVersionId is valid for a year with no Active version (first publication).
+    if(text(run.activeVersionIdAtPreview)!==text(expectedActiveVersionId)||previousId!==text(expectedActiveVersionId)){
      throw new RepositoryError('PREVIEW_STALE','DOE policy Active version changed after Impact Preview.',{policyVersionId:versionId,impactRunId:runId});
     }
     let previous=null,previousRef=null;

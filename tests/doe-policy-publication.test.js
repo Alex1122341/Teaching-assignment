@@ -216,6 +216,66 @@ test('successful publish archives the old Active version and records immutable p
  assert.equal(publications[0].publishedBy,'general');
 });
 
+function firstYearSeed(){
+ // A new Academic Year that has never been published: only Draft v2 exists, no Active pointer.
+ const base=seed(),v1='ucvm-workload-2027-28-v1',keep=row=>row.policyVersionId!==v1;
+ return{
+  ...base,
+  policies:base.policies.map(policy=>({...policy,currentActiveVersionId:''})),
+  versions:base.versions.filter(keep),rules:base.rules.filter(keep),selectors:base.selectors.filter(keep),
+  parameters:base.parameters.filter(keep),inputs:base.inputs.filter(keep)
+ };
+}
+function firstYearDataset(){
+ return{academicYear:'2027-28',calculations:[{
+  sourceEntityType:'session_assignment',sourceEntityId:'assignment-1',sessionId:'session-1',assignmentId:'assignment-1',
+  facultyId:'f1',currentDoe:.5,context:{activityType:'LEC',hours:2}
+ }]};
+}
+function createWithDataset(repo,role='adfa_general'){
+ return SERVICE.createService({
+  repository:repo,engine:ENGINE,actorProvider:()=>actor(role),
+  clock:()=>new Date('2026-10-13T18:00:00Z'),datasetProvider:async()=>firstYearDataset()
+ });
+}
+
+test('first publication of a new Academic Year with no Active version succeeds',async()=>{
+ const repo=REPO.createMemoryRepository(firstYearSeed()),service=createWithDataset(repo);
+ assert.equal((await service.validateDraft('ucvm-workload-2027-28-v2')).valid,true);
+ const preview=await service.runImpactPreview('ucvm-workload-2027-28-v2');
+ assert.equal(preview.status,'passed');
+ assert.equal(preview.activeVersionIdAtPreview,'');
+ const result=await service.publish('ucvm-workload-2027-28-v2');
+ assert.equal(result.version.status,'active');
+ assert.equal((await repo.getPolicy('ucvm-workload-2027-28')).currentActiveVersionId,'ucvm-workload-2027-28-v2');
+ const publications=await repo.listPublications('ucvm-workload-2027-28-v2');
+ assert.equal(publications.length,1);
+ assert.equal(publications[0].activeVersionIdAtPreview,'');
+});
+
+test('first publication is still rejected when another version became Active after preview',async()=>{
+ const repo=REPO.createMemoryRepository(firstYearSeed()),service=createWithDataset(repo);
+ await service.validateDraft('ucvm-workload-2027-28-v2');
+ await service.runImpactPreview('ucvm-workload-2027-28-v2');
+ await repo.createVersion({
+  policyVersionId:'ucvm-workload-2027-28-v3',policyId:'ucvm-workload-2027-28',
+  academicYear:'2027-28',versionNumber:3,status:'active',revision:1
+ });
+ await repo.replacePolicy({...await repo.getPolicy('ucvm-workload-2027-28'),currentActiveVersionId:'ucvm-workload-2027-28-v3'});
+ await assert.rejects(()=>service.publish('ucvm-workload-2027-28-v2'),error=>error&&error.code==='PREVIEW_STALE');
+ assert.equal((await repo.getVersion('ucvm-workload-2027-28-v2')).status,'draft');
+});
+
+test('a year whose Active version was archived can publish a new Draft',async()=>{
+ const repo=REPO.createMemoryRepository(seed()),service=createWithDataset(repo);
+ await service.archive('ucvm-workload-2027-28-v1');
+ assert.equal((await repo.getPolicy('ucvm-workload-2027-28')).currentActiveVersionId,'');
+ await service.validateDraft('ucvm-workload-2027-28-v2');
+ await service.runImpactPreview('ucvm-workload-2027-28-v2');
+ const result=await service.publish('ucvm-workload-2027-28-v2');
+ assert.equal(result.version.status,'active');
+});
+
 test('published versions remain immutable through Draft editing APIs',async()=>{
  const {repo,service}=create('adfa_general');
  const validation=await service.validateDraft('ucvm-workload-2027-28-v2');
