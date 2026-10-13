@@ -25,7 +25,7 @@ Nothing in this branch changes DOE rule values, Firestore security rules, live d
 
 ### Commit 1 – `fix(doe): allow first publication of an Academic Year with no Active version`
 
-**Problem.** Publish compared the Active version recorded at Impact Preview time with the current Active version, but it also rejected the comparison outright when the recorded value was empty. A brand-new Academic Year (created by *New Policy Year* or *Copy from Previous Year*) has no Active version, and neither does a year whose Active version was archived. So the first Publish always failed with **`PREVIEW_STALE` – "Impact Preview is stale for the current Draft revision"**, and a new year could never become authoritative through the workflow.
+**Problem.** Publish compared the Active version recorded at Impact Preview time with the current Active version, but it also rejected the comparison outright when the recorded value was empty. A brand-new Academic Year (created by *New Policy Year* or *Copy from Previous Year*) has no Active version, and neither does a year whose Active version was archived. **This is the real 2026-27 situation:** the live database has no Active 2026-27 Rule Book yet, so its first Publish through the DOE Rules tab would have failed. So the first Publish always failed with **`PREVIEW_STALE` – "Impact Preview is stale for the current Draft revision"**, and a new year could never become authoritative through the workflow.
 
 **Fix.** The check now uses exact equality. "No Active version at preview" matches "still no Active version at publish". A preview taken before another version became Active is still rejected, so the protection against two administrators publishing at once is unchanged.
 
@@ -127,14 +127,14 @@ Legend: ✅ implemented and verified · 🔧 fixed in this branch · ⏸ decisio
 
 ### Manual walkthrough with synthetic data
 
-A local sandbox (`doe-sandbox.js`, kept outside the repo) serves the built Frontend Demo and replaces its read-only DOE service with the repo's real `doe-policy-service.js` and in-memory repository, using made-up data (6 faculty, 10 teaching rows, a 2026-27 Active Rule Book and an unpublished 2027-28 Draft). No Firebase or live data is involved.
+A local sandbox (`doe-sandbox.js`, kept outside the repo) serves the built Frontend Demo and replaces its read-only DOE service with the repo's real `doe-policy-service.js` and in-memory repository, using made-up data: 6 faculty, 10 teaching rows, a 2025-26 Active Rule Book and a **2026-27 Draft that has never been published**. That matches the real situation: the live database has no Active 2026-27 Rule Book yet. No Firebase or live data is involved.
 
 | Step (ADFA General) | Result |
 |---|---|
-| 2026-27: Clone as Draft → Validate → Impact Preview → Publish | Each button enabled at the right step; v2 became Active; v1 archived |
+| 2025-26 (has an Active version): Clone as Draft → Validate → Impact Preview → Publish | Each button enabled at the right step; v2 became Active; v1 archived |
 | Recalculate | Dry-run confirmation, then "Recalculation complete: 10/10" |
-| Archive | v2 archived |
-| **2027-28 (never published): Validate → Impact Preview → Publish** | **v1 became Active** (failed with `PREVIEW_STALE` before commit 1) |
+| Archive | 2025-26 v2 archived |
+| **2026-27 (never published): Validate → Impact Preview → Publish** | **2026-27 v1 became Active** (failed with `PREVIEW_STALE` before commit 1) |
 | Hover over disabled buttons | Every one shows its reason (table in §2) |
 | ADFA Regular | Publish / Archive / Recalculate / Copy disabled with "ADFA General, Owner or Developer only" |
 | Plain Frontend Demo (no sandbox) | All write buttons disabled with "Frontend Demo is read-only…", next-step line shows the same |
