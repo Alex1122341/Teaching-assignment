@@ -244,37 +244,95 @@
   const el=$('doe-recalculate-status');if(!el)return;el.textContent=message||'';el.dataset.tone=tone;
  }
 
- function applyPermissions(){
-  const cap=capabilities(state.profile),version=selectedVersion(),draft=version?.status==='draft',revision=Number(version?.revision||0);
-  if(state.demoReadOnly)for(const key of ['editDraft','validate','preview','publish','archive','recalculate'])cap[key]=false;
+ const EDITOR_ROLES_TEXT='Developer, ADFA General or ADFA Regular only';
+ const GENERAL_ROLES_TEXT='ADFA General, Owner or Developer only';
+
+ function nextYearOf(value){
+  const helper=root?.UCVM_DOE_RULEBOOK_ADMIN?.nextAcademicYear;
+  if(typeof helper==='function')return text(helper(value));
+  const match=/^(\d{4})-(\d{2})$/.exec(text(value));
+  if(!match)return'';
+  const start=Number(match[1])+1;
+  return`${start}-${String((start+1)%100).padStart(2,'0')}`;
+ }
+
+ // Decides, for every DOE Rules action button, whether it is enabled and — when it is not —
+ // the plain-language reason shown to the user. Pure: it reads only its arguments.
+ function actionAvailability({profile,version=null,demoReadOnly=false,labReadOnly=false,academicYear='',existingYears=[]}={}){
+  const role=capabilities(profile);
+  const draft=version?.status==='draft',active=version?.status==='active',revision=Number(version?.revision||0);
   const validationCurrent=draft&&version?.lastValidationPassed===true&&Number(version?.lastValidatedRevision)===revision&&!!text(version?.rulesChecksum);
   const previewCurrent=validationCurrent&&!!text(version?.lastImpactRunId)&&Number(version?.lastImpactRevision)===revision&&text(version?.lastImpactChecksum)===text(version?.rulesChecksum)&&!!text(version?.lastImpactDatasetChecksum);
-  const map={
-   'doe-new-year':cap.editDraft,
-   'doe-clone-draft':cap.editDraft,
-   'doe-validate':cap.validate&&draft,
-   'doe-preview':cap.preview&&validationCurrent,
-   'doe-publish':cap.publish&&previewCurrent,
-   'doe-archive':cap.archive&&version?.status==='active',
-   'doe-recalculate':cap.recalculate&&version?.status==='active',
-   'doe-add-rule':cap.editDraft&&draft,
-   'doe-add-exception':cap.editDraft&&draft
+  const readOnlyReason=labReadOnly
+   ?'Firebase Lab is read-only for DOE rules: the authoritative DOE server is not connected.'
+   :'Frontend Demo is read-only: connect the DOE server to change or publish DOE rules.';
+  const year=text(academicYear),nextYear=nextYearOf(year),years=new Set((existingYears||[]).map(text));
+  const out={};
+  const decide=(id,checks)=>{
+   const failed=checks.find(([ok])=>!ok);
+   out[id]={enabled:!failed,reason:failed?failed[1]:''};
   };
-  for(const [id,enabled] of Object.entries(map)){
+  const notDemo=[!demoReadOnly,readOnlyReason];
+  const editor=[role.editDraft,EDITOR_ROLES_TEXT];
+  const general=[role.publish,GENERAL_ROLES_TEXT];
+  const hasVersion=[Boolean(version),'Select a Policy Version first.'];
+  const isDraft=[draft,'Select a Draft version first. Active and Archived versions are read-only.'];
+  const isActive=[active,'Select the Active version first.'];
+  const validated=[validationCurrent,'Validate the current Draft revision first.'];
+  const previewed=[previewCurrent,'Run a passing Impact Preview on the current Draft revision first.'];
+  decide('doe-new-year',[notDemo,editor]);
+  decide('doe-clone-draft',[notDemo,editor,hasVersion]);
+  decide('doe-validate',[notDemo,editor,hasVersion,isDraft]);
+  decide('doe-preview',[notDemo,editor,hasVersion,isDraft,validated]);
+  decide('doe-publish',[notDemo,general,hasVersion,isDraft,validated,previewed]);
+  decide('doe-archive',[notDemo,general,hasVersion,isActive]);
+  decide('doe-recalculate',[notDemo,general,hasVersion,isActive]);
+  decide('doe-add-rule',[notDemo,editor,hasVersion,isDraft]);
+  decide('doe-add-exception',[notDemo,editor,hasVersion,isDraft]);
+  decide('doe-rulebook-validate',[notDemo,editor,hasVersion,isDraft]);
+  decide('doe-copy-previous-year',[
+   notDemo,general,
+   [Boolean(nextYear),'Select a valid Academic Year to copy from.'],
+   [!years.has(nextYear),`${nextYear} already has a Rule Book. Open it from the Academic Year list instead.`]
+  ]);
+  out['doe-copy-previous-year'].label=nextYear?`Copy ${year} → ${nextYear}`:'Copy from Previous Year';
+  out['doe-copy-previous-year'].hint=nextYear?`Copy from Previous Year: creates ${nextYear} as a Draft from the ${year} Rule Book. Every copied item must be reviewed before publishing.`:'';
+  let next='';
+  if(demoReadOnly)next=readOnlyReason;
+  else if(!role.editDraft)next=`DOE rule changes are ${EDITOR_ROLES_TEXT}.`;
+  else if(!version)next='Select an Academic Year and Policy Version, or create a New Policy Year.';
+  else if(active)next='This is the Active (published) Rule Book. Use Clone as Draft to start changes.';
+  else if(draft&&!validationCurrent)next='Next step: Validate this Draft.';
+  else if(draft&&!previewCurrent)next='Next step: run Impact Preview.';
+  else if(draft&&role.publish)next='Next step: Publish. This Draft has passed validation and Impact Preview.';
+  else if(draft)next=`Ready to publish. Publishing is ${GENERAL_ROLES_TEXT}.`;
+  else next='This version is Archived and read-only.';
+  out.nextStep=next;
+  return out;
+ }
+
+ function applyPermissions(){
+  const version=selectedVersion(),cap=capabilities(state.profile);
+  if(state.demoReadOnly)for(const key of ['editDraft','validate','preview','publish','archive','recalculate'])cap[key]=false;
+  const availability=actionAvailability({
+   profile:state.profile,version,demoReadOnly:state.demoReadOnly,labReadOnly:state.labReadOnly,
+   academicYear:$('doe-policy-year')?.value||version?.academicYear||'',
+   existingYears:(state.policies||[]).map(policy=>policy.academicYear)
+  });
+  for(const [id,entry] of Object.entries(availability)){
+   if(!entry||typeof entry!=='object')continue;
    const element=$(id);
    if(!element)continue;
-   element.disabled=!enabled;
-   element.setAttribute('aria-disabled',String(!enabled));
+   element.disabled=!entry.enabled;
+   element.setAttribute('aria-disabled',String(!entry.enabled));
+   element.title=entry.enabled?(entry.hint||''):entry.reason;
+   if(entry.reason)element.dataset.disabledReason=entry.reason;else delete element.dataset.disabledReason;
+   if(entry.label)element.textContent=entry.label;
   }
-  const previewButton=$('doe-preview');
-  if(previewButton&&draft&&!validationCurrent)previewButton.title='Validate the current Draft revision first';
-  const publishButton=$('doe-publish');
-  if(publishButton&&cap.publish&&draft&&!previewCurrent)publishButton.title='A current passing Impact Preview is required';
-  for(const id of ['doe-publish','doe-archive','doe-recalculate']){
-   const element=$(id);
-   if(element&&!cap.publish)element.title='Developer / Owner only';
-  }
-  if(!cap.recalculate)setRecalculateStatus('Administrative recalculation is Developer / Owner only.');
+  const hint=$('doe-actions-hint');
+  if(hint)hint.textContent=availability.nextStep||'';
+  if(state.demoReadOnly)setRecalculateStatus(availability['doe-recalculate'].reason);
+  else if(!cap.recalculate)setRecalculateStatus(`Administrative recalculation is ${GENERAL_ROLES_TEXT}.`);
   else if(version?.status==='active')setRecalculateStatus('Run a dry-run preview before executing recalculation.');
   else setRecalculateStatus('Select the Active policy version to recalculate.');
  }
@@ -679,7 +737,7 @@
  async function recalculate(){
   const version=selectedVersion(),cap=capabilities(state.profile);
   if(!version)return;
-  if(!cap.recalculate){setRecalculateStatus('Administrative recalculation is Developer / Owner only.','error');say('Administrative DOE recalculation is Developer / Owner only.',true);return}
+  if(!cap.recalculate){setRecalculateStatus(`Administrative recalculation is ${GENERAL_ROLES_TEXT}.`,'error');say(`Administrative DOE recalculation is ${GENERAL_ROLES_TEXT}.`,true);return}
   if(version.status!=='active'){setRecalculateStatus('Select the Active policy version before recalculating.','error');return}
   if(typeof state.service.previewRecalculate!=='function'||typeof state.service.runRecalculate!=='function'){say('Recalculate workflow is unavailable.',true);return}
   setRecalculateStatus('Running recalculation dry run…');
@@ -771,6 +829,7 @@
 
  return{
   capabilities,
+  actionAvailability,
   normalizeRuleDraft,
   validateExceptionDraft,
   impactPreviewHtml,

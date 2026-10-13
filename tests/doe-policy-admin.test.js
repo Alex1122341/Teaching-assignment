@@ -186,3 +186,78 @@ test('Frontend Demo Rule Book uses a separate read-only service without declarin
  assert.match(source,/Frontend Demo · NON-AUTHORITATIVE · READ-ONLY/);
  assert.match(source,/editable:!state\.demoReadOnly/);
 });
+
+const ACTION_IDS=['doe-new-year','doe-clone-draft','doe-validate','doe-preview','doe-publish','doe-archive','doe-recalculate','doe-add-rule','doe-add-exception','doe-rulebook-validate','doe-copy-previous-year'];
+const activeVersion={policyVersionId:'y-v1',academicYear:'2026-27',status:'active',revision:1};
+const draftVersion={policyVersionId:'y-v2',academicYear:'2026-27',status:'draft',revision:3};
+const validatedDraft={...draftVersion,lastValidationPassed:true,lastValidatedRevision:3,rulesChecksum:'sum'};
+const previewedDraft={...validatedDraft,lastImpactRunId:'run',lastImpactRevision:3,lastImpactChecksum:'sum',lastImpactDatasetChecksum:'data'};
+
+test('every disabled DOE Rules action explains why in read-only Demo and Lab modes',()=>{
+ for(const [labReadOnly,pattern] of [[false,/Frontend Demo is read-only/],[true,/Firebase Lab is read-only/]]){
+  const result=ADMIN.actionAvailability({profile:{role:'adfa_general'},version:previewedDraft,demoReadOnly:true,labReadOnly,academicYear:'2026-27',existingYears:['2026-27']});
+  for(const id of ACTION_IDS){
+   assert.equal(result[id].enabled,false,id);
+   assert.match(result[id].reason,pattern,id);
+  }
+  assert.match(result.nextStep,pattern);
+ }
+});
+
+test('DOE Rules actions follow the Draft → Validate → Impact Preview → Publish order with a reason at each step',()=>{
+ const general={role:'adfa_general'},years=['2026-27'];
+ const onActive=ADMIN.actionAvailability({profile:general,version:activeVersion,academicYear:'2026-27',existingYears:years});
+ assert.deepEqual(['doe-validate','doe-preview','doe-publish'].map(id=>onActive[id].enabled),[false,false,false]);
+ assert.match(onActive['doe-validate'].reason,/Select a Draft version first/);
+ assert.equal(onActive['doe-archive'].enabled,true);
+ assert.equal(onActive['doe-recalculate'].enabled,true);
+ assert.equal(onActive['doe-clone-draft'].enabled,true);
+ assert.match(onActive.nextStep,/Clone as Draft/);
+
+ const draft=ADMIN.actionAvailability({profile:general,version:draftVersion,academicYear:'2026-27',existingYears:years});
+ assert.equal(draft['doe-validate'].enabled,true);
+ assert.equal(draft['doe-preview'].enabled,false);
+ assert.match(draft['doe-preview'].reason,/Validate the current Draft revision first/);
+ assert.match(draft['doe-publish'].reason,/Validate the current Draft revision first/);
+ assert.match(draft['doe-archive'].reason,/Select the Active version first/);
+ assert.match(draft.nextStep,/Validate this Draft/);
+
+ const validated=ADMIN.actionAvailability({profile:general,version:validatedDraft,academicYear:'2026-27',existingYears:years});
+ assert.equal(validated['doe-preview'].enabled,true);
+ assert.match(validated['doe-publish'].reason,/Impact Preview/);
+
+ const ready=ADMIN.actionAvailability({profile:general,version:previewedDraft,academicYear:'2026-27',existingYears:years});
+ assert.equal(ready['doe-publish'].enabled,true);
+ assert.equal(ready['doe-publish'].reason,'');
+});
+
+test('Publish, Archive, Recalculate and Copy name the roles allowed when the role is too low',()=>{
+ for(const role of ['adfa_regular','administrator']){
+  const result=ADMIN.actionAvailability({profile:{role},version:previewedDraft,academicYear:'2026-27',existingYears:['2026-27']});
+  for(const id of ['doe-publish','doe-archive','doe-recalculate','doe-copy-previous-year']){
+   assert.equal(result[id].enabled,false,`${role} ${id}`);
+   assert.equal(result[id].reason,'ADFA General, Owner or Developer only',`${role} ${id}`);
+  }
+  assert.equal(result['doe-validate'].enabled,true,role);
+  assert.equal(result['doe-preview'].enabled,true,role);
+ }
+ const faculty=ADMIN.actionAvailability({profile:{role:'faculty'},version:draftVersion,academicYear:'2026-27'});
+ assert.match(faculty['doe-new-year'].reason,/Developer, ADFA General or ADFA Regular only/);
+});
+
+test('Copy from Previous Year names the year it creates and refuses a year that already exists',()=>{
+ const free=ADMIN.actionAvailability({profile:{role:'owner'},version:activeVersion,academicYear:'2026-27',existingYears:['2026-27']});
+ assert.equal(free['doe-copy-previous-year'].enabled,true);
+ assert.equal(free['doe-copy-previous-year'].label,'Copy 2026-27 → 2027-28');
+ assert.match(free['doe-copy-previous-year'].hint,/creates 2027-28 as a Draft from the 2026-27 Rule Book/);
+ const taken=ADMIN.actionAvailability({profile:{role:'owner'},version:activeVersion,academicYear:'2026-27',existingYears:['2026-27','2027-28']});
+ assert.equal(taken['doe-copy-previous-year'].enabled,false);
+ assert.match(taken['doe-copy-previous-year'].reason,/2027-28 already has a Rule Book/);
+});
+
+test('DOE Rules page shows a next-step hint area and no longer mislabels General-only actions',()=>{
+ assert.match(read('faculty-admin.html'),/id=["']doe-actions-hint["']/);
+ const source=read('doe-policy-admin.js');
+ assert.doesNotMatch(source,/Developer \/ Owner only/);
+ assert.match(source,/element\.title=entry\.enabled\?/);
+});

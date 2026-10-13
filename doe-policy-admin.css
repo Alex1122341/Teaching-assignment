@@ -82,3 +82,4 @@
 #doe-rulebook-api-status[data-tone="success"]{background:#ecfdf3;border-color:#a7d7b5;color:#166534}#doe-rulebook-api-status[data-tone="error"]{background:#fff1f2;border-color:#f3b4ba;color:#b91c1c}
 @media(max-width:1050px){.doe-rulebook-shell{grid-template-columns:1fr}.doe-rulebook-aside{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:760px){.doe-rulebook-shell{padding:10px}.doe-rulebook-aside{grid-template-columns:1fr}.doe-rulebook-group{align-items:flex-start;flex-direction:column}}
+#doe-rules-view .doe-actions-hint:empty{display:none}
