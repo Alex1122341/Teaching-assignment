@@ -18,7 +18,7 @@ const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 
 // A real Firebase web API key. The committed placeholder must not match this.
 const REAL_API_KEY = /AIza[0-9A-Za-z_-]{35}/;
-const RUNTIME_SOURCES = ['faculty-access.js', 'faculty-admin.js', 'timetable.js', 'index.html', 'faculty-admin.html', 'password.html', 'user-management.html'];
+const RUNTIME_SOURCES = ['web/js/core/faculty-access.js', 'web/js/faculty/faculty-admin.js', 'web/js/timetable/timetable.js', 'web/index.html', 'web/faculty-admin.html', 'web/password.html', 'web/user-management.html'];
 
 test('no runtime source hard-codes a Firebase project configuration', () => {
   for (const name of RUNTIME_SOURCES) {
@@ -30,7 +30,7 @@ test('no runtime source hard-codes a Firebase project configuration', () => {
 });
 
 test('the client configuration has a single source of truth', () => {
-  const source = read('firebase-config.js');
+  const source = read('web/js/core/firebase-config.js');
   assert.match(source, /UCVM_FIREBASE_CONFIG/);
   assert.match(source, /UCVM_FIREBASE_EMULATOR/);
   assert.match(source, /UCVM_DOE_API_BASE_URL\s*=\s*''/);
@@ -42,8 +42,8 @@ test('the client configuration has a single source of truth', () => {
 test('every page loads the configuration before the shared Firebase helper', () => {
   for (const page of RUNTIME_SOURCES.filter(name => name.endsWith('.html'))) {
     const source = read(page);
-    const config = source.indexOf('src="firebase-config.js"');
-    const access = source.indexOf('src="faculty-access.js"');
+    const config = source.indexOf('src="js/core/firebase-config.js"');
+    const access = source.indexOf('src="js/core/faculty-access.js"');
     assert.ok(config >= 0, `${page} does not load firebase-config.js`);
     assert.ok(access >= 0, `${page} does not load faculty-access.js`);
     assert.ok(config < access, `${page} loads firebase-config.js after faculty-access.js`);
@@ -52,8 +52,8 @@ test('every page loads the configuration before the shared Firebase helper', () 
 
 test('the configuration file is part of the deployed asset set', () => {
   const manifest = JSON.parse(read('tools/static-assets.json'));
-  assert.ok(manifest.includes('firebase-config.js'));
-  assert.ok(manifest.indexOf('firebase-config.js') < manifest.indexOf('faculty-access.js'));
+  assert.ok(manifest.includes('js/core/firebase-config.js'));
+  assert.ok(manifest.indexOf('js/core/firebase-config.js') < manifest.indexOf('js/core/faculty-access.js'));
 });
 
 test('the Firebase project alias defaults to the isolated lab project', () => {
@@ -72,7 +72,7 @@ test('the seeder refuses to run against a non-lab project without an explicit fl
 });
 
 test('shared Firebase helper configures local emulators only once across lazy module initialization',()=>{
-  const source=read('faculty-access.js');
+  const source=read('web/js/core/faculty-access.js');
   assert.match(source,/emulatorConfigured=false/);
   assert.match(source,/UCVM_FIREBASE_EMULATOR&&!emulatorConfigured/);
   assert.match(source,/auth\.useEmulator\('http:\/\/127\.0\.0\.1:9099'\);emulatorConfigured=true/);
@@ -84,7 +84,7 @@ test('production config generator supports an injected DOE API base URL without 
   assert.match(source,/--doe-api-base-url/);
   assert.match(source,/DOE_API_BASE_URL/);
   assert.match(source,/UCVM_DOE_API_BASE_URL/);
-  assert.doesNotMatch(read('firebase-config.js'),/azurewebsites\.net/);
+  assert.doesNotMatch(read('web/js/core/firebase-config.js'),/azurewebsites\.net/);
 });
 
 test('production Firebase Web config is pinned tools-only and excluded from preview/deployment source assets',()=>{
@@ -97,7 +97,7 @@ test('production Firebase Web config is pinned tools-only and excluded from prev
   assert.equal(manifest.includes('production-firebase-web-config.json'),false);
   const workflow=read('.github/workflows/azure-static-web-apps.yml');
   assert.match(workflow,/--from-json tools\/production-firebase-web-config\.json/);
-  assert.doesNotMatch(read('firebase-config.js'),/tester-teaching/);
+  assert.doesNotMatch(read('web/js/core/firebase-config.js'),/tester-teaching/);
 });
 
 

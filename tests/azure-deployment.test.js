@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 
 test('Azure Static Web Apps routing and cache config is committed at repository root',()=>{
-  const config=JSON.parse(read('staticwebapp.config.json'));
+  const config=JSON.parse(read('deploy/azure/staticwebapp.config.json'));
   assert.deepEqual(config.routes,[
     {route:'/faculty-dashboard.html',redirect:'/index.html',statusCode:301},
     {route:'/bundles/*',headers:{'Cache-Control':'public, max-age=31536000, immutable'}},
@@ -18,7 +18,7 @@ test('Azure Static Web Apps routing and cache config is committed at repository 
 
 test('manual Azure fallback copies the canonical config instead of generating a second copy',()=>{
   const script=read('tools/deploy_azure_static_web.ps1');
-  assert.match(script,/Join-Path \$SitePath 'staticwebapp\.config\.json'/);
+  assert.match(script,/Join-Path \$SitePath 'deploy\\azure\\staticwebapp\.config\.json'/);
   assert.match(script,/Copy-Item .*staticwebapp\.config\.json/);
   assert.doesNotMatch(script,/\$azureConfig\s*=\s*@\{/);
 });
@@ -45,7 +45,7 @@ test('Azure main push builds and uploads a verified artifact but cannot deploy p
   assert.ok(workflow.indexOf('Prepare production client configuration') < workflow.indexOf('Verify production DOE API health and CORS'));
   assert.ok(workflow.indexOf('Verify production DOE API health and CORS') < workflow.indexOf('Build static site'));
   assert.match(workflow,/node tools\/build-static\.js/);
-  assert.match(workflow,/cp staticwebapp\.config\.json \.deploy-static\/staticwebapp\.config\.json/);
+  assert.match(workflow,/cp deploy\/azure\/staticwebapp\.config\.json \.deploy-static\/staticwebapp\.config\.json/);
   assert.match(workflow,/actions\/upload-artifact@v7/);
   assert.match(workflow,/name:\s*azure-production-\$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(workflow,/deploy_production:/);
@@ -54,7 +54,7 @@ test('Azure main push builds and uploads a verified artifact but cannot deploy p
 });
 
 test('setup docs describe Pages testing followed by gated Azure production',()=>{
-  const setup=read('SETUP.md');
+  const setup=read('docs/SETUP.md');
   assert.match(setup,/AZURE_STATIC_WEB_APPS_API_TOKEN/);
   assert.match(setup,/pull request/i);
   assert.match(setup,/GitHub Pages/i);

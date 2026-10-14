@@ -98,7 +98,7 @@ function ensureFacultyAdminEnhancements(){
  if(document.querySelector('script[data-ucvm-faculty-admin-enhancements]'))return Promise.resolve(true);
  adminEnhancementsPromise=new Promise((resolve,reject)=>{
   const script=document.createElement('script');
-  script.src='faculty-admin-enhancements.js';
+  script.src='js/faculty/faculty-admin-enhancements.js';
   script.async=true;
   script.dataset.ucvmFacultyAdminEnhancements='1';
   script.onload=()=>resolve(true);

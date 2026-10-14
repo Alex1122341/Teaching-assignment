@@ -10,10 +10,10 @@ const {createWorkflowPreviewService}=require('./doe/workflow-preview-service.js'
 const {createPolicyAdminService}=require('./doe/policy-admin-service.js');
 const {createTargetService}=require('./doe/target-service.js');
 const {createDatasetProvider,createRecalculationWriter}=require('./doe/legacy-policy-runtime.js');
-const LEGACY_FIRESTORE=require('../../doe-policy-firestore.js');
-const LEGACY_SERVICE=require('../../doe-policy-service.js');
-const INDEX_MAINTENANCE=require('../../index-maintenance.js');
-const DOE_ENGINE=require('../../doe-policy-engine.js');
+const LEGACY_FIRESTORE=require('../../shared/doe-policy/doe-policy-firestore.js');
+const LEGACY_SERVICE=require('../../shared/doe-policy/doe-policy-service.js');
+const INDEX_MAINTENANCE=require('../../web/js/data-index/index-maintenance.js');
+const DOE_ENGINE=require('../../shared/doe-policy/doe-policy-engine.js');
 const {createSqlSessionRepository}=require('./data/sql-session-repository.js');
 const {createSqlUserRepository}=require('./data/sql-user-repository.js');
 

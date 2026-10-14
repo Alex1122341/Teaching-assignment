@@ -131,10 +131,10 @@ function labAuthBundle(directory){
 
 function rewriteLabClientConfig(directory,config){
   const target=path.resolve(directory);
-  const standalone=path.join(target,'firebase-config.js');
+  const standalone=path.join(target,'js','core','firebase-config.js');
   if(fs.existsSync(standalone)){
     fs.writeFileSync(standalone,rewriteFirebaseConfigSource(fs.readFileSync(standalone,'utf8'),config));
-    return'firebase-config.js';
+    return'js/core/firebase-config.js';
   }
   const bundle=labAuthBundle(target);
   if(!bundle)throw Error('Firebase client configuration is missing from the Pages directory.');

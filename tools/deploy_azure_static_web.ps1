@@ -49,9 +49,9 @@ $builder = Join-Path $SitePath 'tools\build-static.js'
 & node $builder --output $stagingPath
 if ($LASTEXITCODE -ne 0) { throw "Static asset builder exited with code $LASTEXITCODE." }
 
-$azureConfigSource = Join-Path $SitePath 'staticwebapp.config.json'
+$azureConfigSource = Join-Path $SitePath 'deploy\azure\staticwebapp.config.json'
 if (-not (Test-Path -LiteralPath $azureConfigSource -PathType Leaf)) {
-    throw 'staticwebapp.config.json is missing from the repository root.'
+    throw 'deploy/azure/staticwebapp.config.json is missing from the repository.'
 }
 Copy-Item -LiteralPath $azureConfigSource -Destination (Join-Path $stagingPath 'staticwebapp.config.json') -Force
 if ($BuildOnly) { return }

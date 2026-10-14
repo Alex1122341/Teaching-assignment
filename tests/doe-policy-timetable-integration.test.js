@@ -4,18 +4,18 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
-const ENGINE=require('../doe-policy-engine.js');
-const REPO=require('../doe-policy-repository.js');
-const SERVICE=require('../doe-policy-service.js');
+const ENGINE=require('../shared/doe-policy/doe-policy-engine.js');
+const REPO=require('../shared/doe-policy/doe-policy-repository.js');
+const SERVICE=require('../shared/doe-policy/doe-policy-service.js');
 const root=path.resolve(__dirname,'..');
 
 function loadSelection(){
   const context={window:{},Date,console};
-  vm.runInNewContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
+  vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/scheduling-core.js'),'utf8'),context);
   // Field ownership is derived from the canonical modules, so the harness must load them.
- vm.runInNewContext(fs.readFileSync(path.join(root,'office-capabilities.js'),'utf8'),context);
- vm.runInNewContext(fs.readFileSync(path.join(root,'session-workflow.js'),'utf8'),context);
- vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/core/office-capabilities.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/session-workflow.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/timetable-selection.js'),'utf8'),context);
   return context.window.UCVM_TIMETABLE_SELECTION;
 }
 
@@ -156,7 +156,7 @@ test('DOE recalculation returns audit evidence with old and new DOE and policy p
 });
 
 test('Firestore DOE repository can stage immutable calculation evidence into a caller-owned batch',()=>{
-  const FIRESTORE=require('../doe-policy-firestore.js'),writes=[];
+  const FIRESTORE=require('../shared/doe-policy/doe-policy-firestore.js'),writes=[];
   const db={collection:name=>({doc:id=>({path:`${name}/${id}`})})};
   const repository=FIRESTORE.createFirestoreRepository({db});
   const batch={set:(ref,row)=>writes.push([ref.path,row])};
@@ -167,7 +167,7 @@ test('Firestore DOE repository can stage immutable calculation evidence into a c
 });
 
 test('timetable writers are cut over to the policy adapter and the private hard-coded rate map is removed',()=>{
-  const source=fs.readFileSync(path.join(root,'timetable.js'),'utf8');
+  const source=fs.readFileSync(path.join(root,'web/js/timetable/timetable.js'),'utf8');
   assert.doesNotMatch(source,/function\s+doeRateForRole\b/);
   assert.doesNotMatch(source,/['"]Lecture['"]\s*:\s*0\.30/);
   assert.match(source,/function\s+getTimetableDoeRuntime\b/);
@@ -179,7 +179,7 @@ test('timetable writers are cut over to the policy adapter and the private hard-
 });
 
 test('faculty swap re-evaluates DOE through API and persists through server session save',()=>{
-  const source=fs.readFileSync(path.join(root,'timetable.js'),'utf8');
+  const source=fs.readFileSync(path.join(root,'web/js/timetable/timetable.js'),'utf8');
   const start=source.indexOf('async function performFacultySwap');
   const end=source.indexOf('\n  async function initializeLiveSchedule',start);
   const fn=source.slice(start,end);

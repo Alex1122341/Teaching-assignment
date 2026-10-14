@@ -4,8 +4,8 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
-const source=fs.readFileSync(path.join(__dirname,'../password.js'),'utf8');
-const html=fs.readFileSync(path.join(__dirname,'../password.html'),'utf8');
+const source=fs.readFileSync(path.join(__dirname,'../web/js/accounts/password.js'),'utf8');
+const html=fs.readFileSync(path.join(__dirname,'../web/password.html'),'utf8');
 
 function setup({updatePasswordError=null,profileUpdateError=null,resetError=null,providerData=[{providerId:'password'}]}={}){
  const calls=[];
@@ -23,7 +23,7 @@ function setup({updatePasswordError=null,profileUpdateError=null,resetError=null
  const auth={currentUser,signOut:async()=>{calls.push('signOut')},sendPasswordResetEmail:async email=>{calls.push(`reset:${email}`);if(resetError)throw resetError;},onAuthStateChanged:fn=>{authListener=fn}};
  const db={doc:()=>({get:async()=>({data:()=>({active:true,name:'User One'})}),update:async()=>{calls.push('profileUpdate');if(profileUpdateError)throw profileUpdateError;}})};
  const context={UCVM:{init:()=>({auth,db})},document:{getElementById:id=>elements[id]},firebase:{auth:{EmailAuthProvider:{credential:()=>({})}},firestore:{FieldValue:{serverTimestamp:()=>({server:true})}}},Error};
- vm.runInNewContext(source,context,{filename:'password.js'});
+ vm.runInNewContext(source,context,{filename:'js/accounts/password.js'});
  return {calls,elements,changeForm,resetForm,changeButton,resetButton,currentUser,auth,triggerAuth:u=>authListener(u)};
 }
 async function submitChange(env){await env.changeForm.onsubmit({preventDefault(){},target:env.changeForm})}

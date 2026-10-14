@@ -21,7 +21,7 @@ This raw mirror does not switch the live website to Azure. A production Azure ve
 
 The current static site can also be published to the Azure Static Web App practice resource at `https://red-cliff-04871ca0f.5.azurestaticapps.net`. This only changes the web host; the copied site continues using Firebase Authentication and Firestore until an Azure API is implemented. The Azure hostname must remain listed under Firebase Authentication authorized domains for phone authentication and reCAPTCHA.
 
-Both hosting targets are built from the exact allowlist in `tools/static-assets.json`. Build it locally before deployment with:
+Both hosting targets are built from the exact allowlist in `tools/static-assets.json` (paths relative to `web/`). Build it locally before deployment with:
 
 ```powershell
 node tools/build-static.js

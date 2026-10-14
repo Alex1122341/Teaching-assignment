@@ -2,7 +2,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {buildDataset,ACADEMIC_YEAR}=require('../tools/seed/dataset.js');
-const ENGINE=require('../doe-policy-engine.js');
+const ENGINE=require('../shared/doe-policy/doe-policy-engine.js');
 const RUNTIME=require('../server/src/doe/legacy-policy-runtime.js');
 
 function collection(dataset,name){

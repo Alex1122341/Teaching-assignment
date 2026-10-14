@@ -7,7 +7,7 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('faculty-first account form derives name and email from the selected profile',()=>{
- const html=read('user-management.html'),source=read('user-management.js');
+ const html=read('web/user-management.html'),source=read('web/js/accounts/user-management.js');
  assert.match(html,/id="account-faculty"[^>]*required/);
  assert.match(html,/id="account-identity"/);
  assert.doesNotMatch(html,/id="account-name"[^>]*required/);
@@ -18,8 +18,8 @@ test('faculty-first account form derives name and email from the selected profil
 });
 
 test('new accounts are created with secondary Firebase Auth without replacing the Owner session',()=>{
- const html=read('user-management.html'),source=read('user-management.js');
- assert.ok(html.indexOf('faculty-account-planner.js')<html.indexOf('user-management.js'));
+ const html=read('web/user-management.html'),source=read('web/js/accounts/user-management.js');
+ assert.ok(html.indexOf('js/accounts/faculty-account-planner.js')<html.indexOf('js/accounts/user-management.js'));
  assert.match(source,/secondaryAuth/);
  assert.match(source,/createUserWithEmailAndPassword/);
  assert.match(source,/mustChangePassword:true/);
@@ -27,7 +27,7 @@ test('new accounts are created with secondary Firebase Auth without replacing th
 });
 
 test('bulk provisioning requires a fresh preview and writes auditable results',()=>{
- const html=read('user-management.html'),source=read('user-management.js');
+ const html=read('web/user-management.html'),source=read('web/js/accounts/user-management.js');
  assert.match(html,/id="account-bulk-preview"/);
  assert.match(html,/id="account-bulk-run"[^>]*disabled/);
  assert.match(html,/id="account-bulk-password"[^>]*type="password"/);
@@ -38,17 +38,17 @@ test('bulk provisioning requires a fresh preview and writes auditable results',(
 });
 
 test('account table shows all faculty-facing roles while preserving one primary access role',()=>{
- const source=read('user-management.js');
+ const source=read('web/js/accounts/user-management.js');
  assert.match(source,/facultyRoles/);
  assert.match(source,/UCVM_ACCOUNT_PLANNER\.primaryRole/);
 });
 
 test('provisioned accounts receive a readable Change History action label',()=>{
- assert.match(read('faculty-access.js'),/account_provisioned:'Account provisioned'/);
+ assert.match(read('web/js/core/faculty-access.js'),/account_provisioned:'Account provisioned'/);
 });
 
 test('setup guide documents reviewed profile-first provisioning without storing a shared password',()=>{
- const setup=read('SETUP.md');
+ const setup=read('docs/SETUP.md');
  assert.match(setup,/Preview changes/);
  assert.match(setup,/faculty profile/);
  assert.match(setup,/Require password change on next dashboard sign-in/);
@@ -56,13 +56,13 @@ test('setup guide documents reviewed profile-first provisioning without storing 
 });
 
 test('office setup exposes ADC/LAB identity and existing UID inputs',()=>{
- const html=read('user-management.html');
+ const html=read('web/user-management.html');
  for(const role of ['adc','lab'])assert.ok(html.includes(`<option value="${role}">${role.toUpperCase()}</option>`));
  for(const id of ['account-office-identity','account-office-name','account-office-email','account-existing-uid'])assert.ok(html.includes(`id="${id}"`),id);
- assert.ok(html.indexOf('account-profile.js')<html.indexOf('user-management.js'));
+ assert.ok(html.indexOf('js/accounts/account-profile.js')<html.indexOf('js/accounts/user-management.js'));
 });
 test('office profile save clears legacy faculty routing and checks existing UIDs on server',()=>{
- const source=read('user-management.js');
+ const source=read('web/js/accounts/user-management.js');
  assert.match(source,/UCVM_ACCOUNT_PROFILE/);assert.match(source,/resolveNewUid/);
  assert.match(source,/readProfile:[^\n]*source:'server'/);
  assert.match(source,/patch\.facultyId=firebase\.firestore\.FieldValue\.delete\(\)/);
@@ -70,7 +70,7 @@ test('office profile save clears legacy faculty routing and checks existing UIDs
 
 
 test('Developer account hierarchy is enforced in User Management UI',()=>{
- const source=read('user-management.js');
+ const source=read('web/js/accounts/user-management.js');
  assert.match(source,/developerActor/);
  assert.match(source,/developerAccount/);
  assert.match(source,/Only Developer can create or modify Developer accounts/);
@@ -79,10 +79,10 @@ test('Developer account hierarchy is enforced in User Management UI',()=>{
 });
 
 test('HICC people-index fallback normalizes missing office arrays before account rendering',()=>{
- const source=read('user-management.js');
+ const source=read('web/js/accounts/user-management.js');
  assert.match(source,/data\.people\.map\(person=>\(\{[^\n]*facultyRoles:\[\],officeAccess:\[\]/);
  assert.match(source,/officeAccess:Array\.isArray\(user\?\.officeAccess\)\?user\.officeAccess:\[\]/);
  assert.match(source,/facultyRoles:Array\.isArray\(user\?\.facultyRoles\)\?user\.facultyRoles:\[\]/);
 });
 
-test('Owner User Management exposes audited ADC LAB and ADFA office access checkboxes',()=>{const html=read('user-management.html'),source=read('user-management.js');for(const office of ['adc','lab','adfa'])assert.match(html,new RegExp(`name=\"office-access\" value=\"${office}\"`));assert.match(html,/Operational office access/);assert.match(source,/selectedOfficeAccess/);assert.match(source,/beforeOfficeAccess/);assert.match(source,/officeAccess:fields\.officeAccess/);});
+test('Owner User Management exposes audited ADC LAB and ADFA office access checkboxes',()=>{const html=read('web/user-management.html'),source=read('web/js/accounts/user-management.js');for(const office of ['adc','lab','adfa'])assert.match(html,new RegExp(`name=\"office-access\" value=\"${office}\"`));assert.match(html,/Operational office access/);assert.match(source,/selectedOfficeAccess/);assert.match(source,/beforeOfficeAccess/);assert.match(source,/officeAccess:fields\.officeAccess/);});

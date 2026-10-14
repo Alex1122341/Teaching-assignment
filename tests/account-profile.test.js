@@ -1,6 +1,6 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
-const load=()=>require('../account-profile.js');
+const load=()=>require('../web/js/accounts/account-profile.js');
 const faculty={id:'f1',name:'Faculty Name',email:'FACULTY@example.test'};
 
 test('office profiles require their own identity and carry no Faculty link or roles',()=>{

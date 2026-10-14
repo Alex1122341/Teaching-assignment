@@ -19,12 +19,13 @@ function pageScriptCounts(rootDir,pageNames=pages){
 function collectSourceMetrics(rootDir=root){
  const manifest=readJson(path.join(rootDir,'tools/static-assets.json'));
  const js=manifest.filter(name=>name.endsWith('.js'));
+ const web=path.join(rootDir,'web');
  return{
   assets:manifest.length,
   jsAssets:js.length,
-  bytes:manifest.reduce((sum,name)=>sum+bytesFor(rootDir,name),0),
-  jsBytes:js.reduce((sum,name)=>sum+bytesFor(rootDir,name),0),
-  pageScripts:pageScriptCounts(rootDir)
+  bytes:manifest.reduce((sum,name)=>sum+bytesFor(web,name),0),
+  jsBytes:js.reduce((sum,name)=>sum+bytesFor(web,name),0),
+  pageScripts:pageScriptCounts(web)
  };
 }
 function collectDeploymentMetrics(rootDir=root){

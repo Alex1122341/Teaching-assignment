@@ -25,7 +25,7 @@ function validatePreview(runtime,{expectedProjectId='vista-teaching-lab'}={}){
 
 function main(){
   const expected=process.env.EXPECTED_FIREBASE_PROJECT_ID||'vista-teaching-lab';
-  const runtime=loadRuntimeConfig(path.resolve(__dirname,'..','firebase-config.js'),'alex1122341.github.io');
+  const runtime=loadRuntimeConfig(path.resolve(__dirname,'..','web/js/core/firebase-config.js'),'alex1122341.github.io');
   validatePreview(runtime,{expectedProjectId:expected});
   console.log(`Preview client configuration verified for isolated Firebase lab project "${runtime.projectId}".`);
 }

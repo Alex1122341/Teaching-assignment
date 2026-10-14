@@ -1,10 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const root=path.resolve(__dirname,'..'),read=n=>fs.readFileSync(path.join(root,n),'utf8');
-test('large pages keep structure while loading cacheable modules',()=>{const main=read('index.html'),admin=read('faculty-admin.html');assert.match(main,/timetable\.css/);assert.match(main,/timetable\.js/);assert.match(admin,/faculty-admin\.css/);assert.match(admin,/faculty-admin\.js/);assert.ok(main.length<50000,`index ${main.length}`);assert.ok(admin.length<40000,`admin ${admin.length}`)});
-test('AFC PDF dependencies load only when an approval needs them',()=>{const html=read('index.html');assert.match(html,/asset-loader\.js/);assert.doesNotMatch(html,/pdf-lib\.min\.js|afc-pdf-browser\.js/);const loader=read('asset-loader.js'),actions=read('afc-actions.js');assert.match(loader,/function loadScriptOnce/);assert.match(loader,/ensureAfcPdf/);assert.match(actions,/await UCVM_ASSETS\.ensureAfcPdf\(\)/)});
+test('large pages keep structure while loading cacheable modules',()=>{const main=read('web/index.html'),admin=read('web/faculty-admin.html');assert.match(main,/timetable\.css/);assert.match(main,/timetable\.js/);assert.match(admin,/faculty-admin\.css/);assert.match(admin,/faculty-admin\.js/);assert.ok(main.length<50000,`index ${main.length}`);assert.ok(admin.length<40000,`admin ${admin.length}`)});
+test('AFC PDF dependencies load only when an approval needs them',()=>{const html=read('web/index.html');assert.match(html,/asset-loader\.js/);assert.doesNotMatch(html,/pdf-lib\.min\.js|afc-pdf-browser\.js/);const loader=read('web/js/core/asset-loader.js'),actions=read('web/js/absence-from-campus/afc-actions.js');assert.match(loader,/function loadScriptOnce/);assert.match(loader,/ensureAfcPdf/);assert.match(actions,/await UCVM_ASSETS\.ensureAfcPdf\(\)/)});
 
 test('Faculty Dashboard keeps administrative tabs while supporting linked faculty self-service',()=>{
- const html=read('faculty-admin.html'),source=read('faculty-admin.js'),enhancements=read('faculty-admin-enhancements.js');
+ const html=read('web/faculty-admin.html'),source=read('web/js/faculty/faculty-admin.js'),enhancements=read('web/js/faculty/faculty-admin-enhancements.js');
  for(const pattern of [/<title>Faculty Dashboard<\/title>/,/class="gate-title">Faculty Dashboard</,/class="brand-title">Faculty Dashboard</,/<h1>Faculty Dashboard<\/h1>/])assert.match(html,pattern);
  for(const label of ['Lookup','Teaching Summary','Roles & Appointments','Sessional / Other','Faculty Database','Change History','AFC Requests','User Management','Change password'])assert.ok(html.includes('>'+label+'<'),label);
  assert.match(html,/href="index\.html">Timetable<\/a>/);
@@ -24,7 +24,7 @@ test('Faculty Dashboard keeps administrative tabs while supporting linked facult
 });
 
 test('timetable role navigation separates admin tools from faculty self-service',()=>{
- const vm=require('node:vm'),source=read('timetable.js'),loader=read('asset-loader.js');
+ const vm=require('node:vm'),source=read('web/js/timetable/timetable.js'),loader=read('web/js/core/asset-loader.js');
  const ui=source.match(/  function updateAuthUI\(\) \{[\s\S]*?\n  \}/)[0];
  const binding=source.split('\n').find(line=>line.includes("$('faculty-dashboard-btn').addEventListener"));
  const normalize=role=>({owner:'adfa_general',administrator:'adfa_regular',admin:'adfa_regular'}[role]||role||'');
@@ -54,7 +54,7 @@ test('timetable role navigation separates admin tools from faculty self-service'
 });
 
 test('change history uses the full-width Faculty Dashboard panel theme',()=>{
- const html=read('faculty-admin.html'),css=read('faculty-admin.css'),access=read('faculty-access.js');
+ const html=read('web/faculty-admin.html'),css=read('web/styles/faculty-admin.css'),access=read('web/js/core/faculty-access.js');
  assert.match(html,/id="history-view" class="panel history-panel hidden"/);
  assert.match(html,/class="history-heading"/);
  assert.match(css,/\.history-panel\s*\{[^}]*width:\s*100%/s);
@@ -64,14 +64,14 @@ test('change history uses the full-width Faculty Dashboard panel theme',()=>{
 });
 
 test('timetable accepts current Developer Owner and Administrator roles',()=>{
- const source=read('timetable.js');
+ const source=read('web/js/timetable/timetable.js');
  const whitelist=source.match(/if \(!\[(.*?)\]\.includes\(role\)\)/s)?.[1]||'';
  for(const role of ['developer','owner','administrator','other_office'])assert.match(whitelist,new RegExp(`['"]${role}['"]`),role);
 });
 
 
 test('empty timetable ranges remain connected and allow creating the first session',()=>{
- const source=read('timetable.js');
+ const source=read('web/js/timetable/timetable.js');
  assert.match(source,/function liveScheduleAvailable\(\)\{return scheduleSource === 'firestore' \|\| scheduleSource === 'firestore-empty';\}/);
  assert.match(source,/if \(!liveScheduleAvailable\(\)\) \{ toast\('The live Firestore timetable is unavailable\./);
  assert.match(source,/Live Firestore schedule · No sessions in this view/);
@@ -81,7 +81,7 @@ test('empty timetable ranges remain connected and allow creating the first sessi
 
 
 test('Other Office uses the sanitized calendar collection and history-only timetable controls',()=>{
- const source=read('timetable.js');
+ const source=read('web/js/timetable/timetable.js');
  assert.match(source,/function sessionCollection\(\)\{const role=UCVM\.role\(currentUser\?\.role\);return role==='other_office'\|\|\(\['adc','lab'\]\.includes\(role\)&&!hasOfficeAccess\('adfa'\)\)\?CALENDAR_SESSION_COLLECTION:SESSION_COLLECTION;\}/);
  assert.match(source,/facultySelfService=roleIsFaculty\(currentUser\)/);
  assert.match(source,/selfHistory=facultySelfService\|\|accessRole==='other_office'/);

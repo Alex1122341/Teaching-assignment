@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 
 const root=path.resolve(__dirname,'..');
-const workflow=fs.readFileSync(path.join(root,'approval-workflow.js'),'utf8');
+const workflow=fs.readFileSync(path.join(root,'web/js/approvals/approval-workflow.js'),'utf8');
 
 test('pending faculty swap requests visibly mark their matching calendar session',()=>{
  assert.match(workflow,/r\.status\s*===\s*'pending'\s*&&\s*r\.requestType\s*===\s*'faculty_swap'/);

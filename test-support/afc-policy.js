@@ -1,6 +1,6 @@
 'use strict';
 
-const closures=require('../university-closures');
+const closures=require('../web/js/timetable/university-closures');
 const HOLIDAYS=new Set(closures.entries.map(row=>row.date));
 const DATE_RE=/^\d{4}-\d{2}-\d{2}$/;
 const parse=s=>{if(!DATE_RE.test(String(s||'')))throw Error('A valid start and end date are required.');const d=new Date(`${s}T12:00:00Z`);if(Number.isNaN(d.getTime())||d.toISOString().slice(0,10)!==s)throw Error('A valid start and end date are required.');return d};

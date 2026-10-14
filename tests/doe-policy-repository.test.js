@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const REPO=require('../doe-policy-repository.js');
+const REPO=require('../shared/doe-policy/doe-policy-repository.js');
 
 function seed(){
  return{

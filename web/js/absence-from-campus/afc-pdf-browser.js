@@ -1,6 +1,6 @@
 'use strict';
 window.UCVM_AFC_PDF={render:async request=>{
- const AFC_APPLICATION_TEMPLATE='absence-from-campus-app-v2.pdf';
+ const AFC_APPLICATION_TEMPLATE='assets/forms/absence-from-campus-app-v2.pdf';
  const {PDFDocument,StandardFonts,rgb}=PDFLib,pdf=await PDFDocument.load(await(await fetch(AFC_APPLICATION_TEMPLATE,{cache:'force-cache'})).arrayBuffer());if(pdf.getPageCount()!==1)throw Error('AFC application template must contain exactly one page.');const form=pdf.getForm();
  const set=(n,v)=>{try{form.getTextField(n).setText(String(v??''))}catch(_){}};
  const select=(n,v)=>{try{form.getDropdown(n).select(String(v??''))}catch(_){}};

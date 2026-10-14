@@ -2,7 +2,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 
-const FORMULA=require('../doe-formula.js');
+const FORMULA=require('../shared/doe-policy/doe-formula.js');
 
 test('evaluates arithmetic with normal precedence',()=>{
   assert.ok(Math.abs(FORMULA.evaluate('hours * rate',{hours:6,rate:.30})-1.8)<1e-12);

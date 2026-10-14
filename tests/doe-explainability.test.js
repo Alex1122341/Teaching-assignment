@@ -3,7 +3,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const VIEW=require('../doe-worksheet-view.js');
+const VIEW=require('../web/js/doe/doe-worksheet-view.js');
 
 const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
@@ -72,8 +72,8 @@ test('worksheet DOE results are explicit Explain DOE controls for both calculate
 });
 
 test('Faculty Dashboard provides a reusable explanation modal and wires Worksheet Explain controls',()=>{
- const html=read('faculty-admin.html');
- const source=read('faculty-admin.js');
+ const html=read('web/faculty-admin.html');
+ const source=read('web/js/faculty/faculty-admin.js');
  for(const id of ['doe-explain-modal','doe-explain-title','doe-explain-body','doe-explain-close'])assert.match(html,new RegExp(`id="${id}"`));
  assert.match(source,/function openDoeExplanation/);
  assert.match(source,/function wireDoeExplanationButtons/);

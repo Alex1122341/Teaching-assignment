@@ -6,10 +6,10 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
-const ADMIN=require('../doe-policy-admin.js');
+const ADMIN=require('../web/js/doe/doe-policy-admin.js');
 
 test('Faculty Dashboard exposes a first-class DOE Rules tab and editor surfaces',()=>{
- const html=read('faculty-admin.html');
+ const html=read('web/faculty-admin.html');
  assert.match(html,/data-tab="doe-rules"[^>]*>DOE Rules</);
  assert.match(html,/id="doe-rules-view"/);
  for(const id of [
@@ -24,10 +24,10 @@ test('Faculty Dashboard exposes a first-class DOE Rules tab and editor surfaces'
 });
 
 test('DOE policy admin loads API client, not browser policy storage or calculation modules',()=>{
- const html=read('faculty-admin.html');
- for(const name of ['doe-api-client.js','doe-policy-admin.js'])assert.ok(html.indexOf(name)>=0,name);
+ const html=read('web/faculty-admin.html');
+ for(const name of ['js/doe/doe-api-client.js','js/doe/doe-policy-admin.js'])assert.ok(html.indexOf(name)>=0,name);
  for(const name of ['doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js'])assert.equal(html.indexOf(name),-1,name);
- assert.ok(html.indexOf('doe-api-client.js')<html.indexOf('doe-policy-admin.js'));
+ assert.ok(html.indexOf('js/doe/doe-api-client.js')<html.indexOf('js/doe/doe-policy-admin.js'));
  assert.match(html,/doe-policy-admin\.css/);
 });
 
@@ -56,7 +56,7 @@ test('Faculty-side self-service roles cannot initialize DOE Rules administration
   assert.equal(cap.initialize,false,role);
   assert.equal(cap.editDraft,false,role);
  }
- const js=read('faculty-admin.js');
+ const js=read('web/js/faculty/faculty-admin.js');
  assert.match(js,/UCVM_DOE_POLICY_ADMIN/);
  assert.match(js,/doe-rules/);
 });
@@ -85,7 +85,7 @@ test('structured Rule Builder normalizes selectors inputs parameters and tiers w
 });
 
 test('Rule Test is a server action and browser admin does not expose a local evaluator',()=>{
- const source=read('doe-policy-admin.js');
+ const source=read('web/js/doe/doe-policy-admin.js');
  assert.equal(ADMIN.testRule,undefined);
  assert.match(source,/UCVM_DOE_API/);
  assert.match(source,/state\.service\.testRule/);
@@ -111,7 +111,7 @@ test('Exception editor requires fixed DOE reason source and a concrete scope',()
 
 
 test('Impact Preview and Recalculate dataset/write authority is absent from the browser admin',()=>{
- const source=read('doe-policy-admin.js');
+ const source=read('web/js/doe/doe-policy-admin.js');
  assert.equal(ADMIN.buildImpactDataset,undefined);
  assert.equal(ADMIN.createFirestoreRecalculationWriter,undefined);
  assert.equal(ADMIN.applyRecalculationRowsToSource,undefined);
@@ -144,7 +144,7 @@ test('Impact Preview renderer exposes required summary metrics and per-faculty d
 
 
 test('Rule Book permission gates consume the authoritative version returned by bundle reload',()=>{
- const source=read('doe-policy-admin.js');
+ const source=read('web/js/doe/doe-policy-admin.js');
  const selectedStart=source.indexOf('function selectedVersion');
  const selectedEnd=source.indexOf('function isDraft',selectedStart);
  const selected=source.slice(selectedStart,selectedEnd);
@@ -180,7 +180,7 @@ test('Impact Preview renderer presents operational risk categories and attention
 
 
 test('Frontend Demo Rule Book uses a separate read-only service without declaring the authoritative DOE API configured',()=>{
- const source=read('doe-policy-admin.js');
+ const source=read('web/js/doe/doe-policy-admin.js');
  assert.match(source,/UCVM_FRONTEND_DEMO_MODE===true\?root\?\.UCVM_PAGES_DEMO\?\.doeRulebook/);
  assert.match(source,/state\.demoReadOnly=Boolean\(demoService\?\.readOnly\|\|labService\?\.readOnly\)/);
  assert.match(source,/Frontend Demo · NON-AUTHORITATIVE · READ-ONLY/);

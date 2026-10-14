@@ -1,8 +1,8 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.resolve(__dirname,'..'),read=name=>fs.readFileSync(path.join(root,name),'utf8');
-const load=()=>{const ctx={window:{}};vm.runInNewContext(read('office-capabilities.js'),ctx);return ctx.window.UCVM_OFFICE_CAPABILITIES;};
-const access=()=>{const source=read('faculty-access.js'),end=source.indexOf(' const esc=');const ctx={window:{}};vm.runInNewContext(source.slice(0,end)+' return {role,admin,general,historyAll,label};})();',ctx);return ctx.window.UCVM;};
+const load=()=>{const ctx={window:{}};vm.runInNewContext(read('web/js/core/office-capabilities.js'),ctx);return ctx.window.UCVM_OFFICE_CAPABILITIES;};
+const access=()=>{const source=read('web/js/core/faculty-access.js'),end=source.indexOf(' const esc=');const ctx={window:{}};vm.runInNewContext(source.slice(0,end)+' return {role,admin,general,historyAll,label};})();',ctx);return ctx.window.UCVM;};
 
 test('ADC is the scheduling owner but cannot assign faculty or edit LAB work',()=>{
  const api=load(),c=api.forRole('adc');
@@ -56,14 +56,14 @@ test('ADC/LAB are labelled correctly and are not broad admins or history readers
 test('office accounts never attempt Faculty Directory auto-linking',async()=>{
  const a=access(),sourceFunction=require('../test-support/source-function');let reads=0;
  const ctx={admin:a.admin,role:a.role,firebase:{firestore(){reads++;throw Error('Private read attempted');}}};
- vm.runInNewContext(sourceFunction('faculty-access.js','linkFacultyIdentity')+'\nthis.link=linkFacultyIdentity;',ctx);
+ vm.runInNewContext(sourceFunction('web/js/core/faculty-access.js','linkFacultyIdentity')+'\nthis.link=linkFacultyIdentity;',ctx);
  for(const role of ['adc','lab','other_office'])await ctx.link({email:'office@example.test'},{role,email:'office@example.test'});
  assert.equal(reads,0);
 });
 test('office capability module is deployed before timetable consumers',()=>{
- const html=read('index.html'),assets=JSON.parse(read('tools/static-assets.json'));
- assert.ok(assets.includes('office-capabilities.js'));assert.ok(html.includes('<script src="office-capabilities.js"></script>'));
- assert.ok(html.indexOf('office-capabilities.js')<html.indexOf('timetable.js'));
+ const html=read('web/index.html'),assets=JSON.parse(read('tools/static-assets.json'));
+ assert.ok(assets.includes('js/core/office-capabilities.js'));assert.ok(html.includes('<script src="js/core/office-capabilities.js"></script>'));
+ assert.ok(html.indexOf('js/core/office-capabilities.js')<html.indexOf('js/timetable/timetable.js'));
 });
 
 

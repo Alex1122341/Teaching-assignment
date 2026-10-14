@@ -16,7 +16,7 @@ const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 const staging=require('../tools/stage-github-pages.js');
 const staticBuild=require('../tools/build-static.js');
 const labDoe=require('../tools/doe-policy-firebase-lab.js');
-const office=require('../office-capabilities.js');
+const office=require('../web/js/core/office-capabilities.js');
 
 const LAB_RUNTIME='tools/firebase-lab-runtime.js';
 const LAB_DOE='tools/doe-policy-firebase-lab.js';
@@ -28,14 +28,15 @@ const FAKE_WEB_KEY='AIza'+'A'.repeat(35);
 const HTML='<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body>'+
   '<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>'+
   '<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>'+
-  '<script src="firebase-config.js"></script>'+
+  '<script src="js/core/firebase-config.js"></script>'+
   '</body></html>';
 const CONFIG_SOURCE='(function(root){const config={apiKey:"placeholder",authDomain:"x",projectId:"vista-teaching-lab",storageBucket:"s",messagingSenderId:"0",appId:"1:0:web:0"};root.UCVM_FIREBASE_CONFIG=config;})(window);\n';
 
 function makeDirectory(){
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'paws-pages-'));
   fs.writeFileSync(path.join(directory,'index.html'),HTML);
-  fs.writeFileSync(path.join(directory,'firebase-config.js'),CONFIG_SOURCE);
+  fs.mkdirSync(path.join(directory,'js','core'),{recursive:true});
+  fs.writeFileSync(path.join(directory,'js/core/firebase-config.js'),CONFIG_SOURCE);
   return directory;
 }
 
@@ -116,7 +117,7 @@ test('3. Firebase Lab targets only vista-teaching-lab',()=>{
   const configPath=writeLabConfig(directory);
   const result=staging.stagePagesDirectory(directory,{prNumber:0,headSha:SHA,buildSha:SHA},{mode:'lab',configPath});
   assert.equal(result.projectId,LAB_PROJECT_ID);
-  const configSource=fs.readFileSync(path.join(directory,'firebase-config.js'),'utf8');
+  const configSource=fs.readFileSync(path.join(directory,'js/core/firebase-config.js'),'utf8');
   assert.match(configSource,/vista-teaching-lab/);
   // A non-lab project is rejected outright.
   const other=writeLabConfig(directory,{projectId:'tester-teaching'});
@@ -146,12 +147,12 @@ test('3b. workflow Firebase Lab config overrides the committed placeholder',()=>
 
 test('3c. Firebase Lab rewrites the hashed shared-auth bundle and updates HTML',()=>{
   const directory=makeDirectory();
-  fs.rmSync(path.join(directory,'firebase-config.js'),{force:true});
+  fs.rmSync(path.join(directory,'js/core/firebase-config.js'),{force:true});
   const bundleDir=path.join(directory,'bundles');
   fs.mkdirSync(bundleDir,{recursive:true});
   const bundleSource=
-    '/* SOURCE: firebase-config.js */\n'+CONFIG_SOURCE+
-    '\n;\n/* SOURCE: faculty-access.js */\nwindow.UCVM={};\n';
+    '/* SOURCE: js/core/firebase-config.js */\n'+CONFIG_SOURCE+
+    '\n;\n/* SOURCE: js/core/faculty-access.js */\nwindow.UCVM={};\n';
   const oldRelative=staticBuild.hashedBundleOutput('bundles/shared-auth.bundle.js',bundleSource);
   const oldName=path.basename(oldRelative);
   fs.writeFileSync(path.join(bundleDir,oldName),bundleSource);
@@ -186,7 +187,7 @@ test('4. Firebase Lab uses Firebase Authentication',()=>{
 });
 
 test('5. users/{uid} profile authorization remains required',()=>{
-  const access=read('faculty-access.js');
+  const access=read('web/js/core/faculty-access.js');
   assert.match(access,/users\/\$\{user\.uid\}/);
   const runtime=read(LAB_RUNTIME);
   // The lab runtime must not invent a profile source or a second role system.
@@ -261,7 +262,7 @@ test('9b. every DOE write attempt rejects with TRUSTED_DOE_BACKEND_REQUIRED',asy
 });
 
 test('10. DOE policy collections remain browser write-denied by firestore.rules',()=>{
-  const rules=read('firestore.rules');
+  const rules=read('firebase/firestore.rules');
   for(const collection of Object.values(labDoe.COLLECTIONS)){
     const pattern=new RegExp('match /'+collection+'/\\{id\\} \\{[^]*?allow create,update,delete: if false;');
     assert.match(rules,pattern,collection);
@@ -348,15 +349,15 @@ test('11b. stored Impact Preview resolves version.lastImpactRunId to the exact r
 
   // The caller contract itself is asserted: doe-policy-admin passes the stored
   // impact run id, and the authoritative client addresses the run by that id.
-  const admin=read('doe-policy-admin.js');
+  const admin=read('web/js/doe/doe-policy-admin.js');
   assert.match(admin,/const runId=text\(version\.lastImpactRunId\)/);
   assert.match(admin,/state\.service\.getImpactPreview\(runId\)/);
-  const client=read('doe-api-client.js');
+  const client=read('web/js/doe/doe-api-client.js');
   assert.match(client,/getImpactPreview:impactRunId=>request\(`\/api\/doe\/impact-runs\//);
 });
 
 test('12. authoritative DOE write actions stay disabled without the trusted backend',()=>{
-  const admin=read('doe-policy-admin.js');
+  const admin=read('web/js/doe/doe-policy-admin.js');
   // A read-only lab service is accepted without a save method, and write
   // capabilities are switched off for it.
   assert.match(admin,/UCVM_FIREBASE_LAB_MODE===true\?root\?\.UCVM_DOE_LAB_SERVICE/);
@@ -366,13 +367,13 @@ test('12. authoritative DOE write actions stay disabled without the trusted back
 });
 
 test('13. Work Queue READY items still route to openScopedEditor',()=>{
-  const queue=read('work-queue.js');
+  const queue=read('web/js/timetable/work-queue.js');
   assert.match(queue,/openScopedEditor/);
   assert.match(queue,/status==='ready'\?'READY'/);
 });
 
 test('14. LAB / ADC / ADFA field ownership stays enforced in the scoped editor',()=>{
-  const capabilities=read('office-capabilities.js');
+  const capabilities=read('web/js/core/office-capabilities.js');
   assert.match(capabilities,/canEditCourseFields/);
   assert.match(capabilities,/canEditLabTopic/);
   assert.match(capabilities,/canEditInstructor/);

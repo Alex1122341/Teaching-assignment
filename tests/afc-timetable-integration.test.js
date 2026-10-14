@@ -8,29 +8,29 @@ const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 
 test('timetable exposes AFC navigation and loads its scripts in dependency order', () => {
-  const html = read('index.html');
+  const html = read('web/index.html');
   for (const id of ['my-teaching-btn', 'afc-request-btn', 'my-change-history-btn', 'afc-panel']) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
-  const actions = html.indexOf('afc-actions.js');
-  const closures = html.indexOf('university-closures.js');
-  const timetable = html.indexOf('timetable.js');
-  const workflow = html.indexOf('afc-workflow.js');
-  const panel = html.indexOf('afc-timetable-panel.js');
+  const actions = html.indexOf('js/absence-from-campus/afc-actions.js');
+  const closures = html.indexOf('js/timetable/university-closures.js');
+  const timetable = html.indexOf('js/timetable/timetable.js');
+  const workflow = html.indexOf('js/absence-from-campus/afc-workflow.js');
+  const panel = html.indexOf('js/absence-from-campus/afc-timetable-panel.js');
   assert.ok(actions >= 0 && actions < workflow, 'AFC actions load before the workflow');
   assert.ok(closures >= 0 && closures < timetable, 'University closures load before timetable');
   assert.ok(closures < workflow, 'University closures load before AFC workflow');
   assert.ok(workflow < panel, 'AFC workflow loads before the timetable panel');
 
-  const loader = read('asset-loader.js');
+  const loader = read('web/js/core/asset-loader.js');
   const bundles = JSON.parse(read('tools/runtime-bundles.json'));
   const lazy = bundles.lazyBundles.find(bundle => bundle.output === 'bundles/afc-pdf.lazy.bundle.js');
-  assert.deepEqual(lazy.sources, ['afc-form-values.js','afc-pdf-browser.js']);
+  assert.deepEqual(lazy.sources, ['js/absence-from-campus/afc-form-values.js','js/absence-from-campus/afc-pdf-browser.js']);
   assert.match(loader, /loadScriptOnce\('bundles\/afc-pdf\.lazy\.bundle\.js','UCVM_AFC_PDF'\)/);
 });
 
 test('AFC runtime delegates workday policy to the shared University closure calendar',()=>{
-  const source=read('afc-workflow.js');
+  const source=read('web/js/absence-from-campus/afc-workflow.js');
   assert.match(source,/UCVM_UNIVERSITY_CLOSURES/);
   assert.match(source,/countWorkingDays/);
   assert.doesNotMatch(source,/const holidays=new Set/);
@@ -68,8 +68,8 @@ test('AFC timetable mount subscribes once and renders teaching sessions as sorte
     subscribe: () => { subscriptions += 1; return () => {}; }
   };
 
-  vm.runInNewContext(read('university-closures.js'), context);
-  vm.runInNewContext(read('afc-workflow.js'), context);
+  vm.runInNewContext(read('web/js/timetable/university-closures.js'), context);
+  vm.runInNewContext(read('web/js/absence-from-campus/afc-workflow.js'), context);
   context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
   context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
   assert.equal(subscriptions, 1, 'mounting the AFC view must not create a second page-data subscription');
@@ -124,8 +124,8 @@ function submissionHarness(ensureSessionsForRange, initialSessions = []) {
     },
     subscribe: () => () => {}
   };
-  vm.runInNewContext(read('university-closures.js'), context);
-  vm.runInNewContext(read('afc-workflow.js'), context);
+  vm.runInNewContext(read('web/js/timetable/university-closures.js'), context);
+  vm.runInNewContext(read('web/js/absence-from-campus/afc-workflow.js'), context);
   context.window.UCVM_AFC.mount({ panelId: 'afc-panel-content', mode: 'timetable' });
   return { api: context.window.UCVM_AFC, form };
 }
@@ -200,7 +200,7 @@ test('timetable AFC panel opens requests, shows self-filtered history, and resto
   context.window.UCVM_PAGE_DATA = { profile: () => ({ uid: 'faculty-1', role: 'faculty' }) };
   context.window.UCVM_AFC = { mount: options => { mounts += 1; context.mountOptions = options; } };
 
-  vm.runInNewContext(read('afc-timetable-panel.js'), context);
+  vm.runInNewContext(read('web/js/absence-from-campus/afc-timetable-panel.js'), context);
   assert.equal(mounts, 1);
   assert.equal(context.mountOptions.panelId, 'afc-panel-content');
   assert.equal(context.mountOptions.mode, 'timetable');
@@ -282,7 +282,7 @@ test('AFC focus trap cycles only through visible controls when the request detai
   context.window = context;
   context.window.UCVM_PAGE_DATA = { profile: () => ({ role: 'faculty' }) };
   context.window.UCVM_AFC = { mount() {} };
-  vm.runInNewContext(read('afc-timetable-panel.js'), context);
+  vm.runInNewContext(read('web/js/absence-from-campus/afc-timetable-panel.js'), context);
 
   request.onclick();
   documentRef.activeElement = summary;
@@ -304,7 +304,7 @@ test('AFC focus trap cycles only through visible controls when the request detai
 
 
 test('AFC blocks unverified closure ranges and delegates proactive maintenance warnings by role',()=>{
-  const source=read('afc-workflow.js');
+  const source=read('web/js/absence-from-campus/afc-workflow.js');
   assert.match(source,/closures\.coverageStatus\(a,b\)/);
   assert.match(source,/closures\.coverageMessage\(closureStatus\)/);
   assert.match(source,/submitButton\.disabled=Boolean\(rangeReady&&!closureStatus\?\.supported\)/);

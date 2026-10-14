@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('reconciliation classifies matched and DOE-difference rows from source evidence versus server Worksheet totals',()=>{
-  const R=require('../doe-worksheet-view.js');
+  const R=require('../web/js/doe/doe-worksheet-view.js');
   const faculty={__id:'f1',preferredFullName:'Dr One',facultySummary2026_27:{assignedTeachingDOE:40},managedRoles2026_27:[{type:'HICC',assignment:'VTMD 204',doeCredit:12}]};
   const matched=R.reconcileFaculty(faculty,{facultyId:'f1',assignedTeachingDoe:40,status:'calculated',policyVersionId:'v1',roleAssignmentCount:1,issueCodes:[]});
   assert.equal(matched.status,'matched');
@@ -21,7 +21,7 @@ test('reconciliation classifies matched and DOE-difference rows from source evid
 });
 
 test('reconciliation distinguishes legacy-only, server-only, Needs Review, and missing mapping',()=>{
-  const R=require('../doe-worksheet-view.js');
+  const R=require('../web/js/doe/doe-worksheet-view.js');
   const legacy={__id:'legacy',facultySummary2026_27:{assignedTeachingDOE:18}};
   assert.equal(R.reconcileFaculty(legacy,null).status,'legacy_only');
 
@@ -43,7 +43,7 @@ test('reconciliation distinguishes legacy-only, server-only, Needs Review, and m
 });
 
 test('reconciliation rows include source-role and server-fact counts and build an actionable work queue',()=>{
-  const R=require('../doe-worksheet-view.js');
+  const R=require('../web/js/doe/doe-worksheet-view.js');
   const faculty=[
     {__id:'a',preferredFullName:'A',facultySummary2026_27:{assignedTeachingDOE:10,roles:[{type:'HICC'}]},managedRoles2026_27:[{type:'HICC',doeCredit:1}]},
     {__id:'b',preferredFullName:'B',facultySummary2026_27:{assignedTeachingDOE:10}}
@@ -85,7 +85,7 @@ test('bulk DOE summary exposes compact issue and fact metadata for reconciliatio
 });
 
 test('Faculty Dashboard has a read-only DOE Reconciliation tab and Needs Review work queue',()=>{
-  const source=read('faculty-admin-enhancements.js');
+  const source=read('web/js/faculty/faculty-admin-enhancements.js');
   assert.match(source,/DOE Reconciliation/);
   assert.match(source,/doe-reconciliation-view/);
   assert.match(source,/doe-reconciliation-queue-body/);
@@ -96,10 +96,10 @@ test('Faculty Dashboard has a read-only DOE Reconciliation tab and Needs Review 
 });
 
 test('reconciliation reuses the existing DOE worksheet runtime and remains admin-only',()=>{
-  const view=require('../doe-worksheet-view.js');
+  const view=require('../web/js/doe/doe-worksheet-view.js');
   assert.equal(typeof view.buildReconciliationRows,'function');
   assert.equal(typeof view.workQueue,'function');
-  const source=read('faculty-admin.js');
+  const source=read('web/js/faculty/faculty-admin.js');
   const loaderStart=source.indexOf('function ensureFacultyAdminEnhancements');
   const loaderEnd=source.indexOf('\nfunction',loaderStart+20);
   const loader=source.slice(loaderStart,loaderEnd);
@@ -112,13 +112,13 @@ test('reconciliation reuses the existing DOE worksheet runtime and remains admin
 
 
 test('Faculty Dashboard reconciliation enhancement parses as browser JavaScript',()=>{
-  const source=read('faculty-admin-enhancements.js');
+  const source=read('web/js/faculty/faculty-admin-enhancements.js');
   assert.doesNotThrow(()=>new Function(source));
 });
 
 
 test('Frontend Demo feeds synthetic DOE summaries into reconciliation without enabling authoritative writes',()=>{
- const source=read('faculty-admin-enhancements.js');
+ const source=read('web/js/faculty/faculty-admin-enhancements.js');
  assert.match(source,/function demoDoeReady\(\)/);
  assert.match(source,/function doeDataReady\(\)/);
  assert.match(source,/UCVM_PAGES_DEMO\.doeRows\(year\)/);
@@ -126,7 +126,7 @@ test('Frontend Demo feeds synthetic DOE summaries into reconciliation without en
  assert.match(source,/not authoritative/);
  const reconciliation=source.slice(source.indexOf('function renderReconciliation'),source.indexOf('function openBaseEditor'));
  assert.doesNotMatch(reconciliation,/saveRoleAssignment|runRecalculate|publish\(/);
- const admin=read('faculty-admin.js');
+ const admin=read('web/js/faculty/faculty-admin.js');
  // The Frontend Demo no longer shows a placeholder: it renders the real DOE
  // Worksheet UI from the demo calculation source and labels it non-authoritative.
  assert.match(admin,/Teaching DOE · Frontend Demo/);

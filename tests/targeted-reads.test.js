@@ -6,7 +6,7 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('Faculty Admin starts from settings indexes and loads selected detail only',()=>{
- const source=read('faculty-admin.js');
+ const source=read('web/js/faculty/faculty-admin.js');
  assert.match(source,/doc\('faculty_index'\)/);
  assert.match(source,/doc\('schedule_stats'\)/);
  assert.match(source,/function loadFacultyDetail\(id\)/);
@@ -17,7 +17,7 @@ test('Faculty Admin starts from settings indexes and loads selected detail only'
 });
 
 test('full Faculty Admin datasets are loaded only for full-data operations',()=>{
- const source=read('faculty-admin.js');
+ const source=read('web/js/faculty/faculty-admin.js');
  assert.match(source,/function ensureFullFaculty/);
  assert.match(source,/function ensureFullSessions/);
  const setTab=source.match(/async function setTab\(tab\)[\s\S]*?\nfunction subscribeFaculty/)?.[0]||'';
@@ -27,7 +27,7 @@ test('full Faculty Admin datasets are loaded only for full-data operations',()=>
 });
 
 test('approval workflow fetches only sessions referenced by requests',()=>{
- const source=read('approval-workflow.js');
+ const source=read('web/js/approvals/approval-workflow.js');
  assert.match(source,/function ensureRequestSessions\(requestRows\)/);
  assert.match(source,/db\.doc\(`\$\{SESSIONS\}\/\$\{id\}`\)\.get\(\)/);
  assert.match(source,/where\('date','==',date\)\.get\(force\?\{source:'server'\}:undefined\)/);
@@ -40,7 +40,7 @@ test('approval workflow fetches only sessions referenced by requests',()=>{
 });
 
 test('replacement accounts and change-history pages load only when requested',()=>{
- const workflow=read('approval-workflow.js'),access=read('faculty-access.js');
+ const workflow=read('web/js/approvals/approval-workflow.js'),access=read('web/js/core/faculty-access.js');
  assert.match(workflow,/function ensureReplacementPeople/);
  // The people picker reads the sanitized projection, never the account collection.
  assert.match(workflow,/db\.doc\('settings\/people_index'\)\.get\(\)/);
@@ -51,7 +51,7 @@ test('replacement accounts and change-history pages load only when requested',()
 });
 
 test('user management separates full accounts from the sanitized people projection',()=>{
- const source=read('user-management.js');
+ const source=read('web/js/accounts/user-management.js');
  // Full account records remain Owner-only.
  assert.match(source,/if\(isGeneral\)jobs\.push\(db\.collection\('users'\)\.get\(\)\)/);
  // Group member and owner selectors read the sanitized projection for every role.
@@ -62,7 +62,7 @@ test('user management separates full accounts from the sanitized people projecti
 });
 
 test('User Management uses the lightweight faculty index until an Owner requests bulk provisioning',()=>{
- const source=read('user-management.js');
+ const source=read('web/js/accounts/user-management.js');
  assert.match(source,/doc\('faculty_index'\)\.get\(\)/);
  const initialLoad=source.match(/async function load\(\)\{[\s\S]*?\n \}/)?.[0]||'';
  assert.doesNotMatch(initialLoad,/db\.collection\('faculty'\)\.get\(\)/);
@@ -71,14 +71,14 @@ test('User Management uses the lightweight faculty index until an Owner requests
 });
 
 test('Timetable faculty self-service subscribes to assigned faculty only',()=>{
- const source=read('timetable.js');
+ const source=read('web/js/timetable/timetable.js');
  assert.match(source,/where\('facultyIds','array-contains',facultyId\)/);
  assert.doesNotMatch(source,/db\.collection\('sessions'\)\.onSnapshot/);
  assert.match(source,/ensureSessionsForRange/);
 });
 
 test('Timetable editing reads only affected dates and scoped exports avoid full reads',()=>{
- const source=read('timetable.js');
+ const source=read('web/js/timetable/timetable.js');
  assert.match(source,/function ensureSessionsForDates/);
  assert.match(source,/where\('date','in',dateChunk\)/);
  for(const name of ['openSwapModal','startSessionSelection','openBulkSessionForm','openSessionForm']){

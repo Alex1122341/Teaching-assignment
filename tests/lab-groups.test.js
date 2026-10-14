@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
-const load=()=>{const ctx={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'lab-groups.js'),'utf8'),ctx);return ctx.window.UCVM_LAB_GROUPS;};
+const load=()=>{const ctx={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/lab-groups.js'),'utf8'),ctx);return ctx.window.UCVM_LAB_GROUPS;};
 const arr=value=>Array.from(value||[]);
 const plain=value=>JSON.parse(JSON.stringify(value));
 

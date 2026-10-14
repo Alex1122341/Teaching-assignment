@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const closures=require('../university-closures');
+const closures=require('../web/js/timetable/university-closures');
 const fs=require('node:fs');
 const path=require('node:path');
 const root=path.resolve(__dirname,'..');
@@ -42,14 +42,14 @@ test('working days exclude weekends and catalog closures exactly once',()=>{
 
 test('shared closure module ships in the static deployment allowlist',()=>{
   const assets=JSON.parse(read('tools/static-assets.json'));
-  assert.ok(assets.includes('university-closures.js'));
+  assert.ok(assets.includes('js/timetable/university-closures.js'));
 });
 
 test('timetable loads closure calendar before both timetable and AFC consumers',()=>{
-  const html=read('index.html');
-  const closure=html.indexOf('university-closures.js');
-  const timetable=html.indexOf('timetable.js');
-  const afc=html.indexOf('afc-workflow.js');
+  const html=read('web/index.html');
+  const closure=html.indexOf('js/timetable/university-closures.js');
+  const timetable=html.indexOf('js/timetable/timetable.js');
+  const afc=html.indexOf('js/absence-from-campus/afc-workflow.js');
   assert.ok(closure>=0);
   assert.ok(closure<timetable,'closure calendar loads before timetable.js');
   assert.ok(closure<afc,'closure calendar loads before afc-workflow.js');
@@ -98,7 +98,7 @@ test('only maintenance roles receive proactive review warnings',()=>{
 });
 
 test('dismissed closure warnings can be shown again for the same out-of-range dates',()=>{
-  const source=read('university-closures.js');
+  const source=read('web/js/timetable/university-closures.js');
   assert.match(source,/close\.onclick=\(\)=>\{box\.remove\(\);browserWarningKey=''\}/);
   assert.doesNotMatch(source,/if\(typeof document!=='undefined'\)\{\s*const health=maintenanceStatus/);
 });

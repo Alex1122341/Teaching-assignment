@@ -1,7 +1,7 @@
 'use strict';
 (()=>{
  const $=id=>document.getElementById(id),e=s=>UCVM.esc(String(s??'')),{db}=UCVM.init(),auth=firebase.auth(),stamp=()=>firebase.firestore.FieldValue.serverTimestamp();
- const AFC_TERMS_VERSION='ucvm-afc-terms-page2-v1',AFC_TERMS_SOURCE='absence-from-campus-app.pdf#page=2',AFC_TERMS_VIEW_ASSET='absence-from-campus-terms.pdf';
+ const AFC_TERMS_VERSION='ucvm-afc-terms-page2-v1',AFC_TERMS_SOURCE='absence-from-campus-app.pdf#page=2',AFC_TERMS_VIEW_ASSET='assets/forms/absence-from-campus-terms.pdf';
  const closures=window.UCVM_UNIVERSITY_CLOSURES;
  if(!closures)throw Error('UCVM University closure calendar is required.');
  let loaded=false,busy=false,requests=[],applicantSignature=null,termsViewed=false,panelId='afc-panel',mode='dashboard',dataSubscription=null,subscribedSource=null,rangeLoading='',rangeLoaded='',rangeError=null;

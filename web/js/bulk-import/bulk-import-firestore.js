@@ -1,5 +1,5 @@
 (function(root,factory){
-  const defaultCalendarSession=typeof module==='object'&&module.exports?require('./calendar-session.js'):root?.UCVM_CALENDAR_SESSION;
+  const defaultCalendarSession=typeof module==='object'&&module.exports?require('../timetable/calendar-session.js'):root?.UCVM_CALENDAR_SESSION;
   const api=factory(defaultCalendarSession);
   if(typeof module==='object'&&module.exports)module.exports=api;
   if(root)root.UCVM_BULK_IMPORT_FIRESTORE=api;

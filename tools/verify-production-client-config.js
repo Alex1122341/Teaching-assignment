@@ -5,7 +5,7 @@ const vm=require('node:vm');
 
 const root=path.resolve(__dirname,'..');
 
-function loadRuntimeConfig(filename=path.join(root,'firebase-config.js'),hostname='red-cliff-04871ca0f.5.azurestaticapps.net'){
+function loadRuntimeConfig(filename=path.join(root,'web/js/core/firebase-config.js'),hostname='red-cliff-04871ca0f.5.azurestaticapps.net'){
   const window={location:{hostname}};
   vm.runInNewContext(fs.readFileSync(filename,'utf8'),{window},{filename});
   return{

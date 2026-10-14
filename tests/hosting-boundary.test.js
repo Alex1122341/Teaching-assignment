@@ -23,7 +23,7 @@ test('Firebase and Azure use one generated static build',()=>{
  assert.match(azure,/build-static\.js/);
  assert.match(azure,/\.deploy-static/);
  assert.equal(bundles.version,1);
- for(const file of ['index.html','faculty-admin.html','approval-workflow.js','faculty-swap-safe.js','absence-from-campus-app.pdf','absence-from-campus-app-v2.pdf','absence-from-campus-terms.pdf'])assert.ok(manifest.includes(file),`${file} is required`);
+ for(const file of ['index.html','faculty-admin.html','js/approvals/approval-workflow.js','js/faculty/faculty-swap-safe.js','assets/forms/absence-from-campus-app.pdf','assets/forms/absence-from-campus-app-v2.pdf','assets/forms/absence-from-campus-terms.pdf'])assert.ok(manifest.includes(file),`${file} is required`);
 });
 
 test('source static manifest excludes repository and development files',()=>{
@@ -66,7 +66,7 @@ test('Firebase and Azure keep mutable assets revalidated while hashed bundles ar
  assert.deepEqual(bundleRule.headers,[{key:'Cache-Control',value:'public, max-age=31536000, immutable'}]);
  assert.deepEqual(rootRule.headers,[{key:'Cache-Control',value:'no-cache, max-age=0, must-revalidate'}]);
 
- const azure=JSON.parse(read('staticwebapp.config.json'));
+ const azure=JSON.parse(read('deploy/azure/staticwebapp.config.json'));
  const bundleRoute=azure.routes.find(rule=>rule.route==='/bundles/*');
  const rootRoute=azure.routes.find(rule=>rule.route==='/*.{html,js,css}');
  assert.equal(bundleRoute.headers['Cache-Control'],'public, max-age=31536000, immutable');
@@ -80,7 +80,7 @@ test('Azure stages the canonical config after the same generated lightweight bui
  ],{cwd:root,encoding:'utf8',timeout:30000});
  const output=path.join(root,'.deploy-static');
  const config=JSON.parse(fs.readFileSync(path.join(output,'staticwebapp.config.json'),'utf8'));
- assert.deepEqual(config,JSON.parse(read('staticwebapp.config.json')));
+ assert.deepEqual(config,JSON.parse(read('deploy/azure/staticwebapp.config.json')));
 
  const metadataPath=path.join(root,'.deploy-metadata','deployment-assets.json');
  const metadata=JSON.parse(fs.readFileSync(metadataPath,'utf8'));
@@ -94,10 +94,10 @@ test('Azure stages the canonical config after the same generated lightweight bui
  const expected=metadata.assets.map(row=>row.path).sort();
  assert.deepEqual(actual,expected);
 
- assert.ok(actual.includes('faculty-admin-enhancements.js'));
- assert.deepEqual(fs.readFileSync(path.join(output,'faculty-admin-enhancements.js')),fs.readFileSync(path.join(root,'faculty-admin-enhancements.js')));
- for(const name of ['afc-form-values.js','afc-pdf-browser.js','faculty-swap-handoff.js','approval-workflow.js'])assert.equal(actual.includes(name),false,name);
- for(const name of ['faculty-doe.js','data-index.js','firebase-config.js','faculty-access.js'])assert.equal(actual.includes(name),false,name);
+ assert.ok(actual.includes('js/faculty/faculty-admin-enhancements.js'));
+ assert.deepEqual(fs.readFileSync(path.join(output,'js/faculty/faculty-admin-enhancements.js')),fs.readFileSync(path.join(root,'web/js/faculty/faculty-admin-enhancements.js')));
+ for(const name of ['js/absence-from-campus/afc-form-values.js','js/absence-from-campus/afc-pdf-browser.js','js/faculty/faculty-swap-handoff.js','js/approvals/approval-workflow.js'])assert.equal(actual.includes(name),false,name);
+ for(const name of ['js/faculty/faculty-doe.js','js/data-index/data-index.js','js/core/firebase-config.js','js/core/faculty-access.js'])assert.equal(actual.includes(name),false,name);
 
  const bundleByLogical=new Map(metadata.bundles.map(bundle=>[bundle.logicalOutput,bundle]));
  assert.equal(bundleByLogical.size,12);
@@ -122,8 +122,8 @@ test('Azure stages the canonical config after the same generated lightweight bui
  const generatedIndex=fs.readFileSync(path.join(output,'index.html'),'utf8');
  assert.ok(generatedIndex.includes(`src="${bundleByLogical.get('bundles/shared-auth.bundle.js').output}"`));
  assert.ok(generatedIndex.includes(`src="${bundleByLogical.get('bundles/timetable-app.bundle.js').output}"`));
- assert.doesNotMatch(generatedIndex,/src="faculty-doe\.js"/);
- assert.notEqual(generatedIndex,read('index.html'));
+ assert.doesNotMatch(generatedIndex,/src="[^"]*faculty-doe\.js"/);
+ assert.notEqual(generatedIndex,read('web/index.html'));
 
  const timetableBundle=fs.readFileSync(path.join(output,bundleByLogical.get('bundles/timetable-app.bundle.js').output),'utf8');
  assert.ok(timetableBundle.includes(bundleByLogical.get('bundles/afc-pdf.lazy.bundle.js').output));

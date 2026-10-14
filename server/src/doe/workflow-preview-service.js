@@ -1,7 +1,7 @@
 'use strict';
 const crypto=require('node:crypto');
 const {ApiError}=require('../http/errors.js');
-const scheduling=require('../../../scheduling-core.js');
+const scheduling=require('../../../web/js/timetable/scheduling-core.js');
 
 const text=value=>String(value??'').trim();
 const finite=value=>{if(value===null||value===undefined||value==='')return null;const n=Number(value);return Number.isFinite(n)?n:null};

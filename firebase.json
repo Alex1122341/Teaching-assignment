@@ -1,7 +1,7 @@
 {
   "firestore": {
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
+    "rules": "firebase/firestore.rules",
+    "indexes": "firebase/firestore.indexes.json"
   },
   "hosting": {
     "public": ".deploy-static",
@@ -20,6 +20,15 @@
       },
       {
         "source": "/*.@(html|js|css)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, max-age=0, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/@(js|styles)/**/*.@(js|css)",
         "headers": [
           {
             "key": "Cache-Control",

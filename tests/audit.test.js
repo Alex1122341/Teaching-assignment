@@ -23,7 +23,7 @@ const vm=require('node:vm');
 
 function load(){
  const context={window:{}};
- vm.runInNewContext(fs.readFileSync(path.join(__dirname,'..','audit-details.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'..','web/js/data-index/audit-details.js'),'utf8'),context);
  return context.window.UCVM_AUDIT_DETAILS;
 }
 const plain=value=>JSON.parse(JSON.stringify(value));
@@ -82,11 +82,11 @@ const plain=value=>JSON.parse(JSON.stringify(value));
 
 function loadSelection(){
  const context={window:{},Date};
- vm.runInNewContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/scheduling-core.js'),'utf8'),context);
  // Field ownership is derived from the canonical modules, so the harness must load them.
- vm.runInNewContext(fs.readFileSync(path.join(root,'office-capabilities.js'),'utf8'),context);
- vm.runInNewContext(fs.readFileSync(path.join(root,'session-workflow.js'),'utf8'),context);
- vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/core/office-capabilities.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/session-workflow.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/timetable-selection.js'),'utf8'),context);
  return context.window.UCVM_TIMETABLE_SELECTION;
 }
 
@@ -104,7 +104,7 @@ const faculty=new Map([
 ]);
 
 test('R02 partial source write contract does not invent an empty facultyIds field',()=>{
- const maintenance=require('../index-maintenance.js');
+ const maintenance=require('../web/js/data-index/index-maintenance.js');
  assert.equal(typeof maintenance.sessionPatchForWrite,'function');
  assert.deepEqual(plain(maintenance.sessionPatchForWrite({room:'B202'})),{room:'B202'});
  assert.deepEqual(plain(maintenance.sessionPatchForWrite({assignments:[{facultyId:'1002'}]})),{
@@ -146,7 +146,7 @@ test('R02 ADFA is faculty-only and cannot change date or course',()=>{
 });
 
 test('R02 multi-session save uses the partial-write serializer instead of the full-session serializer',()=>{
- const js=fs.readFileSync(path.join(root,'timetable.js'),'utf8');
+ const js=fs.readFileSync(path.join(root,'web/js/timetable/timetable.js'),'utf8');
  const start=js.indexOf('async function saveSelectedChanges');
  const end=js.indexOf('\n  function openSessionDetail',start);
  const fn=js.slice(start,end);
@@ -169,8 +169,8 @@ const plain=value=>JSON.parse(JSON.stringify(value));
 
 function load(){
  const window={};
- vm.runInNewContext(fs.readFileSync(path.join(root,'calendar-session.js'),'utf8'),{window});
- vm.runInNewContext(fs.readFileSync(path.join(root,'calendar-session-maintenance.js'),'utf8'),{window});
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/calendar-session.js'),'utf8'),{window});
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/calendar-session-maintenance.js'),'utf8'),{window});
  return window.UCVM_CALENDAR_SESSION_MAINTENANCE;
 }
 
@@ -240,18 +240,18 @@ const root=path.resolve(__dirname,'..');
 function loadRequestApi(){
   const context={window:{}};
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
-  vm.runInContext(fs.readFileSync(path.join(root,'approval-routing.js'),'utf8'),context);
-  vm.runInContext(fs.readFileSync(path.join(root,'approval-request.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(root,'web/js/timetable/scheduling-core.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(root,'web/js/approvals/approval-routing.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(root,'web/js/approvals/approval-request.js'),'utf8'),context);
   return context.window.UCVM_APPROVAL_REQUEST;
 }
 
 function loadFinalizer(){
   const context={window:{}};
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
-  vm.runInContext(fs.readFileSync(path.join(root,'calendar-session.js'),'utf8'),context);
-  vm.runInContext(fs.readFileSync(path.join(root,'approval-finalizer.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(root,'web/js/timetable/scheduling-core.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(root,'web/js/timetable/calendar-session.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(root,'web/js/approvals/approval-finalizer.js'),'utf8'),context);
   return context.window.UCVM_APPROVAL_FINALIZER;
 }
 
@@ -356,7 +356,7 @@ function base(){
 }
 
 test('R05 scheduling core identifies an invalid timing patch while leaving unrelated edits unchanged',()=>{
-  const w=context(['scheduling-core.js']);
+  const w=context(['web/js/timetable/scheduling-core.js']);
   const invalid=w.UCVM_SCHEDULING.validateSessionTimingChange(base(),{start:'11:00',end:'10:00'});
   assert.equal(invalid.status,'invalid');
   assert.equal(invalid.reason,'end_not_after_start');
@@ -370,7 +370,7 @@ test('R05 scheduling core identifies an invalid timing patch while leaving unrel
 });
 
 test('R05 initial routed request rejects a newly introduced reversed interval',()=>{
-  const w=context(['scheduling-core.js','approval-routing.js','approval-request.js']);
+  const w=context(['web/js/timetable/scheduling-core.js','web/js/approvals/approval-routing.js','web/js/approvals/approval-request.js']);
   assert.throws(()=>w.UCVM_APPROVAL_REQUEST.buildRecords({
     requestId:'r1',requester:{uid:'u1',name:'Faculty One',role:'hicc'},now:'STAMP',
     payload:{requestType:'session_edit',sessionId:'s1',base:base(),patch:{start:'11:00',end:'10:00'}}
@@ -378,7 +378,7 @@ test('R05 initial routed request rejects a newly introduced reversed interval',(
 });
 
 test('R05 requester resubmission rejects an invalid returned timing edit',()=>{
-  const w=context(['scheduling-core.js','approval-routing.js','approval-state.js','approval-lifecycle.js']);
+  const w=context(['web/js/timetable/scheduling-core.js','web/js/approvals/approval-routing.js','web/js/approvals/approval-state.js','web/js/approvals/approval-lifecycle.js']);
   const request={
     id:'r2',requestType:'session_edit',status:'update_required',revision:1,
     editableFields:['start','end'],basePublic:base(),patchPublic:{start:'09:30',end:'10:30'}
@@ -389,7 +389,7 @@ test('R05 requester resubmission rejects an invalid returned timing edit',()=>{
 });
 
 test('R05 public finalizer refuses a reversed interval instead of producing a write plan',()=>{
-  const w=context(['scheduling-core.js','calendar-session.js','approval-finalizer.js']);
+  const w=context(['web/js/timetable/scheduling-core.js','web/js/timetable/calendar-session.js','web/js/approvals/approval-finalizer.js']);
   const request={
     id:'r3',sessionId:'s1',basePublic:base(),
     patchPublic:{start:'11:00',end:'10:00'}
@@ -399,7 +399,7 @@ test('R05 public finalizer refuses a reversed interval instead of producing a wr
 });
 
 test('R05 mixed Faculty finalizer also refuses invalid public timing before applying assignment data',()=>{
-  const w=context(['scheduling-core.js','calendar-session.js','approval-finalizer.js']);
+  const w=context(['web/js/timetable/scheduling-core.js','web/js/timetable/calendar-session.js','web/js/approvals/approval-finalizer.js']);
   const source={
     id:'s1',...base(),
     assignments:[{ucid:'f1',name:'Dr Old'},{ucid:'f9',name:'Dr Other'}],
@@ -418,7 +418,7 @@ test('R05 mixed Faculty finalizer also refuses invalid public timing before appl
 });
 
 test('R05 timeUnknown remains valid for approval paths without inventing times',()=>{
-  const w=context(['scheduling-core.js','approval-routing.js','approval-request.js']);
+  const w=context(['web/js/timetable/scheduling-core.js','web/js/approvals/approval-routing.js','web/js/approvals/approval-request.js']);
   const records=w.UCVM_APPROVAL_REQUEST.buildRecords({
     requestId:'r5',requester:{uid:'u1',name:'Faculty One',role:'hicc'},now:'STAMP',
     payload:{requestType:'session_edit',sessionId:'s1',base:base(),patch:{start:'',end:'',timeUnknown:true}}

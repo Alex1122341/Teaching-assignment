@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'..');
 
 function load(){
   const context={window:{},Date};
-  vm.runInNewContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
+  vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/scheduling-core.js'),'utf8'),context);
   return context.window.UCVM_SCHEDULING;
 }
 

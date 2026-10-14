@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
-const load=()=>{const ctx={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'faculty-suggestions.js'),'utf8'),ctx);return ctx.window.UCVM_FACULTY_SUGGESTIONS;};
+const load=()=>{const ctx={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/faculty/faculty-suggestions.js'),'utf8'),ctx);return ctx.window.UCVM_FACULTY_SUGGESTIONS;};
 const arr=value=>Array.from(value||[]);
 const plain=value=>JSON.parse(JSON.stringify(value));
 

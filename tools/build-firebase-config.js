@@ -18,7 +18,7 @@ const path = require('node:path');
 const {execFileSync} = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
-const target = path.join(root, 'firebase-config.js');
+const target = path.join(root, 'web/js/core/firebase-config.js');
 
 function argValue(args,name) {
   const index = args.indexOf(name);

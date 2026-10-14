@@ -2,7 +2,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const seed=require('../../tools/doe-policy-2026-27-seed.json');
-const ENGINE=require('../../doe-policy-engine.js');
+const ENGINE=require('../../shared/doe-policy/doe-policy-engine.js');
 
 const bundle={version:seed.version,rules:seed.rules,exceptions:seed.exceptions||[]};
 const calc=context=>ENGINE.calculate(bundle,{academicYear:'2026-27',...context}).resultDoe;

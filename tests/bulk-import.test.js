@@ -17,7 +17,7 @@
 (() => {
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const backup=require('../bulk-import-backup.js');
+const backup=require('../web/js/bulk-import/bulk-import-backup.js');
 class FakeTimestamp{constructor(seconds,nanoseconds){this.seconds=seconds;this.nanoseconds=nanoseconds}toDate(){return new Date(this.seconds*1000)}}
 
 test('backup codec round-trips timestamps',()=>{
@@ -54,7 +54,7 @@ test('recovery backup captures the stable legacy DOE evidence marker',async()=>{
 (() => {
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const core=require('../bulk-import-core.js');
+const core=require('../web/js/bulk-import/bulk-import-core.js');
 
 const validSource=()=>({
   schemaVersion:'ucvm-all-faculty-summaries-v8-synced-2026-27',
@@ -109,8 +109,8 @@ test('session and stale import batches use the conservative paired-write budget'
 (() => {
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const firestoreStore=require('../bulk-import-firestore.js');
-const calendarSession=require('../calendar-session.js');
+const firestoreStore=require('../web/js/bulk-import/bulk-import-firestore.js');
+const calendarSession=require('../web/js/timetable/calendar-session.js');
 
 function recordingDb(){
   const commits=[];
@@ -175,19 +175,19 @@ const root=path.resolve(__dirname,'..');
 
 test('shared deployment allowlist includes every bulk import recovery runtime asset',()=>{
  const manifest=JSON.parse(fs.readFileSync(path.join(root,'tools/static-assets.json'),'utf8'));
- for(const name of ['bulk-import-core.js','bulk-import-backup.js','bulk-import-firestore.js','bulk-import-controller.js','bulk-import-ui.js','maintenance-state.js'])assert.ok(manifest.includes(name),name);
+ for(const name of ['js/bulk-import/bulk-import-core.js','js/bulk-import/bulk-import-backup.js','js/bulk-import/bulk-import-firestore.js','js/bulk-import/bulk-import-controller.js','js/bulk-import/bulk-import-ui.js','js/core/maintenance-state.js'])assert.ok(manifest.includes(name),name);
 });
 
 test('Faculty Dashboard loads import modules in dependency order and UI after legacy handler binding',()=>{
- const html=fs.readFileSync(path.join(root,'faculty-admin.html'),'utf8');
- const names=['maintenance-state.js','bulk-import-core.js','bulk-import-backup.js','bulk-import-firestore.js','bulk-import-controller.js','faculty-admin.js','bulk-import-ui.js'];
+ const html=fs.readFileSync(path.join(root,'web/faculty-admin.html'),'utf8');
+ const names=['js/core/maintenance-state.js','js/bulk-import/bulk-import-core.js','js/bulk-import/bulk-import-backup.js','js/bulk-import/bulk-import-firestore.js','js/bulk-import/bulk-import-controller.js','js/faculty/faculty-admin.js','js/bulk-import/bulk-import-ui.js'];
  const positions=names.map(name=>html.indexOf(name));
  assert.ok(positions.every(value=>value>=0));
  for(let i=1;i<positions.length;i++)assert.ok(positions[i]>positions[i-1],`${names[i]} should load after ${names[i-1]}`);
 });
 
 test('bulk import final verification includes sanitized calendar health',()=>{
- const source=fs.readFileSync(path.join(root,'bulk-import-ui.js'),'utf8');
+ const source=fs.readFileSync(path.join(root,'web/js/bulk-import/bulk-import-ui.js'),'utf8');
  assert.match(source,/UCVM_CALENDAR_SESSION_MAINTENANCE/);
  assert.match(source,/verifyCalendar:\s*\(\{?[^)]*\}?\)?\s*=>\s*calendarMaintenance\.verify\(db\)/);
 });
@@ -201,7 +201,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const ui=require('../bulk-import-ui.js');
+const ui=require('../web/js/bulk-import/bulk-import-ui.js');
 const root=path.resolve(__dirname,'..');
 
 test('preflight summary exposes management-facing counts and warnings',()=>{
@@ -240,14 +240,14 @@ test('raw file payload preserves exact bytes used for fingerprinting',async()=>{
 });
 
 test('Faculty Dashboard loads bulk import runtime after legacy admin bindings so it can replace the old destructive handler',()=>{
- const html=fs.readFileSync(path.join(root,'faculty-admin.html'),'utf8');
- assert.ok(html.indexOf('bulk-import-core.js')>0);
- assert.ok(html.indexOf('bulk-import-controller.js')>html.indexOf('bulk-import-core.js'));
- assert.ok(html.indexOf('bulk-import-ui.js')>html.indexOf('faculty-admin.js'));
+ const html=fs.readFileSync(path.join(root,'web/faculty-admin.html'),'utf8');
+ assert.ok(html.indexOf('js/bulk-import/bulk-import-core.js')>0);
+ assert.ok(html.indexOf('js/bulk-import/bulk-import-controller.js')>html.indexOf('js/bulk-import/bulk-import-core.js'));
+ assert.ok(html.indexOf('js/bulk-import/bulk-import-ui.js')>html.indexOf('js/faculty/faculty-admin.js'));
 });
 
 test('bulk import runtime injects the full derived-index verifier and atomic writer',()=>{
- const js=fs.readFileSync(path.join(root,'bulk-import-ui.js'),'utf8');
+ const js=fs.readFileSync(path.join(root,'web/js/bulk-import/bulk-import-ui.js'),'utf8');
  assert.match(js,/rebuildIndexes:\(\{faculty,sessions,actor:who\}\)=>indexMaintenance\.writeDerivedIndexes\(db,faculty,sessions,who\)/);
  assert.match(js,/verifyIndexes:\(\{faculty,sessions\}\)=>indexMaintenance\.verifyDerivedIndexes\(db,\{faculty,sessions\}\)/);
  assert.doesNotMatch(js,/verifyDerivedIndexesProvisional/);

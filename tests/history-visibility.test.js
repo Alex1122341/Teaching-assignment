@@ -17,14 +17,14 @@ test('only ADFA administrators can see everyone history', () => {
 });
 
 test('self-only history queries filter every collection by actor uid', () => {
-  const source = read('faculty-access.js');
+  const source = read('web/js/core/faculty-access.js');
   assert.match(source, /historyAll/);
   assert.match(source, /where\('changedBy','==',user\.uid\)/);
   assert.match(source, /account_audit/);
 });
 
 test('Firestore history rules distinguish ADFA administrators from Other Office', () => {
-  const rules = read('firestore.rules');
+  const rules = read('firebase/firestore.rules');
   assert.match(rules, /function historyAll\(\)/);
   assert.match(rules, /historyAll\(\) \|\| resource\.data\.changedBy == request\.auth\.uid/);
 });

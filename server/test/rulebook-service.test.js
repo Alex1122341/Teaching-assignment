@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const ENGINE=require('../../doe-policy-engine.js');
+const ENGINE=require('../../shared/doe-policy/doe-policy-engine.js');
 const {createRulebookService}=require('../src/doe/rulebook-service.js');
 
 const general={uid:'g1',name:'General Admin',email:'g@ucalgary.ca',role:'adfa_general'};

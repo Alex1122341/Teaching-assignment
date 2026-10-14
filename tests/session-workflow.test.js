@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
-const load=()=>{const ctx={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'session-workflow.js'),'utf8'),ctx);return ctx.window.UCVM_SESSION_WORKFLOW;};
+const load=()=>{const ctx={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/session-workflow.js'),'utf8'),ctx);return ctx.window.UCVM_SESSION_WORKFLOW;};
 // Values built inside the vm realm have foreign prototypes, so arrays and objects
 // coming back from the module are copied into this realm before comparison.
 const arr=value=>Array.from(value||[]);

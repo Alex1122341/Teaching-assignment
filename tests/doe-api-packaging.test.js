@@ -12,8 +12,8 @@ test('DOE API packaging stages server and every shared runtime dependency',()=>{
  const run=spawnSync(process.execPath,[path.join(root,'tools','build-doe-api.js'),'--output',out],{cwd:root,encoding:'utf8'});
  assert.equal(run.status,0,run.stderr||run.stdout);
  const required=[
-  'server/package.json','server/src/server.js','doe-formula.js','doe-policy-engine.js','doe-policy-repository.js',
-  'doe-policy-firestore.js','doe-policy-service.js','index-maintenance.js','data-index.js','scheduling-core.js','calendar-session.js'
+  'server/package.json','server/src/server.js','shared/doe-policy/doe-formula.js','shared/doe-policy/doe-policy-engine.js','shared/doe-policy/doe-policy-repository.js',
+  'shared/doe-policy/doe-policy-firestore.js','shared/doe-policy/doe-policy-service.js','web/js/data-index/index-maintenance.js','web/js/data-index/data-index.js','web/js/timetable/scheduling-core.js','web/js/timetable/calendar-session.js'
  ];
  for(const file of required)assert.equal(fs.existsSync(path.join(out,file)),true,`missing ${file}`);
  const smoke=spawnSync(process.execPath,['-e',`require(${JSON.stringify(path.join(out,'server','src','server.js'))})`],{cwd:root,encoding:'utf8'});

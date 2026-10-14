@@ -30,14 +30,14 @@ function extractFunction(source,name){
 }
 
 test('semester controls add All mode and remove the redundant Month filter',()=>{
-  const html=read('index.html');
+  const html=read('web/index.html');
   assert.match(html,/data-semester="all"[^>]*>All</);
   assert.doesNotMatch(html,/id="filter-month"/);
-  assert.doesNotMatch(read('timetable.js'),/filter-month/);
+  assert.doesNotMatch(read('web/js/timetable/timetable.js'),/filter-month/);
 });
 
 test('continuous academic navigation crosses semester boundaries in calendar order',()=>{
-  const source=read('timetable.js');
+  const source=read('web/js/timetable/timetable.js');
   const fn=extractFunction(source,'moveAcademicWeekPosition');
   const context={WEEK_COUNT:17};
   vm.runInNewContext(fn+'\nresult=moveAcademicWeekPosition;',context);
@@ -52,7 +52,7 @@ test('continuous academic navigation crosses semester boundaries in calendar ord
 });
 
 test('locked semester navigation stays inside W1 to W17',()=>{
-  const source=read('timetable.js');
+  const source=read('web/js/timetable/timetable.js');
   const fn=extractFunction(source,'moveAcademicWeekPosition');
   const context={WEEK_COUNT:17};
   vm.runInNewContext(fn+'\nresult=moveAcademicWeekPosition;',context);
@@ -64,7 +64,7 @@ test('locked semester navigation stays inside W1 to W17',()=>{
 });
 
 test('All mode is the default/reset scope while selectedSemester remains the actual calendar position',()=>{
-  const js=read('timetable.js');
+  const js=read('web/js/timetable/timetable.js');
   assert.match(js,/let semesterScope\s*=\s*'all'/);
   const reset=js.slice(js.indexOf('function resetFilters()'),js.indexOf('\n  function ',js.indexOf('function resetFilters()')+1));
   assert.match(reset,/semesterScope\s*=\s*'all'/);
@@ -74,7 +74,7 @@ test('All mode is the default/reset scope while selectedSemester remains the act
 });
 
 test('month view derives its month from the selected academic week instead of a second filter',()=>{
-  const js=read('timetable.js');
+  const js=read('web/js/timetable/timetable.js');
   assert.doesNotMatch(js,/calendarYearForMonth/);
   const range=js.slice(js.indexOf('function visibleSessionRange()'),js.indexOf('\n  function ',js.indexOf('function visibleSessionRange()')+1));
   assert.match(range,/monthRangeForAcademicPosition\(selectedSemester,selectedWeek\)/);
@@ -92,7 +92,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const root=path.join(__dirname,'..');
-const timetable=['index.html','timetable.js','afc-timetable-panel.js'].map(name=>fs.readFileSync(path.join(root,name),'utf8')).join('\n');
+const timetable=['web/index.html','web/js/timetable/timetable.js','web/js/absence-from-campus/afc-timetable-panel.js'].map(name=>fs.readFileSync(path.join(root,name),'utf8')).join('\n');
 
 test('faculty accounts land on their own teaching in day view',()=>{
  assert.match(timetable,/viewMode\s*=\s*roleIsFaculty\(currentUser\)\s*\?\s*'day'\s*:\s*'week'/);
@@ -153,7 +153,7 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('Schedule filters markup has one accessible always-visible toggle',()=>{
- const html=read('index.html'),css=read('timetable.css');
+ const html=read('web/index.html'),css=read('web/styles/timetable.css');
  assert.match(html,/id="schedule-filter-toggle"[^>]*aria-controls="schedule-filter-panel"[^>]*aria-expanded="true"/);
  assert.match(html,/id="schedule-filter-panel"/);
  assert.doesNotMatch(html,/id="filter-toggle-btn"/);
@@ -162,7 +162,7 @@ test('Schedule filters markup has one accessible always-visible toggle',()=>{
 });
 
 test('Schedule filters default by viewport and honor tab preference',()=>{
- const source=read('timetable.js');
+ const source=read('web/js/timetable/timetable.js');
  const fn=source.match(/  function initialScheduleFiltersExpanded\([\s\S]*?\n  \}/)?.[0];
  assert.ok(fn,'initialScheduleFiltersExpanded should be independently testable');
  const context={};vm.runInNewContext(`${fn}\nresult=initialScheduleFiltersExpanded;`,context);
@@ -187,7 +187,7 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('timetable has no local layout editor while session editing remains available',()=>{
- const html=read('index.html'),js=read('timetable.js'),css=read('timetable.css'),runtime=html+'\n'+js+'\n'+css;
+ const html=read('web/index.html'),js=read('web/js/timetable/timetable.js'),css=read('web/styles/timetable.css'),runtime=html+'\n'+js+'\n'+css;
  for(const token of ['ui-editor-panel','ui-edit-mode-btn','bindUIEditorControls','data-ui-editable','UI_SETTINGS_KEY','ucvm_ui_settings'])assert.doesNotMatch(runtime,new RegExp(token));
  assert.doesNotMatch(css,/\.ui-editor-|body\.ui-editing|--ui-sidebar-width/);
  assert.match(js,/function openSessionForm/);
@@ -204,7 +204,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const root=path.resolve(__dirname,'..');
-const html=['index.html','timetable.js'].map(name=>fs.readFileSync(path.join(root,name),'utf8')).join('\n');
+const html=['web/index.html','web/js/timetable/timetable.js'].map(name=>fs.readFileSync(path.join(root,name),'utf8')).join('\n');
 
 test('course filter supports selecting several courses',()=>{
  assert.match(html,/id="filter-course-options"/);
@@ -226,9 +226,9 @@ test('CCC records are opt-in and sourced from the sanitized public schedule docu
  assert.match(html,/collection\('public_schedule'\)\.doc\('ccc_events'\)/);
  assert.match(html,/function loadCccEvents/);
  assert.match(html,/showCcc\s*=\s*false/);
- const rules=fs.readFileSync(path.join(root,'firestore.rules'),'utf8');
+ const rules=fs.readFileSync(path.join(root,'firebase/firestore.rules'),'utf8');
  assert.match(rules,/match \/public_schedule\/\{id\}/);
- const admin=fs.readFileSync(path.join(root,'faculty-admin.js'),'utf8');
+ const admin=fs.readFileSync(path.join(root,'web/js/faculty/faculty-admin.js'),'utf8');
  for(const helper of ['afcRecordsOf','cccScheduleId','syncCccPublicSchedule','todayDateOnly','afcState','afcDateRange']){
   assert.match(admin,new RegExp(`function ${helper}\\b`));
  }

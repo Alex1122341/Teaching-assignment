@@ -61,7 +61,7 @@ jobs:
         run: node tools/build-static.js
 
       - name: Stage Azure configuration
-        run: cp staticwebapp.config.json .deploy-static/staticwebapp.config.json
+        run: cp deploy/azure/staticwebapp.config.json .deploy-static/staticwebapp.config.json
 
       - name: Upload verified production artifact
         uses: actions/upload-artifact@v7

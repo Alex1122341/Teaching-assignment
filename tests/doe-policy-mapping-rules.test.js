@@ -3,7 +3,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const rules=fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8');
+const rules=fs.readFileSync(path.join(__dirname,'../firebase/firestore.rules'),'utf8');
 
 for(const name of ['doe_reference_sources','doe_course_mappings','doe_subject_mappings']){
   test(`${name} is DOE-admin readable and client read-only after API cutover`,()=>{
