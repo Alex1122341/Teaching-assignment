@@ -18,11 +18,21 @@ function errorPayload(error){
   };
 }
 
+// Codes that carry a fixed status without setting `statusCode` on the error.
+// A malformed academic year is a caller error, not a server fault: without this
+// entry it would surface as 500 and read as an outage.
+const STATUS_BY_CODE=Object.freeze({
+  AUTH_REQUIRED:401,
+  FORBIDDEN:403,
+  INVALID_ACADEMIC_YEAR:400,
+  WRITE_DISABLED:503
+});
+
 function statusFor(error){
   const explicit=Number(error?.statusCode);
   if(Number.isInteger(explicit)&&explicit>=400&&explicit<=599)return explicit;
-  if(error?.code==='AUTH_REQUIRED')return 401;
-  if(error?.code==='FORBIDDEN')return 403;
+  const mapped=STATUS_BY_CODE[String(error?.code||'')];
+  if(mapped)return mapped;
   return 500;
 }
 

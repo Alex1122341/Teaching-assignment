@@ -1,5 +1,7 @@
 'use strict';
 
+const { canonicalAcademicYear } = require('../data/academic-year.js');
+
 const text=value=>String(value??'').trim();
 const validDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(text(value));
 const facultyRoles=new Set(['faculty','hicc','visc']);
@@ -18,7 +20,15 @@ function createDataRoutes({sessionReadService}={}){
       if(facultyRoles.has(role)&&!facultyEmail){
         return{statusCode:403,body:{code:'FACULTY_IDENTITY_REQUIRED',message:'Faculty-linked session reads require an authenticated email identity.'}};
       }
-      const sessions=await sessionReadService.listSessions({start,end,facultyEmail});
+      // Academic year is optional and opt-in. When it is absent the request
+      // keeps its current unfiltered semantics; when it is present it must be a
+      // real academic year, canonicalised to the stored `YYYY-YY` form. An
+      // explicit-but-malformed value throws and becomes a 400 rather than
+      // quietly returning a different year's timetable.
+      const academicYear=text(query.academicYear);
+      const input={start,end,facultyEmail};
+      if(academicYear)input.academicYear=canonicalAcademicYear(academicYear);
+      const sessions=await sessionReadService.listSessions(input);
       return{statusCode:200,body:{source:'azure-sql',count:sessions.length,sessions}};
     }
   };
