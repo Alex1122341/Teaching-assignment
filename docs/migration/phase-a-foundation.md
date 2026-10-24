@@ -142,7 +142,7 @@ Run with Node 22.22.2 from the repository root.
 
 | Suite | Result |
 |---|---|
-| `node --test server/test/*.test.js` | 981 tests: **953 pass, 24 fail, 4 skipped** |
+| `node --test server/test/*.test.js` | 981 tests: **954 pass, 23 fail, 4 skipped** |
 | `node --test tests/*.test.js` (pre-existing repository suite) | 1045 tests: **932 pass, 112 skipped, 1 fail** — identical to before this work |
 
 The root suite being unchanged is the evidence that the pre-existing Firestore
@@ -156,7 +156,7 @@ The single root-suite failure is **pre-existing and environmental**:
 `& node $builder`; in this environment `node` is not resolvable from the spawned
 shell. Reproduced on a clean tree with these changes stashed.
 
-### The 24 server failures, by cause
+### The 23 server failures, by cause
 
 | Cause | Count | Detail |
 |---|---|---|

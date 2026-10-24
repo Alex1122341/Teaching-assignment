@@ -34,8 +34,12 @@ const NORMALIZED_ROLE = Object.freeze({
 });
 
 const SELF_SERVICE_ROLES = new Set(['faculty', 'hicc', 'visc']);
-const ADMINISTRATOR_ROLES = new Set(['developer', 'adfa_general', 'adfa_regular']);
-const GENERAL_ROLES = new Set(['developer', 'adfa_general']);
+// The raw alias spellings are listed alongside their canonical targets, matching
+// the Beta export shape. Membership is only ever tested after normalisation, so
+// listing them here changes no decision; it keeps the exported set honest about
+// which role strings are treated as administrative.
+const ADMINISTRATOR_ROLES = new Set(['developer', 'adfa_general', 'adfa_regular', 'owner', 'administrator', 'admin']);
+const GENERAL_ROLES = new Set(['developer', 'adfa_general', 'owner']);
 // `other_office` is an office account in this repository, not a legacy alias.
 const OFFICE_ROLES = new Set(['adc', 'lab', 'other_office']);
 // The alias spellings themselves must be recognised as inputs. Without this the
