@@ -1,9 +1,9 @@
 'use strict';
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const ENGINE=require('../doe-policy-engine.js');
-const REPO=require('../doe-policy-repository.js');
-const SERVICE=require('../doe-policy-service.js');
+const ENGINE=require('../shared/doe-policy/doe-policy-engine.js');
+const REPO=require('../shared/doe-policy/doe-policy-repository.js');
+const SERVICE=require('../shared/doe-policy/doe-policy-service.js');
 
 function seed(){
  return{

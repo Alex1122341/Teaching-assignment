@@ -7,7 +7,7 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('maintenance helpers replace and remove sessions without losing faculty IDs',()=>{
- const api=require(path.join(root,'index-maintenance.js'));
+ const api=require(path.join(root,'web/js/data-index/index-maintenance.js'));
  const next={id:'s2',assignments:[{ucid:'1002'},{facultyId:'1001'}]};
  const replaced=api.replaceSession([{id:'s1'},{id:'s2',assignments:[]}],next);
  assert.deepEqual(replaced.find(x=>x.id==='s2').facultyIds,['1001','1002']);
@@ -15,14 +15,14 @@ test('maintenance helpers replace and remove sessions without losing faculty IDs
 });
 
 test('session writes add derived faculty IDs',()=>{
- const index=read('timetable.js'),admin=read('faculty-admin.js'),approval=read('approval-workflow.js');
+ const index=read('web/js/timetable/timetable.js'),admin=read('web/js/faculty/faculty-admin.js'),approval=read('web/js/approvals/approval-workflow.js');
  assert.match(index,/UCVM_INDEX_MAINTENANCE\.sessionForWrite\(s\)/);
  assert.match(admin,/UCVM_INDEX_MAINTENANCE\.sessionForWrite\(rec\)/);
  assert.match(approval,/patch\.facultyIds=UCVM_DATA_INDEX\.sessionFacultyIds/);
 });
 
 test('session mutations update derived settings from exact before and after records',()=>{
- const index=read('timetable.js'),approval=read('approval-workflow.js'),admin=read('faculty-admin.js'),maintenance=read('index-maintenance.js');
+ const index=read('web/js/timetable/timetable.js'),approval=read('web/js/approvals/approval-workflow.js'),admin=read('web/js/faculty/faculty-admin.js'),maintenance=read('web/js/data-index/index-maintenance.js');
  assert.match(index,/UCVM_INDEX_MAINTENANCE\.updateDerivedIndexes\(db,changes/);
  assert.match(index,/updateDerivedIndexes\(\[\{before:existing\|\|null,after:savedNext\}\]/);
  assert.match(index,/\{before:s,after:null\}/);
@@ -33,7 +33,7 @@ test('session mutations update derived settings from exact before and after reco
 });
 
 test('derived settings writes are limited to administrators',()=>{
- const rules=read('firestore.rules');
+ const rules=read('firebase/firestore.rules');
  assert.match(rules,/id in \['faculty_index','schedule_stats','faculty_swap_map'\].*admin\(\)/s);
  assert.match(rules,/id == 'faculty_swap_index' && swapIndexShapeValid\(request\.resource\.data\) && \(\(teachingWritesOpen\(\) && admin\(\)\)/);
  assert.match(rules,/id == 'people_index' && peopleIndexShapeValid\(request\.resource\.data\) && admin\(\)/);
@@ -42,7 +42,7 @@ test('derived settings writes are limited to administrators',()=>{
 });
 
 test('session deltas update totals, courses, faculty counts, and assigned DOE',()=>{
- const api=require(path.join(root,'index-maintenance.js'));
+ const api=require(path.join(root,'web/js/data-index/index-maintenance.js'));
  const facultyIndex={entries:[
   {id:'1001',name:'Alex',sessionCount:1,assignedTeachingDOE:5},
   {id:'1002',name:'Blair',sessionCount:0,assignedTeachingDOE:10}
@@ -60,7 +60,7 @@ test('session deltas update totals, courses, faculty counts, and assigned DOE',(
 });
 
 test('create and delete session deltas are reversible and empty changes are idempotent',()=>{
- const api=require(path.join(root,'index-maintenance.js'));
+ const api=require(path.join(root,'web/js/data-index/index-maintenance.js'));
  const index={entries:[{id:'1001',sessionCount:0,assignedTeachingDOE:7}]},stats={sessionCount:0,assignedFacultyCount:0,courseCounts:{}};
  const session={id:'s1',course:'300',assignments:[{facultyId:'1001',doeCredit:1.25}]};
  const added=api.applySessionChanges(index,stats,[{before:null,after:session}]);
@@ -76,8 +76,8 @@ function fakeSettingsDb(docs){
 }
 
 function fullVerifierFixture(){
- const api=require(path.join(root,'index-maintenance.js'));
- const dataIndex=require(path.join(root,'data-index.js'));
+ const api=require(path.join(root,'web/js/data-index/index-maintenance.js'));
+ const dataIndex=require(path.join(root,'web/js/data-index/data-index.js'));
  const faculty=[
   {__id:'1001',preferredFullName:'Alex',active:true,doe:{teaching:20}},
   {__id:'1002',preferredFullName:'Blair',active:true,doe:{teaching:20}}
@@ -169,7 +169,7 @@ function fakeBatchDb(initial={}){
 }
 
 test('writeDerivedIndexes commits all four settings documents in one batch',async()=>{
- const api=require(path.join(root,'index-maintenance.js'));
+ const api=require(path.join(root,'web/js/data-index/index-maintenance.js'));
  const db=fakeBatchDb({
   faculty_swap_map:{schemaVersion:'ucvm-faculty-swap-map-v1',entries:[{key:'stable',facultyId:'1001'}]},
   faculty_swap_index:{schemaVersion:'ucvm-faculty-swap-index-v1',entries:[{key:'stable',name:'Alex',aliases:['Alex'],unavailableRanges:[]}]}
@@ -180,8 +180,8 @@ test('writeDerivedIndexes commits all four settings documents in one batch',asyn
 });
 
 test('incremental derived DOE maintenance preserves missing-credit error state instead of treating it as zero',()=>{
- const api=require(path.join(root,'index-maintenance.js'));
- const dataIndex=require(path.join(root,'data-index.js'));
+ const api=require(path.join(root,'web/js/data-index/index-maintenance.js'));
+ const dataIndex=require(path.join(root,'web/js/data-index/data-index.js'));
  const faculty=[{__id:'1001',preferredFullName:'Alex',facultySummary2026_27:{sourceNonTimetableTeachingDOE:2}}];
  const before={id:'s1',assignments:[{ucid:'1001',doeCredit:1,doePolicyVersionId:'policy-v1'}]};
  const initial=dataIndex.buildFacultyIndex(faculty,[before]);
@@ -194,8 +194,8 @@ test('incremental derived DOE maintenance preserves missing-credit error state i
 });
 
 test('incremental derived maintenance keeps legacy evidence mixed when policy-versioned sessions change',()=>{
- const api=require(path.join(root,'index-maintenance.js'));
- const dataIndex=require(path.join(root,'data-index.js'));
+ const api=require(path.join(root,'web/js/data-index/index-maintenance.js'));
+ const dataIndex=require(path.join(root,'web/js/data-index/data-index.js'));
  const faculty=[{__id:'1001',preferredFullName:'Alex',managedRoles2026_27:[{action:'add',doeCredit:1}],facultySummary2026_27:{sourceNonTimetableTeachingDOE:2}}];
  const before={id:'s1',assignments:[{ucid:'1001',doeCredit:1,doePolicyVersionId:'policy-v1'}]};
  const initial=dataIndex.buildFacultyIndex(faculty,[before]);

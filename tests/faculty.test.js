@@ -17,7 +17,7 @@
 (() => {
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const planner=require('../faculty-account-planner.js');
+const planner=require('../web/js/accounts/faculty-account-planner.js');
 
 test('source HICC and VISC roles become unique managed roles with workload DOE',()=>{
  const faculty={facultySummary2026_27:{roles:[
@@ -112,7 +112,7 @@ test('account provisioning never rewrites workload DOE role records',()=>{
 
 test('Faculty role editor submits assignment facts to DOE API and has no editable deterministic DOE field',()=>{
  const fs=require('node:fs'),path=require('node:path');
- const source=fs.readFileSync(path.resolve(__dirname,'..','faculty-admin-enhancements.js'),'utf8');
+ const source=fs.readFileSync(path.resolve(__dirname,'..','web/js/faculty/faculty-admin-enhancements.js'),'utf8');
  assert.match(source,/UCVM_DOE_API\.saveRoleAssignment/);
  assert.doesNotMatch(source,/class="input ucvm-role-doe"/);
  assert.doesNotMatch(source,/>DOE credit %</);
@@ -120,7 +120,7 @@ test('Faculty role editor submits assignment facts to DOE API and has no editabl
 
 test('User Management account provisioning cannot write legacy DOE workload role fields',()=>{
  const fs=require('node:fs'),path=require('node:path');
- const source=fs.readFileSync(path.resolve(__dirname,'..','user-management.js'),'utf8');
+ const source=fs.readFileSync(path.resolve(__dirname,'..','web/js/accounts/user-management.js'),'utf8');
  const start=source.indexOf('async function previewProvision');
  const end=source.indexOf("$('signout')",start);
  const provisioning=source.slice(start,end);
@@ -134,7 +134,7 @@ test('User Management account provisioning cannot write legacy DOE workload role
 // ------------------------------------------------------------------------
 (() => {
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
-const source=fs.readFileSync(path.join(__dirname,'../faculty-admin.js'),'utf8');
+const source=fs.readFileSync(path.join(__dirname,'../web/js/faculty/faculty-admin.js'),'utf8');
 test('legacy summary synchronization pairs every session set and delete with sanitized calendar and uses conservative batches',()=>{
  assert.match(source,/UCVM_CALENDAR_SESSION\.fromSource/);
  assert.match(source,/collection\(['"]calendar_sessions['"]\)/);
@@ -149,7 +149,7 @@ test('legacy summary synchronization pairs every session set and delete with san
 (() => {
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const DOE=require('../faculty-doe.js');
+const DOE=require('../web/js/faculty/faculty-doe.js');
 
 test('override DOE wins over contract DOE',()=>{
  assert.deepEqual(
@@ -182,7 +182,7 @@ test('server worksheet target is preferred when present',()=>{
 
 test('browser compatibility target helper has no policy engine dependency',()=>{
  const fs=require('node:fs'),path=require('node:path');
- const source=fs.readFileSync(path.join(__dirname,'../faculty-doe.js'),'utf8');
+ const source=fs.readFileSync(path.join(__dirname,'../web/js/faculty/faculty-doe.js'),'utf8');
  assert.doesNotMatch(source,/DOE_POLICY_ENGINE|doe-policy-engine|calculateTarget\(/);
  const target=DOE.effectiveTarget({doe:{teaching:40},doeOverride2026_27:{value:25,reason:'RSL'}});
  assert.deepEqual(target,{value:25,source:'override',reason:'RSL'});
@@ -198,7 +198,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const source = ['faculty-admin.html','faculty-admin.js','faculty-admin.css']
+const source = ['web/faculty-admin.html','web/js/faculty/faculty-admin.js','web/styles/faculty-admin.css']
   .map(name=>fs.readFileSync(path.resolve(__dirname, '..', name), 'utf8')).join('\n');
 
 test('Assigned AD is removed from faculty lookup, editor, filters, and exports', () => {
@@ -227,7 +227,7 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('faculty, HICC, and VISC can open Faculty Dashboard from the timetable',()=>{
- const src=read('asset-loader.js');
+ const src=read('web/js/core/asset-loader.js');
  assert.match(src,/function enableFacultyDashboardLink\(\)/);
  assert.match(src,/\['faculty','hicc','visc'\]\.includes\(UCVM\.role\(profile\?\.role\)\)/);
  assert.match(src,/button\.classList\.remove\('hidden'\)/);
@@ -236,7 +236,7 @@ test('faculty, HICC, and VISC can open Faculty Dashboard from the timetable',()=
 });
 
 test('faculty dashboard has a linked self-profile mode that does not subscribe to the faculty index',()=>{
- const src=read('faculty-admin.js');
+ const src=read('web/js/faculty/faculty-admin.js');
  assert.match(src,/function isSelfServiceProfile\(p\)\{return \['faculty','hicc','visc'\]\.includes\(String\(p\?\.role\|\|''\)\.toLowerCase\(\)\)\}/);
  assert.match(src,/async function loadSelfFaculty\(facultyId\)/);
  assert.match(src,/db\.collection\(COLLECTION\)\.doc\(String\(facultyId\)\)\.get\(\)/);
@@ -253,7 +253,7 @@ test('faculty dashboard has a linked self-profile mode that does not subscribe t
 });
 
 test('faculty self mode is full-width and removes admin navigation and editing',()=>{
- const src=read('faculty-admin.js');
+ const src=read('web/js/faculty/faculty-admin.js');
  assert.match(src,/document\.body\.classList\.add\('faculty-self-mode'\)/);
  assert.match(src,/const editButton=selfMode\?'':/);
  assert.match(src,/body\.faculty-self-mode \.tabs/);
@@ -264,13 +264,13 @@ test('faculty self mode is full-width and removes admin navigation and editing',
 });
 
 test('faculty record rules use the linked facultyId for get and keep list admin-only',()=>{
- const rules=read('firestore.rules');
+ const rules=read('firebase/firestore.rules');
  assert.match(rules,/function ownFacultyId\(id\)\{return facultyMember\(\) && profile\(\)\.facultyId is string && profile\(\)\.facultyId == id;\}/);
  assert.match(rules,/match \/faculty\/\{id\} \{\s*allow get: if admin\(\) \|\| ownFacultyId\(id\);\s*allow list: if admin\(\);/s);
 });
 
 test('admin-only enhancements keep their data subscription behind the administrator check',()=>{
- const src=read('faculty-admin-enhancements.js');
+ const src=read('web/js/faculty/faculty-admin-enhancements.js');
  const start=src.indexOf('const startFromPage=()=>');
  assert.ok(start>=0,'admin enhancement gate must exist');
  const body=src.slice(start,start+500);

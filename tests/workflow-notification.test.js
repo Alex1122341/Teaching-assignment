@@ -23,21 +23,21 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('request submission emits a sanitized assignment notification for every required office',()=>{
- const source=read('approval-request.js');
+ const source=read('web/js/approvals/approval-request.js');
  assert.match(source,/UCVM_WORKFLOW_NOTIFICATIONS/);
  assert.match(source,/request_assigned/);
  assert.match(source,/records\.workflow\.requiredOffices/);
 });
 
 test('routed workflow emits sanitized notifications for decision resubmit withdraw and apply lifecycle events',()=>{
- const source=read('approval-workflow.js');
+ const source=read('web/js/approvals/approval-workflow.js');
  for(const kind of ['office_decision','request_resubmitted','request_withdrawn','request_applied'])assert.match(source,new RegExp(kind),kind);
  assert.match(source,/notifications\.emitBatch/);
  assert.match(source,/notifications\.mount/);
 });
 
 test('ADC direct schedule-change signal persists only an ADFA assignment-recheck notification',()=>{
- const source=read('workflow-notifications.js');
+ const source=read('web/js/approvals/workflow-notifications.js');
  assert.match(source,/ucvm:assignment-recheck-required/);
  assert.match(source,/assignment_recheck_required/);
  assert.match(source,/office:'adfa'/);
@@ -53,9 +53,9 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const root=path.resolve(__dirname,'..');
-const rules=fs.readFileSync(path.join(root,'firestore.rules'),'utf8');
-const indexes=JSON.parse(fs.readFileSync(path.join(root,'firestore.indexes.json'),'utf8'));
-const css=fs.readFileSync(path.join(root,'timetable.css'),'utf8');
+const rules=fs.readFileSync(path.join(root,'firebase/firestore.rules'),'utf8');
+const indexes=JSON.parse(fs.readFileSync(path.join(root,'firebase/firestore.indexes.json'),'utf8'));
+const css=fs.readFileSync(path.join(root,'web/styles/timetable.css'),'utf8');
 
 test('workflow notification rules enforce sanitized shape role-scoped reads and readBy-only acknowledgement',()=>{
  assert.match(rules,/function\s+workflowNotificationShapeValid\(/);
@@ -98,7 +98,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
-function load(){const context={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'workflow-notifications.js'),'utf8'),context);return context.window.UCVM_WORKFLOW_NOTIFICATIONS;}
+function load(){const context={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/approvals/workflow-notifications.js'),'utf8'),context);return context.window.UCVM_WORKFLOW_NOTIFICATIONS;}
 
 test('notification builder allowlists office-safe fields and strips private Faculty data',()=>{
  const api=load();
@@ -128,7 +128,7 @@ test('emitBatch persists only the sanitized builder output',()=>{
 });
 
 test('notification client is role-scoped and acknowledges only readBy',()=>{
- const source=fs.readFileSync(path.join(root,'workflow-notifications.js'),'utf8');
+ const source=fs.readFileSync(path.join(root,'web/js/approvals/workflow-notifications.js'),'utf8');
  assert.match(source,/officesForProfile/);assert.match(source,/where\('recipientOffice','==',offices\[0\]\)/);assert.match(source,/where\('recipientOffice','in',offices\)/);
  assert.match(source,/orderBy\('createdAt','desc'\)/);
  assert.match(source,/arrayUnion\(user\.uid\)/);
@@ -136,10 +136,10 @@ test('notification client is role-scoped and acknowledges only readBy',()=>{
 });
 
 test('notification panel is published and loaded before timetable workflow consumers',()=>{
- const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),assets=JSON.parse(fs.readFileSync(path.join(root,'tools/static-assets.json'),'utf8'));
+ const html=fs.readFileSync(path.join(root,'web/index.html'),'utf8'),assets=JSON.parse(fs.readFileSync(path.join(root,'tools/static-assets.json'),'utf8'));
  assert.match(html,/id="workflow-notifications"/);
- assert.match(html,/src="workflow-notifications\.js"/);
- assert.ok(html.indexOf('workflow-notifications.js')<html.indexOf('timetable.js'));
- assert.ok(assets.includes('workflow-notifications.js'));
+ assert.match(html,/src="js\/approvals\/workflow-notifications\.js"/);
+ assert.ok(html.indexOf('js/approvals/workflow-notifications.js')<html.indexOf('js/timetable/timetable.js'));
+ assert.ok(assets.includes('js/approvals/workflow-notifications.js'));
 });
 })();

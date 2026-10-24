@@ -3,7 +3,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const setup=fs.readFileSync(path.join(__dirname,'../SETUP.md'),'utf8');
+const setup=fs.readFileSync(path.join(__dirname,'../docs/SETUP.md'),'utf8');
 
 test('setup documents safe linking of pre-existing ADC and LAB Authentication users without embedding credentials',()=>{
  assert.match(setup,/Link existing ADC\/LAB Authentication users/);

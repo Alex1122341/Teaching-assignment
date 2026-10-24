@@ -8,8 +8,8 @@ const args=process.argv.slice(2);
 const outArg=args.indexOf('--output');
 const output=path.resolve(root,outArg>=0&&args[outArg+1]?args[outArg+1]:'output/doe-api');
 const shared=[
- 'doe-formula.js','doe-policy-engine.js','doe-policy-repository.js','doe-policy-firestore.js','doe-policy-service.js',
- 'index-maintenance.js','data-index.js','faculty-doe.js','scheduling-core.js','calendar-session.js'
+ 'shared/doe-policy/doe-formula.js','shared/doe-policy/doe-policy-engine.js','shared/doe-policy/doe-policy-repository.js','shared/doe-policy/doe-policy-firestore.js','shared/doe-policy/doe-policy-service.js',
+ 'web/js/data-index/index-maintenance.js','web/js/data-index/data-index.js','web/js/faculty/faculty-doe.js','web/js/timetable/scheduling-core.js','web/js/timetable/calendar-session.js'
 ];
 function copyFile(rel){
  const from=path.join(root,rel),to=path.join(output,rel);

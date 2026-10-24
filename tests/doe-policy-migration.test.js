@@ -3,8 +3,8 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const ENGINE=require('../doe-policy-engine.js');
-const SERVICE=require('../doe-policy-service.js');
+const ENGINE=require('../shared/doe-policy/doe-policy-engine.js');
+const SERVICE=require('../shared/doe-policy/doe-policy-service.js');
 
 const seedPath=path.join(__dirname,'..','tools','doe-policy-2026-27-seed.json');
 const seed=JSON.parse(fs.readFileSync(seedPath,'utf8'));

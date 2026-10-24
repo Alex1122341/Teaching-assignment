@@ -15,7 +15,7 @@ const ROLES=[['lab','lab'],['developer','developer'],['owner','owner'],['adc','a
 // attributable to the roster guard rather than to a hand-written fixture.
 const vm=require('node:vm');
 const projectionContext={window:{}};
-vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../calendar-session.js'),'utf8'),projectionContext);
+vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../web/js/timetable/calendar-session.js'),'utf8'),projectionContext);
 const SOURCE={course:'601',date:'2027-06-01',start:'09:00',end:'11:00',type:'LAB',topic:'Neuro',instructor:'',assignments:[],facultyIds:[],updatedBy:'seed',updatedByName:'Seed'};
 // The projection is built inside a vm realm, so it is cloned into this realm
 // before it is handed to the Firestore SDK.
@@ -27,7 +27,7 @@ const CALENDAR={
 before(async()=>{
  if(!enabled)return;
  const {initializeTestEnvironment}=require('@firebase/rules-unit-testing');
- env=await initializeTestEnvironment({projectId:'demo-ucvm-lab-groups',firestore:{rules:fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8')}});
+ env=await initializeTestEnvironment({projectId:'demo-ucvm-lab-groups',firestore:{rules:fs.readFileSync(path.join(__dirname,'../firebase/firestore.rules'),'utf8')}});
  await env.clearFirestore();
  await env.withSecurityRulesDisabled(async ctx=>{
   const db=ctx.firestore();

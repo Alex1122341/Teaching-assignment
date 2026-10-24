@@ -2,10 +2,10 @@
 
 **Database:** `vista-teaching-lab` (Firestore Native, `northamerica-northeast1` / Montreal)
 **Purpose:** isolated development, test and CI database. Synthetic data only.
-**Canonical rules:** `firestore.rules` · **Indexes:** `firestore.indexes.json`
+**Canonical rules:** `firebase/firestore.rules` · **Indexes:** `firebase/firestore.indexes.json`
 
 This document is the authoritative description of the data model. Every collection,
-field, type and invariant listed here is enforced by `firestore.rules` and/or
+field, type and invariant listed here is enforced by `firebase/firestore.rules` and/or
 validated by `tests/seed-dataset.test.js`.
 
 > **Privacy invariant.** No real staff data may ever be written to this database.
@@ -82,7 +82,7 @@ for anyone but themselves.
 | Workload policy | `workloadPolicy2026_27`, `workloadPolicySource2026_27`, `workloadPolicyImportedAt2026_27`, `workloadPolicyImportedBy2026_27` |
 | Provenance | `bulkImportedAt`, `bulkImportedBy`, `updatedBy`, `updatedByName`, `updatedAt` |
 
-**DOE resolution order** (`faculty-doe.js`): approved override → contract DOE →
+**DOE resolution order** (`web/js/faculty/faculty-doe.js`): approved override → contract DOE →
 `null` (never silently zero). When a policy bundle is supplied the canonical
 engine is used instead and the result carries `policyVersionId`, `ruleId`, `ruleKey`.
 
@@ -215,7 +215,7 @@ only when `sha256` matches the parent's `pdfSha256`. Immutable afterwards.
 
 ## 6. Derived data (`settings/*`)
 
-All rebuildable. `index-maintenance.js` owns the rebuild.
+All rebuildable. `web/js/data-index/index-maintenance.js` owns the rebuild.
 
 | Document | Visibility | Contents |
 | --- | --- | --- |
@@ -341,8 +341,8 @@ These are recorded rather than hidden. Each is tracked in the audit report.
 | F3 / R06 / R07 — any faculty account could enumerate `/users` | `list` and `get` on `users` are now Owner-or-self only; faculty-role accounts read `settings/people_index` |
 | F4 / R08 — legacy approval could be marked applied without the write | `legacyAppliedCompanionWrite()` binds it to the paired session write |
 | F5 / R10 — `session_change_log` and `faculty_change_log` were mutable | both are append-only; `tests/audit-log-append-only-emulator.test.js` |
-| F13 — `faculty_swap_index` had no field allowlist | document envelope pinned in rules; per-entry allowlist enforced in `data-index.js` |
-| F1 / F2 — live project config hard-coded; previews reached live data | configuration moved to `firebase-config.js`; lab project created |
+| F13 — `faculty_swap_index` had no field allowlist | document envelope pinned in rules; per-entry allowlist enforced in `web/js/data-index/data-index.js` |
+| F1 / F2 — live project config hard-coded; previews reached live data | configuration moved to `web/js/core/firebase-config.js`; lab project created |
 | F9 — missing `.gitattributes` caused Windows phantom failures | `.gitattributes` added |
 | F10 — `npm test` silently skipped 67 tests | `npm run test:static` surfaces the count |
 | F8 — flaky emulator tests | unique project id per emulator file, guarded by `tests/emulator-isolation.test.js` |
@@ -353,7 +353,7 @@ These are recorded rather than hidden. Each is tracked in the audit report.
 
 ## DOE authoritative model and write boundary
 
-DOE is split into policy/configuration, source facts, derived evidence and audit collections. The browser may read only the subsets allowed by `firestore.rules`; authoritative mutation is performed by trusted admin tooling.
+DOE is split into policy/configuration, source facts, derived evidence and audit collections. The browser may read only the subsets allowed by `firebase/firestore.rules`; authoritative mutation is performed by trusted admin tooling.
 
 | Collection | Purpose | Browser write |
 | --- | --- | --- |

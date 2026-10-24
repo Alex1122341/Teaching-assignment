@@ -55,7 +55,7 @@ The browser is not authoritative for DOE formulas, rates, mappings, or determini
 
 ## App Service package
 
-The server imports shared DOE/domain modules from the repository root, so `server/` must **not** be deployed by itself. Build the App Service artifact from the repository root:
+The server imports shared DOE/domain modules from `shared/doe-policy/` and `web/js/`, so `server/` must **not** be deployed by itself. Build the App Service artifact from the repository root:
 
 ```bash
 node tools/build-doe-api.js

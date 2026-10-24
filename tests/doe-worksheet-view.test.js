@@ -3,7 +3,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const VIEW=require('../doe-worksheet-view.js');
+const VIEW=require('../web/js/doe/doe-worksheet-view.js');
 const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 
@@ -57,8 +57,8 @@ test('worksheet detail renders immutable rule and Reference provenance',()=>{
 });
 
 test('Faculty Lookup and DOE List consume the shared server worksheet API cache when configured',()=>{
- const lookup=read('faculty-admin.js');
- const list=read('faculty-admin-enhancements.js');
+ const lookup=read('web/js/faculty/faculty-admin.js');
+ const list=read('web/js/faculty/faculty-admin-enhancements.js');
  assert.match(lookup,/UCVM_DOE_API\.getFacultyWorksheet/);
  assert.match(lookup,/UCVM_DOE_API\.listFacultyDoe/);
  assert.match(lookup,/UCVM_DOE_WORKSHEET_VIEW/);
@@ -69,8 +69,8 @@ test('Faculty Lookup and DOE List consume the shared server worksheet API cache 
 });
 
 test('Lookup and DOE List fail closed instead of rendering legacy DOE when API is unavailable',()=>{
- const lookup=read('faculty-admin.js');
- const list=read('faculty-admin-enhancements.js');
+ const lookup=read('web/js/faculty/faculty-admin.js');
+ const list=read('web/js/faculty/faculty-admin-enhancements.js');
  assert.doesNotMatch(lookup,/if\(!doeApiConfigured\(\)\)return legacySummaryHtml/);
  assert.match(lookup,/DOE API[^\n]*not configured|authoritative DOE[^\n]*unavailable/i);
  assert.doesNotMatch(list,/if\(!apiDoeReady\(\)\)return legacyDoeRows\(\)/);

@@ -2,8 +2,8 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
-const DOE=require('../faculty-doe.js');
-const DATA_INDEX=require('../data-index.js');
+const DOE=require('../web/js/faculty/faculty-doe.js');
+const DATA_INDEX=require('../web/js/data-index/data-index.js');
 
 const cases=[
  ['object override',{doe:{teaching:40},doeOverride2026_27:{value:25,reason:'RSL'}},25,'RSL'],
@@ -34,16 +34,16 @@ test('faculty index and canonical helper agree when contract DOE is the effectiv
 });
 
 test('Faculty Dashboard DOE list delegates target and assigned aggregation to the canonical derived index',()=>{
- const source=fs.readFileSync(path.join(__dirname,'../faculty-admin-enhancements.js'),'utf8');
+ const source=fs.readFileSync(path.join(__dirname,'../web/js/faculty/faculty-admin-enhancements.js'),'utf8');
  assert.match(source,/UCVM_DATA_INDEX\.buildFacultyIndex\(/);
  assert.doesNotMatch(source,/num\(f\?\.doeOverride2026_27\?\.value\)/);
 });
 
 test('pages load canonical DOE before data-index consumers',()=>{
  for(const file of ['index.html','faculty-admin.html','user-management.html']){
-  const html=fs.readFileSync(path.join(__dirname,'..',file),'utf8');
-  const canonical=html.indexOf('src="faculty-doe.js"');
-  const consumer=html.indexOf('src="data-index.js"');
+  const html=fs.readFileSync(path.join(__dirname,'..','web',file),'utf8');
+  const canonical=html.indexOf('src="js/faculty/faculty-doe.js"');
+  const consumer=html.indexOf('src="js/data-index/data-index.js"');
   assert.ok(canonical>=0,`${file} must load faculty-doe.js`);
   assert.ok(consumer>=0,`${file} must load data-index.js`);
   assert.ok(canonical<consumer,`${file} must load faculty-doe.js before data-index.js`);
@@ -51,14 +51,14 @@ test('pages load canonical DOE before data-index consumers',()=>{
 });
 
 test('DOE List consumes the canonical faculty index and never derives assignment DOE from legacy rates',()=>{
- const source=fs.readFileSync(path.join(__dirname,'../faculty-admin-enhancements.js'),'utf8');
+ const source=fs.readFileSync(path.join(__dirname,'../web/js/faculty/faculty-admin-enhancements.js'),'utf8');
  assert.match(source,/UCVM_DATA_INDEX\.buildFacultyIndex\(/);
  assert.doesNotMatch(source,/doeRate/);
  assert.doesNotMatch(source,/function assignmentCredit/);
 });
 
 test('faculty profile historical DOE explanation reads immutable calculation snapshots',()=>{
- const source=fs.readFileSync(path.join(__dirname,'../faculty-admin.js'),'utf8');
+ const source=fs.readFileSync(path.join(__dirname,'../web/js/faculty/faculty-admin.js'),'utf8');
  assert.match(source,/doe_calculation_records/);
  for(const field of ['policyVersionId','ruleKey','inputsSnapshot','parametersSnapshot','resultDoe','calculatedAt','trigger'])assert.match(source,new RegExp(field));
 });

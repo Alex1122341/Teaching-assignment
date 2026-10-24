@@ -9,7 +9,7 @@
 
 This repository is **public**, and every pull request publishes a GitHub Pages
 preview site. Before this change the client configuration was hard-coded inside
-`faculty-access.js` and `faculty-admin.js` and pointed at the shared live project,
+`web/js/core/faculty-access.js` and `web/js/faculty/faculty-admin.js` and pointed at the shared live project,
 so a public preview URL talked to live data.
 
 The lab project fixes that:
@@ -18,7 +18,7 @@ The lab project fixes that:
 | --- | --- | --- |
 | Data | synthetic only (`tools/seed/dataset.js`) | real |
 | Public exposure | optional backend-integration target only; the active Pages demo does not connect to it | not used by the active test site |
-| Configuration | committed lab-targeting template (`firebase-config.js`) plus optional lab tooling for a later backend phase | legacy/future production configuration retained separately |
+| Configuration | committed lab-targeting template (`web/js/core/firebase-config.js`) plus optional lab tooling for a later backend phase | legacy/future production configuration retained separately |
 
 ---
 
@@ -26,12 +26,12 @@ The lab project fixes that:
 
 | File | Purpose |
 | --- | --- |
-| `firebase-config.js` | **Single source of truth** for real Firebase client configuration. The committed template targets the lab project with placeholder SDK values; GitHub Pages Frontend Demo Mode overrides Firebase only in the staged artifact and does not require a real Web config. |
+| `web/js/core/firebase-config.js` | **Single source of truth** for real Firebase client configuration. The committed template targets the lab project with placeholder SDK values; GitHub Pages Frontend Demo Mode overrides Firebase only in the staged artifact and does not require a real Web config. |
 | `.firebaserc` | Project aliases. `default` is the lab project, so a deploy without `--project` cannot reach production. |
 | `firebase.json` | Rules, indexes, hosting and emulator ports. |
-| `firestore.rules` | Authorisation model. See `docs/database/SCHEMA.md`. |
-| `firestore.indexes.json` | Composite indexes. |
-| `tools/build-firebase-config.js` | Regenerates `firebase-config.js` from the Firebase CLI without printing values. |
+| `firebase/firestore.rules` | Authorisation model. See `docs/database/SCHEMA.md`. |
+| `firebase/firestore.indexes.json` | Composite indexes. |
+| `tools/build-firebase-config.js` | Regenerates `web/js/core/firebase-config.js` from the Firebase CLI without printing values. |
 | `tools/seed-database.js` | Seeds a database (emulator or live). |
 | `tools/seed/dataset.js` | Deterministic synthetic dataset. |
 
@@ -40,8 +40,8 @@ The lab project fixes that:
 ## 3. Local development
 
 No cloud project and no credentials are required. When the page is served from
-`localhost`, `firebase-config.js` sets `UCVM_FIREBASE_EMULATOR`, and
-`faculty-access.js` points the SDK at the Emulator Suite.
+`localhost`, `web/js/core/firebase-config.js` sets `UCVM_FIREBASE_EMULATOR`, and
+`web/js/core/faculty-access.js` points the SDK at the Emulator Suite.
 
 ```bash
 npm ci
@@ -68,7 +68,7 @@ node tools/build-static.js    # writes .deploy-static/
 | `npm run db:verify` | confirm every seeded document is present |
 | `npm run db:seed:emulator` | seed the emulator |
 | `npm run db:deploy` | deploy rules and indexes to the lab project |
-| `npm run config:generate` | regenerate `firebase-config.js` |
+| `npm run config:generate` | regenerate `web/js/core/firebase-config.js` |
 | `npm run config:pin:lab` | fetch and pin the public `vista-teaching-lab` Web SDK config |
 | `npm run lab:bootstrap-user` | create/reuse a lab Auth user and synchronize its `users/{uid}` profile using Admin credentials |
 | `npm run lab:auth:check` | verify Email/Password + Pages authorized-domain readiness using Admin credentials |
@@ -84,7 +84,7 @@ node tools/build-static.js    # writes .deploy-static/
 node tools/build-firebase-config.js --project <project-id>
 ```
 
-The generator writes the values straight to `firebase-config.js` and prints only
+The generator writes the values straight to `web/js/core/firebase-config.js` and prints only
 the project id, so it is safe to run in a CI log.
 
 To deploy rules and indexes to a specific project:
@@ -142,9 +142,9 @@ Azure production workflows remain paused/fallback infrastructure and are not pre
 ## 8. Adding a new collection
 
 1. Add the collection and its fields to `docs/database/SCHEMA.md`.
-2. Add `match` rules to `firestore.rules` with an explicit `hasOnly(...)` field
+2. Add `match` rules to `firebase/firestore.rules` with an explicit `hasOnly(...)` field
    allowlist and `update`/`delete` decisions.
-3. Add composite indexes to `firestore.indexes.json` if any query needs them.
+3. Add composite indexes to `firebase/firestore.indexes.json` if any query needs them.
 4. Add synthetic documents to `tools/seed/dataset.js`.
 5. Re-seed and verify: `npm run db:seed && npm run db:verify`.
 6. Deploy: `npm run db:deploy`.

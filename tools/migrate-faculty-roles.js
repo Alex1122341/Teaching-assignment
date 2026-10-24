@@ -1,6 +1,6 @@
 'use strict';
 const fs=require('node:fs');
-const planner=require('../faculty-account-planner.js');
+const planner=require('../web/js/accounts/faculty-account-planner.js');
 const [inputPath,outputPath]=process.argv.slice(2);
 if(!inputPath||!outputPath)throw new Error('Usage: node tools/migrate-faculty-roles.js input.json output.json');
 const source=JSON.parse(fs.readFileSync(inputPath,'utf8'));

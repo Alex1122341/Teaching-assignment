@@ -8,11 +8,11 @@ const root=path.resolve(__dirname,'..');
 
 function load(){
  const context={window:{},Date};
- vm.runInNewContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/scheduling-core.js'),'utf8'),context);
  // Field ownership is derived from the canonical modules, so the harness must load them.
- vm.runInNewContext(fs.readFileSync(path.join(root,'office-capabilities.js'),'utf8'),context);
- vm.runInNewContext(fs.readFileSync(path.join(root,'session-workflow.js'),'utf8'),context);
- vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/core/office-capabilities.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/session-workflow.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/timetable-selection.js'),'utf8'),context);
  return context.window.UCVM_TIMETABLE_SELECTION;
 }
 const plain=value=>JSON.parse(JSON.stringify(value));
@@ -20,7 +20,7 @@ const baseSession={id:'s1',date:'2026-10-07',year:1,course:'204',type:'LEC',star
 
 test('selection module requires the canonical scheduling core',()=>{
  const context={window:{},Date};
- assert.throws(()=>vm.runInNewContext(fs.readFileSync(path.join(root,'timetable-selection.js'),'utf8'),context),/scheduling core/i);
+ assert.throws(()=>vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/timetable-selection.js'),'utf8'),context),/scheduling core/i);
 });
 
 test('selection persists by session id, toggles, clears, and enforces 200 limit',()=>{

@@ -4,6 +4,9 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 
 const root=path.resolve(__dirname,'..');
+// Browser sources live under web/; manifest paths are relative to it and are
+// published at the same relative path inside .deploy-static.
+const webRoot=path.join(root,'web');
 const sourceManifestPath=path.join(__dirname,'static-assets.json');
 const bundleManifestPath=path.join(__dirname,'runtime-bundles.json');
 
@@ -41,7 +44,7 @@ function allBundles(config){return [...startupBundles(config),...lazyBundles(con
 function bundleForPage(config,page){
  return startupBundles(config).filter(bundle=>bundle.pages.includes(page));
 }
-function validateBundleConfig({root:rootDir=root,sourceManifest,config}){
+function validateBundleConfig({root:rootDir=webRoot,sourceManifest,config}){
  if(!Array.isArray(sourceManifest)||!sourceManifest.length)throw Error('Static source manifest must be a non-empty array.');
  if(new Set(sourceManifest).size!==sourceManifest.length)throw Error('Static source manifest contains duplicates.');
  if(!config||config.version!==1||!Array.isArray(config.bundles)||!config.bundles.length)throw Error('Runtime bundle manifest version 1 with bundles is required.');
@@ -113,7 +116,7 @@ function rewriteHtmlForPage(html,page,config,bundlePaths){
   return entry.index===0?`<script src="${bundleOutputFor(entry.bundle.output,bundlePaths)}"></script>`:'';
  });
 }
-function buildBundleArtifacts({rootDir=root,config}){
+function buildBundleArtifacts({rootDir=webRoot,config}){
  const bundlePaths=new Map(),artifacts=[];
  const buildOne=(bundle,kind)=>{
   const parts=bundle.sources.map(source=>({source,content:fs.readFileSync(path.resolve(rootDir,source),'utf8')}));
@@ -134,7 +137,7 @@ function buildBundleArtifacts({rootDir=root,config}){
  }
  return{bundlePaths,artifacts};
 }
-function deploymentPlan({root:rootDir=root,sourceManifest,config}){
+function deploymentPlan({root:rootDir=webRoot,sourceManifest,config}){
  validateBundleConfig({root:rootDir,sourceManifest,config});
  const htmlPages=sourceManifest.filter(asset=>asset.endsWith('.html')),directPages=new Map();
  for(const page of htmlPages){
@@ -162,12 +165,12 @@ function deploymentPlan({root:rootDir=root,sourceManifest,config}){
  const deployedJsCount=copyAssets.filter(asset=>asset.endsWith('.js')).length+generatedBundles.filter(asset=>asset.endsWith('.js')).length;
  return{copyAssets,omittedSources,generatedBundles,deployedJsCount};
 }
-function buildStatic({rootDir=root,outputDir=path.join(root,'.deploy-static'),sourceManifest=readJson(sourceManifestPath),config=readJson(bundleManifestPath)}={}){
+function buildStatic({rootDir=root,sourceDir=path.join(rootDir,'web'),outputDir=path.join(root,'.deploy-static'),sourceManifest=readJson(sourceManifestPath),config=readJson(bundleManifestPath)}={}){
  const output=path.resolve(outputDir),allowedOutput=path.join(rootDir,'.deploy-static');
  if(output!==allowedOutput||!output.startsWith(rootDir+path.sep))throw Error('Static build output must be the repository .deploy-static directory.');
- validateBundleConfig({root:rootDir,sourceManifest,config});
- const plan=deploymentPlan({root:rootDir,sourceManifest,config});
- const generated=buildBundleArtifacts({rootDir,config});
+ validateBundleConfig({root:sourceDir,sourceManifest,config});
+ const plan=deploymentPlan({root:sourceDir,sourceManifest,config});
+ const generated=buildBundleArtifacts({rootDir:sourceDir,config});
  const metadataDir=path.join(rootDir,'.deploy-metadata'),metaPath=path.join(metadataDir,'deployment-assets.json');
  fs.rmSync(output,{recursive:true,force:true});
  fs.rmSync(metadataDir,{recursive:true,force:true});
@@ -184,8 +187,8 @@ function buildStatic({rootDir=root,outputDir=path.join(root,'.deploy-static'),so
  };
  for(const relative of plan.copyAssets){
   if(!safeRelative(relative))throw Error(`Unsafe static asset path: ${relative}`);
-  const source=path.resolve(rootDir,relative);
-  if(!source.startsWith(rootDir+path.sep)||!fs.existsSync(source)||!fs.statSync(source).isFile())throw Error(`Required static asset is missing: ${relative}`);
+  const source=path.resolve(sourceDir,relative);
+  if(!source.startsWith(sourceDir+path.sep)||!fs.existsSync(source)||!fs.statSync(source).isFile())throw Error(`Required static asset is missing: ${relative}`);
   if(relative.endsWith('.html'))write(relative,rewriteHtmlForPage(fs.readFileSync(source,'utf8'),relative,config,generated.bundlePaths));
   else write(relative,fs.readFileSync(source));
  }
@@ -215,4 +218,4 @@ if(require.main===module){
  const output=path.resolve(outputArg>=0?process.argv[outputArg+1]:path.join(root,'.deploy-static'));
  buildStatic({outputDir:output});
 }
-module.exports={contentHash,hashedBundleOutput,bundleOutputFor,rewriteGeneratedBundleReferences,safeRelative,localScripts,startupBundles,lazyBundles,allBundles,validateBundleConfig,bundleText,rewriteHtmlForPage,buildBundleArtifacts,deploymentPlan,buildStatic};
+module.exports={webRoot,contentHash,hashedBundleOutput,bundleOutputFor,rewriteGeneratedBundleReferences,safeRelative,localScripts,startupBundles,lazyBundles,allBundles,validateBundleConfig,bundleText,rewriteHtmlForPage,buildBundleArtifacts,deploymentPlan,buildStatic};

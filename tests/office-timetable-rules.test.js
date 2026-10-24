@@ -1,5 +1,5 @@
 'use strict';
-const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const rules=fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8');
+const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const rules=fs.readFileSync(path.join(__dirname,'../firebase/firestore.rules'),'utf8');
 test('office timetable rules define paired calendar integrity and office field scopes',()=>{
  assert.match(rules,/function adc\(\)/);
  assert.match(rules,/function lab\(\)/);

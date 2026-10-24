@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const {createWorksheetService}=require('../server/src/doe/worksheet-service.js');
-const VIEW=require('../doe-worksheet-view.js');
+const VIEW=require('../web/js/doe/doe-worksheet-view.js');
 
 const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
@@ -42,7 +42,7 @@ test('worksheet view can resolve the authoritative DOE line for a timetable assi
 });
 
 test('Faculty Lookup activity DOE cells use the server worksheet instead of raw legacy assignment credit',()=>{
- const source=read('faculty-admin.js');
+ const source=read('web/js/faculty/faculty-admin.js');
  const start=source.indexOf('function activitiesHtml');
  const end=source.indexOf('function workloadBreakdownHtml',start);
  const fn=source.slice(start,end);
@@ -52,7 +52,7 @@ test('Faculty Lookup activity DOE cells use the server worksheet instead of raw 
 });
 
 test('DOE List navigation owns the whole Faculty Dashboard panel state',()=>{
- const source=read('faculty-admin-enhancements.js');
+ const source=read('web/js/faculty/faculty-admin-enhancements.js');
  const start=source.indexOf('function ensureDoeView');
  const end=source.indexOf('function updateDoeFilters',start);
  const fn=source.slice(start,end);
@@ -64,7 +64,7 @@ test('DOE List navigation owns the whole Faculty Dashboard panel state',()=>{
 
 
 test('Faculty Dashboard actually loads deferred DOE admin enhancements for administrators only',()=>{
- const source=read('faculty-admin.js');
+ const source=read('web/js/faculty/faculty-admin.js');
  const loaderStart=source.indexOf('function ensureFacultyAdminEnhancements');
  const loaderEnd=source.indexOf('\nfunction',loaderStart+20);
  const loader=source.slice(loaderStart,loaderEnd);
@@ -80,7 +80,7 @@ test('Faculty Dashboard actually loads deferred DOE admin enhancements for admin
 
 
 test('Teaching Summary uses the authoritative bulk DOE list instead of the legacy derived index',()=>{
- const source=read('faculty-admin.js');
+ const source=read('web/js/faculty/faculty-admin.js');
  assert.match(source,/UCVM_DOE_API\.listFacultyDoe/);
  const start=source.indexOf('function renderSummary');
  const end=source.indexOf('function allRoleRows',start);
@@ -91,10 +91,10 @@ test('Teaching Summary uses the authoritative bulk DOE list instead of the legac
 
 
 test('DOE role editor loads, updates, and deactivates authoritative server assignments',()=>{
- const client=read('doe-api-client.js');
+ const client=read('web/js/doe/doe-api-client.js');
  assert.match(client,/listRoleAssignments/);
  assert.match(client,/deactivateRoleAssignment/);
- const source=read('faculty-admin-enhancements.js');
+ const source=read('web/js/faculty/faculty-admin-enhancements.js');
  assert.match(source,/UCVM_DOE_API\.listRoleAssignments/);
  assert.match(source,/UCVM_DOE_API\.deactivateRoleAssignment/);
  assert.match(source,/assignmentFactId/);
@@ -110,7 +110,7 @@ test('DOE routes expose admin-only role assignment list and deactivate operation
 
 
 test('Faculty Lookup list uses one bulk DOE summary and reserves full worksheet loads for selected detail',()=>{
- const source=read('faculty-admin.js');
+ const source=read('web/js/faculty/faculty-admin.js');
  const start=source.indexOf('function lookupDoeMeta');
  const end=source.indexOf('function display',start);
  const fn=source.slice(start,end);
@@ -131,7 +131,7 @@ test('DOE list summaries carry authoritative target metadata for badges and mana
 
 
 test('Roles and Appointments never presents legacy workload calculations as current DOE',()=>{
- const source=read('faculty-admin.js');
+ const source=read('web/js/faculty/faculty-admin.js');
  const start=source.indexOf('function roleDoeHtml');
  const end=source.indexOf('function rolesHtml',start);
  const fn=source.slice(start,end);
@@ -163,7 +163,7 @@ test('bulk DOE summary carries current role assignments without full worksheet d
 });
 
 test('Faculty Dashboard exposes one shared bulk DOE cache to deferred enhancements',()=>{
- const core=read('faculty-admin.js'),enhancement=read('faculty-admin-enhancements.js');
+ const core=read('web/js/faculty/faculty-admin.js'),enhancement=read('web/js/faculty/faculty-admin-enhancements.js');
  assert.match(core,/UCVM_ADMIN_DATA=.*doeList/);
  assert.match(core,/loadDoeSummaryList/);
  assert.match(enhancement,/UCVM_ADMIN_DATA\?\.doeList/);
@@ -173,7 +173,7 @@ test('Faculty Dashboard exposes one shared bulk DOE cache to deferred enhancemen
 });
 
 test('Roles and Appointments lists current server role assignments before legacy migration evidence',()=>{
- const source=read('faculty-admin-enhancements.js');
+ const source=read('web/js/faculty/faculty-admin-enhancements.js');
  const start=source.indexOf('function appendManagedRoleRows');
  const end=source.indexOf('function queueManagedRoles',start);
  const fn=source.slice(start,end);
@@ -184,7 +184,7 @@ test('Roles and Appointments lists current server role assignments before legacy
 
 
 test('Faculty Dashboard labels authoritative DOE summaries separately from legacy migration sources',()=>{
- const html=read('faculty-admin.html');
+ const html=read('web/faculty-admin.html');
  assert.match(html,/Assigned DOE and current role counts come from the authoritative server DOE summary/);
  assert.match(html,/Current server role assignments are authoritative/);
  assert.match(html,/legacy migration evidence/i);
@@ -192,7 +192,7 @@ test('Faculty Dashboard labels authoritative DOE summaries separately from legac
 
 
 test('Roles search and type filters re-append current server and legacy evidence rows after the base table rerenders',()=>{
- const source=read('faculty-admin-enhancements.js');
+ const source=read('web/js/faculty/faculty-admin-enhancements.js');
  assert.match(source,/roles-search/);
  assert.match(source,/role-type-filter/);
  assert.match(source,/scheduleRoleAppend/);
@@ -200,7 +200,7 @@ test('Roles search and type filters re-append current server and legacy evidence
 
 
 test('Faculty Dashboard KPI strip uses authoritative bulk DOE and current server role assignments',()=>{
- const source=read('faculty-admin.js');
+ const source=read('web/js/faculty/faculty-admin.js');
  const start=source.indexOf('function updateKpis');
  const end=source.indexOf('function unique',start);
  const fn=source.slice(start,end);
@@ -210,15 +210,15 @@ test('Faculty Dashboard KPI strip uses authoritative bulk DOE and current server
 });
 
 test('legacy workload import status is labelled as evidence rather than current DOE authority',()=>{
- const html=read('faculty-admin.html');
- const source=read('faculty-admin.js');
+ const html=read('web/faculty-admin.html');
+ const source=read('web/js/faculty/faculty-admin.js');
  assert.match(html,/Legacy workload evidence: checking/);
  assert.match(source,/legacy workload evidence/);
 });
 
 
 test('Faculty Profile role section includes current server assignments even when the legacy source summary has no roles',()=>{
- const source=read('faculty-admin.js');
+ const source=read('web/js/faculty/faculty-admin.js');
  const start=source.indexOf('function serverRoleRows');
  const end=source.indexOf('function activityAssignmentId',start);
  const fn=source.slice(start,end);
@@ -231,7 +231,7 @@ test('Faculty Profile role section includes current server assignments even when
 
 
 test('DOE assignment and target saves invalidate the selected Faculty Worksheet and refresh the shared bulk summary',()=>{
- const core=read('faculty-admin.js'),enhancement=read('faculty-admin-enhancements.js');
+ const core=read('web/js/faculty/faculty-admin.js'),enhancement=read('web/js/faculty/faculty-admin-enhancements.js');
  assert.match(core,/async function refreshDoeFaculty/);
  assert.match(core,/doeWorksheetByFaculty\.delete/);
  assert.match(core,/loadDoeSummaryList\(\{force:true\}\)/);
@@ -244,7 +244,7 @@ test('DOE assignment and target saves invalidate the selected Faculty Worksheet 
 
 
 test('Roles tab keeps source-summary rows as evidence and reserves current DOE for Current server rows',()=>{
- const source=read('faculty-admin.js');
+ const source=read('web/js/faculty/faculty-admin.js');
  const start=source.indexOf('function renderRoles');
  const end=source.indexOf('function renderSessional',start);
  const fn=source.slice(start,end);
@@ -256,7 +256,7 @@ test('Roles tab keeps source-summary rows as evidence and reserves current DOE f
 
 
 test('Teaching Summary Current Roles never falls back to legacy source-summary role counts',()=>{
- const source=read('faculty-admin.js');
+ const source=read('web/js/faculty/faculty-admin.js');
  const start=source.indexOf('function renderSummary');
  const end=source.indexOf('function allRoleRows',start);
  const fn=source.slice(start,end);

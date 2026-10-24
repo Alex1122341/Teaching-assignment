@@ -16,7 +16,7 @@
 // ------------------------------------------------------------------------
 (() => {
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
-const rules=fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8');
+const rules=fs.readFileSync(path.join(__dirname,'../firebase/firestore.rules'),'utf8');
 test('maintenance source writes require a synchronized calendar companion',()=>{assert.match(rules,/function maintenanceSessionWrite\(id\)[\s\S]*calendarMatchesSourceAfter\(id\)/);assert.match(rules,/allow create:[^\n]*maintenanceSessionWrite\(id\)/);assert.match(rules,/allow update:[^\n]*maintenanceSessionWrite\(id\)/);assert.match(rules,/allow delete:[^\n]*maintenanceSessionDelete\(id\)/);});
 test('calendar repair is General-only and matches the current private source',()=>{assert.match(rules,/function generalCalendarRepair\(id\)/);assert.match(rules,/general\(\)[\s\S]*calendarMatchesCurrentSource\(id\)/);assert.match(rules,/allow (?:create|update):[^\n]*generalCalendarRepair\(id\)/);});
 })();
@@ -26,7 +26,7 @@ test('calendar repair is General-only and matches the current private source',()
 // ------------------------------------------------------------------------
 (() => {
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const vm=require('node:vm');const root=path.resolve(__dirname,'..');
-function load(){const window={};vm.runInNewContext(fs.readFileSync(path.join(root,'calendar-session.js'),'utf8'),{window});vm.runInNewContext(fs.readFileSync(path.join(root,'calendar-session-maintenance.js'),'utf8'),{window});return window.UCVM_CALENDAR_SESSION_MAINTENANCE;}
+function load(){const window={};vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/calendar-session.js'),'utf8'),{window});vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/calendar-session-maintenance.js'),'utf8'),{window});return window.UCVM_CALENDAR_SESSION_MAINTENANCE;}
 const source={id:'s1',course:'505',courseName:'Clinical Skills III',year:3,semester:'winter',week:8,date:'2027-03-22',start:'14:45',end:'16:15',timeUnknown:false,type:'LAB',topic:'Suturing',room:'CSB 116',instructor:'Jane Smith',assignments:[{ucid:'f1',name:'Jane Smith',doeCredit:.5}]};
 const clean={sessionId:'s1',course:'505',courseName:'Clinical Skills III',year:3,semester:'winter',week:8,date:'2027-03-22',start:'14:45',end:'16:15',timeUnknown:false,type:'LAB',topic:'Suturing',room:'CSB 116',instructorNames:['Jane Smith'],instructor:'Jane Smith'};
 test('calendar compare identifies missing stale wrong and private documents',()=>{const api=load();let r=api.compare([source],[]);assert.equal(r.ok,false);assert.equal(r.mismatches[0].kind,'missing');r=api.compare([],[clean]);assert.equal(r.mismatches[0].kind,'stale');r=api.compare([source],[{...clean,room:'Wrong'}]);assert.equal(r.mismatches[0].kind,'mismatch');r=api.compare([source],[{...clean,facultyIds:['f1']}]);assert.equal(r.mismatches[0].kind,'private_field');});
@@ -38,7 +38,7 @@ test('calendar compare reports exact sanitized mirror healthy',()=>{const r=load
 // ------------------------------------------------------------------------
 (() => {
 const test=require('node:test'),assert=require('node:assert/strict');
-const load=()=>require('../calendar-session.js');
+const load=()=>require('../web/js/timetable/calendar-session.js');
 const source=()=>({id:'s1',course:'505',courseName:'Clinical Skills III',year:3,semester:'winter',week:8,date:'2027-03-22',start:'14:45',end:'16:15',timeUnknown:false,type:'LAB',topic:'Pre-Op Lab',room:'CSB 116',instructor:'Jane Smith; Alex Faculty',facultyIds:['private-id-1','private-id-2'],assignments:[{ucid:'private-id-1',name:'Jane Smith',email:'private@example.test',doeCredit:1.25},{ucid:'private-id-2',name:'Alex Faculty',doeCredit:1.25}],awayFromCampusRecords:[{startDate:'private-date',reason:'private-reason'}],extraPrivate:{email:'hidden@example.test'}});
 test('calendar sanitizer exposes exactly the public scheduling schema and names',()=>{
  const input=source(),before=structuredClone(input),clean=load().fromSource(input,'s1');
@@ -69,7 +69,7 @@ test('sanitizer does not reconstruct authoritative instructor text from private 
  assert.equal(clean.instructor,'');assert.deepEqual(clean.instructorNames,[]);
 });
 test('browser and Node exports produce identical calendar data',()=>{
- const fs=require('node:fs'),vm=require('node:vm'),ctx={window:{}};vm.runInNewContext(fs.readFileSync(require.resolve('../calendar-session.js'),'utf8'),ctx);
+ const fs=require('node:fs'),vm=require('node:vm'),ctx={window:{}};vm.runInNewContext(fs.readFileSync(require.resolve('../web/js/timetable/calendar-session.js'),'utf8'),ctx);
  assert.deepEqual(JSON.parse(JSON.stringify(ctx.window.UCVM_CALENDAR_SESSION.fromSource(source(),'s1'))),load().fromSource(source(),'s1'));
 });
 })();

@@ -1,9 +1,9 @@
 'use strict';
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const realCore=require('../bulk-import-core.js');
-const backup=require('../bulk-import-backup.js');
-const controllerModule=require('../bulk-import-controller.js');
+const realCore=require('../web/js/bulk-import/bulk-import-core.js');
+const backup=require('../web/js/bulk-import/bulk-import-backup.js');
+const controllerModule=require('../web/js/bulk-import/bulk-import-controller.js');
 
 const enc=new TextEncoder(),DELETE=Symbol('delete'),clone=value=>JSON.parse(JSON.stringify(value));
 const smallCore={...realCore,FACULTY_BATCH_SIZE:2,SESSION_BATCH_SIZE:2,STALE_BATCH_SIZE:2};

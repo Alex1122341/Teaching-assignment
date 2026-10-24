@@ -23,7 +23,7 @@ const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
 function load(){
  const context={window:{}};
- for(const file of ['scheduling-core.js','calendar-session.js','approval-finalizer.js'])vm.runInNewContext(fs.readFileSync(path.join(root,file),'utf8'),context);
+ for(const file of ['web/js/timetable/scheduling-core.js','web/js/timetable/calendar-session.js','web/js/approvals/approval-finalizer.js'])vm.runInNewContext(fs.readFileSync(path.join(root,file),'utf8'),context);
  return context.window.UCVM_APPROVAL_FINALIZER;
 }
 
@@ -66,7 +66,7 @@ test('faculty swap blocks if the outgoing assignment or public stale base change
 (() => {
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const indexes=require('../firestore.indexes.json');
+const indexes=require('../firebase/firestore.indexes.json');
 function fields(name){return indexes.indexes.filter(i=>i.collectionGroup===name).map(i=>i.fields.map(f=>f.fieldPath));}
 test('office approval queue and requester request queries have composite indexes',()=>{
   assert.ok(fields('change_request_approvals').some(f=>f.join(',')==='office,status,updatedAt'));
@@ -87,20 +87,20 @@ const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('shared routed request module is published before both submission clients',()=>{
   const manifest=JSON.parse(read('tools/static-assets.json'));
-  assert.ok(manifest.includes('approval-request.js'));
-  const index=read('index.html');
-  assert.ok(index.indexOf('approval-routing.js')<index.indexOf('approval-request.js'));
-  assert.ok(index.indexOf('approval-request.js')<index.indexOf('asset-loader.js'));
-  const admin=read('faculty-admin.html');
-  assert.ok(admin.indexOf('approval-request.js')>=0);
-  assert.ok(admin.indexOf('approval-request.js')<admin.indexOf('faculty-swap-safe.js'));
-  const loader=read('asset-loader.js');
-  assert.match(loader,/loadScriptOnce\('approval-request\.js','UCVM_APPROVAL_REQUEST'\)/);
-  assert.ok(loader.indexOf("approval-request.js")<loader.indexOf("faculty-swap-safe.js"));
+  assert.ok(manifest.includes('js/approvals/approval-request.js'));
+  const index=read('web/index.html');
+  assert.ok(index.indexOf('js/approvals/approval-routing.js')<index.indexOf('js/approvals/approval-request.js'));
+  assert.ok(index.indexOf('js/approvals/approval-request.js')<index.indexOf('js/core/asset-loader.js'));
+  const admin=read('web/faculty-admin.html');
+  assert.ok(admin.indexOf('js/approvals/approval-request.js')>=0);
+  assert.ok(admin.indexOf('js/approvals/approval-request.js')<admin.indexOf('js/faculty/faculty-swap-safe.js'));
+  const loader=read('web/js/core/asset-loader.js');
+  assert.match(loader,/loadScriptOnce\('js\/approvals\/approval-request\.js','UCVM_APPROVAL_REQUEST'\)/);
+  assert.ok(loader.indexOf("js/approvals/approval-request.js")<loader.indexOf("js/faculty/faculty-swap-safe.js"));
 });
 
 test('legacy and privacy-safe swap submissions both use the split routed request writer',()=>{
-  const workflow=read('approval-workflow.js'),safe=read('faculty-swap-safe.js');
+  const workflow=read('web/js/approvals/approval-workflow.js'),safe=read('web/js/faculty/faculty-swap-safe.js');
   assert.match(workflow,/UCVM_APPROVAL_REQUEST\.submit\(/);
   assert.match(safe,/UCVM_APPROVAL_REQUEST\.submit\(/);
   assert.doesNotMatch(safe,/db\.collection\(REQUESTS\)\.add\(payload\)/);
@@ -122,7 +122,7 @@ const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
 function load(){
   const context={window:{}};
-  vm.runInNewContext(fs.readFileSync(path.join(root,'approval-routing.js'),'utf8'),context);
+  vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/approvals/approval-routing.js'),'utf8'),context);
   return context.window.UCVM_APPROVAL_ROUTING;
 }
 
@@ -180,7 +180,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const rules=fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8');
+const rules=fs.readFileSync(path.join(__dirname,'../firebase/firestore.rules'),'utf8');
 
 test('routed approval collections have explicit privacy boundaries',()=>{
   assert.match(rules,/function\s+routedRequest\(/);
@@ -234,7 +234,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
-function load(){const context={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'approval-scheduling.js'),'utf8'),context);return context.window.UCVM_APPROVAL_SCHEDULING}
+function load(){const context={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/approvals/approval-scheduling.js'),'utf8'),context);return context.window.UCVM_APPROVAL_SCHEDULING}
 const plain=value=>JSON.parse(JSON.stringify(value));
 
 test('approval scheduling policy requires deliberate override only for real conflicts',()=>{
@@ -264,7 +264,7 @@ const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
 function load(){
   const context={window:{}};
-  vm.runInNewContext(fs.readFileSync(path.join(root,'approval-state.js'),'utf8'),context);
+  vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/approvals/approval-state.js'),'utf8'),context);
   return context.window.UCVM_APPROVAL_STATE;
 }
 
@@ -356,7 +356,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const root=path.resolve(__dirname,'..');
-const source=()=>fs.readFileSync(path.join(root,'approval-workflow.js'),'utf8');
+const source=()=>fs.readFileSync(path.join(root,'web/js/approvals/approval-workflow.js'),'utf8');
 
 test('workflow distinguishes office approvers from ADFA private approvers',()=>{
  const s=source();
@@ -453,7 +453,7 @@ const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
 function load(){
   const context={window:{}};
-  vm.runInNewContext(fs.readFileSync(path.join(root,'approval-office-view.js'),'utf8'),context);
+  vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/approvals/approval-office-view.js'),'utf8'),context);
   return context.window.UCVM_APPROVAL_OFFICE_VIEW;
 }
 
@@ -508,7 +508,7 @@ const root=path.resolve(__dirname,'..');
 const read=relative=>fs.readFileSync(path.join(root,relative),'utf8');
 
 test('Developer approval UI exposes ADC LAB and ADFA scopes without changing ordinary role routing',()=>{
- const source=read('approval-workflow.js');
+ const source=read('web/js/approvals/approval-workflow.js');
  assert.match(source,/const isDeveloper=\(\)=>role==='developer'/);
  assert.match(source,/approvalOffices=\(\)=>isDeveloper\(\)\?\['adc','lab','adfa'\]/);
  assert.match(source,/routedOfficeActionHtml\(r,currentOffice\)/);

@@ -1,6 +1,6 @@
 (function(root,factory){
- const doe=typeof module==='object'&&module.exports?require('./faculty-doe.js'):root?.UCVM_FACULTY_DOE;
- const scheduling=typeof module==='object'&&module.exports?require('./scheduling-core.js'):root?.UCVM_SCHEDULING;
+ const doe=typeof module==='object'&&module.exports?require('../faculty/faculty-doe.js'):root?.UCVM_FACULTY_DOE;
+ const scheduling=typeof module==='object'&&module.exports?require('../timetable/scheduling-core.js'):root?.UCVM_SCHEDULING;
  const api=factory(doe,scheduling);
  if(typeof module==='object'&&module.exports)module.exports=api;
  if(root)root.UCVM_DATA_INDEX=api;

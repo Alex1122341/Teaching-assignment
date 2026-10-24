@@ -40,8 +40,8 @@ function stubDocument(){
 }
 function loadModule(){
  const context={window:{}};
- vm.runInNewContext(read('session-workflow.js'),context);
- vm.runInNewContext(read('work-queue.js'),context);
+ vm.runInNewContext(read('web/js/timetable/session-workflow.js'),context);
+ vm.runInNewContext(read('web/js/timetable/work-queue.js'),context);
  return{workflow:context.window.UCVM_SESSION_WORKFLOW,queue:context.window.UCVM_WORK_QUEUE};
 }
 const lec=extra=>({id:'s-lec',type:'LEC',date:'2027-01-11',year:1,course:'200',start:'08:00',end:'09:00',topic:'Intro',room:'A100',...extra});
@@ -183,7 +183,7 @@ test('completing all required work removes the item and hides the button',()=>{
 test('explicit office access combines delegated office work without inventing other stages',()=>{const {workflow,queue}=loadModule(),sessions=[lec({room:''}),lab({topic:'Lab topic',labGroupIds:[]})];const view=queue.buildViewModel({sessions,role:'owner',offices:['adc','lab'],workflow});assert.equal(view.stage,'all');assert.equal(view.label,`Office Work (${view.total})`);assert.ok(view.items.some(item=>item.stage==='adc'));assert.ok(view.items.some(item=>item.stage==='lab'));assert.equal(view.items.some(item=>item.stage==='adfa'),false);});
 
 test('mounted Work Queue derives office stages from the current profile access grants',()=>{
- const source=read('work-queue.js');
+ const source=read('web/js/timetable/work-queue.js');
  assert.match(source,/const profile=page\.profile\?\.\(\)\|\|\{\}/);
  assert.match(source,/officesForProfile\?\.\(profile\)/);
  assert.match(source,/buildViewModel\(\{sessions:page\.sessions\(\)\|\|\[\],role,offices,/);
@@ -198,7 +198,7 @@ test('LAB Work Queue completion follows live roster context instead of a stored 
 });
 
 test('mounted Work Queue consumes the page workflow context and asks the page to load it',()=>{
- const source=read('work-queue.js');
+ const source=read('web/js/timetable/work-queue.js');
  assert.match(source,/page\.workflowContext\?\.\(\)/);
  assert.match(source,/page\.ensureWorkflowContext==='function'/);
  assert.match(source,/await page\.ensureWorkflowContext\(\)/);

@@ -1,9 +1,9 @@
 'use strict';
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const ENGINE=require('../doe-policy-engine.js');
-const REPO=require('../doe-policy-repository.js');
-const SERVICE=require('../doe-policy-service.js');
+const ENGINE=require('../shared/doe-policy/doe-policy-engine.js');
+const REPO=require('../shared/doe-policy/doe-policy-repository.js');
+const SERVICE=require('../shared/doe-policy/doe-policy-service.js');
 
 function seed(){
  return{
@@ -147,7 +147,7 @@ test('resume skips committed rows and preserves the same recalculation batch id'
 });
 
 test('admin recalculation confirmation names the Academic Year and Active policy version',()=>{
- const ADMIN=require('../doe-policy-admin.js');
+ const ADMIN=require('../web/js/doe/doe-policy-admin.js');
  const message=ADMIN.recalculationConfirmationText({academicYear:'2027-28',policyVersionId:'ucvm-workload-2027-28-v1'},{assignmentsAffected:12,changedDoeCount:7});
  assert.match(message,/2027-28/);
  assert.match(message,/ucvm-workload-2027-28-v1/);
@@ -185,7 +185,7 @@ test('recalculation source helper updates managed role and source reconciliation
 
 test('Firestore rules make administrative recalculation collections server-only to browser clients',()=>{
  const fs=require('node:fs'),path=require('node:path');
- const rules=fs.readFileSync(path.join(__dirname,'..','firestore.rules'),'utf8');
+ const rules=fs.readFileSync(path.join(__dirname,'..','firebase/firestore.rules'),'utf8');
  const block=rules.match(/match \/doe_recalculation_batches\/\{id\} \{([\s\S]*?)\n  \}/);
  assert.ok(block);
  assert.match(block[1],/allow read: if doeAdmin\(\)/);
@@ -199,7 +199,7 @@ test('server DOE admin owns recalculation writer while browser admin stays API-o
  const fs=require('node:fs'),path=require('node:path');
  const server=fs.readFileSync(path.join(__dirname,'..','server','src','doe','policy-admin-service.js'),'utf8');
  const wiring=fs.readFileSync(path.join(__dirname,'..','server','src','server.js'),'utf8');
- const browser=fs.readFileSync(path.join(__dirname,'..','doe-policy-admin.js'),'utf8');
+ const browser=fs.readFileSync(path.join(__dirname,'..','web/js/doe/doe-policy-admin.js'),'utf8');
  assert.match(server,/createFirestoreRecalculationWriter/);
  assert.match(wiring,/recalculationWriter[,}]/);
  assert.match(wiring,/derivedIndexRefresh:/);

@@ -10,7 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const dataIndex = require(path.resolve(__dirname, '../data-index.js'));
+const dataIndex = require(path.resolve(__dirname, '../web/js/data-index/data-index.js'));
 const {buildDataset} = require(path.resolve(__dirname, '../tools/seed/dataset.js'));
 
 const keyFactory = (() => {

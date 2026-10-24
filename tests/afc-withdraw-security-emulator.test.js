@@ -7,7 +7,7 @@ const check=(name,fn)=>test('AFC withdraw security: '+name,{skip:!enabled},fn);
 before(async()=>{
  if(!enabled)return;
  const {initializeTestEnvironment}=require('@firebase/rules-unit-testing');
- env=await initializeTestEnvironment({projectId:'demo-ucvm-afc-withdraw',firestore:{rules:fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8')}});
+ env=await initializeTestEnvironment({projectId:'demo-ucvm-afc-withdraw',firestore:{rules:fs.readFileSync(path.join(__dirname,'../firebase/firestore.rules'),'utf8')}});
  await env.clearFirestore();
  await env.withSecurityRulesDisabled(async ctx=>{
   const db=ctx.firestore();

@@ -20,7 +20,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const rules = fs.readFileSync(path.resolve(__dirname, '../firestore.rules'), 'utf8');
+const rules = fs.readFileSync(path.resolve(__dirname, '../firebase/firestore.rules'), 'utf8');
 
 // The audit ceiling applies to the original routed-approval/core rules. The DOE
 // server-authority rules are a disjoint authorization domain: counting their

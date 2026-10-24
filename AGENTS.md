@@ -6,10 +6,18 @@
 - `main` is the only production source of truth.
 - Do not commit feature work directly to `main`; use a feature branch / worktree and open a PR.
 - The active development/test frontend is the fixed GitHub Pages site at `https://alex1122341.github.io/Teaching-assignment/`.
-- Build `.deploy-static` with `node tools/build-static.js` from the source allowlist in `tools/static-assets.json` and the deterministic bundle map in `tools/runtime-bundles.json`.
+- Build `.deploy-static` with `node tools/build-static.js` from the source allowlist in `tools/static-assets.json` and the deterministic bundle map in `tools/runtime-bundles.json`. Manifest paths are relative to `web/` and keep the same relative path in `.deploy-static`.
 - GitHub Pages and any future host must publish the same generated `.deploy-static` artifact.
 - Do not publish the raw repository source tree or maintain a second frontend copy.
 - Azure workflows and `tools/deploy_azure_static_web.ps1` are retained as paused production/fallback history; they are not part of the active Firebase lab development path.
+
+## Repository layout
+
+- `web/` — the browser application (the static site root). HTML pages sit at its top level; `web/js/<area>/` holds scripts by feature (`core`, `accounts`, `timetable`, `absence-from-campus`, `approvals`, `faculty`, `doe`, `bulk-import`, `data-index`); `web/styles/` holds CSS; `web/assets/forms/` holds the AFC PDF templates.
+- `shared/doe-policy/` — Node-only DOE policy engine used by `server/` and `tools/`; never shipped to the browser.
+- `firebase/` — `firestore.rules` and `firestore.indexes.json` (referenced from the root `firebase.json`).
+- `deploy/azure/` — paused Azure Static Web Apps configuration.
+- `server/`, `tools/`, `tests/`, `test-support/`, `database/`, `docs/` — unchanged roles.
 
 ## Application architecture
 
@@ -18,7 +26,7 @@
 - Active development/test database: Cloud Firestore project `vista-teaching-lab`, synthetic/test data only.
 - Pull-request GitHub Pages browser testing must use `vista-teaching-lab` through repository variable `LAB_FIREBASE_WEB_CONFIG_JSON`. The Pages runtime must keep the DOE API endpoint blank.
 - Ordinary application data continues to use Firebase Authentication + Firestore. Authoritative DOE policy publication, impact preview persistence and recalculation writes must run only through the manually dispatched `Firebase DOE Admin Job` GitHub Action (or equivalent trusted admin tooling), never directly from the browser.
-- DOE browser writes remain denied by `firestore.rules`. Do not weaken that boundary to make an admin screen work.
+- DOE browser writes remain denied by `firebase/firestore.rules`. Do not weaken that boundary to make an admin screen work.
 - `tester-teaching` is reserved for future production work and must not be used by the active Pages test site.
 - Security decisions must be enforced by Firestore rules and by minimizing what data is delivered to the browser.
 - Do not weaken Firestore rules merely to make a UI feature work.
@@ -33,7 +41,7 @@ Formal roles:
 - `visc`
 - `faculty`
 
-Legacy compatibility remains in place for `adfa_general`, `adfa_regular`, `admin`, `editor`, and `viewer` until migration is complete. Use the shared role helpers in `faculty-access.js` instead of inventing new role checks.
+Legacy compatibility remains in place for `adfa_general`, `adfa_regular`, `admin`, `editor`, and `viewer` until migration is complete. Use the shared role helpers in `web/js/core/faculty-access.js` instead of inventing new role checks.
 
 ## Faculty privacy rules
 

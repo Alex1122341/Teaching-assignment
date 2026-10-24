@@ -1,5 +1,5 @@
 'use strict';
-const calendarSession=require('../../../calendar-session.js');
+const calendarSession=require('../../../web/js/timetable/calendar-session.js');
 
 const COLLECTIONS=Object.freeze({
   policies:'doe_policies',

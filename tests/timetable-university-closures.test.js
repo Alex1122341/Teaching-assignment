@@ -7,10 +7,10 @@ const vm=require('node:vm');
 const {spawnSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
-const closures=require('../university-closures');
+const closures=require('../web/js/timetable/university-closures');
 
 test('timetable exposes an opt-in University closure control beside CCC',()=>{
-  const html=read('index.html');
+  const html=read('web/index.html');
   assert.match(html,/id="show-ccc"/);
   assert.match(html,/id="show-university-closures"/);
   assert.match(html,/Show University Closures/);
@@ -18,14 +18,14 @@ test('timetable exposes an opt-in University closure control beside CCC',()=>{
 });
 
 test('University closure overlay defaults off and reset turns it off',()=>{
-  const js=read('timetable.js');
+  const js=read('web/js/timetable/timetable.js');
   assert.match(js,/showUniversityClosures\s*=\s*false/);
   assert.match(js,/showUniversityClosures=false/);
   assert.match(js,/\$\('show-university-closures'\)\.checked=false/);
 });
 
 test('University closure row projection carries exact display data',()=>{
-  const source=read('timetable.js');
+  const source=read('web/js/timetable/timetable.js');
   const match=source.match(/  function universityClosureRows\([\s\S]*?\n  \}/);
   assert.ok(match,'universityClosureRows should be independently testable');
   const context={
@@ -59,7 +59,7 @@ test('University closure row projection carries exact display data',()=>{
 });
 
 test('closure overlays bypass teaching filters only after explicit opt-in',()=>{
-  const js=read('timetable.js');
+  const js=read('web/js/timetable/timetable.js');
   assert.match(js,/if\(s\.isUniversityClosure\)return showUniversityClosures/);
   assert.match(js,/sessionsWithOverlays/);
   const courseStart=js.indexOf('function courseCodes');
@@ -68,7 +68,7 @@ test('closure overlays bypass teaching filters only after explicit opt-in',()=>{
 });
 
 test('closure rendering has dedicated day week month list copy and styling',()=>{
-  const js=read('timetable.js'),css=read('timetable.css');
+  const js=read('web/js/timetable/timetable.js'),css=read('web/styles/timetable.css');
   assert.match(js,/University Closed/);
   assert.match(js,/Institutional closure/);
   assert.match(js,/isUniversityClosure/);
@@ -77,13 +77,13 @@ test('closure rendering has dedicated day week month list copy and styling',()=>
 });
 
 test('closure details are read-only institutional records',()=>{
-  const js=read('timetable.js');
+  const js=read('web/js/timetable/timetable.js');
   assert.match(js,/University Closure — read-only institutional calendar record/);
   assert.match(js,/UCalgary University Closure Calendar/);
 });
 
 test('closure rows stay in render/export projection and out of core teaching data',()=>{
-  const js=read('timetable.js');
+  const js=read('web/js/timetable/timetable.js');
   assert.match(js,/sessions:\(\)=>pageSessions\(\)/);
   const pageData=js.slice(js.indexOf('window.UCVM_PAGE_DATA='),js.indexOf('let scheduleSource'));
   assert.doesNotMatch(pageData,/sessionsWithOverlays|universityClosureRows/);
@@ -101,7 +101,7 @@ test('closure rows stay in render/export projection and out of core teaching dat
 
 
 test('standard exports label enabled University closures and emit them as all-day calendar events',()=>{
-  const js=read('timetable.js');
+  const js=read('web/js/timetable/timetable.js');
   const filtered=js.slice(js.indexOf('function exportFilteredRows'),js.indexOf('function downloadFile'));
   assert.match(filtered,/closureCalendar\.entries/);
   assert.match(filtered,/sessionsWithOverlays/);
@@ -118,7 +118,7 @@ test('standard exports label enabled University closures and emit them as all-da
 });
 
 test('Outlook teaching invitation paths defensively exclude University closures',()=>{
-  const js=read('timetable.js');
+  const js=read('web/js/timetable/timetable.js');
   const exporter=js.slice(js.indexOf('function exportOutlookInvites'),js.indexOf('async function openOutlookInviteDialog'));
   assert.match(exporter,/filter\([^\n]*isUniversityClosure/);
   const dialog=js.slice(js.indexOf('async function openOutlookInviteDialog'),js.indexOf('\n  function ',js.indexOf('async function openOutlookInviteDialog')));
@@ -128,7 +128,7 @@ test('Outlook teaching invitation paths defensively exclude University closures'
 
 
 test('academic week month range includes both Easter Monday closure dates',()=>{
-  const source=read('timetable.js');
+  const source=read('web/js/timetable/timetable.js');
   const match=source.match(/  function monthRangeForAcademicPosition\([\s\S]*?\n  \}/);
   assert.ok(match,'monthRangeForAcademicPosition should be independently testable');
   const context={
@@ -154,8 +154,8 @@ test('Easter Monday projects to Winter Week 13 across Alberta daylight-saving ti
   const script=[
     "const fs=require('node:fs');",
     "const vm=require('node:vm');",
-    "const closures=require('./university-closures');",
-    "const source=fs.readFileSync('timetable.js','utf8');",
+    "const closures=require('./web/js/timetable/university-closures');",
+    "const source=fs.readFileSync('web/js/timetable/timetable.js','utf8');",
     "const aStart=source.indexOf('  function academicPositionForDate');",
     "const aEnd=source.indexOf('\\n  function ',aStart+3);",
     "const oStart=source.indexOf('  function universityClosureRows');",

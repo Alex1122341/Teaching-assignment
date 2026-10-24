@@ -123,7 +123,7 @@ PAWS supports two explicit browser test modes. They are never mixed.
 
 - real Firebase Authentication and real Cloud Firestore
 - project `vista-teaching-lab` only — never `tester-teaching`
-- real `users/{uid}` profiles resolved through the existing `faculty-access.js` authorization code
+- real `users/{uid}` profiles resolved through the existing `web/js/core/faculty-access.js` authorization code
 - Firestore security rules enforced
 - real sessions, change requests, approvals, notifications and audit records
 - the synthetic compatibility runtime is **not** installed
@@ -225,17 +225,17 @@ The GitHub Pages URL is publicly reachable and is not a security boundary. The s
 
 ### Firestore rule changes
 
-GitHub Actions does not deploy Firestore rules in this workflow. When a pull request changes `firestore.rules`, deploy the rules manually after review:
+GitHub Actions does not deploy Firestore rules in this workflow. When a pull request changes `firebase/firestore.rules`, deploy the rules manually after review:
 
 ```bash
 npx firebase deploy --project vista-teaching-lab --only firestore:rules
 ```
 
-Deploy indexes separately when a reviewed change actually modifies `firestore.indexes.json`.
+Deploy indexes separately when a reviewed change actually modifies `firebase/firestore.indexes.json`.
 
 ### Emergency/manual fallback
 
-`tools/deploy_azure_static_web.ps1` remains an emergency/manual fallback. It uses the same `tools/build-static.js` allowlist and the committed root `staticwebapp.config.json` as GitHub Actions.
+`tools/deploy_azure_static_web.ps1` remains an emergency/manual fallback. It uses the same `tools/build-static.js` allowlist and the committed `deploy/azure/staticwebapp.config.json` as GitHub Actions.
 
 On Windows, if the downloaded script is blocked, unblock it without weakening the machine execution policy:
 
@@ -272,7 +272,7 @@ Stale session deletion is not reached until the imported source has been verifie
 
 Destructive failure-injection, interrupted-import, restore, takeover, and lock-enforcement testing must be run only against the Firebase emulator or another isolated disposable environment. GitHub Pages points at isolated `vista-teaching-lab`, but destructive failure-injection testing should still use the Emulator Suite so the shared lab remains reproducible.
 
-This feature depends on the reviewed maintenance rules in `firestore.rules`. Frontend banners and disabled controls are usability guards; Firestore Security Rules are the actual backend enforcement boundary. Deploy the reviewed rules before relying on production maintenance enforcement:
+This feature depends on the reviewed maintenance rules in `firebase/firestore.rules`. Frontend banners and disabled controls are usability guards; Firestore Security Rules are the actual backend enforcement boundary. Deploy the reviewed rules before relying on production maintenance enforcement:
 
 ```bash
 npx firebase deploy --project tester-teaching --only firestore:rules
@@ -282,13 +282,13 @@ Do not describe the maintenance lock as production-enforced until that rules dep
 
 ## Passwords
 
-The account creation form accepts a temporary password only while creating the Authentication login. It clears that value after the operation and never stores it in the dashboard database. `Send password reset` uses Firebase Authentication's standard reset-email flow. A signed-in user can change their own password on `password.html`.
+The account creation form accepts a temporary password only while creating the Authentication login. It clears that value after the operation and never stores it in the dashboard database. `Send password reset` uses Firebase Authentication's standard reset-email flow. A signed-in user can change their own password on `web/password.html`.
 
 If you manually create a user with a temporary password and want the dashboard to prompt for a change, check `Require password change on next dashboard sign-in` on that user's profile.
 
 ## History
 
-The Timetable and Faculty Dashboard create `session_change_log` / `faculty_change_log` records as part of their normal save workflow. `faculty-access.js` captures the form's starting values and, after a successful save closes the editor, enriches the newest matching actor log with before/after details. The History tab merges these logs where appropriate and shows Calgary time, actor, action and before/after values when available. The base log still exists even if the enrichment step is interrupted.
+The Timetable and Faculty Dashboard create `session_change_log` / `faculty_change_log` records as part of their normal save workflow. `web/js/core/faculty-access.js` captures the form's starting values and, after a successful save closes the editor, enriches the newest matching actor log with before/after details. The History tab merges these logs where appropriate and shows Calgary time, actor, action and before/after values when available. The base log still exists even if the enrichment step is interrupted.
 
 Older log records remain visible but may show `Legacy entry; detailed before/after values were not recorded.` because earlier versions did not store those fields.
 
@@ -302,4 +302,4 @@ New AFC requests require both the off-campus contact address and telephone numbe
 
 Install the root development dependencies with `npm ci`. Run static tests with `npm test`; run the Firestore rule suite with `npm run test:emulator`. The `test-support/` modules are pure policy fixtures used by those tests and are excluded from the web deployment bundle.
 
-Build the deployable static directory with `node tools/build-static.js`. The application bundle comes from the exact allowlist in `tools/static-assets.json`; host-specific metadata is staged afterward. Current query counts, migration hashes, rollback exports, and the 50,000-read estimate are recorded in `PERFORMANCE_REPORT.md`.
+Build the deployable static directory with `node tools/build-static.js`. The application bundle comes from the exact allowlist in `tools/static-assets.json`; host-specific metadata is staged afterward. Current query counts, migration hashes, rollback exports, and the 50,000-read estimate are recorded in `docs/PERFORMANCE_REPORT.md`.

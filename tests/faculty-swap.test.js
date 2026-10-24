@@ -17,7 +17,7 @@
 (() => {
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const index=require('../data-index.js');
+const index=require('../web/js/data-index/data-index.js');
 
 test('faculty swap projection exposes only safe identity and binary AFC ranges',()=>{
  assert.equal(typeof index.buildFacultySwapIndexes,'function');
@@ -90,7 +90,7 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('assigned faculty replacement uses the live session object already owned by the session modal',()=>{
- const src=read('approval-workflow.js');
+ const src=read('web/js/approvals/approval-workflow.js');
  const start=src.indexOf('function openFacultySession(s)');
  const end=src.indexOf('\n }\n\n async function createRequest',start);
  assert.ok(start>=0&&end>start,'openFacultySession must exist');
@@ -101,7 +101,7 @@ test('assigned faculty replacement uses the live session object already owned by
 });
 
 test('replacement button is not intercepted by a second session-resolution listener',()=>{
- const src=read('faculty-swap-handoff.js');
+ const src=read('web/js/faculty/faculty-swap-handoff.js');
  assert.doesNotMatch(src,/#workflow-self-swap/);
  assert.doesNotMatch(src,/stopImmediatePropagation/);
 });
@@ -117,7 +117,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
-const maintenance=require('../index-maintenance.js');
+const maintenance=require('../web/js/data-index/index-maintenance.js');
 
 test('index maintenance exposes swap-index writers and safe AFC range patching',()=>{
  assert.equal(typeof maintenance.writeFacultySwapIndexes,'function');
@@ -131,7 +131,7 @@ test('index maintenance exposes swap-index writers and safe AFC range patching',
 });
 
 test('faculty self swap uses sanitized directory with availability and special targets',()=>{
- const src=read('faculty-swap-safe.js');
+ const src=read('web/js/faculty/faculty-swap-safe.js');
  for(const token of ['faculty_swap_index','candidateKey','Sessional','Other','assessSwapCandidate','swapCandidateDisplay'])assert.match(src,new RegExp(token));
  assert.match(src,/Reason \/ note is required for Sessional or Other/);
  assert.match(src,/reason\.required=special/);
@@ -139,7 +139,7 @@ test('faculty self swap uses sanitized directory with availability and special t
 });
 
 test('faculty session modal routes assigned replacements directly to the privacy-safe picker',()=>{
- const src=read('approval-workflow.js');
+ const src=read('web/js/approvals/approval-workflow.js');
  const start=src.indexOf('function openFacultySession(s)');
  const end=src.indexOf('\n }\n\n async function createRequest',start);
  assert.ok(start>=0&&end>start,'openFacultySession must exist');
@@ -150,7 +150,7 @@ test('faculty session modal routes assigned replacements directly to the privacy
 });
 
 test('legacy faculty swap handoff remains a non-intercepting compatibility asset',()=>{
- const handoffPath=path.join(root,'faculty-swap-handoff.js');
+ const handoffPath=path.join(root,'web/js/faculty/faculty-swap-handoff.js');
  assert.equal(fs.existsSync(handoffPath),true,'faculty-swap-handoff.js must remain deployable');
  const src=fs.readFileSync(handoffPath,'utf8');
  assert.match(src,/UCVM_SAFE_SWAP_HANDOFF=\{mode:'direct-session-modal'\}/);
@@ -160,7 +160,7 @@ test('legacy faculty swap handoff remains a non-intercepting compatibility asset
 });
 
 test('approval resolves opaque candidate keys through admin-only mapping and supports special categories',()=>{
- const src=read('faculty-swap-safe.js');
+ const src=read('web/js/faculty/faculty-swap-safe.js');
  assert.match(src,/faculty_swap_map/);
  assert.match(src,/candidateKey/);
  assert.match(src,/specialReplacement/);
@@ -169,7 +169,7 @@ test('approval resolves opaque candidate keys through admin-only mapping and sup
 });
 
 test('Firestore rules expose only sanitized swap index and require notes for special targets',()=>{
- const rules=read('firestore.rules');
+ const rules=read('firebase/firestore.rules');
  assert.match(rules,/id == 'faculty_swap_index'/);
  assert.match(rules,/allow read: if privateReader\(\) && id == 'faculty_swap_index'/);
  assert.match(rules,/faculty_swap_map/);
@@ -178,7 +178,7 @@ test('Firestore rules expose only sanitized swap index and require notes for spe
 });
 
 test('AFC approval refreshes the sanitized availability projection through index maintenance',()=>{
- const actions=read('afc-actions.js'),maintenanceSrc=read('index-maintenance.js');
+ const actions=read('web/js/absence-from-campus/afc-actions.js'),maintenanceSrc=read('web/js/data-index/index-maintenance.js');
  assert.match(actions,/prepareFacultySwapAfcUpdate/);
  assert.match(actions,/swapIndexUpdate/);
  assert.match(maintenanceSrc,/faculty_swap_index/);
@@ -187,18 +187,18 @@ test('AFC approval refreshes the sanitized availability projection through index
 });
 
 test('shared static build keeps safe swap standalone and bundles approval compatibility in order',()=>{
- const manifest=JSON.parse(read('tools/static-assets.json')),loader=read('asset-loader.js'),admin=read('faculty-admin.html'),safeSrc=read('faculty-swap-safe.js');
+ const manifest=JSON.parse(read('tools/static-assets.json')),loader=read('web/js/core/asset-loader.js'),admin=read('web/faculty-admin.html'),safeSrc=read('web/js/faculty/faculty-swap-safe.js');
  const bundles=JSON.parse(read('tools/runtime-bundles.json'));
- assert.ok(manifest.includes('faculty-swap-safe.js'));
- assert.ok(manifest.includes('faculty-swap-handoff.js'));
- assert.ok(manifest.includes('approval-workflow.js'));
+ assert.ok(manifest.includes('js/faculty/faculty-swap-safe.js'));
+ assert.ok(manifest.includes('js/faculty/faculty-swap-handoff.js'));
+ assert.ok(manifest.includes('js/approvals/approval-workflow.js'));
  const approval=bundles.lazyBundles.find(bundle=>bundle.output==='bundles/approval-workflow.lazy.bundle.js');
- assert.deepEqual(approval.sources,['faculty-swap-handoff.js','approval-workflow.js']);
- const safe=loader.indexOf("loadScriptOnce('faculty-swap-safe.js'");
+ assert.deepEqual(approval.sources,['js/faculty/faculty-swap-handoff.js','js/approvals/approval-workflow.js']);
+ const safe=loader.indexOf("loadScriptOnce('js/faculty/faculty-swap-safe.js'");
  const lazy=loader.indexOf("loadScriptOnce('bundles/approval-workflow.lazy.bundle.js'");
  assert.ok(safe>=0&&lazy>safe,'safe swap must load before the approval compatibility/workflow lazy bundle');
  assert.match(loader,/ensureApprovalWorkflow/);
- assert.match(admin,/src="faculty-swap-safe\.js"/);
+ assert.match(admin,/src="js\/faculty\/faculty-swap-safe\.js"/);
  assert.match(safeSrc,/faculty-admin\.html/);
  assert.match(safeSrc,/maybeInitializeSwapDirectory/);
 });

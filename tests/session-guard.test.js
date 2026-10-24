@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const modulePath = path.resolve(__dirname, '..', 'session-guard.js');
+const modulePath = path.resolve(__dirname, '..', 'web/js/core/session-guard.js');
 
 function loadGuard() {
   assert.ok(fs.existsSync(modulePath), 'session-guard.js must exist');

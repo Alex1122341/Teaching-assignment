@@ -24,7 +24,7 @@ const root=path.resolve(__dirname,'..');
 
 function load(){
   const context={window:{},Date};
-  vm.runInNewContext(fs.readFileSync(path.join(root,'scheduling-core.js'),'utf8'),context);
+  vm.runInNewContext(fs.readFileSync(path.join(root,'web/js/timetable/scheduling-core.js'),'utf8'),context);
   return context.window.UCVM_SCHEDULING;
 }
 
@@ -113,7 +113,7 @@ const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
 test('timetable delegates time parsing, duration, availability overlap, bulk timing, and single-session validation to the scheduling core',()=>{
-  const source=read('timetable.js');
+  const source=read('web/js/timetable/timetable.js');
   assert.match(source,/const scheduling\s*=\s*window\.UCVM_SCHEDULING/);
   assert.match(source,/function timeToMinutes\([^)]*\)\s*\{\s*return scheduling\.parseTime\(/);
   assert.match(source,/function blockHours\([^)]*\)\s*\{[^}]*scheduling\.durationHours\(/s);
@@ -125,13 +125,13 @@ test('timetable delegates time parsing, duration, availability overlap, bulk tim
 });
 
 test('timetable does not keep a second AM PM parser or manual overlap formula',()=>{
-  const source=read('timetable.js');
+  const source=read('web/js/timetable/timetable.js');
   assert.doesNotMatch(source,/function availabilityTimeMinutes[\s\S]*?match\(\/\^\(\\d\{1,2\}/);
   assert.doesNotMatch(source,/return as<be&&bs<ae/);
 });
 
 test('ADFA approval delegates conflict checks and records explicit timetable-conflict overrides',()=>{
-  const source=read('approval-workflow.js');
+  const source=read('web/js/approvals/approval-workflow.js');
   assert.match(source,/const scheduling=window\.UCVM_SCHEDULING/);
   assert.doesNotMatch(source,/function timeMinutes\(/);
   assert.doesNotMatch(source,/function overlaps\(/);

@@ -3,7 +3,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const ui=require('../derived-index-health.js');
+const ui=require('../web/js/data-index/derived-index-health.js');
 const root=path.resolve(__dirname,'..');
 const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 
@@ -31,14 +31,14 @@ test('status rows always name all four derived documents',()=>{
 });
 
 test('Faculty Database owns the health card and rebuild participates in maintenance blocking',()=>{
- const html=read('faculty-admin.html');
+ const html=read('web/faculty-admin.html');
  assert.match(html,/id="database-view"[\s\S]*id="derived-index-health-card"/);
  assert.match(html,/id="derived-index-rebuild"[^>]*data-derived-index-rebuild/);
- assert.ok(html.indexOf('derived-index-health.js')>html.indexOf('index-maintenance.js'));
+ assert.ok(html.indexOf('js/data-index/derived-index-health.js')>html.indexOf('js/data-index/index-maintenance.js'));
 });
 
 test('runtime separates read-only verify from full rebuild',()=>{
- const js=read('derived-index-health.js');
+ const js=read('web/js/data-index/derived-index-health.js');
  assert.match(js,/verifyDerivedIndexes\(db\)/);
  assert.match(js,/rebuildDerivedIndexes\(db,actor\)/);
 });
@@ -77,11 +77,11 @@ test('post-rebuild verification failure keeps mismatch details visible',async()=
 });
 
 test('Faculty Database exposes sanitized calendar verify and General-only repair controls',()=>{
- const html=read('faculty-admin.html');
+ const html=read('web/faculty-admin.html');
  assert.match(html,/id="sanitized-calendar-health-status"/);
  assert.match(html,/id="sanitized-calendar-verify"/);
  assert.match(html,/id="sanitized-calendar-repair"/);
- assert.ok(html.indexOf('calendar-session-maintenance.js')<html.indexOf('derived-index-health.js'));
+ assert.ok(html.indexOf('js/timetable/calendar-session-maintenance.js')<html.indexOf('js/data-index/derived-index-health.js'));
 });
 
 test('health runtime verifies sanitized calendar and repairs only with General semantics',async()=>{

@@ -68,7 +68,7 @@ test('Pages workflow leaves the independent Test workflow in place',()=>{
 });
 
 test('setup docs define the fixed Pages frontend demo boundary',()=>{
-  const setup=read('SETUP.md');
+  const setup=read('docs/SETUP.md');
   assert.match(setup,/https:\/\/alex1122341\.github\.io\/Teaching-assignment\//);
   assert.match(setup,/GitHub Pages/i);
   assert.match(setup,/Frontend Demo/i);
@@ -82,7 +82,7 @@ test('setup docs define the fixed Pages frontend demo boundary',()=>{
 });
 
 test('setup docs require manual production approval after merge',()=>{
-  const setup=read('SETUP.md');
+  const setup=read('docs/SETUP.md');
   assert.match(setup,/production.*Environment|Environment.*production/i);
   assert.match(setup,/required reviewer/i);
   assert.match(setup,/Prevent self-review/i);
@@ -198,12 +198,12 @@ test('Pages staging changes only the supplied build directory',()=>{
 test('tracked web entry points use relative internal URLs for the Pages project subpath',()=>{
   const assets=JSON.parse(fs.readFileSync(path.join(root,'tools/static-assets.json'),'utf8'));
   for(const name of assets.filter(value=>value.endsWith('.html'))){
-    const source=fs.readFileSync(path.join(root,name),'utf8');
+    const source=fs.readFileSync(path.join(root,'web',name),'utf8');
     assert.doesNotMatch(source,/(?:href|src)=["']\/(?!\/)/i,`${name} has a root-absolute internal URL`);
   }
   const rootNavigation=/(?:window\.)?location(?:\.href)?\s*=\s*["']\/(?!\/)|(?:window\.)?location\.(?:assign|replace)\(\s*["']\/(?!\/)/i;
   for(const name of assets.filter(value=>value.endsWith('.js'))){
-    const source=fs.readFileSync(path.join(root,name),'utf8');
+    const source=fs.readFileSync(path.join(root,'web',name),'utf8');
     assert.doesNotMatch(source,rootNavigation,`${name} has root-absolute browser navigation`);
   }
 });

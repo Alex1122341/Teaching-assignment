@@ -23,7 +23,7 @@ const vm=require('node:vm');
 
 function load(){
  const context={window:{}};
- vm.runInNewContext(fs.readFileSync(path.join(__dirname,'..','afc-form-state.js'),'utf8'),context);
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'..','web/js/absence-from-campus/afc-form-state.js'),'utf8'),context);
  return context.window.UCVM_AFC_FORM_STATE;
 }
 
@@ -58,7 +58,7 @@ const root = path.resolve(__dirname, '..');
 
 test('AFC form values normalize allowlisted dropdown values and contact details', () => {
   const context = {window: {}};
-  vm.runInNewContext(fs.readFileSync(path.join(root, 'afc-form-values.js'), 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'web/js/absence-from-campus/afc-form-values.js'), 'utf8'), context);
   const api = context.window.UCVM_AFC_FORM_VALUES;
 
   assert.equal(api.PRIMARY_DEPARTMENT, '30060 - Faculty of Veterinary Medicine');
@@ -74,12 +74,12 @@ test('AFC form values normalize allowlisted dropdown values and contact details'
 });
 
 test('AFC PDF loader uses one lazy helper bundle with canonical values before the renderer', () => {
-  const loader = fs.readFileSync(path.join(root, 'asset-loader.js'), 'utf8');
+  const loader = fs.readFileSync(path.join(root, 'web/js/core/asset-loader.js'), 'utf8');
   const bundles = JSON.parse(fs.readFileSync(path.join(root, 'tools/runtime-bundles.json'), 'utf8'));
   const afc = bundles.lazyBundles.find(bundle => bundle.output === 'bundles/afc-pdf.lazy.bundle.js');
-  assert.deepEqual(afc.sources, ['afc-form-values.js','afc-pdf-browser.js']);
+  assert.deepEqual(afc.sources, ['js/absence-from-campus/afc-form-values.js','js/absence-from-campus/afc-pdf-browser.js']);
   assert.match(loader, /loadScriptOnce\('bundles\/afc-pdf\.lazy\.bundle\.js','UCVM_AFC_PDF'\)/);
-  assert.ok(JSON.parse(fs.readFileSync(path.join(root, 'tools/static-assets.json'), 'utf8')).includes('afc-form-values.js'));
+  assert.ok(JSON.parse(fs.readFileSync(path.join(root, 'tools/static-assets.json'), 'utf8')).includes('js/absence-from-campus/afc-form-values.js'));
 });
 })();
 
@@ -90,7 +90,7 @@ test('AFC PDF loader uses one lazy helper bundle with canonical values before th
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {workDays, validateDraft, nextStatus, HOLIDAYS} = require('../test-support/afc-policy');
-const closures=require('../university-closures');
+const closures=require('../web/js/timetable/university-closures');
 
 test('workdays exclude weekends and official UCalgary closures', () => {
   assert.equal(HOLIDAYS.has('2026-09-30'), true);
@@ -145,7 +145,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'web/index.html'), 'utf8');
 
 test('timetable exposes the AFC request panel', () => {
   assert.match(html, /id="afc-request-btn"/);
@@ -156,9 +156,9 @@ test('timetable exposes the AFC request panel', () => {
 });
 
 test('AFC source, single-page application, and Terms ship as distinct PDF assets', () => {
-  const sourcePdf=fs.readFileSync(path.join(root,'absence-from-campus-app.pdf'));
-  const application=fs.readFileSync(path.join(root,'absence-from-campus-app-v2.pdf'));
-  const terms=fs.readFileSync(path.join(root,'absence-from-campus-terms.pdf'));
+  const sourcePdf=fs.readFileSync(path.join(root,'web/assets/forms/absence-from-campus-app.pdf'));
+  const application=fs.readFileSync(path.join(root,'web/assets/forms/absence-from-campus-app-v2.pdf'));
+  const terms=fs.readFileSync(path.join(root,'web/assets/forms/absence-from-campus-terms.pdf'));
   for(const file of [sourcePdf,application,terms]) assert.equal(file.subarray(0,5).toString('ascii'),'%PDF-');
   assert.notDeepEqual(sourcePdf,application);
   assert.notDeepEqual(application,terms);
@@ -166,26 +166,26 @@ test('AFC source, single-page application, and Terms ship as distinct PDF assets
 });
 
 test('AFC UI collects dates, conditional details, terms acceptance, and electronic signature', () => {
-  const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'web/js/absence-from-campus/afc-workflow.js'), 'utf8');
   for (const field of ['startDate','endDate','reason','purposeDestination','coverage','applicantSignature','UCVM_SIGNATURE','afc-view-terms','afc-terms-accepted','termsAcceptedAt','termsVersion','termsSource']) assert.match(source, new RegExp(field));
   assert.match(source,/Open the AFC Terms & Conditions before signing/);
   assert.match(source,/AFC_TERMS_SOURCE='absence-from-campus-app\.pdf#page=2'/);
-  assert.match(source,/AFC_TERMS_VIEW_ASSET='absence-from-campus-terms\.pdf'/);
+  assert.match(source,/AFC_TERMS_VIEW_ASSET='assets\/forms\/absence-from-campus-terms\.pdf'/);
   assert.match(source,/frame\.onload=\(\)=>\{termsViewed=true/);
   assert.match(source,/absence-from-campus-app\.pdf#page=2/);
-  assert.match(fs.readFileSync(path.join(root, 'afc-actions.js'), 'utf8'), /pdf_chunks/);
+  assert.match(fs.readFileSync(path.join(root, 'web/js/absence-from-campus/afc-actions.js'), 'utf8'), /pdf_chunks/);
 });
 
 test('approved AFC PDF uses the versioned single-page template and never strips pages at runtime', () => {
-  const source=fs.readFileSync(path.join(root,'afc-pdf-browser.js'),'utf8');
-  assert.match(source,/AFC_APPLICATION_TEMPLATE='absence-from-campus-app-v2\.pdf'/);
+  const source=fs.readFileSync(path.join(root,'web/js/absence-from-campus/afc-pdf-browser.js'),'utf8');
+  assert.match(source,/AFC_APPLICATION_TEMPLATE='assets\/forms\/absence-from-campus-app-v2\.pdf'/);
   assert.match(source,/pdf\.getPageCount\(\)!==1/);
   assert.match(source,/AFC application template must contain exactly one page/);
   assert.doesNotMatch(source,/removePage\(/);
 });
 
 test('AFC UI requires contact details for each new request', () => {
-  const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'web/js/absence-from-campus/afc-workflow.js'), 'utf8');
   assert.match(source, /name="contactAddress"[^>]*required[^>]*maxlength="500"/);
   assert.match(source, /name="contactPhone"[^>]*required[^>]*maxlength="50"/);
   assert.match(source, /contactAddress=String\(d\.get\('contactAddress'\)\|\|''\)\.trim\(\)/);
@@ -195,7 +195,7 @@ test('AFC UI requires contact details for each new request', () => {
 });
 
 test('AFC teaching matches render as a vertical sorted list', () => {
-  const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'web/js/absence-from-campus/afc-workflow.js'), 'utf8');
   assert.match(source, /class="afc-teaching-list"/);
   assert.match(source, /String\(a\.date\|\|''\)\.localeCompare\(String\(b\.date\|\|''\)\)/);
   assert.match(source, /String\(a\.start\|\|''\)\.localeCompare\(String\(b\.start\|\|''\)\)/);
@@ -205,7 +205,7 @@ test('AFC teaching matches render as a vertical sorted list', () => {
 });
 
 test('AFC requester can withdraw only pending requests and withdrawn has a terminal label', () => {
-  const source = fs.readFileSync(path.join(root, 'afc-workflow.js'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'web/js/absence-from-campus/afc-workflow.js'), 'utf8');
   assert.match(source, /withdrawn:'Withdrawn'/);
   assert.match(source, /requesterUid===uid\(\).*\['pending_report_to','pending_admin'\]\.includes\(r\.status\)/);
   assert.match(source, /data-afc-withdraw/);
@@ -222,8 +222,8 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const root=path.resolve(__dirname,'..');
-const actions=fs.readFileSync(path.join(root,'afc-actions.js'),'utf8');
-const rules=fs.readFileSync(path.join(root,'firestore.rules'),'utf8');
+const actions=fs.readFileSync(path.join(root,'web/js/absence-from-campus/afc-actions.js'),'utf8');
+const rules=fs.readFileSync(path.join(root,'firebase/firestore.rules'),'utf8');
 
 test('AFC action module exposes requester-only transactional withdrawal with audit',()=>{
  assert.match(actions,/async function withdraw\(/);

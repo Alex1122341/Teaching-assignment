@@ -6,9 +6,9 @@ const path=require('node:path');
 
 const enabled=!!process.env.FIRESTORE_EMULATOR_HOST;
 const check=(name,fn)=>test('DOE policy security: '+name,{skip:!enabled},fn);
-const FIRESTORE_ADAPTER=enabled?require('../doe-policy-firestore.js'):null;
-const DOE_ENGINE=enabled?require('../doe-policy-engine.js'):null;
-const DOE_SERVICE=enabled?require('../doe-policy-service.js'):null;
+const FIRESTORE_ADAPTER=enabled?require('../shared/doe-policy/doe-policy-firestore.js'):null;
+const DOE_ENGINE=enabled?require('../shared/doe-policy/doe-policy-engine.js'):null;
+const DOE_SERVICE=enabled?require('../shared/doe-policy/doe-policy-service.js'):null;
 let env;
 
 before(async()=>{
@@ -16,7 +16,7 @@ before(async()=>{
  const {initializeTestEnvironment}=require('@firebase/rules-unit-testing');
  env=await initializeTestEnvironment({
   projectId:'demo-ucvm-doe-policy',
-  firestore:{rules:fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8')}
+  firestore:{rules:fs.readFileSync(path.join(__dirname,'../firebase/firestore.rules'),'utf8')}
  });
  await env.clearFirestore();
  await env.withSecurityRulesDisabled(async context=>{

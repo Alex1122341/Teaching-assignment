@@ -1,24 +1,24 @@
 {
   "version": 1,
   "dynamicSources": [
-    "afc-form-values.js",
-    "afc-pdf-browser.js",
-    "approval-workflow.js",
-    "faculty-swap-safe.js",
-    "faculty-swap-handoff.js",
-    "faculty-admin-enhancements.js"
+    "js/absence-from-campus/afc-form-values.js",
+    "js/absence-from-campus/afc-pdf-browser.js",
+    "js/approvals/approval-workflow.js",
+    "js/faculty/faculty-swap-safe.js",
+    "js/faculty/faculty-swap-handoff.js",
+    "js/faculty/faculty-admin-enhancements.js"
   ],
   "bundles": [
     {
       "output": "bundles/shared-faculty-scheduling.bundle.js",
       "sources": [
-        "faculty-doe.js",
-        "scheduling-core.js",
-        "session-workflow.js",
-        "work-queue.js",
-        "lab-groups.js",
-        "faculty-assignment.js",
-        "faculty-suggestions.js"
+        "js/faculty/faculty-doe.js",
+        "js/timetable/scheduling-core.js",
+        "js/timetable/session-workflow.js",
+        "js/timetable/work-queue.js",
+        "js/timetable/lab-groups.js",
+        "js/faculty/faculty-assignment.js",
+        "js/faculty/faculty-suggestions.js"
       ],
       "pages": [
         "index.html",
@@ -29,9 +29,9 @@
     {
       "output": "bundles/shared-index-audit.bundle.js",
       "sources": [
-        "data-index.js",
-        "index-maintenance.js",
-        "audit-details.js"
+        "js/data-index/data-index.js",
+        "js/data-index/index-maintenance.js",
+        "js/data-index/audit-details.js"
       ],
       "pages": [
         "index.html",
@@ -42,8 +42,8 @@
     {
       "output": "bundles/shared-auth.bundle.js",
       "sources": [
-        "firebase-config.js",
-        "faculty-access.js"
+        "js/core/firebase-config.js",
+        "js/core/faculty-access.js"
       ],
       "pages": [
         "index.html",
@@ -55,8 +55,8 @@
     {
       "output": "bundles/shared-approval-request.bundle.js",
       "sources": [
-        "approval-routing.js",
-        "approval-request.js"
+        "js/approvals/approval-routing.js",
+        "js/approvals/approval-request.js"
       ],
       "pages": [
         "index.html",
@@ -66,11 +66,11 @@
     {
       "output": "bundles/timetable-approval.bundle.js",
       "sources": [
-        "approval-state.js",
-        "approval-office-view.js",
-        "approval-lifecycle.js",
-        "calendar-session.js",
-        "approval-finalizer.js"
+        "js/approvals/approval-state.js",
+        "js/approvals/approval-office-view.js",
+        "js/approvals/approval-lifecycle.js",
+        "js/timetable/calendar-session.js",
+        "js/approvals/approval-finalizer.js"
       ],
       "pages": [
         "index.html"
@@ -79,19 +79,19 @@
     {
       "output": "bundles/timetable-app.bundle.js",
       "sources": [
-        "office-capabilities.js",
-        "workflow-notifications.js",
-        "maintenance-state.js",
-        "asset-loader.js",
-        "signature-capture.js",
-        "afc-form-state.js",
-        "afc-actions.js",
-        "information-center.js",
-        "availability-lookup.js",
-        "timetable-selection.js",
-        "timetable.js",
-        "afc-workflow.js",
-        "afc-timetable-panel.js"
+        "js/core/office-capabilities.js",
+        "js/approvals/workflow-notifications.js",
+        "js/core/maintenance-state.js",
+        "js/core/asset-loader.js",
+        "js/absence-from-campus/signature-capture.js",
+        "js/absence-from-campus/afc-form-state.js",
+        "js/absence-from-campus/afc-actions.js",
+        "js/timetable/information-center.js",
+        "js/timetable/availability-lookup.js",
+        "js/timetable/timetable-selection.js",
+        "js/timetable/timetable.js",
+        "js/absence-from-campus/afc-workflow.js",
+        "js/absence-from-campus/afc-timetable-panel.js"
       ],
       "pages": [
         "index.html"
@@ -100,9 +100,9 @@
     {
       "output": "bundles/faculty-doe-admin.bundle.js",
       "sources": [
-        "doe-worksheet-view.js",
-        "doe-rulebook-admin.js",
-        "doe-policy-admin.js"
+        "js/doe/doe-worksheet-view.js",
+        "js/doe/doe-rulebook-admin.js",
+        "js/doe/doe-policy-admin.js"
       ],
       "pages": [
         "faculty-admin.html"
@@ -111,14 +111,14 @@
     {
       "output": "bundles/faculty-runtime-main.bundle.js",
       "sources": [
-        "maintenance-state.js",
-        "calendar-session.js",
-        "calendar-session-maintenance.js",
-        "bulk-import-core.js",
-        "bulk-import-backup.js",
-        "bulk-import-firestore.js",
-        "bulk-import-controller.js",
-        "faculty-admin.js"
+        "js/core/maintenance-state.js",
+        "js/timetable/calendar-session.js",
+        "js/timetable/calendar-session-maintenance.js",
+        "js/bulk-import/bulk-import-core.js",
+        "js/bulk-import/bulk-import-backup.js",
+        "js/bulk-import/bulk-import-firestore.js",
+        "js/bulk-import/bulk-import-controller.js",
+        "js/faculty/faculty-admin.js"
       ],
       "pages": [
         "faculty-admin.html"
@@ -127,8 +127,8 @@
     {
       "output": "bundles/faculty-runtime-tail.bundle.js",
       "sources": [
-        "bulk-import-ui.js",
-        "derived-index-health.js"
+        "js/bulk-import/bulk-import-ui.js",
+        "js/data-index/derived-index-health.js"
       ],
       "pages": [
         "faculty-admin.html"
@@ -137,8 +137,8 @@
     {
       "output": "bundles/user-management.bundle.js",
       "sources": [
-        "account-profile.js",
-        "user-management.js"
+        "js/accounts/account-profile.js",
+        "js/accounts/user-management.js"
       ],
       "pages": [
         "user-management.html"
@@ -149,15 +149,15 @@
     {
       "output": "bundles/afc-pdf.lazy.bundle.js",
       "sources": [
-        "afc-form-values.js",
-        "afc-pdf-browser.js"
+        "js/absence-from-campus/afc-form-values.js",
+        "js/absence-from-campus/afc-pdf-browser.js"
       ]
     },
     {
       "output": "bundles/approval-workflow.lazy.bundle.js",
       "sources": [
-        "faculty-swap-handoff.js",
-        "approval-workflow.js"
+        "js/faculty/faculty-swap-handoff.js",
+        "js/approvals/approval-workflow.js"
       ]
     }
   ]

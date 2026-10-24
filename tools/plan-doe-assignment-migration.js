@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 const fs=require('node:fs');
-const SERVICE=require('../doe-policy-service.js');
+const SERVICE=require('../shared/doe-policy/doe-policy-service.js');
 
 const text=value=>String(value??'').trim();
 const clone=value=>JSON.parse(JSON.stringify(value??null));
