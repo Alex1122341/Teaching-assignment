@@ -7,8 +7,10 @@ const root=path.resolve(__dirname,'..');
 const args=process.argv.slice(2);
 const outArg=args.indexOf('--output');
 const output=path.resolve(root,outArg>=0&&args[outArg+1]?args[outArg+1]:'output/doe-api');
+// The Firestore DOE policy engine under shared/doe-policy was retired together
+// with the old DOE services; the packaged API no longer references it. Only the
+// browser-side helpers that the remaining server modules still load are copied.
 const shared=[
- 'shared/doe-policy/doe-formula.js','shared/doe-policy/doe-policy-engine.js','shared/doe-policy/doe-policy-repository.js','shared/doe-policy/doe-policy-firestore.js','shared/doe-policy/doe-policy-service.js',
  'web/js/data-index/index-maintenance.js','web/js/data-index/data-index.js','web/js/faculty/faculty-doe.js','web/js/timetable/scheduling-core.js','web/js/timetable/calendar-session.js'
 ];
 function copyFile(rel){

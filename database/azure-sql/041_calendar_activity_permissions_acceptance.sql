@@ -1,0 +1,100 @@
+:ON ERROR EXIT
+SET NOCOUNT ON;
+IF DATABASE_PRINCIPAL_ID(N'paws_runtime_calendar_read') IS NULL THROW 53890,'Calendar permission roles are missing.',1;
+IF EXISTS(SELECT 1 FROM sys.database_role_members WHERE role_principal_id IN(DATABASE_PRINCIPAL_ID(N'paws_runtime_calendar_read'),DATABASE_PRINCIPAL_ID(N'paws_runtime_calendar_stage'),DATABASE_PRINCIPAL_ID(N'paws_runtime_calendar_commit'),DATABASE_PRINCIPAL_ID(N'paws_runtime_calendar_time'),DATABASE_PRINCIPAL_ID(N'paws_calendar_recovery_admin')))
+ THROW 53890,'Permission migration bound a live principal.',1;
+-- Memberships below apply only to disposable WITHOUT LOGIN fixture principals.
+CREATE USER calendar_permission_read WITHOUT LOGIN;
+CREATE USER calendar_permission_stage WITHOUT LOGIN;
+CREATE USER calendar_permission_commit WITHOUT LOGIN;
+CREATE USER calendar_permission_time WITHOUT LOGIN;
+CREATE USER calendar_permission_recovery WITHOUT LOGIN;
+ALTER ROLE paws_runtime_calendar_read ADD MEMBER calendar_permission_read;
+ALTER ROLE paws_runtime_read ADD MEMBER calendar_permission_read;
+ALTER ROLE paws_runtime_calendar_stage ADD MEMBER calendar_permission_stage;
+ALTER ROLE paws_runtime_read ADD MEMBER calendar_permission_stage;
+ALTER ROLE paws_runtime_calendar_commit ADD MEMBER calendar_permission_commit;
+ALTER ROLE paws_runtime_calendar_time ADD MEMBER calendar_permission_time;
+ALTER ROLE paws_calendar_recovery_admin ADD MEMBER calendar_permission_recovery;
+DECLARE @Faculty uniqueidentifier=(SELECT FacultyId FROM paws.Faculty WHERE DisplayName=N'Synthetic Calendar Candidate');
+INSERT paws.UserProfile(FirebaseUid,Email,DisplayName,BaseRole,FacultyId,Active,MustChangePassword) VALUES(N'calendar-permission-faculty',N'permission@example.test',N'Synthetic Permission Faculty',N'faculty',@Faculty,1,0);
+DECLARE @Denied bit=0;
+DECLARE @Reply TABLE(responseJson nvarchar(max));
+EXECUTE AS USER=N'calendar_permission_read';
+INSERT @Reply EXEC paws_api.ListCalendarActivities N'calendar-permission-faculty','2026-11-01','2026-11-08';
+BEGIN TRY EXEC paws_api.ListCalendarActivities @ActorFirebaseUid=N'calendar-permission-faculty',@StartDate='2026-11-01',@EndExclusive='2026-11-08',@IncludeFacultyKeys=1; END TRY
+BEGIN CATCH IF ERROR_NUMBER()=53801 SET @Denied=1;ELSE THROW;END CATCH;
+IF @Denied=0 THROW 53890,'Faculty actor accessed the administrator key mapping.',1;
+SET @Denied=0;
+BEGIN TRY SELECT BeforeAfcJson FROM paws.CalendarActivityRecoveryRow; END TRY BEGIN CATCH IF ERROR_NUMBER()=229 SET @Denied=1;ELSE THROW;END CATCH;
+IF @Denied=0 THROW 53890,'Broad runtime read exposed recovery beforeimages.',1;
+SET @Denied=0;
+BEGIN TRY SELECT RawJson FROM staging.ImportRow; END TRY BEGIN CATCH IF ERROR_NUMBER()=229 SET @Denied=1;ELSE THROW;END CATCH;
+IF @Denied=0 THROW 53890,'Broad runtime read exposed private source rows.',1;
+SET @Denied=0;
+BEGIN TRY SELECT * FROM staging.CalendarActivityImportItem; END TRY BEGIN CATCH IF ERROR_NUMBER()=229 SET @Denied=1;ELSE THROW;END CATCH;
+IF @Denied=0 THROW 53890,'Broad runtime read exposed staging identities.',1;
+SET @Denied=0;
+BEGIN TRY DELETE paws.CalendarActivity WHERE 1=0; END TRY BEGIN CATCH IF ERROR_NUMBER()=229 SET @Denied=1;ELSE THROW;END CATCH;
+IF @Denied=0 THROW 53890,'Read principal received activity DML.',1;
+REVERT;
+IF EXISTS(SELECT 1 FROM @Reply CROSS APPLY OPENJSON(responseJson,'$.activities') WITH(facultyKey uniqueidentifier) a WHERE a.facultyKey<>(SELECT CandidateKey FROM paws.SwapCandidate WHERE FacultyId=@Faculty))
+ THROW 53890,'Faculty activity reader escaped self scope.',1;
+DECLARE @ExistingBatch uniqueidentifier=(SELECT TOP(1) ImportBatchId FROM staging.CalendarActivityImport),@ExistingReceipt uniqueidentifier=(SELECT TOP(1) ReceiptId FROM paws.CalendarActivityImportReceipt);
+EXECUTE AS USER=N'calendar_permission_stage';
+DELETE @Reply;INSERT @Reply EXEC paws_api.GetCalendarActivityImport N'calendar-swap-admin',@ExistingBatch;
+SET @Denied=0;
+BEGIN TRY EXEC paws_api.GetCalendarActivityImport N'calendar-permission-faculty',@ExistingBatch; END TRY BEGIN CATCH IF ERROR_NUMBER()=53801 SET @Denied=1;ELSE THROW;END CATCH;
+IF @Denied=0 THROW 53890,'Stage role bypassed actor authorization.',1;
+SET @Denied=0;
+BEGIN TRY SELECT BeforeAfcJson FROM paws.CalendarActivityRecoveryRow; END TRY BEGIN CATCH IF ERROR_NUMBER()=229 SET @Denied=1;ELSE THROW;END CATCH;
+IF @Denied=0 THROW 53890,'Stage principal received private recovery reads.',1;
+SET @Denied=0;
+BEGIN TRY EXEC paws_api.ExportCalendarActivityRecovery N'calendar-swap-admin',@ExistingReceipt; END TRY BEGIN CATCH IF ERROR_NUMBER()=229 SET @Denied=1;ELSE THROW;END CATCH;
+IF @Denied=0 THROW 53890,'Browser stage principal received recovery export.',1;
+REVERT;
+EXECUTE AS USER=N'calendar_permission_recovery';
+EXEC paws_api.ExportCalendarActivityRecovery N'calendar-swap-admin',@ExistingReceipt;
+SET @Denied=0;
+BEGIN TRY EXEC paws_api.ExportCalendarActivityRecovery N'calendar-permission-faculty',@ExistingReceipt; END TRY BEGIN CATCH IF ERROR_NUMBER()=53801 SET @Denied=1;ELSE THROW;END CATCH;
+IF @Denied=0 THROW 53890,'Recovery role bypassed actor authorization.',1;
+REVERT;
+-- A proc-only principal must see future protected dependencies through a safe metadata guard.
+DECLARE @Source uniqueidentifier=NEWID(),@Target uniqueidentifier=NEWID(),@Afc uniqueidentifier=NEWID(),@Raw uniqueidentifier=NEWID(),@Batch uniqueidentifier=NEWID(),@Key uniqueidentifier=NEWID();
+INSERT staging.ImportBatch(ImportBatchId,StartedAtUtc,Status,SourceManifestSha256,ImporterVersion,ValidationSummaryJson) VALUES(@Source,SYSUTCDATETIME(),N'synthetic',REPLICATE('D',64),N'test',N'{}');
+INSERT paws.Faculty(FacultyId,RecordType,DisplayName,Active,SourceImportBatchId) VALUES(@Target,N'faculty',N'Synthetic Proc-Only Metadata',1,@Source);
+INSERT paws.SwapCandidate(FacultyId) VALUES(@Target);
+INSERT staging.AfcRecordRaw(ImportBatchId,ImportRowId,SourceRowNumber,FacultySourceName,StartDate,EndDate,Purpose,RawJson,ValidationStatus,ValidationErrorsJson)
+ VALUES(@Source,@Raw,500,N'Synthetic Proc-Only Metadata','2026-11-05','2026-11-06',N'CCC Day',N'{}',N'valid',N'[]');
+INSERT paws.AfcRecord(AfcRecordId,FacultyId,StartDate,EndDate,Purpose,Active,SourceImportBatchId,SourceRow) VALUES(@Afc,@Target,'2026-11-05','2026-11-06',N'CCC Day',1,@Source,500);
+DECLARE @Rows nvarchar(max)=N'[{"sourceRow":500,"facultySourceName":"Synthetic Proc-Only Metadata","startDate":"2026-11-05","endDate":"2026-11-06","originalLabel":"CCC Day","treatment":"working_candidate","issues":[]}]';
+DELETE @Reply;INSERT @Reply EXEC paws_api.StageCalendarActivityImport N'calendar-swap-admin',@Batch,'4FDB517FE0B6CDF26678643E6B606D9F8388701AAF7EA540206BEF8A5733E2DF',@Rows;
+DECLARE @Version varchar(16),@Manifest char(64);
+SELECT @Version=JSON_VALUE(responseJson,'$.previewVersion'),@Manifest=JSON_VALUE(responseJson,'$.manifestSha256') FROM @Reply;
+CREATE TABLE dbo.CalendarPermissionProtectedAfc(AfcRecordId uniqueidentifier NOT NULL REFERENCES paws.AfcRecord(AfcRecordId) ON DELETE CASCADE);
+INSERT dbo.CalendarPermissionProtectedAfc VALUES(@Afc);
+SET @Denied=0;
+EXECUTE AS USER=N'calendar_permission_commit';
+BEGIN TRY EXEC paws_api.CommitCalendarActivityImport N'calendar-swap-admin',@Batch,@Version,@Manifest,'4FDB517FE0B6CDF26678643E6B606D9F8388701AAF7EA540206BEF8A5733E2DF',@Key,1; END TRY
+BEGIN CATCH IF ERROR_NUMBER()=53808 SET @Denied=1;ELSE THROW;END CATCH;
+REVERT;
+IF @Denied=0 OR NOT EXISTS(SELECT 1 FROM paws.AfcRecord WHERE AfcRecordId=@Afc) OR NOT EXISTS(SELECT 1 FROM dbo.CalendarPermissionProtectedAfc WHERE AfcRecordId=@Afc)
+ THROW 53890,'Proc-only metadata visibility permitted protected cascading deletion.',1;
+DROP TABLE dbo.CalendarPermissionProtectedAfc;
+EXECUTE AS USER=N'calendar_permission_commit';
+EXEC paws_api.CommitCalendarActivityImport N'calendar-swap-admin',@Batch,@Version,@Manifest,'4FDB517FE0B6CDF26678643E6B606D9F8388701AAF7EA540206BEF8A5733E2DF',@Key,1;
+REVERT;
+DECLARE @Activity uniqueidentifier,@ActivityVersion varchar(16);
+SELECT @Activity=ActivityId,@ActivityVersion=CONVERT(varchar(16),CONVERT(binary(8),ActivityVersion),2) FROM paws.CalendarActivity WHERE ImportBatchId=@Batch;
+EXECUTE AS USER=N'calendar_permission_time';
+EXEC paws_api.ResolveCalendarActivityDayTime N'calendar-swap-admin',@Activity,@ActivityVersion,'2026-11-05','08:00','09:00',N'synthetic permission evidence',N'private evidence';
+REVERT;
+ALTER ROLE paws_runtime_calendar_read DROP MEMBER calendar_permission_read;
+ALTER ROLE paws_runtime_read DROP MEMBER calendar_permission_read;
+ALTER ROLE paws_runtime_calendar_stage DROP MEMBER calendar_permission_stage;
+ALTER ROLE paws_runtime_read DROP MEMBER calendar_permission_stage;
+ALTER ROLE paws_runtime_calendar_commit DROP MEMBER calendar_permission_commit;
+ALTER ROLE paws_runtime_calendar_time DROP MEMBER calendar_permission_time;
+ALTER ROLE paws_calendar_recovery_admin DROP MEMBER calendar_permission_recovery;
+DROP USER calendar_permission_read;DROP USER calendar_permission_stage;DROP USER calendar_permission_commit;DROP USER calendar_permission_time;DROP USER calendar_permission_recovery;
+PRINT 'CALENDAR_ACTIVITY_PERMISSION_BOUNDARY_OK';

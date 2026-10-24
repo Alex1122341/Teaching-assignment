@@ -1,0 +1,96 @@
+{
+  "ok": true,
+  "instance": "PAWSTestSim",
+  "guard": {
+    "testingMarker": 1,
+    "runtimeUser": 7,
+    "readRoleMember": 1
+  },
+  "executedAs": "paws_testing_runtime (EXECUTE AS USER)",
+  "sqlRows": 8,
+  "roleTypesReturned": [
+    "Course Coordinator",
+    "HICC",
+    "VISC"
+  ],
+  "columnsReturned": [
+    "appointmentKey",
+    "courseCode",
+    "effectiveDate",
+    "expirationDate",
+    "facultyKey",
+    "facultyName",
+    "hasSchedule",
+    "periodsJson",
+    "recordedScope",
+    "roleType"
+  ],
+  "hiccCc": 2,
+  "visc": 5,
+  "directory": {
+    "academicYear": "2026-27",
+    "asOfDate": "2026-10-22",
+    "hiccCc": [
+      {
+        "roleType": "HICC",
+        "scope": "VTMD 200",
+        "facultyName": "Avery Testwell",
+        "status": "active",
+        "startDate": "2026-07-01",
+        "endDate": "2026-12-31"
+      },
+      {
+        "roleType": "Course Coordinator",
+        "scope": "VTMD 200",
+        "facultyName": "Casey Mockford",
+        "status": "dates-needed",
+        "startDate": null,
+        "endDate": null
+      }
+    ],
+    "visc": [
+      {
+        "roleType": "VISC",
+        "scope": "Anatomy",
+        "facultyName": "Casey Mockford",
+        "status": "active",
+        "startDate": "2026-07-01",
+        "endDate": "2027-06-30"
+      },
+      {
+        "roleType": "VISC",
+        "scope": "Cardiology",
+        "facultyName": "Blair Sampleton",
+        "status": "active",
+        "startDate": "2026-07-01",
+        "endDate": "2027-06-30"
+      },
+      {
+        "roleType": "VISC",
+        "scope": "Cardiology",
+        "facultyName": "Blair Sampleton",
+        "status": "inactive",
+        "startDate": null,
+        "endDate": "2026-09-30",
+        "nextStartDate": "2027-01-05"
+      },
+      {
+        "roleType": "VISC",
+        "scope": "Dermatology",
+        "facultyName": "Noel Sampleton2",
+        "status": "active",
+        "startDate": "2026-07-01",
+        "endDate": "2027-06-30"
+      },
+      {
+        "roleType": "VISC",
+        "scope": null,
+        "facultyName": "Blair Sampleton",
+        "status": "dates-needed",
+        "startDate": null,
+        "endDate": null
+      }
+    ]
+  },
+  "leftoverRowsAfterRollback": 0
+}

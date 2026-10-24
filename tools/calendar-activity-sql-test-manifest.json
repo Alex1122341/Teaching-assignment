@@ -1,0 +1,58 @@
+{
+  "baseline": [
+    "database/azure-sql/001_foundation.sql",
+    "database/azure-sql/002_calendar_view.sql",
+    "database/azure-sql/004_swa_beta_permissions.sql",
+    "database/azure-sql/005_teaching_assignment_authority_foundation.sql",
+    "database/azure-sql/006_teaching_responsibility_concurrent_assignees.sql",
+    "database/azure-sql/007_afc_manual_write_foundation.sql",
+    "database/azure-sql/007_afc_manual_write_permissions.sql",
+    "database/azure-sql/008_doe_faculty_target_foundation.sql",
+    "database/azure-sql/009_afc_request_foundation.sql",
+    "database/azure-sql/010_afc_approval_foundation.sql",
+    "database/azure-sql/011_afc_approved_artifact.sql",
+    "database/azure-sql/012_session_edit_api.sql",
+    "database/azure-sql/013_doe_faculty_allocation.sql",
+    "database/azure-sql/014_doe_rule_book_and_fte_provenance.sql",
+    "database/azure-sql/015_afc_manual_batch.sql",
+    "database/azure-sql/017_w1e_runtime_least_privilege.sql",
+    "database/azure-sql/018_w1h_afc_runtime_write_roles.sql",
+    "database/azure-sql/019_session_create_and_assignment_api.sql",
+    "database/azure-sql/020_teaching_assignment_workflow.sql",
+    "database/azure-sql/021_teaching_assignment_workflow_api.sql",
+    "database/azure-sql/022_teaching_assignment_workflow_permissions.sql",
+    "database/azure-sql/023_faculty_admin_write.sql",
+    "database/azure-sql/024_faculty_admin_profile_version_fix.sql",
+    "database/azure-sql/025_auth1_developer_role_authorization.sql",
+    "database/azure-sql/026_annual_doe_engine.sql",
+    "database/azure-sql/027_doe_runtime_permissions.sql",
+    "database/azure-sql/028_doe_supervision_source.sql",
+    "database/azure-sql/029_manual_doe_assignment.sql",
+    "database/azure-sql/030_session_swap.sql",
+    "database/azure-sql/031_session_swap_permissions.sql",
+    "database/azure-sql/032_faculty_hr_identity.sql",
+    "database/azure-sql/033_developer_support.sql",
+    "database/azure-sql/034_developer_support_binary_capture.sql",
+    "database/azure-sql/035_role_appointment_periods.sql",
+    "database/azure-sql/036_afc_record_cancel.sql",
+    "database/azure-sql/037_afc_version_encoding.sql"
+  ],
+  "features": {
+    "038": {
+      "migration": "database/azure-sql/038_calendar_activity_foundation.sql",
+      "acceptance": "database/azure-sql/038_calendar_activity_acceptance.sql"
+    },
+    "039": {
+      "migration": "database/azure-sql/039_calendar_activity_swap.sql",
+      "acceptance": "database/azure-sql/039_calendar_activity_swap_acceptance.sql"
+    },
+    "040": {
+      "migration": "database/azure-sql/040_calendar_activity_commands.sql",
+      "acceptance": "database/azure-sql/040_calendar_activity_acceptance.sql"
+    },
+    "041": {
+      "migration": "database/azure-sql/041_calendar_activity_permissions.sql",
+      "acceptance": "database/azure-sql/041_calendar_activity_permissions_acceptance.sql"
+    }
+  }
+}

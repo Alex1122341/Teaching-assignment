@@ -1,0 +1,19 @@
+{
+  "name": "paws-beta-swa-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "@azure/functions": "4.7.2",
+    "exceljs": "4.4.0",
+    "firebase-admin": "13.4.0",
+    "jszip": "3.10.2",
+    "mssql": "11.0.1",
+    "pdf-lib": "1.17.1",
+    "unzipper": "0.10.14"
+  }
+}
