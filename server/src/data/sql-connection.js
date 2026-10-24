@@ -4,30 +4,43 @@ const { AsyncLocalStorage } = require('node:async_hooks');
 
 // Shared, long-lived Azure SQL connection for the ported PAWS domains.
 //
-// Two concerns are deliberately separated here:
+// Two concerns are separated deliberately:
 //
-//   1. HOW we authenticate. Beta resolves credentials through
-//      `azure-active-directory-default` (managed-identity client id) or
-//      `msnodesqlv8` (Windows integrated auth). This repository uses an
-//      `azure-active-directory-access-token` fetched from the App Service local
-//      identity endpoint. The credential path is not interchangeable, so it is
-//      injected as a token provider.
+//   1. HOW the pool is configured. Two credential models are supported:
+//        - `tokenProvider` (this repository's deployment): an
+//          `azure-active-directory-access-token` from the App Service local
+//          identity endpoint. The token is bound at pool construction, so the
+//          pool is rebuilt before it expires.
+//        - `connectionString` / `config` (the Beta model): either
+//          `azure-active-directory-default` with a managed-identity client id,
+//          or `msnodesqlv8` Windows integrated auth. These build a static
+//          configuration, so there is nothing to refresh.
 //
-//   2. HOW the ported repositories expect to call us. Beta's ~40 repository
-//      modules call `db.query(text, params)` and `db.transaction(() => ...)`,
-//      relying on AsyncLocalStorage so that a `db.query` issued anywhere inside
-//      the callback joins the open transaction. That call convention is
-//      preserved exactly, because rewriting it across every repository would be
-//      a far larger and riskier change than adapting this one file.
+//   2. HOW the ported repositories expect to call us. They call
+//      `db.query(text, params)` and `db.transaction(() => ...)`, relying on
+//      AsyncLocalStorage so a query issued anywhere inside the callback joins the
+//      open transaction. That convention is preserved exactly, because rewriting
+//      it across ~40 repository modules would be far larger and riskier than
+//      adapting this one file.
 //
-// On top of Beta's behaviour this version adds two properties that matter in
-// production and are tested:
-//
-//   - One connection attempt even under concurrency. A shared in-flight promise
-//     means a burst of parallel requests produces one pool, not one per request.
-//   - The pool is rebuilt before its bound token expires. The access token is
-//     baked into the pool at construction, so a pool that outlives its token
-//     fails every subsequent query.
+// Added on top of Beta's behaviour and tested:
+//   - One connection attempt even under concurrency, so a burst of parallel
+//     requests produces one pool rather than one per request.
+//   - The pool is rebuilt before a token-provider credential expires.
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ALLOWED_KEYS = new Map([
+  ['server', 'server'],
+  ['datasource', 'server'],
+  ['address', 'server'],
+  ['addr', 'server'],
+  ['networkaddress', 'server'],
+  ['port', 'port'],
+  ['database', 'database'],
+  ['initialcatalog', 'database'],
+  ['encrypt', 'encrypt'],
+  ['trustservercertificate', 'trustServerCertificate']
+]);
 
 const DEFAULT_PORT = 1433;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
@@ -37,12 +50,159 @@ const MAX_TOKEN_REFRESH_MS = 60 * 60 * 1000;
 
 const text = value => String(value ?? '').trim();
 
+// ---------------------------------------------------------------------------
+// Connection-string credential model (Beta parity)
+// ---------------------------------------------------------------------------
+
+function normalizeKey(key) {
+  return key.toLowerCase().replace(/\s+/g, '');
+}
+
+function resolveSqlDriver(value) {
+  const driver = value === undefined || value === null ? '' : String(value).trim().toLowerCase();
+  if (!driver || driver === 'tedious') return 'tedious';
+  if (driver === 'msnodesqlv8') return 'msnodesqlv8';
+  throw Error('Unsupported PAWS_SQL_DRIVER: choose empty, tedious, or msnodesqlv8');
+}
+
+function parseBooleanFlag(value, name) {
+  if (value === undefined) return false;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  throw Error(`${name} must be true or false`);
+}
+
+function parseConnectionString(connectionString) {
+  const values = {};
+  for (const segment of connectionString.split(';')) {
+    if (!segment.trim()) continue;
+    const separator = segment.indexOf('=');
+    if (separator < 1) throw Error('PAWS_SQL_CONNECTION_STRING contains an invalid segment');
+    const key = segment.slice(0, separator).trim();
+    const value = segment.slice(separator + 1).trim();
+    const logicalKey = ALLOWED_KEYS.get(normalizeKey(key));
+    if (!logicalKey) throw Error(`SQL connection option is not allowed: ${key}`);
+    if (values[logicalKey] !== undefined && values[logicalKey] !== value) {
+      throw Error(`Conflicting values supplied for ${logicalKey}`);
+    }
+    values[logicalKey] = value;
+  }
+  return values;
+}
+
+function parseServer(serverValue) {
+  const server = serverValue.replace(/^tcp:/i, '');
+  const comma = server.lastIndexOf(',');
+  if (comma > -1 && /^\d+$/.test(server.slice(comma + 1))) {
+    return { server: server.slice(0, comma), port: Number(server.slice(comma + 1)) };
+  }
+  return { server };
+}
+
+function buildWindowsConnectionConfig({ connectionString, allowSelfSigned }) {
+  const values = parseConnectionString(connectionString);
+  const serverValue = values.server;
+  const database = values.database;
+  if (!serverValue || !database) throw Error('Windows SQL configuration requires server and database');
+
+  if (values.encrypt !== undefined && values.encrypt.toLowerCase() !== 'true') {
+    throw Error('Encrypt must be true in Windows SQL mode');
+  }
+  if (values.trustServerCertificate !== undefined && !['true', 'false'].includes(values.trustServerCertificate.toLowerCase())) {
+    throw Error('TrustServerCertificate must be true or false');
+  }
+  const trustServerCertificate = values.trustServerCertificate === undefined
+    ? false
+    : values.trustServerCertificate.toLowerCase() === 'true';
+  if (trustServerCertificate && !allowSelfSigned) {
+    throw Error('TrustServerCertificate=true requires PAWS_SQL_ALLOW_SELF_SIGNED=true for test-only use');
+  }
+
+  const endpoint = parseServer(serverValue);
+  if (values.port !== undefined) {
+    if (!/^\d+$/.test(values.port) || Number(values.port) < 1 || Number(values.port) > 65535) {
+      throw Error('SQL port must be an integer from 1 to 65535');
+    }
+    if (endpoint.port !== undefined && endpoint.port !== Number(values.port)) {
+      throw Error('Conflicting values supplied for port');
+    }
+    endpoint.port = Number(values.port);
+  }
+  if (endpoint.port !== undefined && (endpoint.port < 1 || endpoint.port > 65535)) {
+    throw Error('SQL port must be an integer from 1 to 65535');
+  }
+  const odbcValue = value => String(value).replace(/}/g, '}}');
+  const server = endpoint.port === undefined ? endpoint.server : endpoint.server + ',' + endpoint.port;
+  const odbcConnectionString = [
+    'Driver={ODBC Driver 18 for SQL Server}',
+    'Server={' + odbcValue(server) + '}',
+    'Database={' + odbcValue(database) + '}',
+    'Trusted_Connection=Yes',
+    'Encrypt=Yes',
+    'TrustServerCertificate=' + (trustServerCertificate ? 'Yes' : 'No')
+  ].join(';') + ';';
+  return {
+    ...endpoint,
+    database,
+    connectionString: odbcConnectionString,
+    options: {
+      encrypt: true,
+      trustServerCertificate,
+      trustedConnection: true
+    }
+  };
+}
+
+function buildSqlConnectionConfig({ connectionString, miClientId, driver, allowSelfSigned = false } = {}) {
+  const selectedDriver = resolveSqlDriver(driver);
+  if (!connectionString) throw Error('PAWS_SQL_CONNECTION_STRING is required');
+  if (typeof allowSelfSigned !== 'boolean') throw Error('allowSelfSigned must be a boolean');
+  if (allowSelfSigned && selectedDriver !== 'msnodesqlv8') {
+    throw Error('PAWS_SQL_ALLOW_SELF_SIGNED is only valid in msnodesqlv8 test mode');
+  }
+  if (selectedDriver === 'msnodesqlv8' && miClientId) {
+    throw Error('PAWS_SQL_DRIVER=msnodesqlv8 cannot be combined with PAWS_SQL_MI_CLIENT_ID');
+  }
+  if (selectedDriver === 'msnodesqlv8') {
+    return buildWindowsConnectionConfig({ connectionString, allowSelfSigned });
+  }
+  if (!miClientId) return connectionString;
+  if (!UUID.test(miClientId)) throw Error('PAWS_SQL_MI_CLIENT_ID must be a UUID');
+
+  const values = parseConnectionString(connectionString);
+  const serverValue = values.server;
+  const database = values.database;
+  if (!serverValue || !database) throw Error('Managed identity configuration requires server and database');
+  if (values.encrypt !== undefined && values.encrypt.toLowerCase() !== 'true') {
+    throw Error('Encrypt must be true in managed identity mode');
+  }
+  if (values.trustServerCertificate !== undefined && values.trustServerCertificate.toLowerCase() !== 'false') {
+    throw Error('TrustServerCertificate must be false in managed identity mode');
+  }
+
+  return {
+    ...parseServer(serverValue),
+    database,
+    authentication: {
+      type: 'azure-active-directory-default',
+      options: { clientId: miClientId }
+    },
+    options: {
+      encrypt: true,
+      trustServerCertificate: false
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Token credential model (this repository's deployment)
+// ---------------------------------------------------------------------------
+
 function normalizeTokenResult(result, fallbackRefreshMs, nowMs) {
   if (typeof result === 'string') {
     const token = text(result);
     if (!token) throw Object.assign(Error('Managed identity returned no SQL access token.'), { code: 'SQL_IDENTITY_TOKEN_MISSING' });
-    // No expiry supplied: refresh conservatively rather than trusting the pool
-    // indefinitely.
     return { token, expiresAt: nowMs + fallbackRefreshMs };
   }
   if (!result || typeof result !== 'object') {
@@ -52,7 +212,6 @@ function normalizeTokenResult(result, fallbackRefreshMs, nowMs) {
   if (!token) throw Object.assign(Error('Managed identity returned no SQL access token.'), { code: 'SQL_IDENTITY_TOKEN_MISSING' });
   const expiresOn = Number(result.expiresOn ?? result.expires_on);
   const expiresAt = Number.isFinite(expiresOn) && expiresOn > 0
-    // `expires_on` may arrive as epoch seconds or epoch milliseconds.
     ? (expiresOn > 1e12 ? expiresOn : expiresOn * 1000)
     : nowMs + fallbackRefreshMs;
   return { token, expiresAt };
@@ -73,21 +232,72 @@ function buildPoolConfig({ server, database, token, requestTimeoutMs, port = DEF
   };
 }
 
-function createSqlConnection({
-  sqlModule = null,
-  tokenProvider,
-  server,
-  database,
-  port = DEFAULT_PORT,
-  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
-  tokenRefreshMs = DEFAULT_TOKEN_REFRESH_MS,
-  now = () => Date.now()
-} = {}) {
-  if (typeof tokenProvider !== 'function') throw Object.assign(Error('A SQL token provider is required.'), { code: 'SQL_CONFIG_INVALID' });
-  // Validate the endpoint at composition time. Deferring this to the first query
-  // would turn a deployment misconfiguration into a runtime 500 on a live read.
-  if (!text(server)) throw Object.assign(Error('A SQL server is required.'), { code: 'SQL_CONFIG_INVALID' });
-  if (!text(database)) throw Object.assign(Error('A SQL database is required.'), { code: 'SQL_CONFIG_INVALID' });
+// ---------------------------------------------------------------------------
+// Factory
+// ---------------------------------------------------------------------------
+
+// A repository deployed before its business database exists must still start,
+// render, and answer honestly. This connection represents "no database
+// configured": every read and write fails closed with a typed
+// `DATABASE_NOT_CONFIGURED` error that the API layer maps to a clear
+// unconfigured state, and nothing is ever attempted on the wire.
+//
+// It is deliberately NOT a silent empty-data source. An empty list and an
+// unconfigured database must be distinguishable, or the UI will report
+// "no teaching sessions" for a system that has never been connected.
+function createNotConfiguredConnection() {
+  const notConfigured = () => Object.assign(
+    Error('The business database is not configured.'),
+    // `status` is the shape the ported API layer reads; `statusCode` is the shape
+    // this repository's older error mapping reads. Both are set so the same
+    // failure is a 503 either way, never a 500.
+    { code: 'DATABASE_NOT_CONFIGURED', status: 503, statusCode: 503 }
+  );
+  return {
+    isConfigured: false,
+    // Async so every caller sees a rejected promise, matching the configured
+    // connection. A synchronous throw here would be an easy-to-miss difference.
+    async query() { throw notConfigured(); },
+    async transaction() { throw notConfigured(); },
+    isTransactionActive: () => false,
+    async health() { return false; },
+    async close() {},
+    get isConnected() { return false; }
+  };
+}
+
+function createSqlConnection(options = {}) {
+  const {
+    sqlModule = null,
+    sql = null,
+    tokenProvider,
+    connectionString,
+    miClientId,
+    driver,
+    allowSelfSigned = false,
+    config,
+    server,
+    database,
+    port = DEFAULT_PORT,
+    requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    tokenRefreshMs = DEFAULT_TOKEN_REFRESH_MS,
+    now = () => Date.now()
+  } = options;
+
+  const injectedSql = sqlModule || sql;
+  const usesTokenProvider = typeof tokenProvider === 'function';
+  const usesStaticConfig = Boolean(config) || Boolean(connectionString);
+
+  if (!usesTokenProvider && !usesStaticConfig) return createNotConfiguredConnection();
+  if (usesTokenProvider && usesStaticConfig) {
+    throw Object.assign(Error('Supply either a token provider or a connection configuration, not both.'), { code: 'SQL_CONFIG_INVALID' });
+  }
+  if (usesTokenProvider) {
+    // Validate the endpoint at composition time: deferring this to the first
+    // query would turn a deployment misconfiguration into a live 500.
+    if (!text(server)) throw Object.assign(Error('A SQL server is required.'), { code: 'SQL_CONFIG_INVALID' });
+    if (!text(database)) throw Object.assign(Error('A SQL database is required.'), { code: 'SQL_CONFIG_INVALID' });
+  }
   if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1000 || requestTimeoutMs > 120000) {
     throw Object.assign(Error('SQL request timeout must be an integer from 1000 to 120000 milliseconds.'), { code: 'SQL_CONFIG_INVALID' });
   }
@@ -96,19 +306,25 @@ function createSqlConnection({
   }
 
   const transactions = new AsyncLocalStorage();
+  // A static configuration carries no refreshable credential, so its expiry is
+  // treated as infinite.
+  const staticConfig = config || (connectionString
+    ? buildSqlConnectionConfig({ connectionString, miClientId, driver, allowSelfSigned })
+    : null);
+
   let pool = null;
-  let expiresAt = 0;
+  let expiresAt = Number.POSITIVE_INFINITY;
   let pending = null;
   let closed = false;
 
   function loadSql() {
-    return sqlModule || require('mssql');
+    return injectedSql || require('mssql');
   }
 
   async function discard() {
     const current = pool;
     pool = null;
-    expiresAt = 0;
+    expiresAt = Number.POSITIVE_INFINITY;
     if (current) {
       try { await current.close(); } catch { /* a broken pool must not mask its replacement */ }
     }
@@ -117,18 +333,36 @@ function createSqlConnection({
   function connectOnce() {
     if (pending) return pending;
     const created = (async () => {
-      const sql = loadSql();
-      const tokenResult = await tokenProvider();
-      const { token, expiresAt: tokenExpiry } = normalizeTokenResult(tokenResult, tokenRefreshMs, now());
-      const candidate = new sql.ConnectionPool(buildPoolConfig({ server, database, token, requestTimeoutMs, port }));
+      const sqlClient = loadSql();
+      let poolConfig;
+      if (staticConfig) {
+        // Clone rather than mutate: the ordinary pool and the import pool share
+        // one static configuration object, so writing a longer budget onto it
+        // would silently raise the timeout for every page read as well.
+        poolConfig = typeof staticConfig === 'object' && requestTimeoutMs !== DEFAULT_REQUEST_TIMEOUT_MS
+          ? { ...staticConfig, requestTimeout: requestTimeoutMs }
+          : staticConfig;
+      } else {
+        const tokenResult = await tokenProvider();
+        const normalized = normalizeTokenResult(tokenResult, tokenRefreshMs, now());
+        poolConfig = buildPoolConfig({ server, database, token: normalized.token, requestTimeoutMs, port });
+        expiresAt = normalized.expiresAt;
+      }
+      const candidate = new sqlClient.ConnectionPool(poolConfig);
+      // A connection string is parsed by the driver into a private config object
+      // per pool, so the budget can be applied there before connecting. Only this
+      // pool is touched.
+      if (requestTimeoutMs !== DEFAULT_REQUEST_TIMEOUT_MS
+        && typeof poolConfig === 'string'
+        && candidate.config
+        && typeof candidate.config === 'object') {
+        candidate.config.requestTimeout = requestTimeoutMs;
+      }
       const connected = await candidate.connect();
       pool = connected;
-      expiresAt = tokenExpiry;
       return connected;
     })();
     pending = created;
-    // Clear the shared attempt without leaving an unhandled rejection behind:
-    // the caller awaiting `created` is the one that reports the failure.
     const clear = () => { if (pending === created) pending = null; };
     created.then(clear, clear);
     return created;
@@ -151,43 +385,61 @@ function createSqlConnection({
     return request;
   }
 
-  // Executes one statement. Inside a transaction the statement is chained onto
-  // the transaction's queue so that two `db.query` calls issued from the same
-  // async context cannot interleave on one connection.
-  async function runQuery(statement, params = {}, options = {}) {
+  async function runQuery(statement, params = {}, queryOptions = {}) {
     if (!text(statement)) throw Object.assign(Error('A SQL statement is required.'), { code: 'SQL_STATEMENT_REQUIRED' });
     const state = transactions.getStore();
-    if (state && !options.transactionQueued) {
-      const queued = state.chain.then(() => runQuery(statement, params, { ...options, transactionQueued: true }));
+    if (state && !queryOptions.transactionQueued) {
+      const queued = state.chain.then(() => runQuery(statement, params, { ...queryOptions, transactionQueued: true }));
       state.chain = queued.catch(error => { state.error = state.error || error; });
       return queued;
     }
-    const sql = loadSql();
+    const timing = queryOptions.timing;
+    const queryMetric = queryOptions.queryMetric;
+    const sqlClient = loadSql();
     let request;
-    if (state) request = new sql.Request(state.transaction);
-    else request = (await acquire()).request();
+    if (state) {
+      request = new sqlClient.Request(state.transaction);
+    } else {
+      // A warm pool costs nothing to obtain, so it records a zero-duration
+      // `warm` entry; a cold one is measured around the real handshake. The
+      // connect metric is recorded even when the handshake fails, because "could
+      // not connect" and "connected and then failed" are different diagnoses.
+      const wasConnected = pool !== null;
+      const connectStarted = timing && !wasConnected ? timing.start('sql_connect') : null;
+      try {
+        const active = await acquire();
+        request = active.request();
+      } finally {
+        if (timing) {
+          if (wasConnected) timing.record('sql_connect', 0, 'warm');
+          else timing.end('sql_connect', connectStarted, 'cold');
+        }
+      }
+    }
     bind(request, params);
-    const result = await request.query(statement);
-    return result?.recordset || [];
+    const queryStarted = timing && queryMetric ? timing.start(queryMetric) : null;
+    try {
+      const result = await request.query(statement);
+      return result?.recordset || [];
+    } finally {
+      if (timing && queryMetric) timing.end(queryMetric, queryStarted);
+    }
   }
 
   async function transaction(callback, { supportOperationId = null } = {}) {
     if (typeof callback !== 'function') throw Object.assign(Error('A transaction body is required.'), { code: 'SQL_TRANSACTION_REQUIRED' });
     if (transactions.getStore()) throw Object.assign(Error('Nested request transaction is unsupported.'), { code: 'SQL_TRANSACTION_NESTED' });
-    const sql = loadSql();
-    if (typeof sql.Transaction !== 'function' || !sql.ISOLATION_LEVEL) {
+    const sqlClient = loadSql();
+    if (typeof sqlClient.Transaction !== 'function' || !sqlClient.ISOLATION_LEVEL) {
       throw Object.assign(Error('The configured SQL driver does not support transactions.'), { code: 'SQL_TRANSACTION_UNSUPPORTED' });
     }
     const active = await acquire();
-    const instance = new sql.Transaction(active);
+    const instance = new sqlClient.Transaction(active);
     let rolledBack = false;
     instance.on?.('rollback', () => { rolledBack = true; });
-    await instance.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+    await instance.begin(sqlClient.ISOLATION_LEVEL.SERIALIZABLE);
     const state = { transaction: instance, operationId: supportOperationId, error: null, chain: Promise.resolve() };
     try {
-      // The callback receives a small handle for convenience, but the supported
-      // convention (and the one the ported repositories use) is to call
-      // `db.query` directly and let AsyncLocalStorage route it here.
       const result = await transactions.run(state, () => callback({
         query: (statement, params) => runQuery(statement, params)
       }));
@@ -202,6 +454,7 @@ function createSqlConnection({
   }
 
   return {
+    isConfigured: true,
     query: runQuery,
     transaction,
     isTransactionActive: () => Boolean(transactions.getStore()),
@@ -225,6 +478,9 @@ module.exports = {
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_TOKEN_REFRESH_MS,
   buildPoolConfig,
+  buildSqlConnectionConfig,
   createSqlConnection,
-  normalizeTokenResult
+  normalizeTokenResult,
+  parseBooleanFlag,
+  resolveSqlDriver
 };

@@ -1,6 +1,6 @@
 'use strict';
 
-const { createSqlConnection } = require('../data/sql-connection');
+const { createSqlConnection, resolveSqlDriver, parseBooleanFlag } = require('../data/sql-connection');
 const { appServiceManagedIdentityTokenWithExpiry } = require('../data/sql-identity');
 const { createSqlUserRepository } = require('../data/sql-user-repository');
 const { createSqlSessionRepository } = require('../data/sql-session-repository');
@@ -76,27 +76,58 @@ const {createCccReplacementApi}=require('../calendar/ccc-replacement-api');
 const {createSqlCccReplacementRepository}=require('../data/sql-ccc-replacement-repository');
 const {createCccReplacementFunctions}=require('./swa-ccc-replacement-functions');
 
-const DEFAULT_SERVER = 'ucvm-teaching-lab-xz-20260911.database.windows.net';
-const DEFAULT_DATABASE = 'teaching-assignment-lab';
-
-// Credentials are acquired per connection attempt from the App Service local
-// identity endpoint, so the shared connection can rebuild its pool before the
-// bound token expires. Beta instead built one static config from
-// PAWS_SQL_CONNECTION_STRING, which cannot work with an expiring access token.
+// Credential resolution, in precedence order:
+//
+//   1. PAWS_SQL_CONNECTION_STRING  -> Beta's connection-string model
+//      (managed-identity client id, or msnodesqlv8 Windows auth). Driver and
+//      self-signed flags are parsed strictly here, so a bad value fails at
+//      composition rather than on the first query.
+//   2. AZURE_SQL_SERVER + AZURE_SQL_DATABASE -> this repository's App Service
+//      managed-identity access token, refreshed before expiry.
+//   3. Neither -> the business database is not configured. This is a valid
+//      deployment state, not an error: the application must still start and
+//      render, and every business read must answer DATABASE_NOT_CONFIGURED
+//      rather than pretending to be an empty database.
+//
+// No server name, database name or credential is hardcoded.
 function connectionOptions(env, overrides = {}) {
-  return {
-    tokenProvider: () => appServiceManagedIdentityTokenWithExpiry({ env }),
-    server: String(env.AZURE_SQL_SERVER || '').trim() || DEFAULT_SERVER,
-    database: String(env.AZURE_SQL_DATABASE || '').trim() || DEFAULT_DATABASE,
-    ...overrides
-  };
+  const connectionString = String(env.PAWS_SQL_CONNECTION_STRING || '').trim();
+  if (connectionString) {
+    return {
+      connectionString,
+      miClientId: env.PAWS_SQL_MI_CLIENT_ID,
+      driver: resolveSqlDriver(env.PAWS_SQL_DRIVER),
+      allowSelfSigned: parseBooleanFlag(env.PAWS_SQL_ALLOW_SELF_SIGNED, 'PAWS_SQL_ALLOW_SELF_SIGNED'),
+      ...overrides
+    };
+  }
+  const server = String(env.AZURE_SQL_SERVER || '').trim();
+  const database = String(env.AZURE_SQL_DATABASE || '').trim();
+  if (server && database) {
+    return {
+      tokenProvider: () => appServiceManagedIdentityTokenWithExpiry({ env }),
+      server,
+      database,
+      ...overrides
+    };
+  }
+  return { ...overrides };
 }
 
-function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admin'), sqlModule } = {}) {
-  const db = createSqlConnection(connectionOptions(env, { sqlModule }));
+function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admin'), sqlModule, sql } = {}) {
+  const injectedSql = sqlModule || sql;
+  // In connection-string mode the driver module is resolved at composition, as
+  // Beta did: Windows integrated auth needs `mssql/msnodesqlv8`, not `mssql`, and
+  // resolving it here means a missing or wrong driver fails at startup rather
+  // than on the first query. With no database configured nothing is loaded.
+  const connectionString = String(env.PAWS_SQL_CONNECTION_STRING || '').trim();
+  const sqlClient = injectedSql || (connectionString
+    ? require(resolveSqlDriver(env.PAWS_SQL_DRIVER) === 'msnodesqlv8' ? 'mssql/msnodesqlv8' : 'mssql')
+    : undefined);
+  const db = createSqlConnection(connectionOptions(env, { sqlModule: sqlClient }));
   // The workbook import path is bounded separately because a full-year CCC or
   // activity replacement legitimately runs far longer than a page read.
-  const calendarImportDb = createSqlConnection(connectionOptions(env, { sqlModule, requestTimeoutMs: 90000 }));
+  const calendarImportDb = createSqlConnection(connectionOptions(env, { sqlModule: sqlClient, requestTimeoutMs: 90000 }));
   const users = createSqlUserRepository(db);
   const sessions = createSqlSessionRepository(db);
   const dashboard = {
@@ -193,6 +224,19 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   const cccReplacementRoutes=createCccReplacementFunctions({api:createCccReplacementApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlCccReplacementRepository(db,{importDb:calendarImportDb}),writeGates})});
   const route = async request => {
     const pathname = new URL(request.url).pathname;
+    // No business database is a distinct, recoverable state, not an outage.
+    // Answering every business route with one typed code lets the UI show
+    // "not configured yet" instead of a generic failure, and keeps that clearly
+    // different from a configured database that legitimately has no rows.
+    //
+    // Authentication runs FIRST. Without it an anonymous caller would learn the
+    // deployment state from a route it was never authorised to call, and the
+    // unconfigured check would silently replace the authorization gate.
+    if(!db.isConfigured){
+      const header=String(request.headers.get('authorization')||'');
+      await realVerify(header.replace(/^Bearer\s+/i,''));
+      return{status:503,jsonBody:{error:{code:'DATABASE_NOT_CONFIGURED',message:'The business database is not configured. Business data is unavailable until a database is connected.'}}};
+    }
     if(pathname==='/api/v1/ccc-schedule')return cccScheduleRoutes(request);
     if(pathname===LEADERSHIP_DIRECTORY_PATH)return leadershipDirectoryRoutes(request);
     if(pathname==='/api/v1/afc-forms'||pathname.startsWith('/api/v1/afc-forms/'))return afcFormRoutes(request);

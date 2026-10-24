@@ -8,7 +8,16 @@ const { execFileSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '../..');
 const DIRECTORIES = Object.freeze({ '.html': 'pages', '.js': 'scripts', '.css': 'styles', '.pdf': 'assets' });
-const published = new Set(require('../static-assets.json'));
+// Beta read `tools/static-assets.json`. In this repository that filename already
+// belongs to the pre-existing Firestore application's manifest, which feeds
+// tools/build-static.js. The PAWS manifest therefore lives beside it as
+// `static-assets.paws.json`. Prefer the PAWS manifest and fall back to the
+// original name so this module still works if the two are ever consolidated.
+function loadManifest() {
+  const paws = path.join(__dirname, '..', 'static-assets.paws.json');
+  return require(fs.existsSync(paws) ? paws : path.join(__dirname, '..', 'static-assets.json'));
+}
+const published = new Set(loadManifest());
 const revisionLayouts = new Map();
 
 function frontendRelativePath(asset) {
