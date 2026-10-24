@@ -1,0 +1,46 @@
+name: MASTER Refresh SQL Acceptance
+on:
+  pull_request:
+    paths: ['database/azure-sql/**','tools/master-refresh/**','tools/test-master-refresh*','tools/test-ccc-master*','tools/test-ccc-replacement*','server/src/master-refresh/**','server/src/trainees/**','server/src/data/sql-trainee-repository.js','server/src/data/sql-master-refresh-repository.js','.github/workflows/master-refresh-sql.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  appointments:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [Appointments, CccSlots, CccMaster, Trainees]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start labeled local synthetic SQL
+        shell: pwsh
+        run: |
+          $testPassword='Synthetic-'+[guid]::NewGuid().ToString()+'!Aa1'
+          Write-Output "::add-mask::$testPassword"
+          "PAWS_SQL_TEST_PASSWORD=$testPassword" >> $env:GITHUB_ENV
+          docker run --name paws-calendar-master-refresh-acceptance --label paws.calendar-test=1 -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=$testPassword" -d mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
+          if($LASTEXITCODE -ne 0){throw 'Container start failed.'}
+          $ready=$false
+          for($attempt=0;$attempt -lt 60;$attempt++){
+            docker exec -e "SQLCMDPASSWORD=$testPassword" paws-calendar-master-refresh-acceptance /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -Q 'SELECT 1' 2>$null | Out-Null
+            if($LASTEXITCODE -eq 0){$ready=$true;break}
+            Start-Sleep -Seconds 2
+          }
+          if(-not $ready){throw 'Synthetic SQL did not become ready.'}
+      - name: Prove appointment transactions and guarded recovery
+        shell: pwsh
+        run: ./tools/test-master-refresh-sql.ps1 -ContainerName paws-calendar-master-refresh-acceptance -Mode ${{ matrix.mode }}
+      - name: Prove empty schema rollback
+        shell: pwsh
+        run: ./tools/test-master-refresh-sql.ps1 -ContainerName paws-calendar-master-refresh-acceptance -Mode ${{ matrix.mode }} -CheckRollback
+      - name: Prove original v1 CCC acceptance, races and rollback with MASTER upgrade
+        if: matrix.mode == 'CccMaster'
+        shell: pwsh
+        run: ./tools/test-ccc-replacement-sql.ps1 -ContainerName paws-calendar-master-refresh-acceptance -WithMasterSlots
+      - name: Stop synthetic container
+        if: always()
+        shell: pwsh
+        run: docker rm -f paws-calendar-master-refresh-acceptance

@@ -1,0 +1,42 @@
+'use strict';
+const assert=require('node:assert/strict'),sql=require('../server/node_modules/mssql');
+const {createSqlFacultyAvailabilityRepository}=require('../server/src/data/sql-faculty-availability-repository');
+if(!process.env.PAWS_SQL_TEST_PASSWORD)throw Error('Disposable SQL password required.');
+const facultyId='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222';
+(async()=>{const pool=await new sql.ConnectionPool({server:'127.0.0.1',port:14331,database:'VetMed-Ops',user:'sa',password:process.env.PAWS_SQL_TEST_PASSWORD,options:{encrypt:true,trustServerCertificate:true}}).connect();try{
+ const query=async(text,args={})=>{const r=pool.request();for(const [k,v]of Object.entries(args))r.input(k,v);return(await r.query(text)).recordset||[];};
+ const db={query:(text,args)=>query("EXECUTE AS USER=N'paws-calendar-test-runtime';BEGIN TRY "+text+";REVERT;END TRY BEGIN CATCH REVERT;THROW;END CATCH",args)};
+ const dashboard=require('../server/src/data/sql-dashboard-repository').createSqlDashboardRepository({query});
+ const preferred=await dashboard.faculty({academicYear:'2026-27',search:'Alex Different',status:'all',limit:200});assert.equal(preferred.length,1);assert.equal(preferred[0].facultyId.toLowerCase(),other);assert.equal(preferred[0].active,false);
+ assert.equal((await dashboard.faculty({search:'Alex Different',status:'active'})).length,0);console.log('FACULTY_AVAILABILITY_PREFERRED_NAME_SEARCH_OK');
+ const repo=createSqlFacultyAvailabilityRepository(db),params={actorFirebaseUid:'availability-admin',facultyId,mode:'upcoming',startDate:null,endDate:null,kind:'all',cursor:0,limit:50};
+ const raw=await db.query('EXEC paws_api.ListFacultyAvailability @ActorFirebaseUid=@actorFirebaseUid,@FacultyId=@facultyId',params);
+ assert.equal(typeof raw[0]?.responseJson,'string','Actual SQL must return responseJson to Node');assert.ok(Array.isArray(JSON.parse(raw[0].responseJson).items));console.log('AVAILABILITY_ACTUAL_NODE_RESPONSE_JSON_OK');
+ const upcoming=await repo.list(params);assert.equal(upcoming.items.length,50);assert.ok(upcoming.nextCursor);assert.ok(upcoming.coverage.undatedSessions>=1);assert.ok(upcoming.coverage.undatedRoles>=1);
+ const all=[...upcoming.items];let cursor=upcoming.nextCursor;while(cursor){const page=await repo.list({...params,cursor:Number(cursor)});all.push(...page.items);cursor=page.nextCursor;}
+ assert.equal(all.length,upcoming.total);assert.equal(new Set(all.map(x=>x.eventKey)).size,all.length);assert.ok(!all.some(x=>x.detail==='Completed today'));assert.ok(all.some(x=>x.kind==='afc'));assert.ok(all.some(x=>x.kind==='pending'));
+ assert.ok(all.some(x=>x.label==='Remote work'&&x.availability==='informational'));assert.ok(all.some(x=>x.label==='Partial CCC'&&x.timeStatus==='partial'));
+ assert.ok(all.some(x=>x.eventKey.startsWith('responsibility:')&&x.detail==='Authority-only HICC'&&x.availability==='ongoing'),'Authority-only current HICC must be included');
+ assert.ok(all.some(x=>x.eventKey.startsWith('responsibility:')&&x.detail==='Authority-only HICC'&&x.endDate===null),'Open-ended authority responsibility must be included');
+ assert.ok(!all.some(x=>x.detail==='Authority-only VISC'),'Expired VISC must not be upcoming');assert.equal(upcoming.coverage.undatedRoles,1,'Explicit empty appointment is inactive, not missing coverage');
+ assert.doesNotMatch(JSON.stringify(all),/PRIVATE|private@example|ReasonCode|Doe|Email|UCID/);
+ const historic=await repo.list({...params,mode:'range',startDate:'2024-06-01',endDate:'2024-06-01'});assert.ok(historic.items.some(x=>x.kind==='teaching'));assert.ok(historic.items.some(x=>x.kind==='afc'&&x.startDate==='2024-05-01'));assert.ok(historic.items.some(x=>x.kind==='role'&&x.endDate==='2024-06-30'));
+ assert.ok(historic.items.some(x=>x.eventKey.startsWith('responsibility:')&&x.detail==='Authority-only VISC'&&x.endDate==='2024-06-30'));
+ const boundary=await repo.list({...params,mode:'range',kind:'role',startDate:'2024-07-01',endDate:'2024-07-01'});assert.ok(!boundary.items.some(x=>x.detail==='Authority-only VISC'),'Authority expiration is exclusive');
+ console.log('FACULTY_AVAILABILITY_RESPONSIBILITY_WINDOWS_OK');
+ const from=await repo.list({...params,mode:'from',startDate:'2024-01-01',limit:100});assert.ok(from.items.some(x=>x.kind==='teaching'&&x.startDate==='2024-06-01'));assert.ok(from.total>upcoming.total);
+ const empty=await repo.list({...params,mode:'range',startDate:'1900-01-01',endDate:'1900-01-01'});assert.deepEqual(empty.items,[]);assert.equal(empty.total,0);assert.ok(empty.coverage.undatedSessions>0);
+ for(const actorFirebaseUid of ['availability-self','availability-hicc']){await repo.list({...params,actorFirebaseUid});await assert.rejects(repo.list({...params,actorFirebaseUid,facultyId:other}),e=>e.number===55603);}
+ for(const actorFirebaseUid of ['availability-inactive','availability-unsupported','missing'])await assert.rejects(repo.list({...params,actorFirebaseUid}),e=>e.number===55603);
+ await assert.rejects(repo.list({...params,facultyId:'33333333-3333-4333-8333-333333333333'}),e=>e.number===55604);
+ const [counts]=await query("SELECT (SELECT COUNT(DISTINCT s.SessionId) FROM paws.vCalendarSession s JOIN paws.SessionAssignment a ON a.SessionId=s.SessionId WHERE a.FacultyId=@facultyId AND s.SessionDate>='2024-01-01') canonical,(SELECT COUNT(*) FROM paws.AfcRequest WHERE Status=N'approved') approved",{facultyId});
+ assert.equal(from.items.filter(x=>x.kind==='teaching').length,counts.canonical);assert.equal(all.filter(x=>x.kind==='afc').length,1+counts.approved);
+ const [dst]=await query("SELECT DATEPART(TZOFFSET,CONVERT(datetime2,'2026-03-08T08:59:00') AT TIME ZONE 'UTC' AT TIME ZONE 'Mountain Standard Time') beforeSpring,DATEPART(TZOFFSET,CONVERT(datetime2,'2026-03-08T09:01:00') AT TIME ZONE 'UTC' AT TIME ZONE 'Mountain Standard Time') afterSpring,DATEPART(TZOFFSET,CONVERT(datetime2,'2026-11-01T07:59:00') AT TIME ZONE 'UTC' AT TIME ZONE 'Mountain Standard Time') beforeFall,DATEPART(TZOFFSET,CONVERT(datetime2,'2026-11-01T08:01:00') AT TIME ZONE 'UTC' AT TIME ZONE 'Mountain Standard Time') afterFall");assert.deepEqual(dst,{beforeSpring:-420,afterSpring:-360,beforeFall:-360,afterFall:-420});
+ console.log(JSON.stringify({acceptance:'FACULTY_AVAILABILITY_SQL_OK',total:upcoming.total,historic:historic.total,canonical:counts.canonical,paginationComplete:true,privacy:true,authorization:true,dst:true}));
+ const [module]=await query("SELECT OBJECT_DEFINITION(OBJECT_ID(N'paws_api.ListFacultyAvailability')) definition,CONVERT(varchar(64),HASHBYTES('SHA2_256',OBJECT_DEFINITION(OBJECT_ID(N'paws_api.ListFacultyAvailability'))),2) hash");
+ const rollback=require('node:fs').readFileSync(require('node:path').join(__dirname,'../database/azure-sql/rollback_056_faculty_availability_read.sql'),'utf8').replace('$(PAWS_AVAILABILITY_DEFINITION_SHA256)',module.hash);
+ const alter=module.definition.replace(/^CREATE\s+(?:OR ALTER\s+)?PROCEDURE/i,'ALTER PROCEDURE');
+ await query(alter+'\n-- synthetic definition drift');await assert.rejects(query(rollback),e=>e.number===55608);
+ await query(alter);console.log('FACULTY_AVAILABILITY_EDITED_ROLLBACK_REFUSED_OK');
+ await query(rollback);console.log('FACULTY_AVAILABILITY_HASH_BOUND_ROLLBACK_OK');
+}finally{await pool.close();}})().catch(e=>{console.error(e.message);process.exitCode=1;});

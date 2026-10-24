@@ -1,0 +1,80 @@
+name: Calendar Activity SQL Acceptance
+on:
+  pull_request:
+    paths: ['database/azure-sql/**','tools/*calendar*','tools/test-change-history-sql.ps1','tools/test-afc-form-sql.ps1','tools/test-ccc-replacement*.ps1','server/src/data/sql-ccc-replacement-repository.js','server/src/runtime/swa-ccc-replacement-functions.js','server/test/ccc-*','server/src/afc/afc-form*','server/test/afc-form*','server/src/data/sql-afc-form-repository.js','server/src/history/**','server/src/data/sql-change-history-repository.js','server/src/data/sql-doe-policy-repository.js','server/src/calendar/**','server/src/data/sql-calendar-activity-repository.js','server/src/data/sql-swap-repository.js','server/test/calendar-activity*','server/test/change-history*','server/test/fixtures/calendar-activity*','.github/workflows/calendar-activity-sql.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sql_acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start labeled synthetic SQL container
+        shell: pwsh
+        run: |
+          $testPassword='Synthetic-'+[guid]::NewGuid().ToString()+'!Aa1'
+          Write-Output "::add-mask::$testPassword"
+          "PAWS_SQL_TEST_PASSWORD=$testPassword" >> $env:GITHUB_ENV
+          docker run --name paws-calendar-sql-test --label paws.calendar-test=1 -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=$testPassword" -d mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
+          if($LASTEXITCODE -ne 0){throw 'Container start failed.'}
+          $ready=$false
+          for($attempt=0;$attempt -lt 60;$attempt++){
+            docker exec -e "SQLCMDPASSWORD=$testPassword" paws-calendar-sql-test /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -Q 'SELECT 1' 2>$null | Out-Null
+            if($LASTEXITCODE -eq 0){$ready=$true;break}
+            Start-Sleep -Seconds 2
+          }
+          if(-not $ready){throw 'Synthetic SQL container did not become ready.'}
+      - name: Check scheduling task detection
+        shell: pwsh
+        run: ./tools/test-scheduling-task-sql.ps1 -ContainerName paws-calendar-sql-test
+      - name: Prove scheduling review serialization
+        shell: pwsh
+        run: ./tools/test-scheduling-task-races.ps1 -ContainerName paws-calendar-sql-test
+      - name: Check guarded scheduling rollback
+        shell: pwsh
+        run: |
+          $output=./tools/test-scheduling-task-sql.ps1 -ContainerName paws-calendar-sql-test -CheckRollback
+          $output | Write-Output
+          if(($output -join "`n") -notmatch 'SCHEDULING_TASK_ROLLBACK_OK'){throw 'SCHEDULING_ROLLBACK_NOT_OBSERVED'}
+      - name: Run existing prerequisites and activity foundation acceptance
+        shell: pwsh
+        run: ./tools/test-calendar-activity-sql.ps1 -ContainerName paws-calendar-sql-test -Through 038
+      - name: Run atomic command acceptance
+        shell: pwsh
+        run: ./tools/test-calendar-activity-sql.ps1 -ContainerName paws-calendar-sql-test -FeatureMigrations '038','040'
+      - name: Run activity-aware SWAP acceptance
+        shell: pwsh
+        run: ./tools/test-calendar-activity-sql.ps1 -ContainerName paws-calendar-sql-test -Through 041
+      - name: Prove two-connection serialization
+        shell: pwsh
+        run: ./tools/test-calendar-activity-races.ps1 -ContainerName paws-calendar-sql-test
+      - name: Rehearse guarded rollback in a fresh synthetic database
+        shell: pwsh
+        run: ./tools/test-calendar-activity-sql.ps1 -ContainerName paws-calendar-sql-test -Through 041 -CheckRollback
+      - name: Check ADFA read-only SWAP preview and rollback
+        shell: pwsh
+        run: ./tools/test-adfa-swap-sql.ps1 -ContainerName paws-calendar-sql-test
+      - name: Check revised work and Away classification
+        shell: pwsh
+        run: ./tools/test-calendar-away-sql.ps1 -ContainerName paws-calendar-sql-test
+      - name: Check bounded540-record identity preflight
+        shell: pwsh
+        run: ./tools/test-calendar-commit-preflight-sql.ps1 -ContainerName paws-calendar-sql-test
+      - name: Check scoped history evidence and rollback
+        shell: pwsh
+        run: ./tools/test-change-history-sql.ps1 -ContainerName paws-calendar-sql-test
+      - name: Check uploaded AFC form authorization and rollback
+        shell: pwsh
+        run: ./tools/test-afc-form-sql.ps1 -ContainerName paws-calendar-sql-test
+      - name: Check whole-year CCC replacement and private recovery
+        shell: pwsh
+        run: ./tools/test-ccc-replacement-sql.ps1 -ContainerName paws-calendar-sql-test
+      - name: Check record-linked AFC originals and own faculty authorization
+        shell: pwsh
+        run: ./tools/test-afc-record-documents-sql.ps1 -ContainerName paws-calendar-sql-test
+      - name: Stop synthetic container after all checks
+        if: always()
+        shell: pwsh
+        run: docker rm -f paws-calendar-sql-test

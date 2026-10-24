@@ -1,0 +1,547 @@
+[
+ {
+  "width": 1366,
+  "dark": false,
+  "header": {
+   "buttons": [
+    "HICC–CC List",
+    "VISC List"
+   ],
+   "widthA": 150,
+   "widthB": 150,
+   "heightA": 30,
+   "heightB": 30,
+   "stacked": true,
+   "belowHeading": true,
+   "brandWidth": 239,
+   "overflow": false,
+   "bg": "rgb(214, 0, 28)"
+  },
+  "modal": {
+   "title": "HICC–CC List",
+   "subtitle": "Academic year 2026-27 · Status as of 2026-10-22",
+   "status": "5 of 7 appointments · Active and Dates needed shown",
+   "rows": 5,
+   "columns": [
+    2
+   ],
+   "nameColumnAligned": true,
+   "headers": [
+    "Course / Subject",
+    "Faculty"
+   ],
+   "focused": "leadership-directory-close",
+   "fitsViewport": true,
+   "overflow": false,
+   "statusTexts": [
+    "Active · Ends 2026-12-31",
+    "Dates needed · End date not recorded",
+    "Active · No end date",
+    "Dates needed · Start date not recorded · Ends 2027-06-30",
+    "Dates needed · End date not recorded"
+   ]
+  },
+  "showAll": {
+   "rows": 7,
+   "status": "7 of 7 appointments"
+  },
+  "afterEscape": {
+   "hidden": true,
+   "focus": "hicc-cc-list-btn"
+  },
+  "visc": {
+   "title": "VISC List",
+   "headers": [
+    "Subject",
+    "Faculty"
+   ],
+   "rows": 3,
+   "showAllReset": true
+  },
+  "tabWrap": {
+   "fromRefresh": "leadership-directory-close",
+   "shiftBack": "leadership-directory-refresh"
+  },
+  "refreshCalls": 1
+ },
+ {
+  "width": 1366,
+  "dark": true,
+  "header": {
+   "buttons": [
+    "HICC–CC List",
+    "VISC List"
+   ],
+   "widthA": 150,
+   "widthB": 150,
+   "heightA": 30,
+   "heightB": 30,
+   "stacked": true,
+   "belowHeading": true,
+   "brandWidth": 239,
+   "overflow": false,
+   "bg": "rgb(214, 0, 28)"
+  },
+  "modal": {
+   "title": "HICC–CC List",
+   "subtitle": "Academic year 2026-27 · Status as of 2026-10-22",
+   "status": "5 of 7 appointments · Active and Dates needed shown",
+   "rows": 5,
+   "columns": [
+    2
+   ],
+   "nameColumnAligned": true,
+   "headers": [
+    "Course / Subject",
+    "Faculty"
+   ],
+   "focused": "leadership-directory-close",
+   "fitsViewport": true,
+   "overflow": false,
+   "statusTexts": [
+    "Active · Ends 2026-12-31",
+    "Dates needed · End date not recorded",
+    "Active · No end date",
+    "Dates needed · Start date not recorded · Ends 2027-06-30",
+    "Dates needed · End date not recorded"
+   ]
+  },
+  "showAll": {
+   "rows": 7,
+   "status": "7 of 7 appointments"
+  },
+  "afterEscape": {
+   "hidden": true,
+   "focus": "hicc-cc-list-btn"
+  },
+  "visc": {
+   "title": "VISC List",
+   "headers": [
+    "Subject",
+    "Faculty"
+   ],
+   "rows": 3,
+   "showAllReset": true
+  },
+  "tabWrap": {
+   "fromRefresh": "leadership-directory-close",
+   "shiftBack": "leadership-directory-refresh"
+  },
+  "refreshCalls": 1
+ },
+ {
+  "width": 768,
+  "dark": false,
+  "header": {
+   "buttons": [
+    "HICC–CC List",
+    "VISC List"
+   ],
+   "widthA": 150,
+   "widthB": 150,
+   "heightA": 30,
+   "heightB": 30,
+   "stacked": true,
+   "belowHeading": true,
+   "brandWidth": 200,
+   "overflow": false,
+   "bg": "rgb(214, 0, 28)"
+  },
+  "modal": {
+   "title": "HICC–CC List",
+   "subtitle": "Academic year 2026-27 · Status as of 2026-10-22",
+   "status": "5 of 7 appointments · Active and Dates needed shown",
+   "rows": 5,
+   "columns": [
+    2
+   ],
+   "nameColumnAligned": true,
+   "headers": [
+    "Course / Subject",
+    "Faculty"
+   ],
+   "focused": "leadership-directory-close",
+   "fitsViewport": true,
+   "overflow": false,
+   "statusTexts": [
+    "Active · Ends 2026-12-31",
+    "Dates needed · End date not recorded",
+    "Active · No end date",
+    "Dates needed · Start date not recorded · Ends 2027-06-30",
+    "Dates needed · End date not recorded"
+   ]
+  },
+  "showAll": {
+   "rows": 7,
+   "status": "7 of 7 appointments"
+  },
+  "afterEscape": {
+   "hidden": true,
+   "focus": "hicc-cc-list-btn"
+  },
+  "visc": {
+   "title": "VISC List",
+   "headers": [
+    "Subject",
+    "Faculty"
+   ],
+   "rows": 3,
+   "showAllReset": true
+  },
+  "tabWrap": {
+   "fromRefresh": "leadership-directory-close",
+   "shiftBack": "leadership-directory-refresh"
+  },
+  "refreshCalls": 1
+ },
+ {
+  "width": 768,
+  "dark": true,
+  "header": {
+   "buttons": [
+    "HICC–CC List",
+    "VISC List"
+   ],
+   "widthA": 150,
+   "widthB": 150,
+   "heightA": 30,
+   "heightB": 30,
+   "stacked": true,
+   "belowHeading": true,
+   "brandWidth": 200,
+   "overflow": false,
+   "bg": "rgb(214, 0, 28)"
+  },
+  "modal": {
+   "title": "HICC–CC List",
+   "subtitle": "Academic year 2026-27 · Status as of 2026-10-22",
+   "status": "5 of 7 appointments · Active and Dates needed shown",
+   "rows": 5,
+   "columns": [
+    2
+   ],
+   "nameColumnAligned": true,
+   "headers": [
+    "Course / Subject",
+    "Faculty"
+   ],
+   "focused": "leadership-directory-close",
+   "fitsViewport": true,
+   "overflow": false,
+   "statusTexts": [
+    "Active · Ends 2026-12-31",
+    "Dates needed · End date not recorded",
+    "Active · No end date",
+    "Dates needed · Start date not recorded · Ends 2027-06-30",
+    "Dates needed · End date not recorded"
+   ]
+  },
+  "showAll": {
+   "rows": 7,
+   "status": "7 of 7 appointments"
+  },
+  "afterEscape": {
+   "hidden": true,
+   "focus": "hicc-cc-list-btn"
+  },
+  "visc": {
+   "title": "VISC List",
+   "headers": [
+    "Subject",
+    "Faculty"
+   ],
+   "rows": 3,
+   "showAllReset": true
+  },
+  "tabWrap": {
+   "fromRefresh": "leadership-directory-close",
+   "shiftBack": "leadership-directory-refresh"
+  },
+  "refreshCalls": 1
+ },
+ {
+  "width": 390,
+  "dark": false,
+  "header": {
+   "buttons": [
+    "HICC–CC List",
+    "VISC List"
+   ],
+   "widthA": 150,
+   "widthB": 150,
+   "heightA": 30,
+   "heightB": 30,
+   "stacked": true,
+   "belowHeading": true,
+   "brandWidth": 200,
+   "overflow": false,
+   "bg": "rgb(214, 0, 28)"
+  },
+  "modal": {
+   "title": "HICC–CC List",
+   "subtitle": "Academic year 2026-27 · Status as of 2026-10-22",
+   "status": "5 of 7 appointments · Active and Dates needed shown",
+   "rows": 5,
+   "columns": [
+    2
+   ],
+   "nameColumnAligned": true,
+   "headers": [
+    "Course / Subject",
+    "Faculty"
+   ],
+   "focused": "leadership-directory-close",
+   "fitsViewport": true,
+   "overflow": false,
+   "statusTexts": [
+    "Active · Ends 2026-12-31",
+    "Dates needed · End date not recorded",
+    "Active · No end date",
+    "Dates needed · Start date not recorded · Ends 2027-06-30",
+    "Dates needed · End date not recorded"
+   ]
+  },
+  "showAll": {
+   "rows": 7,
+   "status": "7 of 7 appointments"
+  },
+  "afterEscape": {
+   "hidden": true,
+   "focus": "hicc-cc-list-btn"
+  },
+  "visc": {
+   "title": "VISC List",
+   "headers": [
+    "Subject",
+    "Faculty"
+   ],
+   "rows": 3,
+   "showAllReset": true
+  },
+  "tabWrap": {
+   "fromRefresh": "leadership-directory-close",
+   "shiftBack": "leadership-directory-refresh"
+  },
+  "refreshCalls": 1
+ },
+ {
+  "width": 390,
+  "dark": true,
+  "header": {
+   "buttons": [
+    "HICC–CC List",
+    "VISC List"
+   ],
+   "widthA": 150,
+   "widthB": 150,
+   "heightA": 30,
+   "heightB": 30,
+   "stacked": true,
+   "belowHeading": true,
+   "brandWidth": 200,
+   "overflow": false,
+   "bg": "rgb(214, 0, 28)"
+  },
+  "modal": {
+   "title": "HICC–CC List",
+   "subtitle": "Academic year 2026-27 · Status as of 2026-10-22",
+   "status": "5 of 7 appointments · Active and Dates needed shown",
+   "rows": 5,
+   "columns": [
+    2
+   ],
+   "nameColumnAligned": true,
+   "headers": [
+    "Course / Subject",
+    "Faculty"
+   ],
+   "focused": "leadership-directory-close",
+   "fitsViewport": true,
+   "overflow": false,
+   "statusTexts": [
+    "Active · Ends 2026-12-31",
+    "Dates needed · End date not recorded",
+    "Active · No end date",
+    "Dates needed · Start date not recorded · Ends 2027-06-30",
+    "Dates needed · End date not recorded"
+   ]
+  },
+  "showAll": {
+   "rows": 7,
+   "status": "7 of 7 appointments"
+  },
+  "afterEscape": {
+   "hidden": true,
+   "focus": "hicc-cc-list-btn"
+  },
+  "visc": {
+   "title": "VISC List",
+   "headers": [
+    "Subject",
+    "Faculty"
+   ],
+   "rows": 3,
+   "showAllReset": true
+  },
+  "tabWrap": {
+   "fromRefresh": "leadership-directory-close",
+   "shiftBack": "leadership-directory-refresh"
+  },
+  "refreshCalls": 1
+ },
+ {
+  "width": 320,
+  "dark": false,
+  "header": {
+   "buttons": [
+    "HICC–CC List",
+    "VISC List"
+   ],
+   "widthA": 150,
+   "widthB": 150,
+   "heightA": 30,
+   "heightB": 30,
+   "stacked": true,
+   "belowHeading": true,
+   "brandWidth": 200,
+   "overflow": false,
+   "bg": "rgb(214, 0, 28)"
+  },
+  "modal": {
+   "title": "HICC–CC List",
+   "subtitle": "Academic year 2026-27 · Status as of 2026-10-22",
+   "status": "5 of 7 appointments · Active and Dates needed shown",
+   "rows": 5,
+   "columns": [
+    2
+   ],
+   "nameColumnAligned": true,
+   "headers": [
+    "Course / Subject",
+    "Faculty"
+   ],
+   "focused": "leadership-directory-close",
+   "fitsViewport": true,
+   "overflow": false,
+   "statusTexts": [
+    "Active · Ends 2026-12-31",
+    "Dates needed · End date not recorded",
+    "Active · No end date",
+    "Dates needed · Start date not recorded · Ends 2027-06-30",
+    "Dates needed · End date not recorded"
+   ]
+  },
+  "showAll": {
+   "rows": 7,
+   "status": "7 of 7 appointments"
+  },
+  "afterEscape": {
+   "hidden": true,
+   "focus": "hicc-cc-list-btn"
+  },
+  "visc": {
+   "title": "VISC List",
+   "headers": [
+    "Subject",
+    "Faculty"
+   ],
+   "rows": 3,
+   "showAllReset": true
+  },
+  "tabWrap": {
+   "fromRefresh": "leadership-directory-close",
+   "shiftBack": "leadership-directory-refresh"
+  },
+  "refreshCalls": 1
+ },
+ {
+  "width": 320,
+  "dark": true,
+  "header": {
+   "buttons": [
+    "HICC–CC List",
+    "VISC List"
+   ],
+   "widthA": 150,
+   "widthB": 150,
+   "heightA": 30,
+   "heightB": 30,
+   "stacked": true,
+   "belowHeading": true,
+   "brandWidth": 200,
+   "overflow": false,
+   "bg": "rgb(214, 0, 28)"
+  },
+  "modal": {
+   "title": "HICC–CC List",
+   "subtitle": "Academic year 2026-27 · Status as of 2026-10-22",
+   "status": "5 of 7 appointments · Active and Dates needed shown",
+   "rows": 5,
+   "columns": [
+    2
+   ],
+   "nameColumnAligned": true,
+   "headers": [
+    "Course / Subject",
+    "Faculty"
+   ],
+   "focused": "leadership-directory-close",
+   "fitsViewport": true,
+   "overflow": false,
+   "statusTexts": [
+    "Active · Ends 2026-12-31",
+    "Dates needed · End date not recorded",
+    "Active · No end date",
+    "Dates needed · Start date not recorded · Ends 2027-06-30",
+    "Dates needed · End date not recorded"
+   ]
+  },
+  "showAll": {
+   "rows": 7,
+   "status": "7 of 7 appointments"
+  },
+  "afterEscape": {
+   "hidden": true,
+   "focus": "hicc-cc-list-btn"
+  },
+  "visc": {
+   "title": "VISC List",
+   "headers": [
+    "Subject",
+    "Faculty"
+   ],
+   "rows": 3,
+   "showAllReset": true
+  },
+  "tabWrap": {
+   "fromRefresh": "leadership-directory-close",
+   "shiftBack": "leadership-directory-refresh"
+  },
+  "refreshCalls": 1
+ },
+ {
+  "mode": "slow",
+  "state": {
+   "status": "Loading HICC–CC List…",
+   "body": "Loading…",
+   "retry": false
+  }
+ },
+ {
+  "mode": "error",
+  "state": {
+   "status": "HICC–CC List could not be loaded.",
+   "body": "The list is unavailable. Nothing is shown until it loads successfully.\n\nRetry",
+   "retry": true,
+   "retryCalls": 1
+  }
+ },
+ {
+  "mode": "empty",
+  "state": {
+   "status": "0 of 0 appointments · Active and Dates needed shown",
+   "body": "No HICC or Course Coordinator appointments are recorded for this academic year.",
+   "retry": false
+  }
+ }
+]
