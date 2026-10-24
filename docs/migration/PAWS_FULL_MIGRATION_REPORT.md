@@ -102,19 +102,28 @@ implemented rather than dropped, so their 28 tests run and pass.
 
 ## 5. Deliberate divergences
 
-**`other_office`.** Beta's role table omits it entirely, so
-`normalizeBaseRole('other_office')` returns `null` and every such account is
-treated as having no role. That contradicts Beta's own `AGENTS.md` and this
-repository, where the role is formal and issued by `sql-user-repository.js`. It is
-classified here as an **office role**: recognised, but holding no administrator,
-general or self-service capability. Beta's own assertion was rewritten with the
-reason stated inline in the test.
+**`other_office` — a corrected decision.** An earlier revision of this port
+treated `other_office` as a supported office role, on the reasoning that the role
+is formal in `AGENTS.md` and issued by `sql-user-repository.js`, and that omitting
+it would demote those accounts to "no role". That reasoning was wrong, and the
+Beta suites caught it.
 
-**`editor` / `viewer`.** Deliberately **not** mapped on the server. An earlier
-revision mapped them onto `faculty` to mirror `web/js/core/faculty-access.js`, and
-CI caught the consequence: `viewer` passed the Dashboard guards and reached
-self-service scope SQL never issues, because `sql-user-repository.js` cannot
-provision either role. A display alias must not become an authorization grant.
+`isSupportedRole` is **not descriptive** in the ported APIs — it is the
+authorization predicate. Marking the role supported therefore *granted* it access
+to every scoped route, and `ccc-schedule-read` failed because it expects
+`other_office` to be refused. The role is now unsupported, matching Beta and
+failing closed. An `other_office` account is a real identity that holds no
+business capability here; the browser may still label it.
+
+**`editor` / `viewer`.** Also not mapped on the server, for the same reason: an
+earlier revision mapped them onto `faculty` to mirror
+`web/js/core/faculty-access.js`, and CI caught that `viewer` then passed the
+Dashboard guards and reached self-service scope SQL never issues, because
+`sql-user-repository.js` cannot provision either role. A display alias must not
+become an authorization grant.
+
+Both corrections came from CI, not from review. They are the two places where
+evidence changed the design rather than confirming it.
 
 **Token verification** lives in `auth/firebase-sql-verify.js`, beside — not
 replacing — `auth/firebase-sql-auth.js`, which implements a different

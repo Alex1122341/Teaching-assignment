@@ -35,24 +35,11 @@ test('faculty-facing roles stay self-service and unknown roles fail closed', () 
     assert.equal(isAdministratorRole(role), false, role);
     assert.equal(isGeneralRole(role), false, role);
   }
-  // Deliberate divergence from the Beta source.
-  //
-  // Beta's policy returns null for `other_office`, which contradicts Beta's own
-  // AGENTS.md and would silently demote every such account to "no role" in this
-  // repository, where the role is formal and issued by sql-user-repository.js.
-  // It is therefore recognised here, while holding no administrator or general
-  // capability. See docs/migration/phase-a-foundation.md section 3.1.
-  assert.equal(isSupportedRole('other_office'), true);
-  assert.equal(isAdministratorRole('other_office'), false);
-  assert.equal(isGeneralRole('other_office'), false);
-  assert.equal(isSelfServiceRole('other_office'), false);
-
-  // `editor` and `viewer` stay unsupported on the server. `faculty-access.js`
-  // collapses them onto `faculty` for display, but that collapse would hand a
-  // legacy label the full self-service scope that SQL never issues, since
-  // sql-user-repository.js cannot provision either role. A display alias must
-  // not become an authorization grant.
-  for (const role of ['viewer', 'editor', 'unknown_role', '']) {
+  // `other_office` is a real identity in this repository but carries no business
+  // capability in the ported APIs. `isSupportedRole` is used as the authorization
+  // predicate by those APIs, so recognising the role would GRANT it access. It
+  // therefore stays unsupported and fails closed. See role-policy.js header note.
+  for (const role of ['other_office', 'viewer', 'editor', 'unknown_role', '']) {
     assert.equal(isSupportedRole(role), false, role);
     assert.equal(isAdministratorRole(role), false, role);
     assert.equal(isGeneralRole(role), false, role);

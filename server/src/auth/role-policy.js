@@ -9,23 +9,27 @@
 // rejected; a role the server understands but the browser does not would hide a
 // capability the account genuinely holds.
 //
-// Divergence from the Beta source is deliberate and load-bearing:
+// Divergence from the Beta source, and one correction:
 //
-//   `other_office` is a formal role in this repository (see AGENTS.md) and in
-//   `server/src/data/sql-user-repository.js`, but it does not exist in the Beta
-//   role table. Porting the Beta table verbatim would make
-//   `normalizeBaseRole('other_office')` return `null`, so every `other_office`
-//   account would silently lose role recognition and fall through to the
-//   least-privileged branch. It is therefore added to the supported set and
-//   classified as an office role, matching `faculty-access.js`, which treats
-//   `other_office` alongside `adc` and `lab`.
+//   `isSupportedRole` is NOT merely descriptive in the ported APIs — it is used
+//   as the authorization predicate. An earlier revision of this port treated
+//   `other_office` as a supported office role, on the reasoning that the role is
+//   formal in `AGENTS.md` and issued by `sql-user-repository.js`, and that
+//   omitting it would demote those accounts to "no role". That reasoning was
+//   wrong: marking the role supported GRANTED it access to every ported API,
+//   because those APIs read `isSupportedRole` as "may proceed". The Beta suites
+//   caught it — `other_office` is expected to be refused by CCC Schedule and the
+//   other scoped routes.
 //
-//   `editor` and `viewer` are deliberately NOT mapped here, even though
-//   `faculty-access.js` collapses them onto `faculty` for display. On the server
-//   that collapse would grant a legacy label the full self-service scope —
-//   Dashboard tabs, own-record reads — that SQL never actually issues, because
-//   `sql-user-repository.js` cannot provision either role. A display alias must
-//   not become an authorization grant, so unknown server-side roles fail closed.
+//   It is therefore left unsupported, matching the Beta table. An `other_office`
+//   account is a real identity, but it holds no business capability here, and
+//   failing closed is the safe direction. `faculty-access.js` may still label it
+//   in the browser.
+//
+//   `editor` and `viewer` are likewise not mapped, even though
+//   `faculty-access.js` collapses them onto `faculty` for display: that collapse
+//   would grant a legacy label self-service scope SQL never issues, because
+//   `sql-user-repository.js` cannot provision either role.
 
 const NORMALIZED_ROLE = Object.freeze({
   owner: 'adfa_general',
@@ -41,7 +45,9 @@ const SELF_SERVICE_ROLES = new Set(['faculty', 'hicc', 'visc']);
 const ADMINISTRATOR_ROLES = new Set(['developer', 'adfa_general', 'adfa_regular', 'owner', 'administrator', 'admin']);
 const GENERAL_ROLES = new Set(['developer', 'adfa_general', 'owner']);
 // `other_office` is an office account in this repository, not a legacy alias.
-const OFFICE_ROLES = new Set(['adc', 'lab', 'other_office']);
+// `other_office` is deliberately absent: see the header note. It is a real
+// identity but carries no business capability in the ported APIs.
+const OFFICE_ROLES = new Set(['adc', 'lab']);
 // The alias spellings themselves must be recognised as inputs. Without this the
 // lookup below would reject `owner`, `editor` and friends before it ever reached
 // the normalisation table, so a legacy account would be treated as having no

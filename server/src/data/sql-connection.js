@@ -460,7 +460,10 @@ function createSqlConnection(options = {}) {
     isTransactionActive: () => Boolean(transactions.getStore()),
 
     async health() {
-      await runQuery('SELECT TOP (1) 1 AS ok FROM paws.Session;');
+      // UserProfile is the table every authenticated request already depends on,
+      // so it is the honest readiness probe: if this answers, identity and
+      // business reads can both be served.
+      await runQuery('SELECT TOP (1) FirebaseUid AS ok FROM paws.UserProfile;');
       return true;
     },
 

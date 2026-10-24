@@ -9,7 +9,7 @@ Environment: Node 22.22.2, Windows host. CI runs the same suites on ubuntu-lates
 
 | Suite | Tests | Pass | Fail | Skip |
 |---|---|---|---|---|
-| Server (`node --test server/test/*.test.js`) | 1018 | **1003** | 11 | 4 |
+| Server (`node --test server/test/*.test.js`) | 1018 | **1005** | 9 | 4 |
 | Root, pre-existing (`node --test tests/*.test.js`) | 1045 | 932 | 1 | 112 |
 
 The root suite is the pre-existing Firestore application's suite and is
@@ -59,7 +59,7 @@ unconfigured connection refuses reads and writes.
 
 ---
 
-## 4. The 11 remaining server failures
+## 4. The 9 remaining server failures
 
 None was silenced by deleting a test or weakening an assertion. Two test files
 that had been removed in an earlier revision of this work — the Beta

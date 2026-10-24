@@ -40,10 +40,12 @@ test('an omitted academic year defaults, an explicit invalid one never silently 
 
 test('role policy recognises every role this repository issues',()=>{
   // Sourced from server/src/data/sql-user-repository.js and AGENTS.md.
-  for(const role of ['developer','owner','administrator','adfa_general','adfa_regular','adc','lab','other_office','hicc','visc','faculty','admin']){
+  for(const role of ['developer','owner','administrator','adfa_general','adfa_regular','adc','lab','hicc','visc','faculty','admin']){
     assert.equal(roles.isSupportedRole(role),true,`${role} must be recognised`);
   }
-  // Frontend display aliases are not server-side roles: SQL cannot issue them.
+  // Not authorization grants: `isSupportedRole` is used as the predicate by the
+  // ported APIs, so recognising these would grant access. They fail closed.
+  assert.equal(roles.isSupportedRole('other_office'),false);
   assert.equal(roles.isSupportedRole('editor'),false);
   assert.equal(roles.isSupportedRole('viewer'),false);
   assert.equal(roles.isSupportedRole('student'),false);
@@ -51,14 +53,17 @@ test('role policy recognises every role this repository issues',()=>{
   assert.equal(roles.isSupportedRole(null),false);
 });
 
-test('other_office keeps its identity but holds no administrator or self-service capability',()=>{
-  // Beta retires other_office at the capability boundary; this repository still
-  // issues the role, so it must be recognised yet fail closed on privilege.
-  assert.equal(roles.normalizeBaseRole('other_office'),'other_office');
-  assert.equal(roles.isOfficeRole('other_office'),true);
+test('other_office is a real identity but carries no business capability',()=>{
+  // `isSupportedRole` is the authorization predicate used by the ported APIs, not
+  // a description of the role vocabulary. Recognising `other_office` would grant
+  // it access to every scoped route, so it fails closed even though AGENTS.md
+  // lists it as a formal role and sql-user-repository.js can issue it.
+  assert.equal(roles.isSupportedRole('other_office'),false);
+  assert.equal(roles.normalizeBaseRole('other_office'),null);
   assert.equal(roles.isAdministratorRole('other_office'),false);
   assert.equal(roles.isGeneralRole('other_office'),false);
   assert.equal(roles.isSelfServiceRole('other_office'),false);
+  assert.equal(roles.isOfficeRole('other_office'),false);
 });
 
 test('legacy administrator aliases collapse, and display-only aliases fail closed',()=>{
