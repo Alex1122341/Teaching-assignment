@@ -2,12 +2,20 @@
   "name": "ucvm-doe-api",
   "private": true,
   "type": "commonjs",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "start:university": "node src/runtime/university-api.js"
   },
   "dependencies": {
-    "firebase-admin": "latest",
-    "mssql": "12.7.2"
+    "exceljs": "4.4.0",
+    "firebase-admin": "13.10.0",
+    "jszip": "3.10.2",
+    "mssql": "12.7.2",
+    "pdf-lib": "1.17.1",
+    "unzipper": "0.10.14"
   }
 }

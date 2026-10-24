@@ -1,122 +1,100 @@
 'use strict';
 
-const { createSqlConnection } = require('./sql-connection.js');
+const { facultyDisplayNameSql } = require('./faculty-display-name');
 
-const DEFAULT_SERVER='ucvm-teaching-lab-xz-20260911.database.windows.net';
-const DEFAULT_DATABASE='teaching-assignment-lab';
-const SQL_RESOURCE='https://database.windows.net/';
+function createSqlSessionRepository(db) {
+  return {
+    async list({ start = null, end = null, facultyId = null, includeAssignmentTargets = false } = {}) {
+      const predicates = [];
+      const params = {};
 
-const text=value=>String(value??'').trim();
-const validDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(text(value));
+      if (start && end) {
+        predicates.push('c.SessionDate >= @start', 'c.SessionDate < @end');
+        params.start = start;
+        params.end = end;
+      }
 
-async function requestManagedIdentityPayload({env=process.env,fetchImpl=globalThis.fetch}={}){
-  const endpoint=text(env.IDENTITY_ENDPOINT),header=text(env.IDENTITY_HEADER);
-  if(!endpoint||!header||typeof fetchImpl!=='function'){
-    throw Object.assign(Error('Azure App Service managed identity is not available.'),{code:'SQL_IDENTITY_UNAVAILABLE',statusCode:503});
-  }
-  const url=new URL(endpoint);
-  url.searchParams.set('resource',SQL_RESOURCE);
-  url.searchParams.set('api-version','2019-08-01');
-  const response=await fetchImpl(url,{method:'GET',headers:{'X-IDENTITY-HEADER':header}});
-  if(!response.ok){
-    throw Object.assign(Error('Azure managed identity token request failed.'),{code:'SQL_IDENTITY_TOKEN_FAILED',statusCode:503});
-  }
-  const payload=await response.json();
-  const token=text(payload?.access_token);
-  if(!token)throw Object.assign(Error('Azure managed identity returned no SQL access token.'),{code:'SQL_IDENTITY_TOKEN_MISSING',statusCode:503});
-  return {token,expiresOn:payload?.expires_on};
-}
+      if (facultyId) {
+        predicates.push('EXISTS (SELECT 1 FROM paws.SessionAssignment sa WHERE sa.SessionId = c.SessionId AND sa.FacultyId = @facultyId)');
+        params.facultyId = facultyId;
+      }
 
-// Plain-string contract, retained for callers that only need the token.
-async function appServiceManagedIdentityToken(options={}){
-  const {token}=await requestManagedIdentityPayload(options);
-  return token;
-}
+      const where = predicates.length ? ' WHERE ' + predicates.join(' AND ') : '';
+      const assignmentProjection = includeAssignmentTargets
+        ? `COALESCE((SELECT sa.FacultyId AS facultyId, sa.TeachingRole AS teachingRole, ${facultyDisplayNameSql()} AS displayName, f.Active AS active
+                       FROM paws.SessionAssignment sa
+                       LEFT JOIN paws.Faculty f ON f.FacultyId = sa.FacultyId
+                      WHERE sa.SessionId = c.SessionId AND sa.FacultyId IS NOT NULL
+                      FOR JSON PATH, INCLUDE_NULL_VALUES), N'[]') AS assignmentsJson,
+            (SELECT COUNT_BIG(*) FROM paws.SessionAssignment unresolved WHERE unresolved.SessionId = c.SessionId AND unresolved.FacultyId IS NULL) AS unresolvedAssignmentCount`
+        : `CAST(N'[]' AS nvarchar(max)) AS assignmentsJson, CAST(0 AS bigint) AS unresolvedAssignmentCount`;
+      return db.query(
+        `SELECT
+            c.SessionId AS id,
+            c.AcademicYear AS academicYear,
+            c.CurriculumYear AS curriculumYear,
+            c.CourseCode AS courseCode,
+            c.CourseName AS courseName,
+            c.Topic AS topic,
+            c.SessionType AS sessionType,
+            CONVERT(varchar(10), c.SessionDate, 23) AS date,
+            CONVERT(varchar(8), c.StartTime, 108) AS startTime,
+            CONVERT(varchar(8), c.EndTime, 108) AS endTime,
+            c.Room AS room,
+            COALESCE((SELECT STRING_AGG(CONVERT(nvarchar(max), COALESCE(NULLIF(${facultyDisplayNameSql()},N''),LTRIM(RTRIM(REPLACE(sn.SourceFacultyName,N',',N' '))))), N'; ') WITHIN GROUP (ORDER BY sn.SessionAssignmentId) FROM paws.SessionAssignment sn LEFT JOIN paws.Faculty f ON f.FacultyId = sn.FacultyId WHERE sn.SessionId = c.SessionId), REPLACE(c.InstructorNames,N',',N' ')) AS instructorNames,
+            ${assignmentProjection}
+         FROM paws.vCalendarSession c${where}
+         ORDER BY c.SessionDate, c.StartTime, c.SessionId`,
+        params
+      );
+    },
 
-// Token plus Azure's reported expiry, so the shared connection can rebuild its
-// pool before the bound token goes stale instead of failing the first query
-// after expiry.
-function appServiceManagedIdentityTokenWithExpiry(options={}){
-  return requestManagedIdentityPayload(options);
-}
+    async updateExisting({ sessionId, patch, actorFirebaseUid, actorName = null } = {}) {
+      const rows = await db.query(
+        `EXEC paws_api.UpdateCalendarSession
+          @SessionId = @sessionId,
+          @PatchJson = @patchJson,
+          @ActorFirebaseUid = @actorFirebaseUid,
+          @ActorName = @actorName`,
+        { sessionId, patchJson: JSON.stringify(patch), actorFirebaseUid, actorName }
+      );
+      return rows[0] || null;
+    },
 
-function createSqlSessionRepository({sqlModule=null,tokenProvider=appServiceManagedIdentityTokenWithExpiry,server=DEFAULT_SERVER,database=DEFAULT_DATABASE,connection=null,requestTimeoutMs}={}){
-  const serverName=text(server)||DEFAULT_SERVER,databaseName=text(database)||DEFAULT_DATABASE;
-  // One shared connection per repository instance. Previously this opened and
-  // closed a connection pool for every single call, paying a full handshake per
-  // request and making transactions impossible.
-  const sqlConnection=connection||createSqlConnection({sqlModule,tokenProvider,server:serverName,database:databaseName,requestTimeoutMs});
+    async createNew({ session, actorFirebaseUid, actorName = null } = {}) {
+      const rows = await db.query(
+        `EXEC paws_api.CreateCalendarSession
+          @SessionJson = @sessionJson,
+          @ActorFirebaseUid = @actorFirebaseUid,
+          @ActorName = @actorName`,
+        { sessionJson: JSON.stringify(session), actorFirebaseUid, actorName }
+      );
+      return rows[0] || null;
+    },
 
-  async function ping(){
-    await sqlConnection.query('SELECT TOP (1) 1 AS ok FROM paws.Session;');
-    return true;
-  }
+    async createBatch({ requestId, sessions, actorFirebaseUid, actorName = null } = {}) {
+      return db.query(
+        `EXEC paws_api.CreateCalendarSessionBatch
+          @RequestId = @requestId,
+          @SessionsJson = @sessionsJson,
+          @ActorFirebaseUid = @actorFirebaseUid,
+          @ActorName = @actorName`,
+        { requestId, sessionsJson: JSON.stringify(sessions), actorFirebaseUid, actorName }
+      );
+    },
 
-  async function listSessions({start,end,facultyEmail='',academicYear=''}={}){
-    if(!validDate(start)||!validDate(end)||start>end){
-      throw Object.assign(Error('A valid start/end date range is required.'),{code:'INVALID_DATE_RANGE',statusCode:400});
+    async replaceAssignments({ sessionId, assignments, actorFirebaseUid, actorName = null } = {}) {
+      const rows = await db.query(
+        `EXEC paws_api.ReplaceCalendarSessionAssignments
+          @SessionId = @sessionId,
+          @AssignmentsJson = @assignmentsJson,
+          @ActorFirebaseUid = @actorFirebaseUid,
+          @ActorName = @actorName`,
+        { sessionId, assignmentsJson: JSON.stringify(assignments), actorFirebaseUid, actorName }
+      );
+      return rows[0] || null;
     }
-    // The year predicate is appended only when a year is supplied, so an
-    // unfiltered read keeps its existing statement shape and parameter list.
-    const yearFilter=text(academicYear);
-    const params={start,end,facultyEmail:text(facultyEmail)||null};
-    let yearClause='';
-    if(yearFilter){
-      params.academicYear=yearFilter;
-      yearClause='  AND v.AcademicYear = @academicYear\n';
-    }
-    const rows=await sqlConnection.query(`
-SELECT
-  CONVERT(varchar(36),v.SessionId) AS sessionId,
-  v.AcademicYear AS academicYear,
-  v.CurriculumYear AS curriculumYear,
-  v.CourseCode AS course,
-  v.CourseName AS courseName,
-  v.Topic AS topic,
-  v.SessionType AS type,
-  CONVERT(varchar(10),v.SessionDate,23) AS [date],
-  CASE WHEN v.StartTime IS NULL THEN '' ELSE LEFT(CONVERT(varchar(8),v.StartTime,108),5) END AS [start],
-  CASE WHEN v.EndTime IS NULL THEN '' ELSE LEFT(CONVERT(varchar(8),v.EndTime,108),5) END AS [end],
-  v.Room AS room,
-  COALESCE(v.InstructorNames,N'') AS instructor
-FROM paws.vCalendarSession AS v
-WHERE v.SessionDate >= @start
-  AND v.SessionDate <= @end
-${yearClause}  AND (
-    @facultyEmail IS NULL OR EXISTS (
-      SELECT 1
-      FROM paws.SessionAssignment AS sa
-      INNER JOIN paws.Faculty AS f ON f.FacultyId=sa.FacultyId
-      WHERE sa.SessionId=v.SessionId
-        AND LOWER(f.Email)=LOWER(@facultyEmail)
-    )
-  )
-ORDER BY v.SessionDate,v.StartTime,v.CourseCode,v.SessionId;`,params);
-    return rows.map(row=>{
-      const sessionId=text(row.sessionId),instructor=text(row.instructor),yearMatch=text(row.curriculumYear).match(/\d+/);
-      return{
-        id:sessionId,sessionId,academicYear:text(row.academicYear),
-        year:yearMatch?Number(yearMatch[0]):null,
-        course:text(row.course),courseName:text(row.courseName),topic:text(row.topic),type:text(row.type),
-        date:text(row.date).slice(0,10),start:text(row.start),end:text(row.end),
-        timeUnknown:!text(row.start)||!text(row.end),room:text(row.room),
-        instructor,instructorNames:[...new Set(instructor.split(';').map(name=>name.trim()).filter(Boolean))]
-      };
-    });
-  }
-
-  async function close(){
-    await sqlConnection.close();
-  }
-
-  return Object.freeze({listSessions,ping,close,server:serverName,database:databaseName});
+  };
 }
 
-module.exports={
-  DEFAULT_SERVER,
-  DEFAULT_DATABASE,
-  SQL_RESOURCE,
-  appServiceManagedIdentityToken,
-  appServiceManagedIdentityTokenWithExpiry,
-  createSqlSessionRepository
-};
+module.exports = { createSqlSessionRepository };

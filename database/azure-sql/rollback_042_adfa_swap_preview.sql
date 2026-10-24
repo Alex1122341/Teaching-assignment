@@ -1,0 +1,6 @@
+:ON ERROR EXIT
+SET XACT_ABORT ON;
+IF DB_NAME()<>N'VetMed-Ops' THROW 53900,'ADFA preview rollback requires VetMed-Ops.',1;
+BEGIN TRANSACTION;
+DROP PROCEDURE IF EXISTS paws_api.GetAdfaSwapFacultyPreview;
+COMMIT TRANSACTION;

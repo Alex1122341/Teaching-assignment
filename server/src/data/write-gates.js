@@ -1,13 +1,5 @@
 'use strict';
 
-// Per-domain write capability gates.
-//
-// Every SQL write path is closed unless its own environment flag is explicitly
-// `true`. This is deliberately independent per domain: enabling AFC writes must
-// never implicitly enable Teaching Assignment publication. The default for an
-// unset flag is closed, and an unset flag is never treated as "enabled because
-// the surrounding feature is enabled".
-
 const WRITE_DISABLED = Object.freeze({
   status: 503,
   body: { error: { code: 'WRITE_DISABLED', message: 'This write operation is currently disabled.' } }

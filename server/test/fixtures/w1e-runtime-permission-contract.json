@@ -1,0 +1,201 @@
+{
+  "readObjects": [
+    "paws.AfcRequest",
+    "paws.DoeFacultyAllocation",
+    "paws.DoeFacultyTarget",
+    "paws.DoePolicyVersion",
+    "paws.DoeRuleSeed",
+    "paws.Faculty",
+    "paws.FacultyProfessionalProfile",
+    "paws.JointAppointment",
+    "paws.RoleAssignment",
+    "paws.SessionAssignment",
+    "paws.UserProfile",
+    "paws.vAfcRecordUnified",
+    "paws.vCalendarSession"
+  ],
+  "readProcedures": [
+    "paws_api.GetApprovedAfcArtifact",
+    "paws_api.GetApprovedAfcArtifactSource"
+  ],
+  "p2ReadObjects": [
+    "paws.TeachingAssignmentPackage",
+    "paws.TeachingAssignmentGroup",
+    "paws.TeachingResponsibility",
+    "paws.TeachingResponsibilityAssignee",
+    "paws.TeachingAssignmentRevision",
+    "paws.TeachingAssignmentRevisionSession",
+    "paws.TeachingAssignmentRevisionInstructor",
+    "paws.Session",
+    "paws.TeachingSessionOwnership",
+    "paws.TeachingAssignmentReview",
+    "paws.TeachingAssignmentCurrentFinalization",
+    "paws.TeachingAssignmentFinalization",
+    "paws.TeachingAssignmentFinalizationLine",
+    "paws.TeachingAssignmentContribution",
+    "paws.AuditEvent",
+    "paws.TeachingAssignmentPublicationState",
+    "paws.TeachingAssignmentPublicationRelease",
+    "paws.TeachingAssignmentPublishedSession",
+    "paws.TeachingAssignmentPublishedInstructor"
+  ],
+  "p4ReadObjects": [
+    "paws.DoePolicyRule",
+    "paws.DoeRuleSelector",
+    "paws.DoeRuleParameter",
+    "paws.DoeRuleTier",
+    "paws.DoeRuleInput",
+    "paws.DoeReferenceSource",
+    "paws.DoeCourseMapping",
+    "paws.DoeSubjectMapping",
+    "paws.DoePolicyException",
+    "paws.DoeCalculationRecord",
+    "paws.DoeAssignmentFact",
+    "paws.DoeAssignmentFactInput",
+    "paws.DoeImpactRun",
+    "paws.DoeImpactRunRow",
+    "paws.DoeAuditEvent",
+    "paws.DoePolicyPublication",
+    "paws.DoeSupervisionSourceSnapshot",
+    "paws.DoeWorkloadSource"
+  ],
+  "p2ReadProcedures": [
+    "paws_api.CanActOnTeachingAssignmentPackage"
+  ],
+  "p2WriteSets": {
+    "taDraft": [
+      "paws_api.SaveTeachingAssignmentDraft",
+      "paws_api.AddTeachingAssignmentContribution",
+      "paws_api.SubmitTeachingAssignmentRevision",
+      "paws_api.FinalSubmitTeachingAssignment"
+    ],
+    "taReview": [
+      "paws_api.RecordTeachingAssignmentReview"
+    ],
+    "taFinal": [
+      "paws_api.SaveTeachingAssignmentFinalization"
+    ],
+    "taPublish": [
+      "paws_api.PublishTeachingAssignmentRelease"
+    ]
+  },
+  "writeSets": {
+    "afcSingle": [
+      "paws_api.CreateAfcRecord"
+    ],
+    "afcBatch": [
+      "paws_api.CreateAfcManualBatch"
+    ],
+    "sessionEdit": [
+      "paws_api.UpdateCalendarSession"
+    ]
+  },
+  "outsideW1eWriteProcedures": [
+    "paws_api.ApproveAfcRequest",
+    "paws_api.CreateCalendarSession",
+    "paws_api.CreateCalendarSessionBatch",
+    "paws_api.ReplaceCalendarSessionAssignments",
+    "paws_api.CreateOrGetApprovedAfcArtifact",
+    "paws_api.RecommendAfcRequest",
+    "paws_api.RejectAfcRequest",
+    "paws_api.SubmitAfcRequest",
+    "paws_api.WithdrawAfcRequest"
+  ],
+  "rolePeriodReadObjects": [
+    "paws.RoleAppointmentSchedule"
+  ],
+  "rolePeriodWriteProcedures": [
+    "paws_api.SetRoleAppointmentPeriods"
+  ],
+  "manualReadObjects": [
+    "paws.Course",
+    "paws.ManualDoeAssignment"
+  ],
+  "swapReadProcedures": [
+    "paws_api.GetAdfaSwapFacultyPreview",
+    "paws_api.GetSessionSwapContext",
+    "paws_api.GetSessionSwap",
+    "paws_api.GetSessionSwapQueue"
+  ],
+  "swapWriteSets": {
+    "request": [
+      "paws_api.SaveSessionSwap",
+      "paws_api.WithdrawSessionSwap"
+    ],
+    "decision": [
+      "paws_api.DecideSessionSwap"
+    ]
+  },
+  "schedulingReadProcedures": [
+    "paws_api.ListSchedulingTasks"
+  ],
+  "historyReadProcedures": [
+    "paws_api.ListChangeHistoryEvents"
+  ],
+  "historyPolicyAuditFunctions": [
+    "paws_api.DoeHistoryPolicySnapshot"
+  ],
+  "schedulingWriteSets": {
+    "schedulingTaskReview": [
+      "paws_api.ReviewSchedulingTask"
+    ]
+  },
+  "calendarReadProcedures": [
+    "paws_api.ListCalendarActivities",
+    "paws_api.GetCalendarActivityImport"
+  ],
+  "cccScheduleReadProcedures": [
+    "paws_api.ListCccSchedule"
+  ],
+  "calendarWriteSets": {
+    "stage": [
+      "paws_api.StageCalendarActivityImport",
+      "paws_api.PreviewCalendarActivityImport"
+    ],
+    "commit": [
+      "paws_api.CommitCalendarActivityImport"
+    ],
+    "time": [
+      "paws_api.ResolveCalendarActivityDayTime"
+    ]
+  },
+  "afcCancelWriteSets": {
+    "cancel": [
+      "paws_api.CancelAfcRecord"
+    ]
+  },
+  "afcFormProcedures": [
+    "paws_api.UploadAfcForm",
+    "paws_api.ListAfcForms",
+    "paws_api.GetAfcForm"
+  ],
+  "afcRecordDocumentReadObjects": [
+    "paws.vAfcRecordOriginal"
+  ],
+  "afcRecordDocumentProcedures": [
+    "paws_api.CreateAfcRecordWithDocument"
+  ],
+  "cccReplacementProcedures": [
+    "paws_api.StageCccReplacement",
+    "paws_api.GetCccReplacement",
+    "paws_api.PreviewCccReplacement",
+    "paws_api.CommitCccReplacement"
+  ],
+  "masterRefreshReadObjects": [
+    "paws.vMasterRoleFacts"
+  ],
+  "masterRefreshTrustedProcedures": [
+    "paws_api.MasterRefreshSnapshot",
+    "paws_api.PreviewMasterRefresh",
+    "paws_api.CommitMasterRefresh",
+    "paws_api.RecoverMasterRefresh",
+    "paws_api.StageMasterCccReplacement",
+    "paws_api.RecoverCccReplacement"
+  ],
+  "traineeReadProcedures": [
+    "paws_api.ListTraineeSource"
+  ],
+  "availabilityReadProcedures": [
+    "paws_api.ListFacultyAvailability"
+  ]
+}

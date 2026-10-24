@@ -2,10 +2,6 @@
 
 const { performance } = require('node:perf_hooks');
 
-// Bounded, allow-listed request timing. Metric names and descriptions are
-// enumerated so a caller can never emit an arbitrary string into a response
-// header; anything not on the list is dropped rather than escaped.
-
 const METRIC_NAMES = Object.freeze([
   'firebase_verify',
   'sql_connect',

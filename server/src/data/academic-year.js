@@ -1,19 +1,21 @@
 'use strict';
 
-// Canonical academic-year handling.
+// BETA-R4D-10A2 — canonical academic-year handling.
 //
-// The stored Azure SQL vocabulary is `YYYY-YY` (e.g. `2026-27`). Live Beta data
+// The stored Azure SQL vocabulary is `YYYY-YY` (e.g. `2026-27`). Live data
 // proved this: every `paws.vCalendarSession` row for the current year carries
-// `2026-27`, while `2026-2027` matches nothing.
+// `2026-27`, while `2026-2027` matches nothing. PR #26 corrected the default
+// from the 4-4 form to the 2-2 form, but the validator still accepted both
+// spellings without canonicalising, so an operator-supplied `2026-2027` could
+// still silently return zero rows while answering 200.
 //
-// This module makes a silently-empty result impossible. Exactly one function
-// decides the value:
+// This module makes that impossible. Exactly one function decides the value:
 //
 //   omitted            -> DEFAULT_ACADEMIC_YEAR ('2026-27')
 //   '2026-27'          -> '2026-27'
 //   '2026-2027'        -> '2026-27'      (4-4 collapses onto its 2-2 form)
 //   '2027-2028'        -> '2027-28'
-//   anything malformed -> InvalidAcademicYearError (400 when explicitly supplied)
+//   anything malformed -> INVALID_ACADEMIC_YEAR (400 when explicitly supplied)
 //
 // Malformed input is NEVER silently converted to the default: an explicit
 // `2026` or `junk` is a caller error and must surface as a 400, not as a

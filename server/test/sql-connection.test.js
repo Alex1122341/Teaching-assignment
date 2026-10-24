@@ -145,21 +145,49 @@ test('configuration is validated rather than defaulted silently',()=>{
   assert.equal(config.requestTimeout,5000);
 });
 
-test('the session repository reuses one pool across reads and filters a supplied year only',async()=>{
+test('the ported session repository reuses one pool across reads',async()=>{
   const {module,state}=createFakeSql();
-  const repository=createSqlSessionRepository({sqlModule:module,tokenProvider:async()=>'token'});
-  await repository.listSessions({start:'2027-03-22',end:'2027-03-22'});
-  await repository.listSessions({start:'2027-03-22',end:'2027-03-23',facultyEmail:'f@x.test'});
-  // Regression guard for the per-request pool that used to exist here.
+  const connection=createSqlConnection({sqlModule:module,tokenProvider:async()=>'token',server:'srv',database:'db'});
+  const repository=createSqlSessionRepository(connection);
+  await repository.list({start:'2027-03-22',end:'2027-03-22'});
+  await repository.list({start:'2027-03-22',end:'2027-03-23',facultyId:'11111111-1111-1111-1111-111111111111'});
+  // Regression guard for the per-request pool that used to exist here: two reads
+  // must share the connection, not pay two handshakes.
   assert.equal(state.poolConstructions,1);
+  assert.equal(state.connectCalls,1);
+  await connection.close();
+});
 
-  const unfiltered=state.statements[0];
-  assert.doesNotMatch(unfiltered,/v\.AcademicYear = @academicYear/);
-  assert.deepEqual(state.bound.slice(0,2),[['start','2027-03-22'],['end','2027-03-22']]);
+test('a query issued inside a transaction joins that transaction',async()=>{
+  const {module,state}=createFakeSql();
+  const connection=createSqlConnection({sqlModule:module,tokenProvider:async()=>'token',server:'srv',database:'db'});
+  assert.equal(connection.isTransactionActive(),false);
+  let sawActive=false;
+  await connection.transaction(async()=>{
+    sawActive=connection.isTransactionActive();
+    // The ported repositories call db.query directly, without threading a
+    // transaction handle; AsyncLocalStorage must route it onto the transaction.
+    await connection.query('UPDATE a');
+    await connection.query('UPDATE b');
+  });
+  assert.equal(sawActive,true);
+  assert.equal(connection.isTransactionActive(),false);
+  assert.equal(state.transactions.length,1);
+  assert.equal(state.transactions[0].ended,'commit');
+  await connection.close();
+});
 
-  await repository.listSessions({start:'2027-03-22',end:'2027-03-23',academicYear:'2026-27'});
-  const filtered=state.statements[2];
-  assert.match(filtered,/v\.AcademicYear = @academicYear/);
-  assert.deepEqual(state.bound.slice(-1),[['academicYear','2026-27']]);
-  await repository.close();
+test('a throwing transaction body rolls back and rejects nested transactions',async()=>{
+  const {module,state}=createFakeSql();
+  const connection=createSqlConnection({sqlModule:module,tokenProvider:async()=>'token',server:'srv',database:'db'});
+  await assert.rejects(
+    ()=>connection.transaction(async()=>{await connection.query('UPDATE a');throw Object.assign(Error('nope'),{code:'NOPE'})}),
+    error=>error.code==='NOPE'
+  );
+  assert.equal(state.transactions[0].ended,'rollback');
+  await assert.rejects(
+    ()=>connection.transaction(async()=>{await connection.transaction(async()=>{})}),
+    error=>error.code==='SQL_TRANSACTION_NESTED'
+  );
+  await connection.close();
 });

@@ -1,30 +1,39 @@
 'use strict';
 
-// Shared, long-lived Azure SQL connection.
-//
-// Why this exists: the previous repositories opened a `ConnectionPool`, ran one
-// query, and closed it inside the same call. Every request therefore paid a full
-// TCP + TLS + Azure AD handshake, and a page that issued five reads paid for
-// five handshakes. It also meant no statement could participate in a
-// transaction, because the pool that owned it was torn down on return.
-//
-// This module owns exactly one pool and hands out requests and transactions from
-// it. Two properties matter and are both tested:
-//
-//   1. Concurrent first callers share one connection attempt. Without that,
-//      a burst of parallel requests would each create a pool and the "fix"
-//      would be worse than the original.
-//
-//   2. The managed-identity access token is bound to the pool when the pool is
-//      created, so a pool that outlives its token starts failing every query.
-//      The connection therefore tracks the token's expiry and rebuilds the pool
-//      before that expiry, rather than waiting for the first failure.
+const { AsyncLocalStorage } = require('node:async_hooks');
 
+// Shared, long-lived Azure SQL connection for the ported PAWS domains.
+//
+// Two concerns are deliberately separated here:
+//
+//   1. HOW we authenticate. Beta resolves credentials through
+//      `azure-active-directory-default` (managed-identity client id) or
+//      `msnodesqlv8` (Windows integrated auth). This repository uses an
+//      `azure-active-directory-access-token` fetched from the App Service local
+//      identity endpoint. The credential path is not interchangeable, so it is
+//      injected as a token provider.
+//
+//   2. HOW the ported repositories expect to call us. Beta's ~40 repository
+//      modules call `db.query(text, params)` and `db.transaction(() => ...)`,
+//      relying on AsyncLocalStorage so that a `db.query` issued anywhere inside
+//      the callback joins the open transaction. That call convention is
+//      preserved exactly, because rewriting it across every repository would be
+//      a far larger and riskier change than adapting this one file.
+//
+// On top of Beta's behaviour this version adds two properties that matter in
+// production and are tested:
+//
+//   - One connection attempt even under concurrency. A shared in-flight promise
+//     means a burst of parallel requests produces one pool, not one per request.
+//   - The pool is rebuilt before its bound token expires. The access token is
+//     baked into the pool at construction, so a pool that outlives its token
+//     fails every subsequent query.
+
+const DEFAULT_PORT = 1433;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const DEFAULT_TOKEN_REFRESH_MS = 45 * 60 * 1000;
 const MIN_TOKEN_REFRESH_MS = 60 * 1000;
 const MAX_TOKEN_REFRESH_MS = 60 * 60 * 1000;
-const DEFAULT_PORT = 1433;
-const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 
 const text = value => String(value ?? '').trim();
 
@@ -86,6 +95,7 @@ function createSqlConnection({
     throw Object.assign(Error(`SQL token refresh must be an integer from ${MIN_TOKEN_REFRESH_MS} to ${MAX_TOKEN_REFRESH_MS} milliseconds.`), { code: 'SQL_CONFIG_INVALID' });
   }
 
+  const transactions = new AsyncLocalStorage();
   let pool = null;
   let expiresAt = 0;
   let pending = null;
@@ -95,21 +105,15 @@ function createSqlConnection({
     return sqlModule || require('mssql');
   }
 
-  function expired(atMs) {
-    return pool !== null && atMs >= expiresAt;
-  }
-
   async function discard() {
     const current = pool;
     pool = null;
     expiresAt = 0;
     if (current) {
-      try { await current.close(); } catch { /* a broken pool must not mask the replacement */ }
+      try { await current.close(); } catch { /* a broken pool must not mask its replacement */ }
     }
   }
 
-  // One shared connection attempt. Concurrent callers await the same promise, so
-  // a burst of requests produces exactly one pool.
   function connectOnce() {
     if (pending) return pending;
     const created = (async () => {
@@ -132,7 +136,7 @@ function createSqlConnection({
 
   async function acquire() {
     if (closed) throw Object.assign(Error('The SQL connection has been closed.'), { code: 'SQL_CONNECTION_CLOSED' });
-    if (pool && expired(now())) await discard();
+    if (pool && now() >= expiresAt) await discard();
     if (pool) return pool;
     return connectOnce();
   }
@@ -147,44 +151,63 @@ function createSqlConnection({
     return request;
   }
 
-  return {
-    async query(statement, params = {}) {
-      if (!text(statement)) throw Object.assign(Error('A SQL statement is required.'), { code: 'SQL_STATEMENT_REQUIRED' });
-      const active = await acquire();
-      const result = await bind(active.request(), params).query(statement);
-      return result?.recordset || [];
-    },
+  // Executes one statement. Inside a transaction the statement is chained onto
+  // the transaction's queue so that two `db.query` calls issued from the same
+  // async context cannot interleave on one connection.
+  async function runQuery(statement, params = {}, options = {}) {
+    if (!text(statement)) throw Object.assign(Error('A SQL statement is required.'), { code: 'SQL_STATEMENT_REQUIRED' });
+    const state = transactions.getStore();
+    if (state && !options.transactionQueued) {
+      const queued = state.chain.then(() => runQuery(statement, params, { ...options, transactionQueued: true }));
+      state.chain = queued.catch(error => { state.error = state.error || error; });
+      return queued;
+    }
+    const sql = loadSql();
+    let request;
+    if (state) request = new sql.Request(state.transaction);
+    else request = (await acquire()).request();
+    bind(request, params);
+    const result = await request.query(statement);
+    return result?.recordset || [];
+  }
 
-    async transaction(work) {
-      if (typeof work !== 'function') throw Object.assign(Error('A transaction body is required.'), { code: 'SQL_TRANSACTION_REQUIRED' });
-      const active = await acquire();
-      const sql = loadSql();
-      if (typeof sql.Transaction !== 'function' || !sql.ISOLATION_LEVEL) {
-        throw Object.assign(Error('The configured SQL driver does not support transactions.'), { code: 'SQL_TRANSACTION_UNSUPPORTED' });
-      }
-      const transaction = new sql.Transaction(active);
-      let settled = false;
-      transaction.on?.('rollback', () => { settled = true; });
-      await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
-      try {
-        const result = await work({
-          query: async (statement, params = {}) => {
-            const request = new sql.Request(transaction);
-            const response = await bind(request, params).query(statement);
-            return response?.recordset || [];
-          }
-        });
-        await transaction.commit();
-        settled = true;
-        return result;
-      } catch (error) {
-        if (!settled) await transaction.rollback().catch(() => {});
-        throw error;
-      }
-    },
+  async function transaction(callback, { supportOperationId = null } = {}) {
+    if (typeof callback !== 'function') throw Object.assign(Error('A transaction body is required.'), { code: 'SQL_TRANSACTION_REQUIRED' });
+    if (transactions.getStore()) throw Object.assign(Error('Nested request transaction is unsupported.'), { code: 'SQL_TRANSACTION_NESTED' });
+    const sql = loadSql();
+    if (typeof sql.Transaction !== 'function' || !sql.ISOLATION_LEVEL) {
+      throw Object.assign(Error('The configured SQL driver does not support transactions.'), { code: 'SQL_TRANSACTION_UNSUPPORTED' });
+    }
+    const active = await acquire();
+    const instance = new sql.Transaction(active);
+    let rolledBack = false;
+    instance.on?.('rollback', () => { rolledBack = true; });
+    await instance.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+    const state = { transaction: instance, operationId: supportOperationId, error: null, chain: Promise.resolve() };
+    try {
+      // The callback receives a small handle for convenience, but the supported
+      // convention (and the one the ported repositories use) is to call
+      // `db.query` directly and let AsyncLocalStorage route it here.
+      const result = await transactions.run(state, () => callback({
+        query: (statement, params) => runQuery(statement, params)
+      }));
+      await state.chain;
+      if (state.error) throw state.error;
+      await instance.commit();
+      return result;
+    } catch (error) {
+      if (!rolledBack) await instance.rollback().catch(() => {});
+      throw error;
+    }
+  }
+
+  return {
+    query: runQuery,
+    transaction,
+    isTransactionActive: () => Boolean(transactions.getStore()),
 
     async health() {
-      await this.query('SELECT TOP (1) 1 AS ok FROM paws.Session;');
+      await runQuery('SELECT TOP (1) 1 AS ok FROM paws.Session;');
       return true;
     },
 
@@ -193,7 +216,6 @@ function createSqlConnection({
       await discard();
     },
 
-    // Test/diagnostic surface: how many times a pool was actually created.
     get isConnected() { return pool !== null; }
   };
 }
