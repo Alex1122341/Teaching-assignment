@@ -42,7 +42,11 @@ All paths are relative to the target repository root.
 | `server/src/auth/role-policy.js` | Beta `server/src/auth/role-policy.js` | **Adapted** — see §3 |
 | `server/src/http/errors.js` | existing | Extended: fixed status mapping |
 | `server/src/routes/data-routes.js` | existing | Extended: optional academic-year filter |
+| `server/src/data/sql-connection.js` | Beta `server/src/data/sql-connection.js` | **Rewritten for this repository's auth mode** — see §3.4 |
+| `server/src/data/sql-session-repository.js` | existing | Migrated onto the shared connection |
+| `server/src/data/sql-user-repository.js` | existing | Migrated onto the shared connection |
 | `server/test/foundation.test.js` | new | 15 contract tests |
+| `server/test/sql-connection.test.js` | new | 9 contract tests |
 
 ### What each piece buys
 
@@ -107,6 +111,35 @@ through. This is a deliberate deviation from Beta's defaulting behaviour, chosen
 because silently narrowing an existing production read is worse than a missing
 filter.
 
+### 3.4 The SQL connection layer was rewritten, not ported
+
+Beta's `sql-connection.js` resolves credentials through
+`azure-active-directory-default` (a managed-identity client id) or
+`msnodesqlv8` (Windows integrated auth). This repository authenticates with an
+`azure-active-directory-access-token` fetched from the App Service local
+identity endpoint. The two are not interchangeable, so the module was rewritten
+around the existing token provider while keeping Beta's structural ideas:
+one long-lived pool, serializable transactions, and validated configuration.
+
+The defect being fixed: `sql-session-repository.js` and `sql-user-repository.js`
+each constructed a `ConnectionPool`, ran one statement, and closed it in a
+`finally`. Every request paid a full TCP + TLS + Azure AD handshake, and a
+sign-in that issues four statements paid for four.
+
+Two properties are load-bearing and tested:
+
+- **One connection attempt, even under concurrency.** A shared in-flight promise
+  means a burst of parallel requests produces one pool, not one per request.
+- **The pool is rebuilt before its bound token expires.** The access token is
+  baked into the pool at construction, so a long-lived pool would start failing
+  every query once the token aged out. `expires_on` from the identity endpoint is
+  tracked and the pool is replaced ahead of expiry. When the endpoint omits an
+  expiry, a conservative 45-minute refresh is assumed rather than trusting the
+  pool indefinitely.
+
+Configuration is validated at composition time. A missing server or database now
+fails when the service is assembled, not as a 500 on the first live read.
+
 ---
 
 ## 4. Test evidence
@@ -116,8 +149,13 @@ Run with Node 22.22.2 from the repository root.
 | Suite | Result |
 |---|---|
 | `server/test/foundation.test.js` (new) | **15 / 15 pass** |
-| `node --test server/test/*.test.js` | **151 / 151 pass** (136 pre-existing + 15 new) |
+| `server/test/sql-connection.test.js` (new) | **9 / 9 pass** |
+| `node --test server/test/*.test.js` | **160 / 160 pass** (136 pre-existing + 24 new) |
 | `node --test tests/*.test.js` | 1045 tests: **932 pass, 112 skipped, 1 fail** |
+
+The pre-existing `sql-user-repository.test.js` and `sql-session-repository.test.js`
+suites pass **unmodified**, which is the evidence that migrating both
+repositories onto the shared connection preserved their observable behaviour.
 
 The single failure is `tests/hosting-boundary.test.js:77` — "Azure stages the
 canonical config after the same generated lightweight build". It invokes
@@ -139,8 +177,8 @@ The 112 skips are the emulator-dependent suite; no Firebase emulator was run, so
 | Item | Why deferred |
 |---|---|
 | Browser `PAWS_FACULTY_NAME` formatter + parity assertion | `PAWS_CONSTITUTION.md` requires the browser and server formatters to be identical and guarded by a parity assertion. Adding the browser file now would ship an asset no page references. It belongs with the frontend adoption, together with its `tools/static-assets.json` registration and the parity test. |
-| Persistent SQL connection pool (`sql-connection.js`) | Beta's version uses `azure-active-directory-default` / `msnodesqlv8`; this repository uses `azure-active-directory-access-token` from App Service managed identity. The auth modes are not interchangeable, and the existing repository opens and closes a pool per request. Rewriting the connection layer cannot be validated without a reachable SQL instance. |
-| Domain repositories (Faculty, Session, Assignment, UserProfile) | Depend on the connection layer above. |
+| `provision()` race in `sql-user-repository.js` | Read-then-insert; two concurrent first sign-ins can both pass the "email already linked" check. The connection now supports serializable transactions, which is the fix, but it alters the authentication path and cannot be validated without a reachable SQL instance. Left in place and documented in the code rather than silently changed. |
+| Domain repositories (Faculty, Assignment, and the remaining domains) | The connection layer now exists; each domain repository still needs its SQL contract reviewed against live schema. |
 | Write-gate enforcement inside route handlers | The gates exist and are tested, but no SQL write route exists yet in this repository to enforce them on. |
 | API/SQL-level permission tests | Need a seeded database. |
 
