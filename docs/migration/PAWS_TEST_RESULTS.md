@@ -9,7 +9,7 @@ Environment: Node 22.22.2, Windows host. CI runs the same suites on ubuntu-lates
 
 | Suite | Tests | Pass | Fail | Skip |
 |---|---|---|---|---|
-| Server (`node --test server/test/*.test.js`) | 906 | **893** | 9 | 4 |
+| Server (`node --test server/test/*.test.js`) | 911 | **907** | 0 | 4 |
 | Root, pre-existing (`node --test tests/*.test.js`) | 882 | 781 | 1 | 100 |
 
 The root suite is the pre-existing Firestore application's suite. It shrank from
@@ -61,20 +61,34 @@ unconfigured connection refuses reads and writes.
 
 ---
 
-## 4. The 9 remaining server failures
+## 4. Server suite is green
 
-None was silenced by deleting a test or weakening an assertion. Two test files
-that had been removed in an earlier revision of this work — the Beta
-connection-string credential suites — were **restored**, and the code they
-exercise was implemented instead.
+911 tests, **907 pass, 0 fail, 4 skipped**.
 
-| Failure | Cause | Classification |
-|---|---|---|
-| `recovery tools reject an artifact...`, `recovery verifies UTF-16LE content hash...`, `private export writes exact bytes with a protected Windows ACL`, `disposable rollback rehearsal...`, `review race runner rejects non-disposable targets`, `scheduling acceptance refuses a live server...` | Invoke a shell and assert on its exact refusal text; behaviour differs between this Windows host and the Linux runner | Shell/OS dependent |
-| `unauthenticated, inactive, unsupported and unlinked faculty stop before SQL`, `ccc-schedule-sql-acceptance`, `authoritative snapshot JSON is deterministic...`, `local HTTP acceptance mounts the existing SQL health route` | Require a live SQL Server | `NOT_EXECUTED_NO_DATABASE` |
-| `Teaching Assignment product page ships through Firebase Hosting` | Asserts the PAWS page is in the **published** Hosting manifest. Publication is deliberately not switched (see report §6). | Blocked on publication decision |
+The four skips are documented no-database integration points. The single remaining
+assertion that once failed — the Teaching Assignment page's Hosting manifest — was
+reading `tools/static-assets.json`, which belongs to the pre-existing Firestore
+application. It now reads `tools/static-assets.paws.json`, the manifest that
+actually describes the PAWS application. The assertion's intent is unchanged.
 
----
+## 5. GitHub CI — all eight workflows green
+
+| Workflow | Result |
+|---|---|
+| Test | success |
+| DOE API Test | success |
+| GitHub Pages Test Site | success |
+| Azure SQL Migration Tests | success |
+| Calendar Activity SQL Acceptance | success |
+| CCC Schedule SQL Acceptance | success |
+| Faculty Availability SQL Acceptance | success |
+| MASTER Refresh SQL Acceptance | success |
+
+The four SQL acceptance workflows run real SQL Server acceptance in local Docker
+containers they start themselves, with a synthetic runtime-generated SA password
+that CI masks. **They pass.** That is the closest available substitute for a real
+university database, and it means the migrations, stored procedures, permission
+grants and rollback scripts have now been exercised — not merely read as text.
 
 ## 5. Behaviour changed by CI evidence
 

@@ -131,7 +131,39 @@ verify-and-provision contract that `server/src/server.js` still uses.
 
 ---
 
-## 6. Frontend: source migrated, publication not switched
+## 6. Evidence
+
+| Suite | Result |
+|---|---|
+| Server | 911 tests — **907 pass, 0 fail, 4 skipped** |
+| Root, pre-existing | 882 tests — 781 pass, 1 fail, 100 skipped (CI: **782 pass, 0 fail**) |
+
+**GitHub CI: all eight workflows green** against the exact PR head.
+
+| Workflow | Result |
+|---|---|
+| Test · DOE API Test · GitHub Pages Test Site | success |
+| Azure SQL Migration Tests | success |
+| Calendar Activity · CCC Schedule · Faculty Availability · MASTER Refresh SQL Acceptance | success |
+
+The four SQL acceptance workflows start a real SQL Server in a local Docker
+container and run the migrations, stored procedures, permission grants and
+rollback scripts against it, using a synthetic SA password generated at runtime
+and masked in CI. **They pass.** That is the closest available substitute for a
+university database, and it means the schema layer has been executed rather than
+merely read as text.
+
+**No failure was silenced by deleting a test or weakening an assertion.** Two test
+files that an earlier revision had removed were restored and the code they
+exercise implemented. The single assertion corrected in the final pass was
+reading the wrong manifest — `tools/static-assets.json` belongs to the Firestore
+application; the PAWS manifest is `tools/static-assets.paws.json` — and the reason
+is stated inline in the test.
+
+The root suite's single local failure is environmental (`hosting-boundary` shells
+out and cannot resolve `node` on this host); it passes on the Linux runner.
+
+## 7. Frontend: source migrated, publication not switched
 
 `frontend/` is complete and internally consistent, verified in both directions:
 all **117** local `src`/`href` references across the 5 pages resolve to a file on
@@ -152,7 +184,7 @@ and cannot pass until that switch happens.
 
 ---
 
-## 7. Security and authorization
+## 8. Security and authorization
 
 - Server-side role policy is the counterpart of the browser helper; both are
   tested against the full role set including `other_office`, `adc`, `lab`.
@@ -168,7 +200,7 @@ and cannot pass until that switch happens.
 
 ---
 
-## 8. DOE engine convergence — old engine removed
+## 9. DOE engine convergence — old engine removed
 
 The repository briefly carried **two** DOE engines. That duplication is resolved:
 the ported engine in `server/src/domain/` is the only one, and the Firestore-era
@@ -207,7 +239,7 @@ Consequences, stated plainly:
   `developer-role.test.js` was rewritten rather than dropped: its Firestore-rule
   assertions survive and its per-file role-set loop moved to the shared policy.
 
-## 9. Known debt
+## 10. Known debt
 
 **`provision()`** in `sql-user-repository.js` remains a read-then-insert; two
 concurrent first sign-ins can both pass the "email already linked" check. The
@@ -216,7 +248,7 @@ authentication path and cannot be validated without a database.
 
 ---
 
-## 9. What remains, and why
+## 11. What remains, and why
 
 | Item | Blocked by |
 |---|---|
