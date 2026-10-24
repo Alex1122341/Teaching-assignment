@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UCVM Timetable - Workload Guideline DOE V9.7</title>
+  <link rel="stylesheet" href="timetable.css">
+  <link rel="stylesheet" href="change-history.css">
+  <link rel="stylesheet" href="calendar-activities.css">
+  <link rel="stylesheet" href="ccc-schedule.css">
+  <link rel="stylesheet" href="leadership-directory.css">
+  <link rel="stylesheet" href="swap-workflow-sql.css">
+
+  <link rel="stylesheet" href="workspace.css">
+</head>
+<body class="auth-locked">
+  <header class="ucalgary-masthead" aria-label="University of Calgary">
+    <div class="ucalgary-masthead-inner">
+      <div class="ucalgary-lockup">
+        <div class="ucalgary-wordmark">UNIVERSITY OF CALGARY</div>
+        <div class="ucalgary-faculty">Faculty of Veterinary Medicine</div>
+      </div>
+      <div class="timetable-top-actions"><button class="masthead-link hidden" id="faculty-dashboard-btn">Faculty Dashboard</button><button class="masthead-link hidden" type="button" id="ccc-schedule-btn">CCC Schedule</button><button class="masthead-link hidden" id="teaching-assignments-btn">Teaching Assignments</button><button class="masthead-link hidden" id="swap-inbox-btn">SWAP inbox</button><div class="ucalgary-product">Teaching Assignment &amp; Academic Scheduling</div></div>
+    </div>
+    <div class="ucalgary-gold-rule"></div>
+  </header>
+
+  <div class="auth-gate" id="auth-gate">
+    <div class="auth-gate-card">
+      <div class="auth-gate-brand">UCVM</div>
+      <div class="auth-gate-title">2026-2027 Timetable</div>
+      <div class="auth-gate-copy" id="gate-copy">Restoring your PAWS session…</div>
+      <div class="auth-gate-status"><span class="gate-dot"></span><span id="gate-status">Checking saved session…</span></div>
+      <div class="auth-gate-actions">
+        <button class="auth-gate-signin hidden" id="gate-sign-in">Sign in</button>
+        <button class="auth-gate-setup hidden" id="gate-auth-setup">Local Auth Setup</button>
+        <button class="auth-gate-retry hidden" id="gate-retry-access">Retry access</button>
+      </div>
+      <div class="auth-gate-note">Your account role determines the timetable and faculty tools you can access.</div>
+    </div>
+  </div>
+
+  <div class="test-banner">
+    <strong id="ui-banner-label">INFORMATION CENTER</strong>
+    <span id="ui-banner-message">Loading the latest update…</span>
+    <button id="auth-setup-btn" style="padding:3px 10px;border:1px solid #9a6700;border-radius:999px;background:#fff8dc;color:#664d03;font-size:10.5px;font-weight:700">Auth Setup</button>
+  </div>
+
+  <div class="filter-bar-wrap" id="filter-bar-wrap">
+    <div class="filter-bar-inner" id="filter-bar-inner">
+      <div class="brand-block">
+        <span class="brand-line brand-line-1" id="ui-brand-year">2026-2027</span>
+        <span class="brand-line brand-line-2" id="ui-brand-name">UCVM</span>
+        <span class="brand-line brand-line-3" id="ui-brand-page">Teaching Schedule</span>
+        <div class="leadership-list-actions" id="leadership-list-actions" role="group" aria-label="Teaching leadership lists"><button class="course-list-btn hidden" type="button" id="hicc-cc-list-btn">HICC–CC List</button><button class="course-list-btn hidden" type="button" id="visc-list-btn">VISC List</button></div>
+      </div>
+
+      <div class="filter-stack">
+        <button class="schedule-filter-toggle" id="schedule-filter-toggle" type="button" aria-controls="schedule-filter-panel" aria-expanded="true"><span>Schedule filters</span><span class="schedule-filter-chevron" aria-hidden="true">⌃</span></button>
+        <div class="schedule-filter-panel" id="schedule-filter-panel">
+        <div class="filter-block-row">
+          <span class="filter-block-label">Year</span>
+          <div class="btn-row btn-row-left" id="year-btn-row">
+            <button class="pill-btn" data-year="1">Year 1</button>
+            <button class="pill-btn" data-year="2">Year 2</button>
+            <button class="pill-btn" data-year="3">Year 3</button>
+            <button class="pill-btn" data-year="4">Year 4</button>
+            <button class="pill-btn active" data-year="all">All Years</button>
+          </div>
+        </div>
+
+        <div class="filter-block-row">
+          <span class="filter-block-label">Semester</span>
+          <div class="btn-row btn-row-left" id="semester-btn-row">
+            <button class="pill-btn" data-semester="spring">Spring</button>
+            <button class="pill-btn active" data-semester="fall">Fall</button>
+            <button class="pill-btn" data-semester="winter">Winter</button>
+          </div>
+        </div>
+
+        <div class="filter-block-row filter-block-row-top" id="week-pill-block">
+          <span class="filter-block-label">Week</span>
+          <div class="week-btn-lines">
+            <div class="btn-row btn-row-left" id="week-btn-row-1"></div>
+            <div class="btn-row btn-row-left" id="week-btn-row-2"></div>
+          </div>
+        </div>
+
+        <div class="fbar-item mobile-only" id="week-dropdown-item">
+          <span class="fbar-label">Week</span>
+          <div class="fbar-select-wrap">
+            <select class="fbar-select" id="week-mobile-select"></select>
+            <span class="fbar-arrow">v</span>
+          </div>
+        </div>
+        </div>
+
+        <div class="filter-row">
+          <div class="fbar-item fbar-search">
+            <span class="fbar-label">Search</span>
+            <input type="text" class="fbar-input" id="search-input" placeholder="course, topic, instructor" />
+          </div>
+          <div class="fbar-item">
+            <span class="fbar-label">Month</span>
+            <div class="fbar-select-wrap">
+              <select class="fbar-select" id="filter-month">
+                <option value="all">All Months</option>
+                <option value="4">May</option>
+                <option value="5">June</option>
+                <option value="6">July</option>
+                <option value="7">August</option>
+                <option value="8">September</option>
+                <option value="9">October</option>
+                <option value="10">November</option>
+                <option value="11">December</option>
+                <option value="0">January</option>
+                <option value="1">February</option>
+                <option value="2">March</option>
+                <option value="3">April</option>
+              </select>
+              <span class="fbar-arrow">v</span>
+            </div>
+          </div>
+          <div class="fbar-item fbar-course">
+            <span class="fbar-label">Course</span>
+            <details class="course-multi" id="course-filter-details"><summary id="course-filter-summary">All Courses</summary><div class="course-multi-options" id="filter-course-options"></div></details>
+          </div>
+          <div class="fbar-item">
+            <span class="fbar-label">Activity type</span>
+            <div id="activity-type-filter"></div>
+          </div>
+          <button class="fbar-reset" id="reset-filters">Reset</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <div class="main-view" id="main-view">
+      <div class="cal-column">
+        <div class="cal-toolbar">
+          <button class="btn-cal-today" id="cal-today">Today</button>
+          <div class="cal-nav">
+            <button class="btn-cal-nav" id="cal-prev">&lt;</button>
+            <span class="cal-label-text" id="cal-label"></span>
+            <button class="btn-cal-nav" id="cal-next">&gt;</button>
+          </div>
+          <div class="cal-toolbar-right">
+            <div id="list-global-controls" class="list-global-controls hidden" aria-label="Academic year session list">
+              <label>Academic year <select id="list-academic-year"></select></label>
+              <label>Show <select id="list-session-mode"><option value="ALL">All sessions</option><option value="GRID-READY">Grid ready</option><option value="CHECK NEEDED">Check needed</option></select></label>
+            </div>
+            <div class="faculty-workflow-nav" aria-label="Faculty workflow">
+              <button class="fbar-reset hidden" id="my-teaching-btn">My Teaching</button>
+              <button class="fbar-reset hidden" id="afc-request-btn">AFC Request</button>
+              <button class="fbar-reset hidden" id="my-change-history-btn">My Change History</button>
+            </div>
+            <button class="fbar-reset hidden" id="my-timetable-btn">My Timetable</button>
+            <details class="cal-admin-menu hidden" id="cal-admin-menu">
+              <summary>Admin tools</summary>
+              <div class="cal-admin-menu-panel">
+                <button class="fbar-reset hidden" id="manage-users-btn">Manage Users</button>
+                <button class="fbar-reset hidden" id="bulk-add-session-btn">+ Add Sessions</button>
+                <button class="fbar-reset hidden" id="add-session-btn">+ Add One</button>
+                <div class="session-selection-controls hidden" id="selection-controls">
+                  <button class="fbar-reset" id="select-sessions-btn">Select Sessions</button>
+                  <span class="selection-active-actions hidden" id="selection-active-actions">
+                    <strong id="selection-count" aria-live="polite">0 selected</strong>
+                    <button class="fbar-reset" id="selection-cancel-btn">Cancel</button>
+                    <button class="fbar-reset" id="review-selected-btn" disabled>Review selected</button>
+                  </span>
+                </div>
+              </div>
+            </details>
+            <button class="fbar-reset" id="color-toggle">Colors: On</button>
+            <div class="cal-view-toggle">
+              <button class="cal-view-btn hidden" id="cal-changes-btn" type="button" aria-haspopup="dialog">Changes</button>
+              <button class="cal-view-btn" id="cal-day-btn">Day</button>
+              <button class="cal-view-btn active" id="cal-week-btn">Week</button>
+              <button class="cal-view-btn" id="cal-month-btn">Month</button>
+              <button class="cal-view-btn" id="cal-list-btn">List</button>
+            </div>
+          </div>
+        </div>
+        <div class="cal-card" id="cal-card">
+          <div id="calendar-body"></div>
+          <div id="working-activities-lane" aria-live="polite"></div>
+        </div>
+        <div class="compact-export-bar" id="compact-export-bar">
+          <span class="compact-export-label" id="ui-export-title">Export</span>
+          <button class="export-btn" id="export-csv">CSV</button>
+          <button class="export-btn" id="export-calendar">Calendar (.ics)</button>
+          <button class="export-btn hidden" id="outlook-invite-btn">Outlook Invite Package</button>
+          <button class="export-btn" id="reset-test-data">Reload</button>
+          <button class="export-btn hidden" id="publish-firestore-schedule">Initialize Live Schedule</button>
+          <span class="compact-export-note">Uses the current filters.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+<div class="bottom-bar">
+    <div class="bottom-bar-spacer"></div>
+    <div class="bottom-bar-center">
+      <span class="conn-status"><span class="conn-dot" id="conn-dot"></span><span id="conn-text">Initializing Firebase Auth + Roles...</span></span>
+      <button class="admin-login-btn" id="account-toggle">Sign in</button>
+    </div>
+    <div class="bottom-bar-right">
+      <button class="btn-icon" id="dark-toggle" title="Toggle dark mode">Moon</button>
+    </div>
+  </div>
+
+  <section class="afc-timetable-panel" id="afc-panel" role="dialog" aria-modal="true" aria-labelledby="afc-panel-title" aria-hidden="true" hidden>
+    <div class="afc-timetable-shell">
+      <header class="afc-timetable-header">
+        <div><span class="afc-timetable-eyebrow">Faculty workflow</span><h2 id="afc-panel-title">AFC Request</h2></div>
+        <button id="afc-panel-close" type="button" aria-label="Close AFC panel">×</button>
+      </header>
+      <div class="afc-timetable-content" id="afc-panel-content"></div>
+    </div>
+  </section>
+
+  <div class="modal-container" id="modal"></div>
+  <section class="ccc-schedule-overlay" id="ccc-schedule-overlay" role="dialog" aria-modal="true" aria-labelledby="ccc-schedule-heading" aria-hidden="true" hidden><div class="ccc-schedule-shell"><header class="ccc-schedule-header"><div><h2 id="ccc-schedule-heading">CCC Schedule</h2><p>Community Care Clinic · Current scheduled faculty</p></div><button type="button" id="ccc-schedule-close" aria-label="Close CCC schedule">×</button></header><div class="ccc-schedule-controls"><label>Academic year <select id="ccc-schedule-year"></select></label><label>Search <input id="ccc-schedule-search" type="search" placeholder="Faculty, block, date" /></label><button id="ccc-schedule-refresh" type="button">Refresh</button></div><p class="ccc-schedule-status" id="ccc-schedule-status" role="status" aria-live="polite"></p><div class="ccc-schedule-body" id="ccc-schedule-body"></div></div></section>
+  <section class="leadership-directory-overlay" id="leadership-directory-overlay" aria-hidden="true" hidden><div class="leadership-directory-shell" role="dialog" aria-modal="true" aria-labelledby="leadership-directory-heading" aria-describedby="leadership-directory-subtitle"><header class="leadership-directory-header"><div><h2 id="leadership-directory-heading">HICC–CC List</h2><p id="leadership-directory-subtitle"></p></div><button type="button" id="leadership-directory-close" aria-label="Close list">×</button></header><div class="leadership-directory-controls"><label><input type="checkbox" id="leadership-directory-show-all"> Show inactive / upcoming</label><button type="button" id="leadership-directory-refresh">Refresh</button></div><p class="leadership-directory-status" id="leadership-directory-status" role="status" aria-live="polite"></p><div class="leadership-directory-body" id="leadership-directory-body"></div></div></section>
+  <div class="toast" id="toast"></div>
+  <div id="runtime-error" style="display:none;position:fixed;left:12px;right:12px;bottom:56px;z-index:99999;background:#8b0000;color:white;padding:12px 16px;border-radius:8px;font:14px/1.4 Arial,sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.28)"></div>
+  <script>
+    window.addEventListener('error', function (event) {
+      var box = document.getElementById('runtime-error');
+      if (!box) return;
+      box.style.display = 'block';
+      box.textContent = 'JavaScript error: ' + (event.message || 'Unknown error') + (event.lineno ? ' (line ' + event.lineno + ')' : '');
+    });
+  </script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="paws-api-origin.js"></script><script src="paws-data-client.js"></script><script src="developer-support.js"></script><script src="paws-auth-continuity.js"></script><script src="paws-login-performance.js"></script><script src="session-guard.js"></script><script src="faculty-doe.js"></script><script src="scheduling-core.js"></script><script src="data-index.js"></script><script src="audit-details.js"></script><script src="approval-scheduling.js"></script><script src="faculty-access.js"></script><script src="maintenance-state.js"></script><script src="asset-loader.js"></script><script src="signature-capture.js"></script><script src="afc-form-state.js"></script><script src="information-center.js"></script><script src="availability-lookup.js"></script><script src="timetable-selection.js"></script>
+  <script src="faculty-name.js"></script>
+    <script src="adfa-swap-panel.js"></script>
+    <script src="swap-workflow-sql.js"></script>
+  <script src="workspace-tasks.js"></script>
+  <script src="lab-session-detail.js"></script><script src="calendar-activities.js"></script><script src="ccc-schedule.js"></script><script src="leadership-directory.js"></script><script src="timetable.js"></script>
+  <script src="afc-workflow-sql.js"></script>
+  <script src="afc-workflow.js"></script>
+  <script src="change-history.js"></script><script src="afc-timetable-panel.js"></script>
+</body>
+</html>

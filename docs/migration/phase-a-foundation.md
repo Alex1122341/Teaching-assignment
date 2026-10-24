@@ -142,7 +142,7 @@ Run with Node 22.22.2 from the repository root.
 
 | Suite | Result |
 |---|---|
-| `node --test server/test/*.test.js` | 981 tests: **954 pass, 23 fail, 4 skipped** |
+| `node --test server/test/*.test.js` | 984 tests: **958 pass, 22 fail, 4 skipped** |
 | `node --test tests/*.test.js` (pre-existing repository suite) | 1045 tests: **932 pass, 112 skipped, 1 fail** — identical to before this work |
 
 The root suite being unchanged is the evidence that the pre-existing Firestore
@@ -156,7 +156,7 @@ The single root-suite failure is **pre-existing and environmental**:
 `& node $builder`; in this environment `node` is not resolvable from the spawned
 shell. Reproduced on a clean tree with these changes stashed.
 
-### The 23 server failures, by cause
+### The 22 server failures, by cause
 
 | Cause | Count | Detail |
 |---|---|---|
@@ -170,13 +170,43 @@ exception in §4.1, which is stated inline in the test itself.
 
 ---
 
-## 6. Not ported
+## 6. Frontend: source ported, publication not switched
 
-| Area | Size | Why |
-|---|---|---|
-| `frontend/` → browser application | 88 files, ~11,460 lines | Replacing `web/` wholesale would destroy the existing Firestore UI, which the migration brief requires preserving until each module is replaced and verified. This is the remaining major chunk and needs an explicit decision on page-by-page replacement versus wholesale swap. |
-| `firestore.rules` / `firestore.indexes.json` | — | Beta's rules are a reduced set. `AGENTS.md` forbids replacing this repository's richer rules with them. |
-| Beta connection-string credential modes | — | See §3. |
+`frontend/` is ported in full: 5 pages, 88 files, ~11,460 lines, plus Beta's
+asset manifest at `tools/static-assets.paws.json`.
+
+Consistency was verified in both directions:
+
+- Every one of the **117** local `src`/`href` references across the 5 pages
+  resolves to a file on disk **and** is listed in the manifest.
+- All **87** manifest entries exist on disk. The only file on disk that is not
+  published is `README.md`, which is correct.
+
+**What is deliberately not done: the published site still builds from `web/`.**
+Beta's `tools/build/frontend-paths.js` hardcodes `require('../static-assets.json')`
+and maps public URLs onto `frontend/<pages|scripts|styles|assets>/`. This
+repository's `tools/static-assets.json` is a different manifest with different
+consumers — `tools/build-static.js`, `npm run test:static`, and the Pages
+workflow. One path cannot serve both.
+
+Switching publication is therefore a separate, deliberate step:
+
+1. Point `tools/build/static-assets.json` (or `frontend-paths.js`) at the PAWS
+   manifest.
+2. Repoint `build-static.js` and the Pages workflow to the `frontend/` sources.
+3. Re-run browser acceptance against the PAWS app.
+4. Retire `web/` and the Firestore-era suites that assert against it.
+
+Doing that inside this change would have replaced the live UI silently. The
+pre-existing root suite — 1045 tests — is **unchanged** by adding `frontend/`,
+which is the evidence that nothing about the current published app moved.
+
+## 7. Not ported
+
+| Area | Why |
+|---|---|
+| `firestore.rules` / `firestore.indexes.json` | Beta's rules are a reduced set. `AGENTS.md` forbids replacing this repository's richer rules with them. |
+| Beta connection-string credential modes | See §3. |
 
 ---
 

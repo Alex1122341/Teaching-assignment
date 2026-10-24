@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17345f">
+  <title>Teaching Assignments · UCVM PAWS</title>
+  <link rel="stylesheet" href="teaching-assignments.css">
+  <link rel="stylesheet" href="workspace.css">
+</head>
+<body class="auth-locked">
+  <header class="masthead"><div class="masthead-inner"><div><strong>UNIVERSITY OF CALGARY</strong><span>Faculty of Veterinary Medicine</span></div><span class="product-name">Teaching Assignment Workflow</span></div></header>
+  <section class="auth-gate" id="auth-gate" aria-live="polite"><div class="gate-card"><strong>UCVM · PAWS</strong><h1>Teaching Assignments</h1><p id="gate-copy">Restoring your sign-in and checking access…</p><a class="button" href="index.html">Return to timetable</a></div></section>
+  <header class="topbar"><a href="index.html" class="brand"><span class="brand-mark">UCVM</span><span><strong>Teaching Assignments</strong><small>Beta · VetMed-Ops workflow</small></span></a><div class="top-actions"><span id="identity-chip" class="identity-chip"></span><a class="button" href="faculty-admin.html">Faculty Dashboard</a><a class="button" href="index.html">Timetable</a></div></header>
+  <main class="page-shell hidden" id="app">
+    <section class="intro"><div><p class="eyebrow">PAWS · ACADEMIC YEAR WORKFLOW</p><h1>Teaching assignment work queue</h1><p>See the next action, review history, final assignments, and what faculty can currently see.</p></div><div class="year-control"><label for="academic-year">Academic year</label><input id="academic-year" inputmode="numeric" value="2026-27" maxlength="7"><button id="reload-button" class="button button-primary">Refresh</button></div></section>
+    <div class="capability-strip" id="capability-strip" role="status">Checking workflow access…</div>
+    <nav class="view-tabs" aria-label="Teaching assignment views">
+      <button class="view-tab active" data-view="queue">Work queue</button>
+      <button class="view-tab contributor-only hidden" data-view="contributions" id="contribution-tab">Suggest contributions</button>
+      <button class="view-tab" data-view="published">Published for faculty</button>
+      <button class="view-tab admin-only hidden" data-view="releases">Release history</button>
+      <button class="view-tab admin-only hidden" data-view="publish">Prepare publication</button>
+    </nav>
+    <div class="content-grid" id="queue-view">
+      <section class="panel queue-panel"><div class="panel-heading"><div><h2>Packages</h2><p id="queue-caption">Your server-authorized scope</p></div><label class="filter-control">Show<select id="queue-filter"><option value="all">All actions</option><option value="hicc">Waiting for HICC</option><option value="visc">Waiting for VISC</option><option value="final">Ready for final submit</option><option value="adfad">ADFAD review</option><option value="published">Published</option></select></label></div><div id="queue-list" class="queue-list"><p class="empty">Loading work queue…</p></div></section>
+      <section class="panel detail-panel" id="detail-panel"><div class="empty detail-empty"><span class="empty-icon">↗</span><h2>Select a package</h2><p>The detail view separates the working proposal, VISC review, ADFAD final assignment, and published release.</p></div></section>
+    </div>
+    <section class="panel standalone-view hidden" id="contributions-view"><div class="panel-heading"><div><h2>Suggest a faculty contribution</h2><p>Suggestions are attributed to your SQL office profile and are not assignments.</p></div></div><div id="contribution-targets" class="contribution-targets"><p class="empty">Loading eligible open packages…</p></div></section>
+    <section class="panel standalone-view hidden" id="published-view"><div class="panel-heading"><div><h2>Published assignments</h2><p>This view is an immutable snapshot from the current explicit release.</p></div></div><div id="published-content" class="panel-content"><p class="empty">Loading published release…</p></div></section>
+    <section class="panel standalone-view hidden" id="releases-view"><div class="panel-heading"><div><h2>Release history</h2><p>Earlier releases remain available as historical snapshots.</p></div></div><div id="release-history" class="panel-content"><p class="empty">Loading release history…</p></div></section>
+    <section class="panel standalone-view hidden" id="publish-view"><div class="panel-heading"><div><h2>Prepare publication</h2><p>Publishing snapshots all finalized packages for this academic year. A new release is required for any later changes.</p></div></div><div class="publish-form"><label>Publication note <textarea id="publication-note" maxlength="2000" rows="3" placeholder="Optional context for this release"></textarea></label><button id="publish-button" class="button button-primary" disabled>Publish finalized assignments</button><p id="publish-status" class="form-status" role="status"></p></div></section>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="session-guard.js"></script><script src="paws-api-origin.js"></script><script src="paws-data-client.js"></script><script src="developer-support.js"></script><script src="paws-auth-continuity.js"></script><script src="faculty-name.js"></script><script src="teaching-assignments.js"></script>
+</body>
+</html>
