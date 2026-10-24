@@ -100,18 +100,28 @@ Beta's own `server/test/role-policy.test.js` asserts that `other_office` is
 unsupported. That assertion was **rewritten, with the reason stated inline in the
 test**, rather than left failing or silently deleted.
 
-### 4.2 Alias roles were unreachable in the Beta source
+### 4.2 Alias roles: administrators collapse, display aliases fail closed
 
 Beta maps `owner -> adfa_general`, `administrator -> adfa_regular`,
 `admin -> adfa_regular`, but then checks membership in `SUPPORTED_ROLES`, which
 does not contain the alias spellings. In Beta this is masked because
 `ADMINISTRATOR_ROLES` happens to list `owner`, `administrator` and `admin`
-literally. `editor` and `viewer` are mapped by this repository's shared frontend
-helper and appear **nowhere** in Beta's table, so they were unreachable.
+literally, so the check passes for them.
 
-`ALIAS_ROLES` is derived from `Object.keys(NORMALIZED_ROLE)` so aliases are
-recognised before normalisation. A legacy `editor` account collapses onto
-`faculty` instead of losing its role.
+`ALIAS_ROLES` is derived from `Object.keys(NORMALIZED_ROLE)` so those three
+spellings are recognised before normalisation.
+
+**`editor` and `viewer` are deliberately not mapped on the server**, even though
+`web/js/core/faculty-access.js` collapses them onto `faculty` for display.
+An earlier revision of this port did map them, and CI caught the consequence:
+`viewer` then passed the Dashboard route guards and reached self-service scope
+that SQL never issues, because `sql-user-repository.js` cannot provision either
+role. A display alias must not become an authorization grant. The browser helper
+may keep its own mapping; the server fails closed on both.
+
+This is the one place where CI changed the design rather than merely confirming
+it, and the reason is recorded in `role-policy.js` and in
+`server/test/role-policy.test.js`.
 
 ### 4.3 Token verification lives in a second module
 
@@ -132,7 +142,7 @@ Run with Node 22.22.2 from the repository root.
 
 | Suite | Result |
 |---|---|
-| `node --test server/test/*.test.js` | 981 tests: **946 pass, 31 fail, 4 skipped** |
+| `node --test server/test/*.test.js` | 981 tests: **953 pass, 24 fail, 4 skipped** |
 | `node --test tests/*.test.js` (pre-existing repository suite) | 1045 tests: **932 pass, 112 skipped, 1 fail** — identical to before this work |
 
 The root suite being unchanged is the evidence that the pre-existing Firestore
@@ -146,14 +156,14 @@ The single root-suite failure is **pre-existing and environmental**:
 `& node $builder`; in this environment `node` is not resolvable from the spawned
 shell. Reproduced on a clean tree with these changes stashed.
 
-### The 31 server failures, by cause
+### The 24 server failures, by cause
 
 | Cause | Count | Detail |
 |---|---|---|
-| Needs a live SQL Server | ~20 | Migration acceptance, schema, and permission-grant assertions (`ccc-schedule-sql-acceptance`, `ccc-master-slots`, `scheduling-task-schema`, `faculty-admin-migration`, `p3b1/p3b2/p3b4-*`, `calendar-activity-runtime`, `calendar-activity-rollback`) |
-| Needs the browser layer | 1 | `p2-teaching-assignment-ui-assets` reads `frontend/scripts/` |
+| Needs a live SQL Server | ~13 | Migration acceptance, schema, and permission-grant assertions (`ccc-schedule-sql-acceptance`, `ccc-schedule-read`, `faculty-admin-migration`, `p3b4-afc-artifact-migration`, `calendar-activity-runtime`, `calendar-activity-rollback`) |
 | Server-Timing not wired | 5 | `sql-server-timing`, `me-server-timing` — the header is emitted by Beta's `university-http-server.js` entry, which this repository does not yet use |
-| Other assertion mismatches | ~5 | `dashboard-api`, `trainee-api`, `adfa-swap-preview`, `calendar-import-timeout`, `calendar-activity-recovery-tools` |
+| Needs the browser layer | 2 | `p2-teaching-assignment-ui-assets` and `ccc-master-slots` read `frontend/scripts/` |
+| Shell/OS-dependent | ~4 | `scheduling-task-schema`, `calendar-activity-recovery-tools` invoke a shell and assert on its exact refusal text; behaviour differs between this Windows host and the Linux runner |
 
 **No failure was silenced by editing an assertion**, with the single documented
 exception in §4.1, which is stated inline in the test itself.

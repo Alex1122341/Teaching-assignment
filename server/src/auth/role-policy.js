@@ -20,15 +20,17 @@
 //   classified as an office role, matching `faculty-access.js`, which treats
 //   `other_office` alongside `adc` and `lab`.
 //
-//   `editor` and `viewer` are legacy compatibility roles that collapse onto
-//   `faculty`, as they already do in `faculty-access.js`.
+//   `editor` and `viewer` are deliberately NOT mapped here, even though
+//   `faculty-access.js` collapses them onto `faculty` for display. On the server
+//   that collapse would grant a legacy label the full self-service scope —
+//   Dashboard tabs, own-record reads — that SQL never actually issues, because
+//   `sql-user-repository.js` cannot provision either role. A display alias must
+//   not become an authorization grant, so unknown server-side roles fail closed.
 
 const NORMALIZED_ROLE = Object.freeze({
   owner: 'adfa_general',
   administrator: 'adfa_regular',
-  admin: 'adfa_regular',
-  editor: 'faculty',
-  viewer: 'faculty'
+  admin: 'adfa_regular'
 });
 
 const SELF_SERVICE_ROLES = new Set(['faculty', 'hicc', 'visc']);

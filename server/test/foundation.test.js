@@ -40,9 +40,12 @@ test('an omitted academic year defaults, an explicit invalid one never silently 
 
 test('role policy recognises every role this repository issues',()=>{
   // Sourced from server/src/data/sql-user-repository.js and AGENTS.md.
-  for(const role of ['developer','owner','administrator','adfa_general','adfa_regular','adc','lab','other_office','hicc','visc','faculty','admin','editor','viewer']){
+  for(const role of ['developer','owner','administrator','adfa_general','adfa_regular','adc','lab','other_office','hicc','visc','faculty','admin']){
     assert.equal(roles.isSupportedRole(role),true,`${role} must be recognised`);
   }
+  // Frontend display aliases are not server-side roles: SQL cannot issue them.
+  assert.equal(roles.isSupportedRole('editor'),false);
+  assert.equal(roles.isSupportedRole('viewer'),false);
   assert.equal(roles.isSupportedRole('student'),false);
   assert.equal(roles.isSupportedRole(''),false);
   assert.equal(roles.isSupportedRole(null),false);
@@ -58,17 +61,20 @@ test('other_office keeps its identity but holds no administrator or self-service
   assert.equal(roles.isSelfServiceRole('other_office'),false);
 });
 
-test('legacy role aliases collapse exactly as the shared frontend helper collapses them',()=>{
+test('legacy administrator aliases collapse, and display-only aliases fail closed',()=>{
   assert.equal(roles.normalizeBaseRole('owner'),'adfa_general');
   assert.equal(roles.normalizeBaseRole('administrator'),'adfa_regular');
   assert.equal(roles.normalizeBaseRole('admin'),'adfa_regular');
-  assert.equal(roles.normalizeBaseRole('editor'),'faculty');
-  assert.equal(roles.normalizeBaseRole('viewer'),'faculty');
   assert.equal(roles.isAdministratorRole('owner'),true);
   assert.equal(roles.isAdministratorRole('administrator'),true);
   assert.equal(roles.isGeneralRole('owner'),true);
   assert.equal(roles.isGeneralRole('administrator'),false);
-  assert.equal(roles.isSelfServiceRole('editor'),true);
+  // `editor`/`viewer` are collapsed onto `faculty` by the browser helper for
+  // display only. Mapping them here would grant self-service scope that SQL
+  // never issues, so the server refuses to recognise them at all.
+  assert.equal(roles.normalizeBaseRole('editor'),null);
+  assert.equal(roles.normalizeBaseRole('viewer'),null);
+  assert.equal(roles.isSelfServiceRole('editor'),false);
 });
 
 // ---------------------------------------------------------------------------
