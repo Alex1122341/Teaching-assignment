@@ -10,47 +10,21 @@ test('health endpoint does not require authentication',async()=>{
   assert.deepEqual(response.json(),{ok:true,service:'ucvm-doe-api'});
 });
 
-test('DOE endpoints reject missing bearer token',async()=>{
-  const app=createApp({authProvider:{verify:async()=>null},services:{}});
-  const response=await app.inject({method:'POST',url:'/api/doe/calculate',payload:{}});
-  assert.equal(response.statusCode,401);
-  assert.equal(response.json().code,'AUTH_REQUIRED');
-});
-
-
-test('faculty worksheet route passes academic year query to worksheet service',async()=>{
-  const calls=[];
-  const app=createApp({
-    authProvider:{verify:async()=>({uid:'u1',role:'adfa_regular'})},
-    services:{
-      calculationService:{calculateAssignment:async()=>({})},
-      worksheetService:{
-        async buildFacultyWorksheet(input){calls.push(input);return{facultyId:input.facultyId,academicYear:input.academicYear,status:'calculated'}},
-        async listFacultyDoe(){return[]}
-      }
-    }
-  });
-  const response=await app.inject({method:'GET',url:'/api/doe/faculty/f1/worksheet?academicYear=2027-28',headers:{authorization:'Bearer token'}});
-  assert.equal(response.statusCode,200);
-  assert.deepEqual(calls,[{facultyId:'f1',academicYear:'2027-28'}]);
-});
-
-test('DOE list route uses the same worksheet service contract',async()=>{
-  const calls=[];
-  const app=createApp({
-    authProvider:{verify:async()=>({uid:'u1',role:'adfa_regular'})},
-    services:{
-      calculationService:{calculateAssignment:async()=>({})},
-      worksheetService:{
-        async buildFacultyWorksheet(){return{}},
-        async listFacultyDoe(input){calls.push(input);return[{facultyId:'f1',assignedTeachingDoe:12}]}
-      }
-    }
-  });
-  const response=await app.inject({method:'GET',url:'/api/doe/list?academicYear=2027-28',headers:{authorization:'Bearer token'}});
-  assert.equal(response.statusCode,200);
-  assert.equal(response.json()[0].assignedTeachingDoe,12);
-  assert.deepEqual(calls,[{academicYear:'2027-28'}]);
+// The Firestore-era `/api/doe/*` surface was retired together with the old DOE
+// engine; DOE is served by the ported SQL runtime under `/api/v1/doe/*`. These
+// assertions replace the former per-route DOE tests so that a silent
+// reintroduction of the retired surface is still caught.
+test('the retired Firestore DOE surface is no longer served',async()=>{
+  const app=createApp({authProvider:{verify:async()=>({uid:'u1',role:'adfa_regular'})},services:{}});
+  for(const [method,url] of [
+    ['POST','/api/doe/calculate'],
+    ['GET','/api/doe/faculty/f1/worksheet?academicYear=2027-28'],
+    ['GET','/api/doe/list?academicYear=2027-28']
+  ]){
+    const response=await app.inject({method,url,headers:{authorization:'Bearer token'},payload:method==='POST'?{}:undefined});
+    assert.equal(response.statusCode,404,`${method} ${url}`);
+    assert.equal(response.json().code,'NOT_FOUND');
+  }
 });
 
 test('DOE API CORS permits configured frontend origin and preflight without authentication',async()=>{

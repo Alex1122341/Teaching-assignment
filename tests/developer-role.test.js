@@ -18,15 +18,20 @@ test('Developer is supported by account setup and synthetic demo identity',()=>{
  assert.match(read('tools/bootstrap-lab-user.js'),/ROLES=new Set\(\['developer'/);
 });
 
-test('Developer is recognized by Firestore and authoritative DOE boundaries',()=>{
+test('Developer is recognized by Firestore and the authoritative SQL role policy',()=>{
  const rules=read('firebase/firestore.rules');
  assert.match(rules,/p\.role in \['developer','owner'/);
  assert.match(rules,/function general\(\).*\['developer','owner','adfa_general'\]/);
  assert.match(rules,/function doeAdmin\(\).*\['developer','owner'/);
  assert.match(rules,/resource\.data\.role == 'developer'.*request\.resource\.data\.role == 'developer'/);
- for(const file of ['server/src/doe/calculation-service.js','server/src/doe/policy-admin-service.js','server/src/doe/rulebook-service.js','server/src/doe/target-service.js','server/src/routes/doe-routes.js']){
-  assert.match(read(file),/new Set\(\['developer','owner'/,file);
- }
+ // The retired Firestore DOE services each carried their own hardcoded
+ // `new Set(['developer','owner',...])`. The ported SQL stack authorises through
+ // one shared policy module instead, so the assertion moves to that module.
+ const policy=require('../server/src/auth/role-policy.js');
+ assert.equal(policy.isAdministratorRole('developer'),true);
+ assert.equal(policy.isGeneralRole('developer'),true);
+ assert.equal(policy.isSelfServiceRole('developer'),false);
+ assert.equal(policy.isSupportedRole('developer'),true);
 });
 
 

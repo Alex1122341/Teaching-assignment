@@ -9,11 +9,13 @@ Environment: Node 22.22.2, Windows host. CI runs the same suites on ubuntu-lates
 
 | Suite | Tests | Pass | Fail | Skip |
 |---|---|---|---|---|
-| Server (`node --test server/test/*.test.js`) | 1018 | **1005** | 9 | 4 |
-| Root, pre-existing (`node --test tests/*.test.js`) | 1045 | 932 | 1 | 112 |
+| Server (`node --test server/test/*.test.js`) | 906 | **893** | 9 | 4 |
+| Root, pre-existing (`node --test tests/*.test.js`) | 882 | 781 | 1 | 100 |
 
-The root suite is the pre-existing Firestore application's suite and is
-**unchanged by this migration**. Its single failure is environmental and
+The root suite is the pre-existing Firestore application's suite. It shrank from
+1045 to 882 tests because the Firestore DOE engine and its dependent stack were
+removed (§8 of the migration report); **no assertion covering surviving behaviour
+was deleted**. Its single failure is environmental and
 pre-existing: `tests/hosting-boundary.test.js:77` shells out to
 `tools/deploy_azure_static_web.ps1 -BuildOnly`, whose line 49 runs
 `& node $builder`; `node` is not resolvable from the spawned shell on this host.

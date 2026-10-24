@@ -168,12 +168,46 @@ and cannot pass until that switch happens.
 
 ---
 
-## 8. Known debt
+## 8. DOE engine convergence — old engine removed
 
-**Two DOE engines now coexist**: this repository's `shared/doe-policy/` and
-Beta's `server/src/domain/`. They must be converged onto one, deliberately, with
-the calculation policy reviewed rather than silently swapped. Until then, do not
-wire both into one runtime.
+The repository briefly carried **two** DOE engines. That duplication is resolved:
+the ported engine in `server/src/domain/` is the only one, and the Firestore-era
+engine under `shared/doe-policy/` was removed together with everything that
+existed only to serve it.
+
+Removed:
+
+| Path | Reason |
+|---|---|
+| `shared/doe-policy/` (5 files) | The old engine: formula, policy engine, Firestore repository, service |
+| `server/src/doe/` — 9 legacy files | `calculation-service`, `firestore-repository`, `legacy-policy-runtime`, `policy-admin-service`, `reserve-service`, `rulebook-service`, `target-service`, `workflow-preview-service`, `worksheet-service` |
+| `server/src/routes/doe-routes.js` | The Firestore-era `/api/doe/*` surface |
+| `tools/run-doe-admin-job.js`, `tools/plan-doe-assignment-migration.js` | Operated only on the old engine |
+| `.github/workflows/firebase-doe-admin.yml` | Dispatched the removed admin job |
+| 15 server tests, 16 root tests | Covered only the removed modules |
+
+Retained: `server/src/doe/doe-*.js` and `manual-doe-service.js` — the ported SQL
+services — plus the browser-side `web/js/doe/` implementation, which is a
+separate client concern.
+
+Consequences, stated plainly:
+
+- **`/api/doe/*` no longer exists.** DOE is served by the ported runtime under
+  `/api/v1/doe/*`. Two tests now assert the retired surface returns 404, so a
+  silent reintroduction is caught.
+- `server/src/server.js` keeps only authentication and the SQL session read path.
+  `createProductionServices` no longer exposes the DOE services, and
+  `server-wiring.test.js` asserts that rather than the opposite.
+- Role checks are no longer duplicated per service. The retired services each
+  carried a hardcoded `new Set(['developer','owner',...])`; the ported stack
+  authorises through the single `server/src/auth/role-policy.js`.
+- The root suite shrank from 1045 to 882 tests and the server suite from 1018 to
+  906. **That reduction is the removed functionality's test coverage, not lost
+  coverage of surviving code** — no assertion covering live behaviour was deleted.
+  `developer-role.test.js` was rewritten rather than dropped: its Firestore-rule
+  assertions survive and its per-file role-set loop moved to the shared policy.
+
+## 9. Known debt
 
 **`provision()`** in `sql-user-repository.js` remains a read-then-insert; two
 concurrent first sign-ins can both pass the "email already linked" check. The

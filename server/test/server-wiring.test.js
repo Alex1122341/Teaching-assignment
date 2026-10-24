@@ -5,24 +5,31 @@ const {createProductionServices,createProductionDependencies}=require('../src/se
 
 function fakeDb(){return{collection(){return{where(){return{get:async()=>({docs:[]})}},doc(){return{get:async()=>({exists:false}),set:async()=>{}}}}}}}
 
-test('production wiring exposes calculation and annual rulebook services',()=>{
+// The legacy Firestore DOE services were retired with the old engine. DOE is now
+// composed by the ported SQL runtime (server/src/runtime/swa-sql-runtime.js), so
+// this wiring must expose only the SQL read path. These assertions replace the
+// former "exposes calculation/rulebook/policy services" checks so that a silent
+// reintroduction of the retired wiring is still caught.
+test('production wiring no longer exposes the retired Firestore DOE services',()=>{
   const services=createProductionServices({firestore:fakeDb()});
-  assert.equal(typeof services.calculationService.calculateAssignment,'function');
-  assert.equal(typeof services.rulebookService.copyAcademicYear,'function');
-  assert.equal(typeof services.rulebookService.validateAnnualReview,'function');
-  assert.equal(typeof services.worksheetService.buildFacultyWorksheet,'function');
-  assert.equal(typeof services.worksheetService.listFacultyDoe,'function');
-  assert.equal(typeof services.workflowPreviewService.previewSessionChange,'function');
-  assert.equal(typeof services.workflowPreviewService.previewFacultyTransfer,'function');
+  for(const name of ['calculationService','rulebookService','worksheetService','workflowPreviewService','policyAdminService','targetService']){
+    assert.equal(services[name],undefined,`${name} must not be wired`);
+  }
+  assert.equal(Object.hasOwn(services,'sessionReadService'),true);
 });
 
-test('production wiring exposes server-side DOE policy administration service',()=>{
-  const services=createProductionServices({firestore:fakeDb()});
-  assert.equal(typeof services.policyAdminService.validateDraft,'function');
-  assert.equal(typeof services.policyAdminService.testRule,'function');
-  assert.equal(typeof services.policyAdminService.runImpactPreview,'function');
-  assert.equal(typeof services.policyAdminService.publish,'function');
-  assert.equal(typeof services.policyAdminService.previewRecalculate,'function');
+test('the ported SQL runtime is the DOE composition root',()=>{
+  const {createSwaSqlRuntime}=require('../src/runtime/swa-sql-runtime.js');
+  assert.equal(typeof createSwaSqlRuntime,'function');
+  // Composing with no database must not throw: DOE is simply unavailable until a
+  // database exists, and that is reported per request.
+  const runtime=createSwaSqlRuntime({
+    env:{FIREBASE_PROJECT_ID:'demo-project'},
+    admin:{initializeApp(){return{}},credential:{cert(){return{}}},auth(){return{verifyIdToken:async()=>({})}}},
+    sqlModule:{ConnectionPool:class{async connect(){return this}request(){return{input(){return this},async query(){return{recordset:[]}}}}async close(){}}}
+  });
+  assert.equal(typeof runtime,'function');
+  assert.equal(typeof runtime.close,'function');
 });
 
 
