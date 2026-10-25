@@ -26,8 +26,13 @@ const ROUTE_CAPABILITIES = Object.freeze([
   [/^\/api\/v1\/dashboard\/faculty\/[^/]+\/(restore|deactivate)$/, CAPABILITY.ADMIN],
   [/^\/api\/v1\/dashboard\/faculty\/[^/]+$/, CAPABILITY.SELF_OR_ADMIN],
   [/^\/api\/v1\/dashboard\/faculty-admin\//, CAPABILITY.ADMIN],
-  [/^\/api\/v1\/dashboard\/afc-records\//, CAPABILITY.ADMIN],
-  [/^\/api\/v1\/dashboard\//, CAPABILITY.SELF_OR_ADMIN],
+  [/^\/api\/v1\/dashboard\/afc-records(\/|$)/, CAPABILITY.ADMIN],
+  // Administrative Dashboard tabs. A self-service role must be refused here even
+  // when the operation is unbuilt, so the answer describes authority, not build state.
+  [/^\/api\/v1\/dashboard\/(doe-overview|doe-targets)(\/|$)/, CAPABILITY.ADMIN],
+  [/^\/api\/v1\/dashboard\/faculty(\/|$)/, CAPABILITY.SELF_OR_ADMIN],
+  [/^\/api\/v1\/dashboard\/(summary|teaching-summary|roles)(\/|$)/, CAPABILITY.SELF_OR_ADMIN],
+  [/^\/api\/v1\/dashboard\//, CAPABILITY.ADMIN],
   [/^\/api\/v1\/doe\//, CAPABILITY.ADMIN],
   [/^\/api\/v1\/calendar-activities(\/|$)/, CAPABILITY.ADMIN],
   [/^\/api\/v1\/calendar-activity-imports(\/|$)/, CAPABILITY.ADMIN],

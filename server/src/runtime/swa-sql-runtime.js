@@ -4,7 +4,8 @@ const { createSqlConnection, resolveSqlDriver, parseBooleanFlag } = require('../
 const { appServiceManagedIdentityTokenWithExpiry } = require('../data/sql-identity');
 const { createSqlUserRepository } = require('../data/sql-user-repository');
 const { createSqlSessionRepository } = require('../data/sql-session-repository');
-const { resolveDataBackend, unimplementedRepository, mergeRepositories, FIRESTORE_REPOSITORIES } = require('../data/backend-provider');
+const { resolveDataBackend, unimplementedRepository, mergeRepositories, FIRESTORE_REPOSITORIES, isImplementedOperation, isPartiallyImplemented } = require('../data/backend-provider');
+const { createFirestoreDashboardRepository } = require('../data/firestore/firestore-dashboard-repository');
 const { backendFailure } = require('../http/backend-error');
 const { authorizeRoute } = require('../auth/route-authorization');
 const { createFirestoreSessionRepository } = require('../data/firestore/firestore-session-repository');
@@ -170,7 +171,12 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   const sessions = dataBackend === 'firestore'
     ? (firestoreReady ? createFirestoreSessionRepository(firestore) : unimplementedRepository('sessions'))
     : createSqlSessionRepository(db);
-  const dashboard = { ...(firestoreMode ? unimplementedRepository('dashboard') : createSqlDashboardRepository(db)), ...(firestoreMode ? unimplementedRepository('doeTarget') : createSqlDoeTargetRepository(db)) };
+  // The Dashboard is partially implemented under Firestore: the Faculty read path
+  // works, everything else in it refuses. The operation-level gate above decides
+  // which routes may reach it.
+  const dashboard = firestoreMode
+    ? (firestoreReady ? createFirestoreDashboardRepository(firestore) : unimplementedRepository('dashboard'))
+    : { ...createSqlDashboardRepository(db), ...createSqlDoeTargetRepository(db) };
   const afcWrite = (firestoreMode ? unimplementedRepository('afcWrite') : createSqlAfcWriteRepository(db));
   const facultyAdminWrite = (firestoreMode ? unimplementedRepository('facultyAdmin') : createSqlFacultyAdminRepository(db));
   const writeGates = createWriteGates(env);
@@ -315,7 +321,7 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     // domain can claim to be unimplemented, so "not built" never masks "not
     // configured". The domain map below decides from configuration, not from a
     // response status, so a genuine Firestore outage keeps its own code.
-    const unsupported = await unsupportedDomainFor(pathname);
+    const unsupported = await unsupportedDomainFor(pathname, request.method);
     if (unsupported) {
       // The gate must not become a way to probe the system anonymously, and it must
       // not outrank authorization. Identity is established in the same order the
@@ -404,10 +410,17 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     return null;
   }
 
-  async function unsupportedDomainFor(pathname) {
+  async function unsupportedDomainFor(pathname, method) {
     if (!firestoreMode) return null;
+    // A working operation inside an unfinished domain stays available.
+    if (isImplementedOperation(method, pathname)) return null;
     for (const [pattern, domain] of DOMAIN_BY_PATH) {
       if (pattern.test(pathname)) {
+        // A partially built domain has a real repository but only some working
+        // operations, so the repository existing is not enough to let it through.
+        if (isPartiallyImplemented(domain)) {
+          return isImplementedOperation(method, pathname) ? null : domain;
+        }
         if (firestoreImplemented.has(domain)) return null;
         return domain;
       }

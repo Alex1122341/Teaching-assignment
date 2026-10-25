@@ -122,9 +122,28 @@ test('a faculty account asking for an administrator-only operation is 403, not 5
 
 test('a faculty account asking for its own scope reaches 501 on an unbuilt feature', async () => {
   const runtime = runtimeFor();
-  const response = await get(runtime, '/api/v1/dashboard/faculty', 'faculty-1');
+  // `summary` is within a faculty member's authority but has no Firestore
+  // implementation, so the answer is about the build state.
+  const response = await get(runtime, '/api/v1/dashboard/summary', 'faculty-1');
   assert.equal(response.status, 501);
   assert.equal(response.jsonBody.error.code, 'BACKEND_OPERATION_UNSUPPORTED');
+  await runtime.close();
+});
+
+test('a faculty account asking for an administrative Dashboard tab is 403, not 501', async () => {
+  const runtime = runtimeFor();
+  // The explicit requirement: authority is answered before build state, even
+  // though the DOE overview is also unbuilt.
+  const response = await get(runtime, '/api/v1/dashboard/doe-overview', 'faculty-1');
+  assert.equal(response.status, 403);
+  assert.equal(response.jsonBody.error.code, 'ROLE_DENIED');
+  await runtime.close();
+});
+
+test('the implemented Faculty list is reachable and does not answer 501', async () => {
+  const runtime = runtimeFor();
+  const response = await get(runtime, '/api/v1/dashboard/faculty', 'admin-1');
+  assert.notEqual(response.status, 501, 'Faculty reads are implemented');
   await runtime.close();
 });
 

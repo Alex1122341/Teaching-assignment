@@ -17,6 +17,7 @@
 
 const { createFirestoreSessionRepository, unsupported } = require('./firestore/firestore-session-repository');
 const { createFirestoreUserRepository } = require('./firestore/firestore-user-repository');
+const { createFirestoreDashboardRepository } = require('./firestore/firestore-dashboard-repository');
 
 const SUPPORTED_BACKENDS = new Set(['sql', 'firestore']);
 
@@ -50,8 +51,35 @@ function unimplementedRepository(name) {
 // absent: this list is the honest measure of how much of the backend is done.
 const FIRESTORE_REPOSITORIES = Object.freeze({
   sessions: firestore => createFirestoreSessionRepository(firestore),
-  users: firestore => createFirestoreUserRepository(firestore)
+  users: firestore => createFirestoreUserRepository(firestore),
+  dashboard: firestore => createFirestoreDashboardRepository(firestore)
 });
+
+// Operations that work even though their wider domain does not. A domain is not
+// all-or-nothing: the Dashboard has a working Faculty read path while DOE, AFC and
+// the rest of it are unbuilt. Without this, exposing one Faculty endpoint would
+// mean either exposing an entire unfinished domain or exposing nothing.
+//
+// Each entry names the HTTP method and path it covers. Everything else in a
+// partially implemented domain keeps returning 501.
+const IMPLEMENTED_OPERATIONS = Object.freeze([
+  { method: 'GET', pattern: /^\/api\/v1\/dashboard\/faculty$/, domain: 'dashboard' },
+  { method: 'GET', pattern: /^\/api\/v1\/dashboard\/faculty\/[^/]+$/, domain: 'dashboard' }
+]);
+
+// Domains that exist but are only partly built. Their repository is real, so a
+// plain "is the repository registered?" test would wrongly declare the whole
+// domain available. For these, only IMPLEMENTED_OPERATIONS may pass the gate.
+const PARTIALLY_IMPLEMENTED = new Set(['dashboard']);
+
+function isPartiallyImplemented(domain) {
+  return PARTIALLY_IMPLEMENTED.has(domain);
+}
+
+function isImplementedOperation(method, pathname) {
+  const verb = String(method || '').toUpperCase();
+  return IMPLEMENTED_OPERATIONS.some(entry => entry.method === verb && entry.pattern.test(pathname));
+}
 
 
 // Spreading a refusing proxy yields an empty object, because its target has no own
@@ -89,6 +117,10 @@ function firestoreCoverage(names) {
 
 module.exports = {
   FIRESTORE_REPOSITORIES,
+  PARTIALLY_IMPLEMENTED,
+  isPartiallyImplemented,
+  IMPLEMENTED_OPERATIONS,
+  isImplementedOperation,
   SUPPORTED_BACKENDS,
   createFirestoreRepositories,
   firestoreCoverage,

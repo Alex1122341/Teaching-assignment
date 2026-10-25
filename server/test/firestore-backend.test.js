@@ -148,12 +148,14 @@ test('an unimplemented repository refuses rather than answering "no rows"', () =
 
 test('coverage states plainly which repositories exist on Firestore', () => {
   const coverage = firestoreCoverage(['sessions', 'users', 'dashboard', 'afcWrite']);
-  assert.deepEqual(coverage.implemented, ['sessions', 'users']);
-  assert.deepEqual(coverage.unimplemented, ['dashboard', 'afcWrite']);
+  assert.deepEqual(coverage.implemented, ['sessions', 'users', 'dashboard']);
+  assert.deepEqual(coverage.unimplemented, ['afcWrite']);
   const built = createFirestoreRepositories(fakeFirestore({}), ['sessions', 'users', 'dashboard']);
   assert.equal(typeof built.sessions.list, 'function');
   assert.equal(typeof built.users.findByUid, 'function');
-  assert.throws(() => built.dashboard.list(), error => error.code === 'BACKEND_OPERATION_UNSUPPORTED');
+  // The Dashboard is partially implemented: Faculty reads work, DOE refuses.
+  assert.equal(typeof built.dashboard.faculty, 'function');
+  assert.throws(() => built.dashboard.doeOverview(), error => error.code === 'BACKEND_OPERATION_UNSUPPORTED');
 });
 
 test('a Firestore profile maps to the identity shape every guard reads', async () => {
@@ -241,7 +243,9 @@ test('under Firestore an unimplemented domain answers 501, never a false 503 or 
   // A domain whose repository has no Firestore implementation. Its API catches the
   // repository failure and would answer 503 SQL_UNAVAILABLE; the route translates
   // that to 501 so "not built" is never mistaken for "temporarily broken".
-  const response = await runtime(new Request('https://example.test/api/v1/dashboard/faculty', {
+  // A Dashboard operation that has no Firestore implementation. Faculty is now
+  // real, so the probe has to name something still unbuilt.
+  const response = await runtime(new Request('https://example.test/api/v1/dashboard/doe-overview', {
     headers: { authorization: 'Bearer token' }
   }));
   assert.equal(response.status, 501);
