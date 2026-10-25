@@ -15,21 +15,21 @@
   const SQL_SESSION_EDIT_ROLES = new Set(['developer','owner','administrator','adfa_general','adfa_regular','admin']);
 
 
-  // Firebase Web configuration is public by design. This local harness uses the
-  // separate Tester Teaching project for REAL Authentication and REAL role lookup.
-  // Firebase Authentication remains live. Timetable session reads come from the same-origin PAWS University API backed by VetMed-Ops; no bundled timetable data is shipped with this page.
-  const FIREBASE_CONFIG = {
-    apiKey: "AIzaSyDS9VE2zTXv0656_Mh0uDXB67-mZ5Y_LkY",
-    authDomain: "tester-teaching.firebaseapp.com",
-    projectId: "tester-teaching",
-    storageBucket: "tester-teaching.firebasestorage.app",
-    messagingSenderId: "566638053186",
-    appId: "1:566638053186:web:90e04b52251c4b859baadb",
-    measurementId: "G-F7HW5XX4JE"
-  };
+  // Firebase Web configuration now comes from paws-runtime-config.js, which is
+  // the single source of truth for the lab project. It previously lived here as a
+  // copy pointing at `tester-teaching`, so retargeting the lab meant editing every
+  // page and hoping none was missed.
+  const RUNTIME_CONFIG = (typeof globalThis !== 'undefined' && globalThis.PAWS_RUNTIME_CONFIG) || null;
+  if (!RUNTIME_CONFIG || !RUNTIME_CONFIG.firebase) {
+    throw Error('paws-runtime-config.js must be loaded before timetable.js');
+  }
+  const FIREBASE_CONFIG = RUNTIME_CONFIG.firebase;
   const AUTH_SETTINGS_KEY = 'ucvm_email_phone_role_settings_v6';
   const DEFAULT_AUTH_SETTINGS = {
-    allowedDomain: 'ucalgary.ca',
+    // The lab signs in synthetic identities on the reserved test domain. A
+    // `ucalgary.ca` default rejected every one of them, which is why lab sign-in
+    // never worked. Operators can still change this in the local settings panel.
+    allowedDomain: RUNTIME_CONFIG.allowedEmailDomain || '',
     allowedPhones: '',
     instructorAlias: 'Faculty 001'
   };
@@ -2032,7 +2032,7 @@
     showModal(`
       <div class="modal-header"><div class="modal-title">Sign in to UCVM Timetable</div><div class="modal-subtitle">Sign in with your authorized account to view the live timetable.</div></div>
       <div class="modal-body">
-        <div class="login-cheatsheet"><strong>Firebase project:</strong> Tester Teaching (<code>tester-teaching</code>)<br>Enable the matching provider in Firebase Authentication. Your Firebase UID must also have an active reviewed row in VetMed-Ops <code>paws.UserProfile</code>, authorized by the PAWS University API.</div>
+        <div class="login-cheatsheet"><strong>Firebase project:</strong> VISTA Teaching Lab (<code>vista-teaching-lab</code>)<br>Enable the matching provider in Firebase Authentication. Your Firebase UID must also have an active reviewed row in the PAWS lab backend, authorized by the PAWS API.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
           <button type="button" class="btn btn-primary" id="choose-email" style="padding:16px">Email + Password</button>
           <button type="button" class="btn btn-primary" id="choose-phone" style="padding:16px">Phone + SMS Code</button>
@@ -2199,7 +2199,7 @@
       <div class="modal-header"><div class="modal-title">Local Authentication Preferences</div><div class="modal-subtitle">Firebase Authentication signs users in. The PAWS University API checks the VetMed-Ops paws.UserProfile to authorize Beta access.</div></div>
       <form id="auth-setup-form"><div class="modal-body">
         <div class="login-cheatsheet">
-          <strong>Firebase test project:</strong> Tester Teaching (<code>tester-teaching</code>)<br><br>
+          <strong>Firebase test project:</strong> VISTA Teaching Lab (<code>vista-teaching-lab</code>)<br><br>
           <strong>Current Beta access path:</strong><br>
           1. Firebase Authentication verifies Email/Password or Phone identity.<br>
           2. PAWS University API authorizes the Firebase identity against the VetMed-Ops <code>paws.UserProfile</code>.<br>
