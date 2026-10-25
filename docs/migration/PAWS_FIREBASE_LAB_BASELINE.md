@@ -141,3 +141,47 @@ nothing — precisely what the brief forbids.
 | Reference-scale course data not available | Course codes and titles must be preserved where legitimate; without the source workbook, supplemental sessions can only be synthetic. |
 
 None of these was worked around by pretending a step succeeded.
+
+---
+
+## 7. Firestore backend status (commit `264a6d4`)
+
+`PAWS_DATA_BACKEND=firestore` builds every repository from Firestore. Nothing
+falls back to SQL: a domain without a Firestore implementation is a refusing
+proxy, and the route reports it as **HTTP 501 `BACKEND_OPERATION_UNSUPPORTED`**,
+not 503.
+
+### Implemented (2 of 26)
+
+| Repository | Operations |
+|---|---|
+| `sessions` | `list`, `getById` — mapped to the exact SQL row shape |
+| `users` | `findByUid` |
+
+### Returns 501 under Firestore (24)
+
+`afcApproval` `afcArtifact` `afcForm` `afcRequest` `afcWrite` `calendarActivity`
+`cccReplacement` `cccSchedule` `changeHistory` `dashboard` `doeAssignment`
+`doeEngine` `doePolicy` `doeTarget` `doeTargetOverride` `doeWorksheet`
+`facultyAdmin` `facultyAvailability` `leadershipDirectory` `manualDoe`
+`schedulingTask` `swap` `teachingAssignmentWorkflow` `trainee`
+
+### Deliberately refusing writes
+
+| Operation | Why |
+|---|---|
+| `sessions.updateExisting` / `createNew` / `createBatch` / `replaceAssignments` | The SQL versions delegate to stored procedures that own audit, revision checks and assignment history. Reporting success before that exists would be a lie. |
+| `users.provision` | The SQL path is a read-then-insert on first sign-in, which is how an unknown account acquires a role by simply signing in. Lab profiles are seeded; unknown uids get 403 `PROFILE_NOT_PROVISIONED`. |
+
+### Academic-year boundary — resolved
+
+May, not September. `019_session_create_and_assignment_api.sql:83-84` rejects a
+date outside `DATEFROMPARTS(year,5,1) .. DATEFROMPARTS(year+1,5,1)`, and both
+`053_ccc_master_slots.sql` and `master-source-domain.js` use `MONTH < 5`.
+
+### Not yet started
+
+Faculty and identity beyond `findByUid`, roles and appointments, and the
+reference-scale seed. The lab also still contains the institutional email and
+unverified faculty identifiers recorded in §3, so the faculty interfaces must not
+be published before that data is replaced.
