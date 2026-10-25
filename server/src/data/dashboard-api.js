@@ -457,13 +457,24 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
         if (!scope.administrator) return error(403,'ROLE_DENIED','This role cannot edit appointment effective periods.');
         if (writeGates.facultyAdmin !== true) return writeDisabled();
         if (!validUuid(roleAssignmentId) || !payload || !Array.isArray(payload.periods) || payload.periods.length > 12) return error(400,'INVALID_ROLE_PERIODS','Provide up to 12 effective periods.');
+        // Two real concurrency contracts, never mixed. SQL identifies a row by an
+        // eight-byte rowversion; Firestore identifies it by an integer revision.
+        // The caller supplies the one its backend understands.
+        const expectedRevision = Number.isInteger(payload.expectedRevision) ? payload.expectedRevision : null;
         const expectedVersion = canonicalRoleVersion(payload.expectedVersion);
-        if (expectedVersion === undefined) return error(400,'INVALID_ROLE_VERSION','Reload this appointment before editing.');
+        if (expectedRevision === null && expectedVersion === undefined) return error(400,'INVALID_ROLE_VERSION','Reload this appointment before editing.');
         const validDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString().slice(0,10) === v;
         const periods = payload.periods.map(p=>({startDate:p?.startDate,endDate:p?.endDate||null})).sort((a,b)=>String(a.startDate).localeCompare(String(b.startDate)));
         if (periods.some((p,i)=>!validDate(p.startDate) || (p.endDate!==null && (!validDate(p.endDate)||p.endDate<p.startDate)) || (i>0 && (!periods[i-1].endDate || periods[i-1].endDate>=p.startDate)))) return error(400,'INVALID_ROLE_PERIODS','Enter real start dates and non-overlapping periods; end dates are inclusive.');
-        try { const schedule = await writeRepository.updateRolePeriods({roleAssignmentId,expectedVersion,periods,actorFirebaseUid:decoded.uid}); return result(200,{schedule}); }
-        catch(caught) { const n=caught.number||caught.originalError?.info?.number; return n===53504?error(404,'ROLE_NOT_FOUND','Appointment not found.'):n===53509?error(409,'STALE_ROLE_PERIODS','Appointment changed. Reload before editing.'):n===53503?error(403,'ROLE_DENIED','Role edit denied.'):error(503,'ROLE_PERIOD_SAVE_FAILED','Effective periods could not be saved.'); }
+        try { const schedule = await writeRepository.updateRolePeriods({roleAssignmentId,expectedVersion,expectedRevision,periods,actorFirebaseUid:decoded.uid}); return result(200,{schedule}); }
+        catch(caught) {
+          // A typed backend error keeps its own status. Falling through to the SQL
+          // number table first would turn a Firestore 409 or 400 into a generic 503.
+          const typed = backendFailure(caught);
+          if (typed) return typed;
+          const n=caught.number||caught.originalError?.info?.number;
+          return n===53504?error(404,'ROLE_NOT_FOUND','Appointment not found.'):n===53509?error(409,'STALE_ROLE_PERIODS','Appointment changed. Reload before editing.'):n===53503?error(403,'ROLE_DENIED','Role edit denied.'):error(503,'ROLE_PERIOD_SAVE_FAILED','Effective periods could not be saved.');
+        }
       });
     },
 

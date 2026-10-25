@@ -172,3 +172,44 @@ test('an administrator reaches 501 on an unbuilt administrator operation', async
   assert.equal(response.jsonBody.error.code, 'BACKEND_OPERATION_UNSUPPORTED');
   await runtime.close();
 });
+
+test('a faculty account may read its own record but may not PATCH it', async () => {
+  const runtime = runtimeFor();
+  // The profile's faculty link is `f1`, so this is the record it may read.
+  const read = await get(runtime, '/api/v1/dashboard/faculty/f1', 'faculty-1');
+  assert.notEqual(read.status, 403, 'reading its own record is allowed');
+
+  // A body is supplied because the route wrapper parses JSON before the API runs
+  // its authorization; without one the caller would see 400 INVALID_JSON and the
+  // authorization outcome would never be exercised.
+  const patched = await runtime(new Request('https://example.test/api/v1/dashboard/faculty/f1', {
+    method: 'PATCH',
+    headers: { authorization: 'Bearer faculty-1', 'content-type': 'application/json' },
+    body: JSON.stringify({ rank: 'Professor' })
+  }));
+  assert.equal(patched.status, 403, 'editing a Faculty record is administrator-only');
+  assert.equal(patched.jsonBody.error.code, 'ROLE_DENIED');
+  await runtime.close();
+});
+
+test('the roles route is administrator-only for both read and write', async () => {
+  const runtime = runtimeFor();
+  const read = await get(runtime, '/api/v1/dashboard/roles', 'faculty-1');
+  assert.equal(read.status, 403);
+
+  const write = await runtime(new Request('https://example.test/api/v1/dashboard/roles/ra-1/periods', {
+    method: 'PUT',
+    headers: { authorization: 'Bearer faculty-1', 'content-type': 'application/json' },
+    body: JSON.stringify({ periods: [{ startDate: '2026-09-01', endDate: '2027-06-30' }], expectedRevision: 1 })
+  }));
+  assert.equal(write.status, 403);
+  assert.equal(write.jsonBody.error.code, 'ROLE_DENIED');
+  await runtime.close();
+});
+
+test('the roles route is reachable for an administrator instead of answering 501', async () => {
+  const runtime = runtimeFor();
+  const response = await get(runtime, '/api/v1/dashboard/roles', 'admin-1');
+  assert.notEqual(response.status, 501, 'role reads are implemented');
+  await runtime.close();
+});

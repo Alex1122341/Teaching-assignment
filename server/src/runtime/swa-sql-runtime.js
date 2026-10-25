@@ -237,7 +237,10 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   }) });
   const dashboardRoutes = createDashboardFunctions({
     traineeApi:createTraineeApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('trainee') : createSqlTraineeRepository(db))}),
-    api: createDashboardApi({ verifyToken: verify, findUser: users.findByUid, repository: dashboard, writeRepository: { ...afcWrite, ...facultyAdminWrite }, writeGates })
+    // Under Firestore the SQL write repositories are refusing proxies, and
+    // spreading a proxy yields an empty object — so the write surface would silently
+    // vanish. The Firestore dashboard repository is the write surface instead.
+    api: createDashboardApi({ verifyToken: verify, findUser: users.findByUid, repository: dashboard, writeRepository: firestoreMode ? dashboard : { ...afcWrite, ...facultyAdminWrite }, writeGates })
   });
   const afcRequestApi = createAfcRequestApi({
     verifyToken: verify,
@@ -405,7 +408,7 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     // Full route authorization, not just "does a profile exist". An unbuilt
     // feature must not be more reachable than a built one: a faculty account
     // asking for an administrator-only operation gets 403 here, before the 501.
-    const refusal = authorizeRoute({ profile, pathname });
+    const refusal = authorizeRoute({ profile, pathname, method: request.method });
     if (refusal) return refusal;
     return null;
   }

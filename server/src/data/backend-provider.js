@@ -64,7 +64,9 @@ const FIRESTORE_REPOSITORIES = Object.freeze({
 // partially implemented domain keeps returning 501.
 const IMPLEMENTED_OPERATIONS = Object.freeze([
   { method: 'GET', pattern: /^\/api\/v1\/dashboard\/faculty$/, domain: 'dashboard' },
-  { method: 'GET', pattern: /^\/api\/v1\/dashboard\/faculty\/[^/]+$/, domain: 'dashboard' }
+  { method: 'GET', pattern: /^\/api\/v1\/dashboard\/faculty\/[^/]+$/, domain: 'dashboard' },
+  { method: 'GET', pattern: /^\/api\/v1\/dashboard\/roles$/, domain: 'dashboard' },
+  { method: 'PUT', pattern: /^\/api\/v1\/dashboard\/roles\/[^/]+\/periods$/, domain: 'dashboard' }
 ]);
 
 // Domains that exist but are only partly built. Their repository is real, so a

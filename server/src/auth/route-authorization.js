@@ -21,10 +21,14 @@ const { isAdministratorRole, isSelfServiceRole, isSupportedRole } = require('./r
 const CAPABILITY = Object.freeze({ ANY: 'any', SELF_OR_ADMIN: 'selfOrAdmin', ADMIN: 'admin' });
 
 // Ordered: the first match wins, so narrower patterns must precede broader ones.
+// Entries may carry a `methods` set. A route that reads and writes at the same
+// path needs different capabilities per method: a faculty member may GET their own
+// record but must never PATCH it.
 const ROUTE_CAPABILITIES = Object.freeze([
   // Administrator-only writes and administrative reads.
   [/^\/api\/v1\/dashboard\/faculty\/[^/]+\/(restore|deactivate)$/, CAPABILITY.ADMIN],
-  [/^\/api\/v1\/dashboard\/faculty\/[^/]+$/, CAPABILITY.SELF_OR_ADMIN],
+  [/^\/api\/v1\/dashboard\/faculty\/[^/]+$/, CAPABILITY.SELF_OR_ADMIN, new Set(['GET', 'HEAD'])],
+  [/^\/api\/v1\/dashboard\/faculty\/[^/]+$/, CAPABILITY.ADMIN],
   [/^\/api\/v1\/dashboard\/faculty-admin\//, CAPABILITY.ADMIN],
   [/^\/api\/v1\/dashboard\/afc-records(\/|$)/, CAPABILITY.ADMIN],
   // Administrative Dashboard tabs. A self-service role must be refused here even
@@ -52,9 +56,14 @@ const ROUTE_CAPABILITIES = Object.freeze([
   [/^\/api\/v1\/leadership-directory\/?$/, CAPABILITY.ANY]
 ]);
 
-function capabilityFor(pathname) {
-  for (const [pattern, capability] of ROUTE_CAPABILITIES) {
-    if (pattern.test(pathname)) return capability;
+function capabilityFor(pathname, method = 'GET') {
+  const verb = String(method || 'GET').toUpperCase();
+  for (const [pattern, capability, methods] of ROUTE_CAPABILITIES) {
+    if (!pattern.test(pathname)) continue;
+    // An entry restricted to certain methods only matches those methods; another
+    // entry for the same path then decides the rest.
+    if (methods && !methods.has(verb)) continue;
+    return capability;
   }
   return null;
 }
@@ -73,7 +82,7 @@ function denial(status, code, message) {
 // Returns null when the profile may proceed, or a ready-to-send refusal.
 // The checks and their order mirror `resolveScope` in dashboard-api, so the gate
 // and the working routes cannot drift apart.
-function authorizeRoute({ profile, pathname }) {
+function authorizeRoute({ profile, pathname, method = 'GET' }) {
   if (!profile || profile.active !== true) {
     return denial(403, 'PROFILE_REQUIRED', 'An active user profile is required.');
   }
@@ -86,7 +95,7 @@ function authorizeRoute({ profile, pathname }) {
     return denial(403, 'ROLE_DENIED', 'This role cannot use this feature.');
   }
 
-  const capability = capabilityFor(pathname);
+  const capability = capabilityFor(pathname, method);
   if (!capability) return null;
   if (!allows(capability, role)) {
     return denial(403, 'ROLE_DENIED', 'This role cannot use this feature.');
