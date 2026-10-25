@@ -35,7 +35,7 @@ function createCccScheduleApi({verifyToken,findUser,repository}={}){
    let decoded;try{decoded=await verifyToken(token);}catch(_){return fail(401,'UNAUTHENTICATED','Sign in to view the CCC schedule.');}
    if(typeof decoded?.uid!=='string'||!decoded.uid||decoded.uid.length>128)return fail(401,'UNAUTHENTICATED','Sign in to view the CCC schedule.');
    let validated;try{validated=validateAuthorizedProfile(await findUser(decoded.uid));}
-   catch(_){return fail(503,'SERVICE_UNAVAILABLE','Unable to validate PAWS access.');}
+   catch(caught){return backendFailure(caught) || fail(503,'SERVICE_UNAVAILABLE','Unable to validate PAWS access.');}
    if(validated.status)return validated;
    if(!query||typeof query!=='object'||Array.isArray(query)||Object.keys(query).some(key=>key!=='academicYear')
      ||!validYear(query.academicYear))return fail(400,'INVALID_QUERY','Select a valid CCC academic year.');

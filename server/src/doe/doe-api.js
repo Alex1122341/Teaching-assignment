@@ -1,4 +1,5 @@
 'use strict';
+const { backendFailure } = require('../http/backend-error');
 
 const { InvalidAcademicYearError, resolveAcademicYear } = require('../data/academic-year');
 const { isAdministratorRole, isGeneralRole, normalizeBaseRole } = require('../auth/role-policy');

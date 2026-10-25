@@ -1,6 +1,7 @@
 'use strict';
 
 const {writeDisabled} = require('../data/write-gates');
+const { backendFailure } = require('../http/backend-error');
 const {ADMINISTRATOR_ROLES, normalizeBaseRole} = require('../auth/role-policy');
 
 const ADMIN = ADMINISTRATOR_ROLES;
@@ -18,6 +19,8 @@ function onlyKeys(payload, keys) {
   return payload && typeof payload==='object' && !Array.isArray(payload) && Object.keys(payload).every(key=>keys.has(key));
 }
 function conflict(error) {
+  const typedFailure = backendFailure(error);
+  if (typedFailure) return typedFailure;
   return [52113,52120,52131,52140,52151].includes(Number(error?.number || error?.code));
 }
 

@@ -4,7 +4,8 @@ const { createSqlConnection, resolveSqlDriver, parseBooleanFlag } = require('../
 const { appServiceManagedIdentityTokenWithExpiry } = require('../data/sql-identity');
 const { createSqlUserRepository } = require('../data/sql-user-repository');
 const { createSqlSessionRepository } = require('../data/sql-session-repository');
-const { resolveDataBackend, unimplementedRepository, mergeRepositories } = require('../data/backend-provider');
+const { resolveDataBackend, unimplementedRepository, mergeRepositories, FIRESTORE_REPOSITORIES } = require('../data/backend-provider');
+const { backendFailure } = require('../http/backend-error');
 const { createFirestoreSessionRepository } = require('../data/firestore/firestore-session-repository');
 const { createFirestoreUserRepository } = require('../data/firestore/firestore-user-repository');
 const { createSqlDashboardRepository } = require('../data/sql-dashboard-repository');
@@ -166,6 +167,29 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     repository: mergeRepositories(doeRepository, doeAssignmentRepository),
     calculationService: doeCalculationService
   });
+  // Health follows the selected backend. Under Firestore the SQL connection is
+  // never consulted, so an unconfigured SQL connection cannot make a working
+  // Firestore backend look dead — and a working SQL connection cannot make an
+  // unreachable Firestore look alive.
+  async function backendHealth() {
+    if (firestoreMode) {
+      if (!firestore) return { ok: false, backend: 'firestore', configured: false, reason: 'FIRESTORE_NOT_CONFIGURED' };
+      const projectId = String(env.FIREBASE_PROJECT_ID || '').trim();
+      if (projectId !== 'vista-teaching-lab') {
+        return { ok: false, backend: 'firestore', configured: true, reason: 'PROJECT_MISMATCH' };
+      }
+      try {
+        // Lightweight and non-sensitive: reads at most one settings document.
+        await firestore.collection('settings').limit(1).get();
+        return { ok: true, backend: 'firestore', configured: true, projectId };
+      } catch (error) {
+        const mapped = backendFailure(error);
+        return { ok: false, backend: 'firestore', configured: true, reason: mapped ? mapped.body.error.code : 'FIRESTORE_UNREACHABLE' };
+      }
+    }
+    return { ok: await db.health(), backend: 'sql', configured: db.isConfigured };
+  }
+
   const timetable = createSwaFunctions({ api: createDataApi({
     verifyToken: verify,
     findUser: users.findByUid,
@@ -175,7 +199,7 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     createSessionBatch: sessions.createBatch,
     replaceSessionAssignments: sessions.replaceAssignments,
     recalculateSessionDoe: doeSessionService.recalculate,
-    health: () => db.health(),
+    health: backendHealth,
     writeGates
   }) });
   const dashboardRoutes = createDashboardFunctions({
@@ -260,6 +284,14 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
         : 'The business database is not configured. Business data is unavailable until a database is connected.';
       return{status:503,jsonBody:{error:{code,message}}};
     }
+    // Readiness is decided first: an unconfigured backend answers 503 before any
+    // domain can claim to be unimplemented, so "not built" never masks "not
+    // configured". The domain map below decides from configuration, not from a
+    // response status, so a genuine Firestore outage keeps its own code.
+    const unsupported = await unsupportedDomainFor(pathname);
+    if (unsupported) {
+      return{status:501,jsonBody:{error:{code:'BACKEND_OPERATION_UNSUPPORTED',message:'This feature has no Firestore implementation yet. It is not broken; it is not built.',domain:unsupported}}};
+    }
     if(pathname==='/api/v1/ccc-schedule')return cccScheduleRoutes(request);
     if(pathname===LEADERSHIP_DIRECTORY_PATH)return leadershipDirectoryRoutes(request);
     if(pathname==='/api/v1/afc-forms'||pathname.startsWith('/api/v1/afc-forms/'))return afcFormRoutes(request);
@@ -277,28 +309,49 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     return timetable(request);
   };
 
-  // Under Firestore there is no SQL server to be unavailable, so a 503 that says
-  // "SQL_UNAVAILABLE" can only mean the domain has no Firestore implementation
-  // yet. Reporting it as 501 keeps "not implemented" distinct from "temporarily
-  // broken", which is what the browser needs in order to show the right state.
-  // This is done once here rather than in the twenty-seven per-domain mappers,
-  // because every one of them would otherwise have to learn about the backend.
-  const SQL_UNAVAILABLE_CODES = new Set(['SQL_UNAVAILABLE', 'SERVICE_UNAVAILABLE', 'DATABASE_NOT_CONFIGURED']);
-  const route = async request => {
-    const response = await dispatch(request);
-    if (!firestoreMode || !response || response.status !== 503) return response;
-    const code = response.jsonBody?.error?.code;
-    if (!SQL_UNAVAILABLE_CODES.has(code)) return response;
-    return {
-      status: 501,
-      jsonBody: {
-        error: {
-          code: 'BACKEND_OPERATION_UNSUPPORTED',
-          message: 'This feature has no Firestore implementation yet. It is not broken; it is not built.'
-        }
+  // Typed backend errors are propagated by the API mappers themselves through
+  // server/src/http/backend-error.js. An earlier revision guessed here instead:
+  // it rewrote any 503 in Firestore mode into 501, which would have reported a
+  // genuine Firestore outage as "not implemented". That heuristic is gone; this
+  // wrapper no longer inspects status codes at all.
+  // Deterministic gate for domains that have no Firestore implementation yet.
+  //
+  // This replaces an earlier heuristic that rewrote any 503 into 501 in Firestore
+  // mode. That guess would have reported a genuine Firestore outage as "not
+  // implemented". Here the answer comes from the domain map below, not from a
+  // status code: if the domain has no implementation, the route says so before the
+  // API runs, and a real backend failure from an implemented domain keeps its own
+  // status.
+  const DOMAIN_BY_PATH = [
+    [/^\/api\/v1\/ccc-schedule\/?$/, 'cccSchedule'],
+    [/^\/api\/v1\/afc-forms(\/|$)/, 'afcForm'],
+    [/^\/api\/v1\/ccc-replacements(\/|$)/, 'cccReplacement'],
+    [/^\/api\/v1\/change-history(\/|$)/, 'changeHistory'],
+    [/^\/api\/v1\/faculty\/[^/]+\/availability\/?$/, 'facultyAvailability'],
+    [/^\/api\/v1\/scheduling-tasks(\/|$)/, 'schedulingTask'],
+    [/^\/api\/v1\/calendar-activities(\/|$)/, 'calendarActivity'],
+    [/^\/api\/v1\/calendar-activity-imports(\/|$)/, 'calendarActivity'],
+    [/^\/api\/v1\/swaps(\/|$)/, 'swap'],
+    [/^\/api\/v1\/doe\//, 'doeEngine'],
+    [/^\/api\/v1\/teaching-assignments(\/|$)/, 'teachingAssignmentWorkflow'],
+    [/^\/api\/v1\/dashboard\//, 'dashboard'],
+    [/^\/api\/v1\/afc-requests\/[^/]+\/approved-artifact\/?$/, 'afcArtifact'],
+    [/^\/api\/v1\/afc-requests(\/|$)/, 'afcRequest']
+  ];
+  const firestoreImplemented = new Set(Object.keys(FIRESTORE_REPOSITORIES));
+
+  async function unsupportedDomainFor(pathname) {
+    if (!firestoreMode) return null;
+    for (const [pattern, domain] of DOMAIN_BY_PATH) {
+      if (pattern.test(pathname)) {
+        if (firestoreImplemented.has(domain)) return null;
+        return domain;
       }
-    };
-  };
+    }
+    return null;
+  }
+
+  const route = async request => dispatch(request);
 
   const handler = request => support.handle(request,route);
   handler.close = () => Promise.all([db.close(), calendarImportDb.close()]);

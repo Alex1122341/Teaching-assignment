@@ -1,4 +1,5 @@
 'use strict';
+const { backendFailure } = require('../http/backend-error');
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const validDate=v=>DATE.test(v)&&v>='0001-01-01'&&v<='9999-12-31'&&!Number.isNaN(Date.parse(v+'T00:00:00Z'))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v;
@@ -10,7 +11,7 @@ function createFacultyAvailabilityApi({verifyToken,findUser,repository}={}){
    if(!token)return fail(401,'UNAUTHENTICATED','Sign in to check availability.');
    let decoded;try{decoded=await verifyToken(token);}catch(_){return fail(401,'UNAUTHENTICATED','Sign in to check availability.');}
    if(!decoded?.uid)return fail(401,'UNAUTHENTICATED','Sign in to check availability.');
-   let profile;try{profile=await findUser(decoded.uid);}catch(_){return fail(503,'SERVICE_UNAVAILABLE','Profile verification unavailable.');}
+   let profile;try{profile=await findUser(decoded.uid);}catch(caught){return backendFailure(caught) || fail(503,'SERVICE_UNAVAILABLE','Profile verification unavailable.');}
    const role=String(profile?.baseRole||profile?.role||'').toLowerCase(),admin=['developer','owner','administrator','admin','adfa_general','adfa_regular'].includes(role);
    if(!profile?.active||profile?.mustChangePassword||(!admin&&!['faculty','hicc','visc'].includes(role)))return fail(403,'ROLE_DENIED','Availability is not authorized.');
    if(!UUID.test(facultyId))return fail(400,'INVALID_FACULTY','Select a valid faculty.');

@@ -1,6 +1,7 @@
 'use strict';
 
 const { validateAuthorizedProfile } = require('../data/data-api');
+const { backendFailure } = require('../http/backend-error');
 const { canonicalAcademicYear } = require('../data/academic-year');
 const { calgaryDate, classify } = require('./role-effective-status');
 const names = require('../domain/person-name');
@@ -73,7 +74,7 @@ function createLeadershipDirectoryApi({ verifyToken, findUser, repository, today
       try { decoded = await verifyToken(token); } catch (_) { return fail(401, 'UNAUTHENTICATED', 'Sign in to view the HICC–CC and VISC lists.'); }
       if (typeof decoded?.uid !== 'string' || !decoded.uid || decoded.uid.length > 128) return fail(401, 'UNAUTHENTICATED', 'Sign in to view the HICC–CC and VISC lists.');
       let validated;
-      try { validated = validateAuthorizedProfile(await findUser(decoded.uid)); } catch (_) { return fail(503, 'SERVICE_UNAVAILABLE', 'Unable to validate PAWS access.'); }
+      try { validated = validateAuthorizedProfile(await findUser(decoded.uid)); } catch(caught){ return backendFailure(caught) || fail(503, 'SERVICE_UNAVAILABLE', 'Unable to validate PAWS access.'); }
       if (validated.status) return validated;
       if (!query || typeof query !== 'object' || Array.isArray(query) || Object.keys(query).some(key => key !== 'academicYear')) {
         return fail(400, 'INVALID_QUERY', 'Select a valid academic year.');
@@ -88,8 +89,8 @@ function createLeadershipDirectoryApi({ verifyToken, findUser, repository, today
         const body = buildDirectory(rows, { academicYear, asOfDate });
         if (![...body.hiccCc, ...body.visc].every(entry => STATUS.has(entry.status))) throw new Error('Invalid directory status.');
         return { status: 200, body };
-      } catch (_) {
-        return fail(503, 'SERVICE_UNAVAILABLE', 'The HICC–CC and VISC lists are temporarily unavailable.');
+      } catch(caught){
+        return backendFailure(caught) || fail(503, 'SERVICE_UNAVAILABLE', 'The HICC–CC and VISC lists are temporarily unavailable.');
       }
     }
   });

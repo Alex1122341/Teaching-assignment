@@ -1,5 +1,6 @@
 'use strict';
 const {UUID}=require('../swap/swap-domain');
+const { backendFailure } = require('../http/backend-error');
 const bad=(status,code,message)=>({status,jsonBody:{error:{code,message}}});
 const json=r=>({status:r.status,jsonBody:r.body});
 function createAfcFormFunctions({api}){
@@ -21,7 +22,7 @@ function createAfcFormFunctions({api}){
    const bytes=r.document.pdfBytes;
    if(!Buffer.isBuffer(bytes)||!bytes.length||bytes.length>2097152)return bad(500,'DOCUMENT_INTEGRITY_FAILURE','The document failed an integrity check.');
    return {status:200,binaryBody:bytes,headers:{'Content-Type':'application/pdf','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"sandbox; default-src 'none'",'Content-Disposition':`attachment; filename="afc-form-${match[1]}.pdf"`}};
-  }catch(_){return bad(503,'SERVICE_UNAVAILABLE','The AFC document service is temporarily unavailable.');}
+  }catch(caught){return bad(503,'SERVICE_UNAVAILABLE','The AFC document service is temporarily unavailable.');}
  };
 }
 module.exports={createAfcFormFunctions};

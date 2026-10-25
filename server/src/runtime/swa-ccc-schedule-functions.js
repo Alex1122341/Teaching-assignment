@@ -1,4 +1,5 @@
 'use strict';
+const { backendFailure } = require('../http/backend-error');
 const READ_HEADERS=Object.freeze({'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'});
 function createCccScheduleFunctions({api}={}){
  if(typeof api?.list!=='function')throw Error('CCC API required.');

@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { backendFailure } = require('../http/backend-error');
 const { writeDisabled } = require('../data/write-gates');
 const { authorizeProfile } = require('./afc-request-api');
 const {
@@ -30,6 +31,8 @@ const SAFE_ARTIFACT_ERRORS = new Map([
 ]);
 
 function mapArtifactFailure(caught) {
+  const typedFailure = backendFailure(caught);
+  if (typedFailure) return typedFailure;
   const mapped = SAFE_ARTIFACT_ERRORS.get(caught && caught.code);
   return mapped
     ? error(mapped[0], mapped[1], mapped[2])
@@ -122,8 +125,8 @@ function createAfcApprovedArtifactApi({ verifyToken, findUser, repository, rende
     let profile;
     try {
       profile = await findUser(uid);
-    } catch {
-      return error(503, 'SERVICE_UNAVAILABLE', 'The profile service is temporarily unavailable.');
+    } catch (caught) {
+      return backendFailure(caught) || error(503, 'SERVICE_UNAVAILABLE', 'The profile service is temporarily unavailable.');
     }
 
     const scope = authorizeProfile(profile);

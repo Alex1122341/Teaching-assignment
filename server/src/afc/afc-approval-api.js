@@ -1,6 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('node:crypto');
+const { backendFailure } = require('../http/backend-error');
 const {
   authorizeProfile,
   validateSignature,
@@ -43,6 +44,8 @@ function validateDecisionPayload(payload, actorUid, { rejection = false } = {}) 
 }
 
 function mapApprovalError(caught) {
+  const typedFailure = backendFailure(caught);
+  if (typedFailure) return typedFailure;
   const number = Number(caught && caught.number);
   const known = {
     51601: [403, 'DECISION_ACTOR_REQUIRED', 'An active decision actor is required.'],
@@ -92,8 +95,8 @@ function createAfcApprovalApi({
     let profile;
     try {
       profile = await findUser(uid);
-    } catch (_) {
-      return error(503, 'SERVICE_UNAVAILABLE', 'The profile service is temporarily unavailable.');
+    } catch (caught) {
+      return backendFailure(caught) || error(503, 'SERVICE_UNAVAILABLE', 'The profile service is temporarily unavailable.');
     }
 
     const scope = authorizeProfile(profile);

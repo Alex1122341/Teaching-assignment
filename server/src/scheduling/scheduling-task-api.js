@@ -1,5 +1,6 @@
 'use strict';
 const {validateAuthorizedProfile,normalizedRange}=require('../data/data-api');
+const { backendFailure } = require('../http/backend-error');
 const {isAdministratorRole}=require('../auth/role-policy');
 const {writeDisabled}=require('../data/write-gates');
 const {publicTask,publicQueue,TYPES}=require('../data/sql-scheduling-task-repository');
@@ -22,6 +23,8 @@ function validQuery(query){
  return true;
 }
 function failure(error){
+  const typedFailure = backendFailure(error);
+  if (typedFailure) return typedFailure;
  const number=Number(error?.number??error?.originalError?.info?.number);
  if(number===54310)return fail(409,'SCHEDULING_TASK_STALE','Scheduling data changed. Refresh the Tasks queue.');
  if(number===54303)return fail(403,'ROLE_DENIED','This account cannot access this scheduling operation.');
@@ -35,7 +38,7 @@ function createSchedulingTaskApi({verifyToken,findUser,repository,writeGates={}}
   let decoded;
   try{decoded=await verifyToken(token);}catch(_){return fail(401,'UNAUTHENTICATED','Authentication required.');}
   let profile;
-  try{profile=await findUser(decoded.uid);}catch(_){return fail(503,'SERVICE_UNAVAILABLE','The scheduling service is temporarily unavailable.');}
+  try{profile=await findUser(decoded.uid);}catch(caught){return backendFailure(caught) || fail(503,'SERVICE_UNAVAILABLE','The scheduling service is temporarily unavailable.');}
   const validated=validateAuthorizedProfile(profile);
   if(validated.status)return validated;
   return {decoded,...validated};

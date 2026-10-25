@@ -1,5 +1,6 @@
 'use strict';
 const {validateAuthorizedProfile}=require('../data/data-api'),{canonicalAcademicYear}=require('../data/academic-year');
+const { backendFailure } = require('../http/backend-error');
 const {isAdministratorRole}=require('../auth/role-policy'),{UUID,onlyKeys}=require('../swap/swap-domain'),{writeDisabled}=require('../data/write-gates');
 const {parseCccWorkbook}=require('./ccc-workbook');
 const {renderCccTemplate}=require('./ccc-template');
@@ -26,6 +27,8 @@ function publicCccBatch(value){
  return result;
 }
 function failure(e){
+  const typedFailure = backendFailure(e);
+  if (typedFailure) return typedFailure;
  const known=errors.get(Number(e?.number??e?.originalError?.info?.number));if(known)return fail(...known,'The CCC replacement could not proceed. Refresh the preview and resolve any blocking issues.');
  if(e?.code==='IMPORT_LIMIT')return fail(413,'IMPORT_LIMIT','The workbook exceeds the import limits.');
  if(e?.code==='IMPORT_BUSY')return fail(429,'IMPORT_BUSY','The workbook parser is busy. Retry shortly.');

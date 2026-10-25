@@ -1,6 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('node:crypto');
+const { backendFailure } = require('../http/backend-error');
 const { workDays } = require('./afc-policy');
 const { writeDisabled } = require('../data/write-gates');
 const { ADMINISTRATOR_ROLES, normalizeBaseRole } = require('../auth/role-policy');
@@ -117,6 +118,8 @@ function validateSubmitPayload(payload, actorUid) {
 }
 
 function mapRepositoryError(caught) {
+  const typedFailure = backendFailure(caught);
+  if (typedFailure) return typedFailure;
   const number = Number(caught && caught.number);
   const known = {
     51501: [403, 'PROFILE_REQUIRED', 'An active faculty-linked user profile is required.'],
@@ -169,8 +172,8 @@ function createAfcRequestApi({ verifyToken, findUser, repository, idFactory = ra
     let profile;
     try {
       profile = await findUser(uid);
-    } catch (_) {
-      return error(503, 'SERVICE_UNAVAILABLE', 'The profile service is temporarily unavailable.');
+    } catch (caught) {
+      return backendFailure(caught) || error(503, 'SERVICE_UNAVAILABLE', 'The profile service is temporarily unavailable.');
     }
 
     const scope = authorizeProfile(profile);

@@ -1,5 +1,6 @@
 'use strict';
 const {validateAuthorizedProfile,normalizedRange}=require('../data/data-api');
+const { backendFailure } = require('../http/backend-error');
 const {isAdministratorRole}=require('../auth/role-policy');
 const {UUID,onlyKeys}=require('../swap/swap-domain');
 const {writeDisabled}=require('../data/write-gates');
@@ -26,6 +27,8 @@ const sqlErrors=new Map([
  [53809,[409,'AVAILABILITY_BUSY','Faculty availability is busy. Reload and retry.']]
 ]);
 function failure(error){
+  const typedFailure = backendFailure(error);
+  if (typedFailure) return typedFailure;
  const known=sqlErrors.get(Number(error?.number??error?.originalError?.info?.number));if(known)return fail(...known);
  if(error?.code==='IMPORT_LIMIT')return fail(413,'IMPORT_LIMIT','The workbook exceeds the import limits.');
  if(error?.code==='IMPORT_BUSY')return fail(429,'IMPORT_BUSY','The workbook parser is busy. Retry shortly.');

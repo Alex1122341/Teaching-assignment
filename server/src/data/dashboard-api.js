@@ -1,6 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('node:crypto');
+const { backendFailure } = require('../http/backend-error');
 
 // BETA-R4D-10A2 — read-only Dashboard API.
 //
@@ -154,6 +155,8 @@ function validateFacultyUpdate(payload, facultyId) {
 }
 
 function facultyWriteFailure(caught) {
+  const typedFailure = backendFailure(caught);
+  if (typedFailure) return typedFailure;
   if ((caught && caught.code === 'FACULTY_REVISION_CONFLICT') || Number(caught && caught.number) === 52305) return error(409, 'FACULTY_REVISION_CONFLICT', 'This Faculty record changed after you opened it. Reload it before saving.');
   if ((caught && caught.code === 'FACULTY_IDENTITY_CONFLICT') || Number(caught && caught.number) === 52304) return error(409, 'FACULTY_IDENTITY_CONFLICT', 'This UCID or email already belongs to a Faculty record, possibly an inactive one. Find and restore that record instead.');
   if ([2601, 2627].includes(Number(caught && caught.number))) return error(409, 'FACULTY_IDENTITY_CONFLICT', 'This UCID or email already belongs to a Faculty record, possibly an inactive one. Find and restore that record instead.');
@@ -257,6 +260,8 @@ function normalizeAfcRecord(row = {}) {
 }
 
 function mapAfcWriteError(caught) {
+  const typedFailure = backendFailure(caught);
+  if (typedFailure) return typedFailure;
   const number = Number(caught && caught.number);
   if(number===55001)return error(403,'ROLE_DENIED','Current administrator permission is required.');
   if(number===55003)return error(409,'DOCUMENT_BINDING_CONFLICT','The archived PDF cannot be linked to this AFC record. Review its faculty and existing record binding.');
@@ -326,8 +331,8 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
     let profile;
     try {
       profile = await findUser(decoded.uid);
-    } catch (_) {
-      return error(503, 'SERVICE_UNAVAILABLE', 'The data service is temporarily unavailable.');
+    } catch (caught) {
+      return backendFailure(caught) || error(503, 'SERVICE_UNAVAILABLE', 'The data service is temporarily unavailable.');
     }
 
     const scope = resolveScope(profile);
@@ -340,8 +345,8 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
     if (auth.status) return auth;
     try {
       return await run(auth.scope, auth.decoded, auth.profile);
-    } catch (_) {
-      return error(503, 'SQL_UNAVAILABLE', 'The SQL read service is unavailable.');
+    } catch (caught) {
+      return backendFailure(caught) || error(503, 'SQL_UNAVAILABLE', 'The SQL read service is unavailable.');
     }
   }
 
@@ -616,9 +621,9 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
           idempotentReplay: replay,
           rows: batch.rows || []
         });
-      } catch (_) {
+      } catch (caught) {
         if (Number(_ && _.number) === 51517) return error(404, 'FACULTY_NOT_FOUND', 'An active Faculty record was not found.');
-        return error(503, 'SQL_UNAVAILABLE', 'The SQL write service is unavailable.');
+        return backendFailure(caught) || error(503, 'SQL_UNAVAILABLE', 'The SQL write service is unavailable.');
       }
     }
   };

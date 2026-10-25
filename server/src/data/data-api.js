@@ -1,6 +1,7 @@
 'use strict';
 
 const { SUPPORTED_ROLES, ADMINISTRATOR_ROLES, SELF_SERVICE_ROLES, normalizeBaseRole } = require('../auth/role-policy');
+const { backendFailure } = require('../http/backend-error');
 
 // Only roles that represent a canonical Faculty person are Faculty-scoped.
 const FACULTY_SCOPED_ROLES = SELF_SERVICE_ROLES;
@@ -222,8 +223,8 @@ function createDataApi({
     let profile;
     try {
       profile = await findUser(decoded.uid, timing);
-    } catch (_) {
-      return result(503, { error: { code: 'SERVICE_UNAVAILABLE', message: 'The data service is temporarily unavailable.' } });
+    } catch (caught) {
+      return backendFailure(caught) || result(503, { error: { code: 'SERVICE_UNAVAILABLE', message: 'The data service is temporarily unavailable.' } });
     }
 
     let validated;
@@ -240,10 +241,26 @@ function createDataApi({
   return {
     async health() {
       try {
-        await health();
-        return result(200, { status: 'ok', service: 'paws-beta-sql-runtime' });
-      } catch (_) {
-        return result(503, { error: { code: 'SQL_UNAVAILABLE', message: 'The SQL read service is unavailable.' } });
+        const report = await health();
+        // A health probe that cannot say which backend it checked is not a health
+        // probe. The backend reports its own state; the label follows it instead of
+        // claiming "sql" no matter what is actually behind the API.
+        if (report && typeof report === 'object' && report.ok === false) {
+          return result(503, {
+            status: 'unavailable',
+            backend: report.backend || 'unknown',
+            reason: report.reason || 'UNAVAILABLE'
+          });
+        }
+        // SQL keeps its established payload exactly, so existing clients and
+        // monitors are unaffected. Firestore reports its own label instead of
+        // claiming to be the SQL runtime.
+        if (!report || typeof report !== 'object' || report.backend === 'sql') {
+          return result(200, { status: 'ok', service: 'paws-beta-sql-runtime' });
+        }
+        return result(200, { status: 'ok', backend: report.backend, projectId: report.projectId || null });
+      } catch (caught) {
+        return backendFailure(caught) || result(503, { error: { code: 'BACKEND_UNAVAILABLE', message: 'The data service is unavailable.' } });
       }
     },
 
@@ -284,8 +301,8 @@ function createDataApi({
           includeAssignmentTargets: SESSION_EDIT_ROLES.has(auth.role)
         });
         return result(200, { sessions });
-      } catch (_) {
-        return result(503, { error: { code: 'SQL_UNAVAILABLE', message: 'The SQL read service is unavailable.' } });
+      } catch (caught) {
+        return backendFailure(caught) || result(503, { error: { code: 'SQL_UNAVAILABLE', message: 'The SQL read service is unavailable.' } });
       }
     }
     ,

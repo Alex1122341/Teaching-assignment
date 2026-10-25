@@ -1,5 +1,6 @@
 'use strict';
 const {createHash}=require('node:crypto');
+const { backendFailure } = require('../http/backend-error');
 const {validateAuthorizedProfile}=require('../data/data-api'),{isAdministratorRole,isSelfServiceRole}=require('../auth/role-policy');
 const {UUID,onlyKeys}=require('../swap/swap-domain'),{writeDisabled}=require('../data/write-gates');
 const {validateAfcFormPdf,MAX_FORM_BYTES}=require('./afc-form-pdf');
@@ -8,6 +9,8 @@ const invalid=()=>fail(400,'INVALID_REQUEST','The AFC form request is invalid.')
 const metaKeys=['documentId','facultyId','fileName','byteLength','pageCount','sha256','createdAtUtc','idempotentReplay'];
 const metadata=value=>Object.fromEntries(metaKeys.filter(k=>value[k]!==undefined).map(k=>[k,value[k]]));
 function failure(e){
+  const typedFailure = backendFailure(e);
+  if (typedFailure) return typedFailure;
  const known={54801:[403,'ROLE_DENIED'],54802:[400,'INVALID_REQUEST'],54803:[404,'NOT_FOUND'],54804:[409,'UPLOAD_KEY_CONFLICT'],54805:[500,'DOCUMENT_INTEGRITY_FAILURE']};
  const entry=known[Number(e?.number??e?.originalError?.info?.number)];if(entry)return fail(...entry,'The AFC document operation could not be completed.');
  if(e?.code==='PDF_BUSY')return fail(429,'PDF_BUSY','PDF validation is busy. Retry shortly.');
