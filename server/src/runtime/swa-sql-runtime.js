@@ -4,6 +4,9 @@ const { createSqlConnection, resolveSqlDriver, parseBooleanFlag } = require('../
 const { appServiceManagedIdentityTokenWithExpiry } = require('../data/sql-identity');
 const { createSqlUserRepository } = require('../data/sql-user-repository');
 const { createSqlSessionRepository } = require('../data/sql-session-repository');
+const { resolveDataBackend, unimplementedRepository } = require('../data/backend-provider');
+const { createFirestoreSessionRepository } = require('../data/firestore/firestore-session-repository');
+const { createFirestoreUserRepository } = require('../data/firestore/firestore-user-repository');
 const { createSqlDashboardRepository } = require('../data/sql-dashboard-repository');
 const { createSqlFacultyAdminRepository } = require('../data/sql-faculty-admin-repository');
 const { createSqlDoeTargetRepository } = require('../data/sql-doe-target-repository');
@@ -124,12 +127,27 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   const sqlClient = injectedSql || (connectionString
     ? require(resolveSqlDriver(env.PAWS_SQL_DRIVER) === 'msnodesqlv8' ? 'mssql/msnodesqlv8' : 'mssql')
     : undefined);
+  // Which storage sits behind the repositories. Azure SQL stays the default and
+  // remains the intended production database; the Firestore lab backend is what
+  // the development environment can actually run.
+  const dataBackend = resolveDataBackend(env);
+  const firestore = dataBackend === 'firestore'
+    ? (typeof admin.firestore === 'function' ? admin.firestore() : null)
+    : null;
   const db = createSqlConnection(connectionOptions(env, { sqlModule: sqlClient }));
   // The workbook import path is bounded separately because a full-year CCC or
   // activity replacement legitimately runs far longer than a page read.
   const calendarImportDb = createSqlConnection(connectionOptions(env, { sqlModule: sqlClient, requestTimeoutMs: 90000 }));
-  const users = createSqlUserRepository(db);
-  const sessions = createSqlSessionRepository(db);
+  // Composing must not fail when the Firestore client is unavailable: the
+  // application still has to start and answer FIRESTORE_NOT_CONFIGURED rather
+  // than refusing to boot.
+  const firestoreReady = dataBackend === 'firestore' && firestore !== null;
+  const users = dataBackend === 'firestore'
+    ? (firestoreReady ? createFirestoreUserRepository(firestore) : unimplementedRepository('users'))
+    : createSqlUserRepository(db);
+  const sessions = dataBackend === 'firestore'
+    ? (firestoreReady ? createFirestoreSessionRepository(firestore) : unimplementedRepository('sessions'))
+    : createSqlSessionRepository(db);
   const dashboard = {
     ...createSqlDashboardRepository(db),
     ...createSqlDoeTargetRepository(db)
@@ -232,10 +250,17 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     // Authentication runs FIRST. Without it an anonymous caller would learn the
     // deployment state from a route it was never authorised to call, and the
     // unconfigured check would silently replace the authorization gate.
-    if(!db.isConfigured){
+    // The readiness check follows the selected backend. Under Firestore there is
+    // no SQL connection to inspect, so requiring one would refuse every request.
+    const backendReady = dataBackend === 'firestore' ? Boolean(firestore) : db.isConfigured;
+    if(!backendReady){
       const header=String(request.headers.get('authorization')||'');
       await realVerify(header.replace(/^Bearer\s+/i,''));
-      return{status:503,jsonBody:{error:{code:'DATABASE_NOT_CONFIGURED',message:'The business database is not configured. Business data is unavailable until a database is connected.'}}};
+      const code = dataBackend === 'firestore' ? 'FIRESTORE_NOT_CONFIGURED' : 'DATABASE_NOT_CONFIGURED';
+      const message = dataBackend === 'firestore'
+        ? 'The Firestore lab backend is not available. Business data is unavailable until it is connected.'
+        : 'The business database is not configured. Business data is unavailable until a database is connected.';
+      return{status:503,jsonBody:{error:{code,message}}};
     }
     if(pathname==='/api/v1/ccc-schedule')return cccScheduleRoutes(request);
     if(pathname===LEADERSHIP_DIRECTORY_PATH)return leadershipDirectoryRoutes(request);
