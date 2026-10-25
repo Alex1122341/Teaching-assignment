@@ -16,11 +16,21 @@ function ensureFirebaseApp({ admin, projectId, serviceAccountJson, appName = APP
   if (!id) throw Error('FIREBASE_PROJECT_ID is required');
 
   // Reuse an app already created under this name so repeated composition does not
-  // throw "app already exists".
+  // throw "app already exists" — but only if it is bound to the project we were
+  // asked for. Reusing an app configured for a different project would verify
+  // tokens against one project while reading data from another, which is the exact
+  // failure this module exists to prevent.
   try {
     const existing = admin.app(appName);
-    if (existing) return existing;
-  } catch {
+    if (existing) {
+      const bound = appProjectId(existing);
+      if (bound && bound !== id) {
+        throw Error(`Firebase app '${appName}' is bound to project '${bound}', not '${id}'.`);
+      }
+      return existing;
+    }
+  } catch (error) {
+    if (/is bound to project/.test(String(error && error.message))) throw error;
     // Not created yet — fall through and create it.
   }
 

@@ -6,6 +6,7 @@ const { createSqlUserRepository } = require('../data/sql-user-repository');
 const { createSqlSessionRepository } = require('../data/sql-session-repository');
 const { resolveDataBackend, unimplementedRepository, mergeRepositories, FIRESTORE_REPOSITORIES } = require('../data/backend-provider');
 const { backendFailure } = require('../http/backend-error');
+const { authorizeRoute } = require('../auth/route-authorization');
 const { createFirestoreSessionRepository } = require('../data/firestore/firestore-session-repository');
 const { createFirestoreUserRepository } = require('../data/firestore/firestore-user-repository');
 const { createSqlDashboardRepository } = require('../data/sql-dashboard-repository');
@@ -320,7 +321,7 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
       // not outrank authorization. Identity is established in the same order the
       // real APIs use: token, then profile, then capability. Only a caller who
       // would have been allowed to call this route learns that it is unbuilt.
-      const denial = await authorizeForUnsupported(request);
+      const denial = await authorizeForUnsupported(request, pathname);
       if (denial) return denial;
       return{status:501,jsonBody:{error:{code:'BACKEND_OPERATION_UNSUPPORTED',message:'This feature has no Firestore implementation yet. It is not broken; it is not built.',domain:unsupported}}};
     }
@@ -375,7 +376,7 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   // Mirrors the identity boundary the APIs apply, so the 501 gate cannot be used
   // to skip authentication. support.handle does not authenticate ordinary
   // requests, so this is the only place that runs before domain dispatch.
-  async function authorizeForUnsupported(request) {
+  async function authorizeForUnsupported(request, pathname) {
     const header = String(request.headers.get('authorization') || '');
     const token = header.replace(/^Bearer\s+/i, '').trim();
     if (!token) {
@@ -395,12 +396,11 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
       if (mapped) return { status: mapped.status, jsonBody: mapped.body };
       return { status: 503, jsonBody: { error: { code: 'BACKEND_UNAVAILABLE', message: 'The data service is unavailable.' } } };
     }
-    // Unknown and inactive accounts are refused here exactly as they are on the
-    // implemented routes; an unbuilt feature must not be more reachable than a
-    // built one.
-    if (!profile || profile.active !== true) {
-      return { status: 403, jsonBody: { error: { code: 'PROFILE_REQUIRED', message: 'An active user profile is required.' } } };
-    }
+    // Full route authorization, not just "does a profile exist". An unbuilt
+    // feature must not be more reachable than a built one: a faculty account
+    // asking for an administrator-only operation gets 403 here, before the 501.
+    const refusal = authorizeRoute({ profile, pathname });
+    if (refusal) return refusal;
     return null;
   }
 

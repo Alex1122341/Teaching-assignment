@@ -142,15 +142,24 @@ function createUniversityHttpServer({
         outgoing.end(payload);
         return;
       }
+      // Probe the real backend instead of asserting health. The previous payload
+      // always said status 'ok' and named the SQL authority, so an unreachable or
+      // unconfigured backend still reported success to any monitor watching this.
+      const report = typeof runtime.health === 'function' ? await runtime.health() : null;
+      const healthy = !report || report.ok !== false;
       const payload = JSON.stringify({
-        status: 'ok',
+        status: healthy ? 'ok' : 'unavailable',
         service: 'paws-university-api',
-        authority: 'vetmed-ops-sql',
+        // `authority` is an existing contract. It keeps naming the SQL authority in
+        // SQL mode and stops claiming it under Firestore.
+        authority: (!report || report.backend === 'sql') ? 'vetmed-ops-sql' : report.backend,
+        backend: (report && report.backend) || identity.backend || 'unknown',
+        ...(healthy ? {} : { reason: report.reason || 'UNAVAILABLE' }),
         releaseSha: identity.releaseSha,
         runtimeTrustAnchor: identity.runtimeTrustAnchor,
         writeGates: identity.writeGates
       });
-      outgoing.writeHead(200, {
+      outgoing.writeHead(healthy ? 200 : 503, {
         ...corsHeaders,
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',
