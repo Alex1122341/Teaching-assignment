@@ -32,6 +32,58 @@ function createFirestoreDashboardRepository(firestore) {
 
   // GET /api/v1/dashboard/roles. Administrator-only, enforced by dashboard-api.
   // The response must carry the same fields the existing editor reads.
+  // The browser editor reads `validityPeriods`, falls back to
+  // `effectiveDate`/`expirationDate`, and saves with the version it was given.
+  // The DTO therefore carries all of them, plus the faculty display name the tab
+  // shows, so no client-side adaptation is needed.
+  const facultyNames = new Map();
+  async function facultyDisplayName(facultyId) {
+    if (facultyNames.has(facultyId)) return facultyNames.get(facultyId);
+    let name = '';
+    try {
+      const snapshot = await firestore.collection('faculty').doc(facultyId).get();
+      if (snapshot.exists) {
+        const data = snapshot.data() || {};
+        const last = String(data.lastName || '').trim();
+        const first = String(data.firstName || '').trim();
+        name = last && first ? `${last}, ${first}` : (last || first);
+      }
+    } catch {
+      name = '';
+    }
+    facultyNames.set(facultyId, name);
+    return name;
+  }
+
+  function toRoleDto(record, name) {
+    const periods = Array.isArray(record.periods) ? record.periods : [];
+    const first = periods[0] || {};
+    return {
+      roleAssignmentId: record.roleAssignmentId,
+      facultyId: record.facultyId,
+      facultyName: name,
+      academicYear: record.academicYear,
+      roleCategory: record.roleCategory,
+      roleType: record.roleType,
+      roleLabel: record.roleType,
+      scopeKind: record.scopeKind,
+      scopeCode: record.scopeCode,
+      // The editor's primary field.
+      validityPeriods: periods,
+      // Legacy single-pair compatibility, derived from the first period.
+      effectiveDate: first.startDate || null,
+      expirationDate: first.endDate || null,
+      // Derived status, computed on read by the shared classifier.
+      status: record.status,
+      statusStartDate: record.statusStartDate,
+      statusEndDate: record.statusEndDate,
+      // Firestore identifies a row by its integer revision. It is NOT a SQL
+      // rowversion and is never formatted as one.
+      scheduleVersion: record.revision,
+      revision: record.revision
+    };
+  }
+
   repository.roles = async ({ academicYear = null } = {}) => {
     const snapshot = await firestore.collection('role_assignments').get();
     const rows = [];
@@ -39,9 +91,10 @@ function createFirestoreDashboardRepository(firestore) {
       const data = doc.data() || {};
       if (academicYear && String(data.academicYear || '').trim() !== String(academicYear).trim()) continue;
       const record = await assignments.getById({ roleAssignmentId: doc.id });
-      if (record) rows.push(record);
+      if (!record) continue;
+      rows.push(toRoleDto(record, await facultyDisplayName(record.facultyId)));
     }
-    rows.sort((a, b) => a.facultyId.localeCompare(b.facultyId) || a.roleType.localeCompare(b.roleType));
+    rows.sort((a, b) => a.facultyName.localeCompare(b.facultyName) || a.roleType.localeCompare(b.roleType));
     return rows;
   };
 

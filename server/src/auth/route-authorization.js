@@ -35,6 +35,9 @@ const ROUTE_CAPABILITIES = Object.freeze([
   // when the operation is unbuilt, so the answer describes authority, not build state.
   [/^\/api\/v1\/dashboard\/(doe-overview|doe-targets)(\/|$)/, CAPABILITY.ADMIN],
   [/^\/api\/v1\/dashboard\/faculty(\/|$)/, CAPABILITY.SELF_OR_ADMIN],
+  // The HICC-CC and VISC directories are published to authorised PAWS users, not
+  // only to administrators. This entry must precede the dashboard fallback.
+  [/^\/api\/v1\/dashboard\/leadership-directory\/?$/, CAPABILITY.ANY],
   // summary, teaching-summary and roles are administrator-only in dashboard-api.js
   // (each returns 403 ROLE_DENIED for a non-administrator). This table previously
   // said self-or-admin, which let a faculty account reach the route and receive 501

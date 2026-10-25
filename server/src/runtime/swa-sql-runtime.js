@@ -6,6 +6,7 @@ const { createSqlUserRepository } = require('../data/sql-user-repository');
 const { createSqlSessionRepository } = require('../data/sql-session-repository');
 const { resolveDataBackend, unimplementedRepository, mergeRepositories, FIRESTORE_REPOSITORIES, isImplementedOperation, isPartiallyImplemented } = require('../data/backend-provider');
 const { createFirestoreDashboardRepository } = require('../data/firestore/firestore-dashboard-repository');
+const { createFirestoreLeadershipDirectoryRepository } = require('../data/firestore/firestore-leadership-directory-repository');
 const { backendFailure } = require('../http/backend-error');
 const { authorizeRoute } = require('../auth/route-authorization');
 const { createFirestoreSessionRepository } = require('../data/firestore/firestore-session-repository');
@@ -291,7 +292,7 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('swap') : createSqlSwapRepository(db)),workflowPreviewService:doeWorkflowPreviewService,worksheetService:doeWorksheetService,writeGates
   })});
   const cccScheduleRoutes=createCccScheduleFunctions({api:createCccScheduleApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('cccSchedule') : createSqlCccScheduleRepository(db))})});
-  const leadershipDirectoryRoutes=createLeadershipDirectoryFunctions({api:createLeadershipDirectoryApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('leadershipDirectory') : createSqlLeadershipDirectoryRepository(db))})});
+  const leadershipDirectoryRoutes=createLeadershipDirectoryFunctions({api:createLeadershipDirectoryApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? (firestoreReady ? createFirestoreLeadershipDirectoryRepository(firestore) : unimplementedRepository('leadershipDirectory')) : createSqlLeadershipDirectoryRepository(db))})});
   const calendarActivityRoutes=createCalendarActivityFunctions({api:createCalendarActivityApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('calendarActivity') : createSqlCalendarActivityRepository(db,{importDb:calendarImportDb})),writeGates})});
   const facultyAvailabilityRoutes=createFacultyAvailabilityFunctions({api:createFacultyAvailabilityApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('facultyAvailability') : createSqlFacultyAvailabilityRepository(db))})});
   const schedulingTaskRoutes=createSchedulingTaskFunctions({api:createSchedulingTaskApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('schedulingTask') : createSqlSchedulingTaskRepository(db)),writeGates})});

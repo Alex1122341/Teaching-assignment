@@ -7,6 +7,10 @@
  // A malformed token must never become null: that would discard stale protection.
  function versionForSave(value){
   if(value==null)return null;
+  // Firestore identifies a row by an integer revision. It is passed through
+  // untouched: formatting it as a hexadecimal rowversion would claim a concurrency
+  // contract this backend does not have.
+  if(typeof value==='number'&&Number.isInteger(value)&&value>=0)return value;
   if(typeof value==='string'){
    const match=/^(?:0x)?([0-9a-f]{16})$/i.exec(value.trim());
    if(match)return '0x'+match[1].toUpperCase();
@@ -46,7 +50,11 @@
    e.preventDefault();if(saving)return;read();saving=true;
    dialog.querySelectorAll('button').forEach(b=>b.disabled=true);
    const message=dialog.querySelector('[data-status]');
-   try{message.textContent='Saving…';const expectedVersion=versionForSave(current.scheduleVersion);await UCVM_PAWS_DATA.updateRolePeriods(current.roleAssignmentId,{expectedVersion,periods:windows});dialog.close();notify('Role effective periods saved. DOE unchanged.');await onChanged(current.facultyId);}
+   try{message.textContent='Saving…';const version=versionForSave(current.scheduleVersion);
+    // Send the token the backend understands: an integer revision for Firestore, a
+    // rowversion for SQL. Sending both would be ambiguous.
+    const payload=Number.isInteger(version)?{expectedRevision:version,periods:windows}:{expectedVersion:version,periods:windows};
+    await UCVM_PAWS_DATA.updateRolePeriods(current.roleAssignmentId,payload);dialog.close();notify('Role effective periods saved. DOE unchanged.');await onChanged(current.facultyId);}
    catch(error){message.textContent=error?.message||'Could not save effective periods.';}
    finally{saving=false;dialog.querySelectorAll('button').forEach(b=>b.disabled=false);}
   });

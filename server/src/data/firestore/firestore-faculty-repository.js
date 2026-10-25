@@ -26,6 +26,7 @@
 //      are not the contract.
 
 const { unsupported } = require('./firestore-session-repository');
+const { createFirestoreRoleAssignmentRepository } = require('./firestore-role-assignment-repository');
 
 // The lab uses document ids such as `fac-001`; the SQL API uses UUIDs. Each
 // backend validates against its own contract — neither is loosened to accept the
@@ -162,6 +163,7 @@ function createFirestoreFacultyRepository(firestore) {
   if (!firestore || typeof firestore.collection !== 'function') {
     throw Object.assign(Error('A Firestore instance is required.'), { code: 'BACKEND_CONFIG_INVALID' });
   }
+  const assignments = createFirestoreRoleAssignmentRepository(firestore);
 
   async function loadAll() {
     const snapshot = await firestore.collection('faculty').get();
@@ -239,16 +241,27 @@ function createFirestoreFacultyRepository(firestore) {
       const gathered = await gatherCounts(academicYear ? text(academicYear) : null);
       applyCounts([row], gathered);
 
-      // Sections with no source in the lab are null AND named, so a consumer can
-      // tell "unavailable" from "this person has none".
-      const unavailable = ['professionalProfile', 'jointAppointments', 'roles', 'afcRecords', 'contractDoe'];
+      // Roles now come from the authoritative collection. An empty array means the
+      // person genuinely has no assignments; `null` is reserved for a source that
+      // could not be read at all, so the two never look alike.
+      let roles = null;
+      const unavailable = ['professionalProfile', 'jointAppointments', 'afcRecords', 'contractDoe'];
+      try {
+        roles = await assignments.listByFaculty({
+          facultyId: row.facultyId,
+          academicYear: academicYear ? text(academicYear) : null
+        });
+      } catch (error) {
+        roles = null;
+        unavailable.push('roles');
+      }
 
       return {
         faculty: row,
         academicYear: academicYear ? text(academicYear) : null,
         professionalProfile: null,
         jointAppointments: null,
-        roles: null,
+        roles,
         afcRecords: null,
         contractDoe: null,
         unavailable,

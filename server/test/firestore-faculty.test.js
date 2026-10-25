@@ -133,11 +133,12 @@ test('faculty detail is a structured object, not a flat row', async () => {
   assert.ok(record.faculty, 'the faculty section must be nested');
   assert.equal(record.faculty.displayName, 'Chen, Morgan');
   assert.ok('academicYear' in record);
-  // Unavailable sections are null AND named, so a consumer can tell them apart
-  // from a genuinely empty collection.
-  assert.equal(record.roles, null);
+  // Roles are now sourced, so an empty array means "this person has none" and the
+  // section is NOT listed as unavailable. Sections with no source stay null AND
+  // named, so a consumer can still tell the two apart.
+  assert.deepEqual(record.roles, [], 'no assignments means an empty array, not null');
+  assert.equal(record.unavailable.includes('roles'), false);
   assert.equal(record.afcRecords, null);
-  assert.ok(record.unavailable.includes('roles'));
   assert.ok(record.unavailable.includes('afcRecords'));
 });
 
