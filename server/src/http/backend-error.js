@@ -51,17 +51,24 @@ const BACKEND_ERRORS = Object.freeze({
 });
 
 // Firestore Admin SDK failures arrive as gRPC status codes on `error.code`
-// (numbers, not our string codes) plus a `details`/`message` string.
+// (numbers, not our string codes).
+//
+// IMPORTANT: the Admin SDK bypasses Firestore security rules, so PERMISSION_DENIED
+// and UNAUTHENTICATED from it describe the *server's* credential, not the calling
+// user. Reporting them as 403/401 would tell a signed-in user they lack permission
+// for something that is actually a deployment fault, and would send operators
+// looking at the wrong layer. They are therefore server faults (5xx). End-user
+// authorization uses our own typed codes, which are unambiguous.
 const GRPC_STATUS = Object.freeze({
-  5: { status: 404, message: 'The requested record was not found.' },
-  6: { status: 409, message: 'This record was changed by someone else. Reload and try again.' },
-  7: { status: 403, message: 'The service is not authorized to perform this operation.' },
-  8: { status: 429, message: 'The data service is busy. Try again shortly.' },
-  9: { status: 409, message: 'This record was changed by someone else. Reload and try again.' },
-  10: { status: 503, message: 'The data service is unavailable.' },
-  13: { status: 500, message: 'The data service failed unexpectedly.' },
-  14: { status: 503, message: 'The data service is unavailable.' },
-  16: { status: 401, message: 'The service credential was rejected.' }
+  5: { status: 404, code: 'BACKEND_NOT_FOUND', message: 'The requested record was not found.' },
+  6: { status: 409, code: 'REVISION_CONFLICT', message: 'This record was changed by someone else. Reload and try again.' },
+  7: { status: 500, code: 'BACKEND_CREDENTIAL_FORBIDDEN', message: 'The service credential is not permitted to perform this operation.' },
+  8: { status: 429, code: 'BACKEND_RATE_LIMITED', message: 'The data service is busy. Try again shortly.' },
+  9: { status: 409, code: 'REVISION_CONFLICT', message: 'This record was changed by someone else. Reload and try again.' },
+  10: { status: 503, code: 'BACKEND_UNAVAILABLE', message: 'The data service is unavailable.' },
+  13: { status: 500, code: 'BACKEND_FAILURE', message: 'The data service failed unexpectedly.' },
+  14: { status: 503, code: 'BACKEND_UNAVAILABLE', message: 'The data service is unavailable.' },
+  16: { status: 500, code: 'BACKEND_CREDENTIAL_INVALID', message: 'The service credential was rejected.' }
 });
 
 function failure(status, code, message) {
@@ -74,6 +81,13 @@ function backendFailure(caught) {
   if (!caught || typeof caught !== 'object') return null;
 
   const code = typeof caught.code === 'string' ? caught.code : '';
+
+  // Firebase Auth token failures carry `auth/...` codes. They are the caller's,
+  // not the server's, so they stay 401 even though the SDK produced them.
+  if (code.startsWith('auth/')) {
+    return failure(401, 'UNAUTHENTICATED', 'Sign in required.');
+  }
+
   if (code && BACKEND_ERRORS[code]) {
     const mapped = BACKEND_ERRORS[code];
     return failure(mapped.status, code, mapped.message);
@@ -83,7 +97,7 @@ function backendFailure(caught) {
   const grpc = Number(caught.code);
   if (Number.isInteger(grpc) && GRPC_STATUS[grpc]) {
     const mapped = GRPC_STATUS[grpc];
-    return failure(mapped.status, `BACKEND_${grpc}`, mapped.message);
+    return failure(mapped.status, mapped.code, mapped.message);
   }
 
   return null;

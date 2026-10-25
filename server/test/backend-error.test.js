@@ -28,20 +28,37 @@ test('an unconfigured backend is 503, never 501', () => {
   }
 });
 
-test('Firestore connectivity and permission failures keep their own status', () => {
-  // gRPC status codes as the Admin SDK reports them.
-  const unavailable = backendFailure(Object.assign(Error('x'), { code: 14 }));
-  assert.equal(unavailable.status, 503);
-  assert.equal(unavailable.body.error.code, 'BACKEND_14');
+test('Firestore connectivity failures are 503', () => {
+  for (const grpc of [10, 14]) {
+    const response = backendFailure(Object.assign(Error('x'), { code: grpc }));
+    assert.equal(response.status, 503, String(grpc));
+    assert.equal(response.body.error.code, 'BACKEND_UNAVAILABLE');
+  }
+});
 
-  const permission = backendFailure(Object.assign(Error('x'), { code: 7 }));
-  assert.equal(permission.status, 403);
+test('an Admin SDK credential failure is a server fault, never the user\'s 403/401', () => {
+  // The Admin SDK bypasses Firestore rules, so PERMISSION_DENIED (7) and
+  // UNAUTHENTICATED (16) describe the service credential. Telling a signed-in user
+  // "you are forbidden" would send them and the operator to the wrong layer.
+  const forbidden = backendFailure(Object.assign(Error('x'), { code: 7 }));
+  assert.equal(forbidden.status, 500);
+  assert.equal(forbidden.body.error.code, 'BACKEND_CREDENTIAL_FORBIDDEN');
 
-  const deadlineless = backendFailure(Object.assign(Error('x'), { code: 10 }));
-  assert.equal(deadlineless.status, 503);
+  const unauthenticated = backendFailure(Object.assign(Error('x'), { code: 16 }));
+  assert.equal(unauthenticated.status, 500);
+  assert.equal(unauthenticated.body.error.code, 'BACKEND_CREDENTIAL_INVALID');
 
-  // A permission failure must never be reported as "not implemented".
+  // Neither may be mistaken for "not implemented".
   assert.equal(isUnsupported(Object.assign(Error('x'), { code: 7 })), false);
+  assert.equal(isUnsupported(Object.assign(Error('x'), { code: 16 })), false);
+});
+
+test('a Firebase Auth token failure is the caller\'s 401', () => {
+  for (const code of ['auth/id-token-expired', 'auth/id-token-revoked', 'auth/argument-error']) {
+    const response = backendFailure(Object.assign(Error('x'), { code }));
+    assert.equal(response.status, 401, code);
+    assert.equal(response.body.error.code, 'UNAUTHENTICATED');
+  }
 });
 
 test('authentication and authorization outcomes stay distinct', () => {
@@ -54,6 +71,8 @@ test('a revision conflict is 409', () => {
   assert.equal(backendFailure(typed('REVISION_CONFLICT')).status, 409);
   assert.equal(backendFailure(Object.assign(Error('x'), { code: 6 })).status, 409);
   assert.equal(backendFailure(Object.assign(Error('x'), { code: 9 })).status, 409);
+  // A conflict is not an unsupported feature.
+  assert.equal(isUnsupported(Object.assign(Error('x'), { code: 6 })), false);
 });
 
 test('an unknown error is not guessed at', () => {

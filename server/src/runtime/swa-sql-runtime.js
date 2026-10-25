@@ -29,7 +29,7 @@ const { createTraineeApi } = require('../trainees/trainee-api');
 const { createSqlTraineeRepository } = require('../data/sql-trainee-repository');
 const { createAfcRequestFunctions } = require('./swa-afc-request-functions');
 const { createSwaAfcArtifactFunctions } = require('./swa-afc-artifact-functions');
-const { createFirebaseVerifier } = require('../auth/firebase-admin');
+const { createFirebaseVerifier, createFirebaseFirestore, ensureFirebaseApp, appProjectId } = require('../auth/firebase-admin');
 // Beta's token verifier lives beside this repository's `firebase-sql-auth.js`
 // rather than replacing it: that module implements a different "verify and
 // provision in one step" contract used by `server/src/server.js`.
@@ -133,8 +133,27 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   // the development environment can actually run.
   const dataBackend = resolveDataBackend(env);
   const firestoreMode = dataBackend === 'firestore';
+  // One app, explicitly selected, shared by Auth and Firestore. Calling
+  // admin.firestore() with no argument would resolve the default app, which may
+  // never have been initialised and may point at a different project than the
+  // token being verified.
+  // Created lazily and memoised. Both Auth and Firestore ask for the same named
+  // app, so they share one instance without forcing a credential lookup at
+  // composition time — a runtime composed for a health probe must not need a
+  // service account just to exist.
+  let firebaseApp = null;
+  const getFirebaseApp = () => {
+    if (!firebaseApp) {
+      firebaseApp = ensureFirebaseApp({
+        admin,
+        projectId: env.FIREBASE_PROJECT_ID,
+        serviceAccountJson: env.FIREBASE_SERVICE_ACCOUNT_JSON
+      });
+    }
+    return firebaseApp;
+  };
   const firestore = dataBackend === 'firestore'
-    ? (typeof admin.firestore === 'function' ? admin.firestore() : null)
+    ? createFirebaseFirestore({ admin, projectId: env.FIREBASE_PROJECT_ID, serviceAccountJson: env.FIREBASE_SERVICE_ACCOUNT_JSON, app: getFirebaseApp() })
     : null;
   const db = createSqlConnection(connectionOptions(env, { sqlModule: sqlClient }));
   // The workbook import path is bounded separately because a full-year CCC or
@@ -155,7 +174,7 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   const facultyAdminWrite = (firestoreMode ? unimplementedRepository('facultyAdmin') : createSqlFacultyAdminRepository(db));
   const writeGates = createWriteGates(env);
   const realVerify = createFirebaseSqlAuth({
-    verifyIdToken: createFirebaseVerifier({ admin, projectId: env.FIREBASE_PROJECT_ID, serviceAccountJson: env.FIREBASE_SERVICE_ACCOUNT_JSON }),
+    verifyIdToken: createFirebaseVerifier({ admin, projectId: env.FIREBASE_PROJECT_ID, serviceAccountJson: env.FIREBASE_SERVICE_ACCOUNT_JSON, app: firestoreMode ? getFirebaseApp() : null }),
     expectedProjectId: env.FIREBASE_PROJECT_ID
   });
   const support=createSupportService({db,verifyToken:realVerify,findUser:users.findByUid});
@@ -187,7 +206,14 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
         return { ok: false, backend: 'firestore', configured: true, reason: mapped ? mapped.body.error.code : 'FIRESTORE_UNREACHABLE' };
       }
     }
-    return { ok: await db.health(), backend: 'sql', configured: db.isConfigured };
+    // A probe that throws is indistinguishable from a crash, so the SQL branch
+    // fails closed into the same report shape as the Firestore branch.
+    try {
+      return { ok: await db.health(), backend: 'sql', configured: db.isConfigured };
+    } catch (error) {
+      const mapped = backendFailure(error);
+      return { ok: false, backend: 'sql', configured: db.isConfigured, reason: mapped ? mapped.body.error.code : 'SQL_UNREACHABLE' };
+    }
   }
 
   const timetable = createSwaFunctions({ api: createDataApi({
@@ -290,6 +316,12 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     // response status, so a genuine Firestore outage keeps its own code.
     const unsupported = await unsupportedDomainFor(pathname);
     if (unsupported) {
+      // The gate must not become a way to probe the system anonymously, and it must
+      // not outrank authorization. Identity is established in the same order the
+      // real APIs use: token, then profile, then capability. Only a caller who
+      // would have been allowed to call this route learns that it is unbuilt.
+      const denial = await authorizeForUnsupported(request);
+      if (denial) return denial;
       return{status:501,jsonBody:{error:{code:'BACKEND_OPERATION_UNSUPPORTED',message:'This feature has no Firestore implementation yet. It is not broken; it is not built.',domain:unsupported}}};
     }
     if(pathname==='/api/v1/ccc-schedule')return cccScheduleRoutes(request);
@@ -340,6 +372,38 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   ];
   const firestoreImplemented = new Set(Object.keys(FIRESTORE_REPOSITORIES));
 
+  // Mirrors the identity boundary the APIs apply, so the 501 gate cannot be used
+  // to skip authentication. support.handle does not authenticate ordinary
+  // requests, so this is the only place that runs before domain dispatch.
+  async function authorizeForUnsupported(request) {
+    const header = String(request.headers.get('authorization') || '');
+    const token = header.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
+      return { status: 401, jsonBody: { error: { code: 'UNAUTHENTICATED', message: 'Sign in required.' } } };
+    }
+    let decoded;
+    try {
+      decoded = await realVerify(token);
+    } catch {
+      return { status: 401, jsonBody: { error: { code: 'UNAUTHENTICATED', message: 'Sign in required.' } } };
+    }
+    let profile;
+    try {
+      profile = await users.findByUid(decoded.uid);
+    } catch (error) {
+      const mapped = backendFailure(error);
+      if (mapped) return { status: mapped.status, jsonBody: mapped.body };
+      return { status: 503, jsonBody: { error: { code: 'BACKEND_UNAVAILABLE', message: 'The data service is unavailable.' } } };
+    }
+    // Unknown and inactive accounts are refused here exactly as they are on the
+    // implemented routes; an unbuilt feature must not be more reachable than a
+    // built one.
+    if (!profile || profile.active !== true) {
+      return { status: 403, jsonBody: { error: { code: 'PROFILE_REQUIRED', message: 'An active user profile is required.' } } };
+    }
+    return null;
+  }
+
   async function unsupportedDomainFor(pathname) {
     if (!firestoreMode) return null;
     for (const [pattern, domain] of DOMAIN_BY_PATH) {
@@ -354,6 +418,9 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   const route = async request => dispatch(request);
 
   const handler = request => support.handle(request,route);
+  // Exposed so the deployment can probe the real backend instead of inferring it,
+  // and so the probe is testable without standing up HTTP.
+  handler.health = backendHealth;
   handler.close = () => Promise.all([db.close(), calendarImportDb.close()]);
   return handler;
 }
