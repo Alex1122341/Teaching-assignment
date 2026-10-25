@@ -402,6 +402,9 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
     async faculty(token, { academicYear: year, search, limit, status = 'active' } = {}) {
       const resolved = resolveYear(year);
       if (resolved.error) return resolved.error;
+      // The filter vocabulary is unchanged: active, inactive, all. The third state
+      // (status never established) is surfaced per row and through dataQuality
+      // rather than by widening this contract.
       if (!['active', 'inactive', 'all'].includes(status)) return error(400, 'INVALID_FACULTY_STATUS', 'Faculty status must be active, inactive, or all.');
       return guarded(token, scope => {
         if (!scope.administrator && status !== 'active') return error(403, 'ROLE_DENIED', 'This role can only read its own active Faculty record.');
@@ -413,7 +416,15 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
           status,
           facultyId: scope.facultyScoped ? scope.facultyId : null
         })
-        .then(faculty => result(200, { faculty, count: faculty.length }));
+        .then(outcome => {
+          // The SQL repository returns a bare array; the Firestore one returns rows
+          // plus data-quality metadata that must survive serialisation so the
+          // browser can warn about unestablished statuses.
+          const faculty = Array.isArray(outcome) ? outcome : outcome.rows;
+          const body = { faculty, count: faculty.length };
+          if (!Array.isArray(outcome) && outcome.dataQuality) body.dataQuality = outcome.dataQuality;
+          return result(200, body);
+        });
       });
     },
 

@@ -184,3 +184,95 @@ otherwise.
   an authoritative source.
 - Whether `expiryDate` implies employment status. It is a date with no documented
   semantics here, so it is **not** used to infer `active`.
+
+---
+
+# Corrections after review (commit series starting `fc903d8`)
+
+## Detail contract is structured, not flat
+
+`facultyById()` previously returned a flat row. The SQL contract
+(`sql-dashboard-repository.js:815`) returns:
+
+```
+{ faculty, academicYear, professionalProfile, jointAppointments,
+  roles, afcRecords, contractDoe }
+```
+
+The Firestore implementation now returns the same top-level shape. Sections with
+no source are `null` **and** listed in `unavailable`, so a consumer can tell
+"unavailable" from "this person genuinely has none". An empty array would have
+been indistinguishable from a real empty result and is not used.
+
+Currently unavailable: `professionalProfile`, `jointAppointments`, `roles`,
+`afcRecords`, `contractDoe`.
+
+## Counting rules
+
+| Count | Source | Rule |
+|---|---|---|
+| `sessionCount` | `sessions.facultyIds[]` | only sessions whose `date` falls in the requested academic year (1 May – 30 April), matching SQL `c.AcademicYear = @academicYear` |
+| `roleCount` | `role_assignments.facultyId` | singular field, equality |
+| `afcCount` | `afc_requests.facultyId` | singular field, equality |
+
+The earlier revision used `array-contains` against `facultyIds` for AFC and roles.
+Neither collection has that field, so those counts were silently always zero.
+
+A failed count query returns `null` and is named in
+`dataQuality.countFailures` with the code `COUNT_QUERY_FAILED`. A zero is a claim
+about the data; a failed query makes no claim. The earlier behaviour of returning
+0 was fabricating a fact.
+
+Counting is three collection reads per request, not three per faculty. At the
+reference scale of roughly 1,900 sessions the previous N+1 approach meant about
+6,000 reads for a 200-row page.
+
+## Employment status is three-valued
+
+| `status` | Meaning |
+|---|---|
+| `active` | `active === true` |
+| `inactive` | `active === false` |
+| `unknown` | field absent or not a boolean |
+
+`unknown` is **not** folded into `inactive`. The list filter vocabulary stays
+`active` / `inactive` / `all` because that is the existing API contract; the third
+state is exposed per row via `status` and in aggregate via
+`dataQuality.missingActive`, which is enumerable so it survives JSON
+serialisation and can be displayed.
+
+## FTE unit contract
+
+FTE is a **fraction of one full-time equivalent**: `1` is full time, `0.8` is four
+days. This matches SQL `Fte decimal(6,4)` and the seed generator, which writes `1`
+and `0.8`.
+
+Percentages are **not** the contract. A value of `100` is not "100 percent" and is
+not scaled; it is an invalid value. Tests that used `100` / `60` were wrong and
+have been corrected.
+
+## Identifier validation
+
+Each backend validates against its own identifier contract:
+
+| Backend | Faculty id format |
+|---|---|
+| SQL | UUID (`8-4-4-4-12` hex) |
+| Firestore | document id, `[A-Za-z0-9][A-Za-z0-9_-]{1,62}`, no `..` |
+
+Neither validator is loosened to accept the other's format. The Firestore
+repository never coerces a document id into a UUID.
+
+## Still unresolved
+
+- Faculty write operations (`updateFaculty`, `deactivateFaculty`,
+  `restoreFaculty`) remain unimplemented and return 501. They need the SQL
+  `expectedUpdatedAtUtc` / `expectedProfileVersion` contract translated into a
+  genuine Firestore revision precondition, plus an append-only audit design.
+  No integer revision is presented as a SQL rowversion.
+- `role_assignments` is read for counting only. The collection has no writer yet.
+- Date boundary semantics for role periods are **not** yet implemented, so the
+  inclusive-versus-exclusive question is unresolved rather than decided.
+- Firestore rules still allow a Faculty account to read its whole `faculty`
+  document, which contradicts the administrator-only classification of DOE and
+  workload policy data in §7. This is a live contradiction and is not fixed.

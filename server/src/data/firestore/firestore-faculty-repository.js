@@ -2,28 +2,34 @@
 
 // Firestore implementation of the Faculty read path.
 //
-// Contract source: `server/src/data/sql-dashboard-repository.js` `faculty()`
-// (line 376) and `facultyById()`. The row shape is kept identical so the API and
-// the browser cannot tell which backend answered.
+// Contract source: `server/src/data/sql-dashboard-repository.js`
+//   `faculty()`      line 376 — list rows
+//   `facultyById()`  line 537 — a STRUCTURED detail object, not a flat row
 //
-// Field mapping and the gaps behind it are recorded in
-// docs/migration/PAWS_FACULTY_FIELD_MAPPING.md. Three decisions carried over:
+// Corrections applied after review, each recorded because each was a real
+// contract error in the previous revision:
 //
-//   1. A missing `active` field is treated as inactive. The live lab documents do
-//      not carry `active`, and a record whose employment status was never
-//      established must not appear as current staff. The count is reported so the
-//      gap is visible rather than turning the roster silently empty.
-//   2. `facultyId` is the Firestore document id, used verbatim. It is not a UUID
-//      and is never coerced into one.
-//   3. Counts (sessions, roles, AFC) are derived per faculty. They are computed
-//      from the collections that own them, never stored on the faculty document,
-//      so they cannot drift.
+//   1. `facultyById()` returned a flat row. The SQL contract and the browser
+//      expect `{ faculty, academicYear, professionalProfile, jointAppointments,
+//      roles, afcRecords, contractDoe }`. Sections with no source are `null` and
+//      named in `unavailable` — never an empty array, which would read as "this
+//      person genuinely has none".
+//   2. AFC and role counts used `array-contains` on a `facultyIds` field that does
+//      not exist on those collections. AFC stores a singular `facultyId`.
+//   3. A failed count query returned 0. A zero is a claim about the data; when the
+//      query fails we have no such claim, so it is reported as unknown.
+//   4. Counting was N+1 — three queries per faculty. It is now three queries in
+//      total, aggregated in memory.
+//   5. `active` was collapsed to a boolean, which turned "status not established"
+//      into a confirmed inactive. It is now three-valued.
+//   6. FTE is a fraction (SQL: `decimal(6,4)`, seed writes 1 and 0.8). Percentages
+//      are not the contract.
 
 const { unsupported } = require('./firestore-session-repository');
 
-// The SQL API validates Faculty ids as UUIDs. The lab uses document ids such as
-// `fac-001`. Both are legitimate; what is not legitimate is accepting either one
-// everywhere. Each backend validates against its own identifier contract.
+// The lab uses document ids such as `fac-001`; the SQL API uses UUIDs. Each
+// backend validates against its own contract — neither is loosened to accept the
+// other's format.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LAB_DOCUMENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{1,62}$/;
 
@@ -37,7 +43,12 @@ function text(value) {
   return String(value).trim();
 }
 
-function toNumber(value) {
+// FTE is a fraction of one full-time equivalent: 1 = full time, 0.8 = four days.
+// SQL stores it as `decimal(6,4)` and the seed writes `1` / `0.8`. A value like 100
+// is not "100 percent", it is invalid — scaling it would multiply every workload
+// figure by a hundred.
+function toFte(value) {
+  if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -50,13 +61,21 @@ function isoFromTimestamp(value) {
   return null;
 }
 
-// "Last Name, First Name" — the display rule the whole product uses. Applied here
-// so every backend produces the same string and the browser never composes names.
+// "Last Name, First Name" — composed server-side so every backend produces the
+// same string and the browser never assembles a name itself.
 function displayNameOf(document) {
   const last = text(document.lastName);
   const first = text(document.firstName);
   if (last && first) return `${last}, ${first}`;
   return last || first;
+}
+
+// Three-valued employment status. `unknown` means the record never established
+// one, which is different from a confirmed `inactive`.
+function statusOf(document) {
+  if (document.active === true) return 'active';
+  if (document.active === false) return 'inactive';
+  return 'unknown';
 }
 
 function toRow(id, document) {
@@ -65,26 +84,25 @@ function toRow(id, document) {
     preferredFirstName: text(document.firstName),
     preferredLastName: text(document.lastName),
     displayName: displayNameOf(document),
+    storedDisplayName: text(document.displayName),
     ucid: text(document.ucid),
     email: text(document.email),
     // No source in the lab. Reported empty rather than fabricated.
     recordType: '',
     stream: '',
     rank: text(document.rank),
-    fte: toNumber(document.fte),
+    fte: toFte(document.fte),
     reportsToFacultyId: '',
     reportsToName: '',
-    // See the header note: absent means not established, which fails closed.
     active: document.active === true,
-    activeEstablished: document.active === true || document.active === false,
+    status: statusOf(document),
     updatedAtUtc: isoFromTimestamp(document.updatedAt),
     teachingArea: '',
     professionalCategory: '',
-    // Counts are filled in by the caller, which owns the other collections.
-    sessionCount: 0,
-    roleCount: 0,
-    afcCount: 0,
-    jointAppointmentCount: 0
+    sessionCount: null,
+    roleCount: null,
+    afcCount: null,
+    jointAppointmentCount: null
   };
 }
 
@@ -96,14 +114,47 @@ function matchesSearch(row, needle) {
   return haystack.includes(needle.toLowerCase());
 }
 
-async function countWhere(firestore, collectionName, field, value) {
+// Academic year runs 1 May – 30 April, matching the SQL session API.
+function academicYearForDate(date) {
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(date || '').trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const start = month >= 5 ? year : year - 1;
+  return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
+}
+
+// Counts are gathered with ONE query per collection and aggregated in memory,
+// instead of three queries per faculty. At reference scale (about 1,900 sessions)
+// that is the difference between three round trips and six thousand.
+//
+// A failure is reported, not converted into zero: `null` means "not known", and
+// the caller surfaces it rather than telling the browser this person has none.
+async function countByFaculty(firestore, collectionName, field, { equals = false, academicYear = null, dated = false } = {}) {
   try {
-    const snapshot = await firestore.collection(collectionName).where(field, 'array-contains', value).get();
-    return snapshot.docs.length;
-  } catch {
-    // A missing collection or index is not a reason to fail the roster; the count
-    // is reported as zero and the row is still usable.
-    return 0;
+    const snapshot = await firestore.collection(collectionName).get();
+    const counts = new Map();
+    for (const doc of snapshot.docs) {
+      const data = doc.data() || {};
+      // Session counts are per academic year, matching the SQL contract, which
+      // filters `c.AcademicYear = @academicYear`. Counting every session ever
+      // recorded would overstate a current roster.
+      if (dated && academicYear && academicYearForDate(data.date) !== academicYear) continue;
+      const value = data[field];
+      if (equals) {
+        const key = text(value);
+        if (key) counts.set(key, (counts.get(key) || 0) + 1);
+      } else if (Array.isArray(value)) {
+        for (const entry of new Set(value.map(text).filter(Boolean))) {
+          counts.set(entry, (counts.get(entry) || 0) + 1);
+        }
+      }
+    }
+    return { ok: true, counts };
+  } catch (error) {
+    // A stable code, not the raw gRPC number: the number means nothing to a client
+    // and the point is simply that the count could not be established.
+    return { ok: false, error: 'COUNT_QUERY_FAILED', detail: text(error && error.code) || null, counts: new Map() };
   }
 }
 
@@ -117,16 +168,41 @@ function createFirestoreFacultyRepository(firestore) {
     return snapshot.docs.map(doc => toRow(doc.id, doc.data() || {}));
   }
 
+  // Three queries total, shared by the whole page of rows.
+  async function gatherCounts(academicYear = null) {
+    const sessions = await countByFaculty(firestore, 'sessions', 'facultyIds', { academicYear, dated: true });
+    const afc = await countByFaculty(firestore, 'afc_requests', 'facultyId', { equals: true });
+    const roles = await countByFaculty(firestore, 'role_assignments', 'facultyId', { equals: true });
+    const problems = {};
+    if (!sessions.ok) problems.sessionCount = sessions.error;
+    if (!afc.ok) problems.afcCount = afc.error;
+    if (!roles.ok) problems.roleCount = roles.error;
+    return { sessions, afc, roles, problems };
+  }
+
+  function applyCounts(rows, gathered) {
+    for (const row of rows) {
+      row.sessionCount = gathered.sessions.ok ? (gathered.sessions.counts.get(row.facultyId) || 0) : null;
+      row.afcCount = gathered.afc.ok ? (gathered.afc.counts.get(row.facultyId) || 0) : null;
+      row.roleCount = gathered.roles.ok ? (gathered.roles.counts.get(row.facultyId) || 0) : null;
+      // No joint-appointment collection exists in the lab.
+      row.jointAppointmentCount = null;
+    }
+  }
+
   const repository = {
-    // Mirrors the SQL signature so the Dashboard API needs no branch.
-    async faculty({ search = null, limit = 200, facultyId = null, status = 'active' } = {}) {
-      if (!['active', 'inactive', 'all'].includes(status)) {
+    async faculty({ search = null, limit = 200, facultyId = null, status = 'active', academicYear = null } = {}) {
+      if (!['active', 'inactive', 'unknown', 'all'].includes(status)) {
         throw Object.assign(Error('Invalid Faculty status filter'), { code: 'INVALID_STATUS', status: 400 });
       }
-      let rows = await loadAll();
+      const all = await loadAll();
+      let rows = all;
 
-      if (status === 'active') rows = rows.filter(row => row.active === true);
-      else if (status === 'inactive') rows = rows.filter(row => row.active !== true);
+      // An unestablished status is its own bucket. Folding it into `inactive`
+      // would report a confirmed employment decision that nobody made.
+      if (status === 'active') rows = rows.filter(row => row.status === 'active');
+      else if (status === 'inactive') rows = rows.filter(row => row.status === 'inactive');
+      else if (status === 'unknown') rows = rows.filter(row => row.status === 'unknown');
 
       if (facultyId) {
         const wanted = text(facultyId);
@@ -134,44 +210,55 @@ function createFirestoreFacultyRepository(firestore) {
       }
       if (search) rows = rows.filter(row => matchesSearch(row, text(search)));
 
-      rows.sort((a, b) => a.displayName.localeCompare(b.displayName) || a.facultyId.localeCompare(b.facultyId));
+      rows = [...rows].sort((a, b) => a.displayName.localeCompare(b.displayName) || a.facultyId.localeCompare(b.facultyId));
       const bounded = Number.isInteger(limit) && limit > 0 ? rows.slice(0, limit) : rows;
 
-      // Derived counts. Session links live on the session document, AFC and roles
-      // live in their own collections, so the faculty document stays authoritative
-      // only for the person.
-      await Promise.all(bounded.map(async row => {
-        row.sessionCount = await countWhere(firestore, 'sessions', 'facultyIds', row.facultyId);
-        row.afcCount = await countWhere(firestore, 'afc_requests', 'facultyIds', row.facultyId);
-        row.roleCount = await countWhere(firestore, 'role_assignments', 'facultyIds', row.facultyId);
-      }));
+      const gathered = await gatherCounts(academicYear ? text(academicYear) : null);
+      applyCounts(bounded, gathered);
 
-      const missingActive = (await loadAll()).filter(row => row.activeEstablished !== true).length;
-      // Attached non-enumerably so the array still serialises as a plain list for
-      // the existing contract, while the caller can read the data-quality signal.
-      Object.defineProperty(bounded, 'dataQuality', {
-        value: { missingActive }, enumerable: false
-      });
-      return bounded;
+      return {
+        rows: bounded,
+        dataQuality: {
+          missingActive: all.filter(row => row.status === 'unknown').length,
+          total: all.length,
+          academicYear: academicYear ? text(academicYear) : null,
+          countFailures: gathered.problems
+        }
+      };
     },
 
-    async facultyById({ facultyId, includeInactive = false } = {}) {
+    async facultyById({ facultyId, academicYear = null, includeInactive = false } = {}) {
       const id = text(facultyId);
       if (!id) return null;
       const snapshot = await firestore.collection('faculty').doc(id).get();
       if (!snapshot.exists) return null;
+
       const row = toRow(snapshot.id, snapshot.data() || {});
-      if (row.active !== true && !includeInactive) return null;
-      row.sessionCount = await countWhere(firestore, 'sessions', 'facultyIds', row.facultyId);
-      row.afcCount = await countWhere(firestore, 'afc_requests', 'facultyIds', row.facultyId);
-      row.roleCount = await countWhere(firestore, 'role_assignments', 'facultyIds', row.facultyId);
-      return row;
+      if (row.status !== 'active' && !includeInactive) return null;
+
+      const gathered = await gatherCounts(academicYear ? text(academicYear) : null);
+      applyCounts([row], gathered);
+
+      // Sections with no source in the lab are null AND named, so a consumer can
+      // tell "unavailable" from "this person has none".
+      const unavailable = ['professionalProfile', 'jointAppointments', 'roles', 'afcRecords', 'contractDoe'];
+
+      return {
+        faculty: row,
+        academicYear: academicYear ? text(academicYear) : null,
+        professionalProfile: null,
+        jointAppointments: null,
+        roles: null,
+        afcRecords: null,
+        contractDoe: null,
+        unavailable,
+        dataQuality: { countFailures: gathered.problems }
+      };
     }
   };
 
-  // Writes are not implemented yet. They need the identifier-format decision
-  // (lab document id vs SQL UUID) settled for the API's own validation first, and
-  // a revision + audit design. Refusing is honest; accepting would be a lie.
+  // Writes need the identifier decision applied to the API's own validation plus a
+  // revision and audit design. Until then they refuse; accepting would be a lie.
   for (const operation of ['updateFaculty', 'deactivateFaculty', 'restoreFaculty', 'updateRolePeriods']) {
     repository[operation] = () => { throw unsupported(`dashboard.${operation}`); };
   }
@@ -181,8 +268,11 @@ function createFirestoreFacultyRepository(firestore) {
 module.exports = {
   LAB_DOCUMENT_ID,
   UUID,
+  academicYearForDate,
   createFirestoreFacultyRepository,
   displayNameOf,
+  statusOf,
+  toFte,
   toRow,
   validLabFacultyId
 };
