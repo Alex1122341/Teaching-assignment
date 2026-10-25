@@ -56,7 +56,11 @@ function toPeriods(document) {
 // `periodsJson` when a schedule exists, and the legacy single pair otherwise.
 function toClassifierInput(document) {
   const periods = toPeriods(document);
-  if (periods.length) return { hasSchedule: true, periodsJson: JSON.stringify(periods) };
+  // An explicitly present `periods` array is a schedule even when empty: it says
+  // "this assignment covers no periods", which classifies as inactive. Only a
+  // document with no `periods` field at all falls back to the legacy single pair,
+  // where a missing start means the dates were never established.
+  if (Array.isArray(document.periods)) return { hasSchedule: true, periodsJson: JSON.stringify(periods) };
   return {
     hasSchedule: false,
     effectiveDate: text(document.effectiveDate) || null,
@@ -89,17 +93,46 @@ function toRecord(id, document, asOf) {
   };
 }
 
+// Periods are validated as a normalized sequence, not as independent windows.
+// Dates are inclusive, so two periods that merely touch (`endDate === next
+// startDate`) overlap on that day and are rejected — the same day cannot be
+// covered twice by one assignment.
 function validatePeriods(periods) {
-  if (!Array.isArray(periods) || periods.length === 0) return 'At least one period is required.';
+  if (!Array.isArray(periods)) return 'Periods must be a list.';
+  if (periods.length === 0) return 'At least one period is required.';
   if (periods.length > 12) return 'At most twelve periods are allowed.';
-  for (const period of periods) {
-    const start = period && period.startDate != null && period.startDate !== '' ? String(period.startDate) : null;
-    const end = period && period.endDate != null && period.endDate !== '' ? String(period.endDate) : null;
+
+  let previousStart = null;
+  let previousEnd = null;
+  let sawOpenEnded = false;
+
+  for (let index = 0; index < periods.length; index += 1) {
+    const period = periods[index];
+    if (!period || typeof period !== 'object' || Array.isArray(period)) return 'Each period must be an object.';
+    const start = period.startDate != null && period.startDate !== '' ? String(period.startDate) : null;
+    const end = period.endDate != null && period.endDate !== '' ? String(period.endDate) : null;
+
     if (!start) return 'Each period needs a start date.';
     if (!validDate(start)) return `Invalid start date: ${start}.`;
     if (end !== null && !validDate(end)) return `Invalid end date: ${end}.`;
-    // Inclusive dates: an end before the start is empty, not a one-day period.
     if (end !== null && end < start) return 'A period cannot end before it starts.';
+
+    // An open-ended period runs forever, so nothing may follow it.
+    if (sawOpenEnded) return 'No period may follow an open-ended period.';
+
+    if (previousStart !== null) {
+      // Out-of-order or duplicate windows make "the current period" ambiguous.
+      if (start < previousStart) return 'Periods must be ordered by start date.';
+      if (start === previousStart) return 'Two periods cannot start on the same date.';
+      // Inclusive boundaries: touching periods share a day.
+      if (previousEnd === null || start <= previousEnd) {
+        return 'Periods must not overlap or share a boundary date.';
+      }
+    }
+
+    if (end === null) sawOpenEnded = true;
+    previousStart = start;
+    previousEnd = end;
   }
   return null;
 }
@@ -144,7 +177,15 @@ function createFirestoreRoleAssignmentRepository(firestore) {
       const facultyId = text(assignment.facultyId);
       if (!facultyId) throw Object.assign(Error('A faculty id is required.'), { code: 'INVALID_FACULTY_ID', status: 400 });
 
-      const roleAssignmentId = idFactory ? idFactory() : require('node:crypto').randomUUID();
+      // The actor is the authenticated caller, never a field the client chose.
+      // A blank actor means the caller forgot to pass verified identity, which is a
+      // programming error, not something to paper over with a placeholder.
+      const actor = text(actorFirebaseUid);
+      if (!actor) {
+        throw Object.assign(Error('A verified actor is required.'), { code: 'ACTOR_REQUIRED', status: 500 });
+      }
+
+      const roleAssignmentId = text(assignment.roleAssignmentId) || (idFactory ? idFactory() : require('node:crypto').randomUUID());
       const now = new Date();
 
       return firestore.runTransaction(async transaction => {
@@ -154,6 +195,14 @@ function createFirestoreRoleAssignmentRepository(firestore) {
         const facultySnapshot = await transaction.get(facultyRef);
         if (!facultySnapshot.exists) {
           throw Object.assign(Error('The faculty record does not exist.'), { code: 'FACULTY_NOT_FOUND', status: 400 });
+        }
+
+        // A create must never overwrite. Checking inside the transaction means two
+        // concurrent creates with the same id cannot both succeed.
+        const targetRef = firestore.collection(COLLECTION).doc(roleAssignmentId);
+        const existing = await transaction.get(targetRef);
+        if (existing.exists) {
+          throw Object.assign(Error('That assignment already exists.'), { code: 'ASSIGNMENT_EXISTS', status: 409 });
         }
 
         const record = {
@@ -167,15 +216,15 @@ function createFirestoreRoleAssignmentRepository(firestore) {
           revision: 1,
           createdAtUtc: now,
           updatedAtUtc: now,
-          createdBy: text(actorFirebaseUid),
-          updatedBy: text(actorFirebaseUid)
+          createdBy: actor,
+          updatedBy: actor
         };
-        transaction.set(firestore.collection(COLLECTION).doc(roleAssignmentId), record);
+        transaction.set(targetRef, record);
         transaction.set(firestore.collection(AUDIT).doc(), {
           roleAssignmentId,
           action: 'create',
           revision: 1,
-          actorFirebaseUid: text(actorFirebaseUid),
+          actorFirebaseUid: actor,
           recordedAtUtc: now,
           after: record
         });

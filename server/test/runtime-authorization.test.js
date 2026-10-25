@@ -120,11 +120,21 @@ test('a faculty account asking for an administrator-only operation is 403, not 5
   await runtime.close();
 });
 
-test('a faculty account asking for its own scope reaches 501 on an unbuilt feature', async () => {
+test('a faculty account asking for an administrator-only Dashboard read is 403', async () => {
   const runtime = runtimeFor();
-  // `summary` is within a faculty member's authority but has no Firestore
-  // implementation, so the answer is about the build state.
-  const response = await get(runtime, '/api/v1/dashboard/summary', 'faculty-1');
+  // dashboard-api.js marks summary, teaching-summary and roles administrator-only.
+  // The capability table previously disagreed, which produced 501 instead of 403.
+  for (const path of ['/api/v1/dashboard/summary', '/api/v1/dashboard/teaching-summary', '/api/v1/dashboard/roles']) {
+    const response = await get(runtime, path, 'faculty-1');
+    assert.equal(response.status, 403, path);
+    assert.equal(response.jsonBody.error.code, 'ROLE_DENIED', path);
+  }
+  await runtime.close();
+});
+
+test('an administrator reaches 501 on an unbuilt administrator operation', async () => {
+  const runtime = runtimeFor();
+  const response = await get(runtime, '/api/v1/dashboard/summary', 'admin-1');
   assert.equal(response.status, 501);
   assert.equal(response.jsonBody.error.code, 'BACKEND_OPERATION_UNSUPPORTED');
   await runtime.close();

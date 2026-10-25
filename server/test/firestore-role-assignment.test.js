@@ -209,3 +209,106 @@ test('an accepted update bumps the revision and appends before/after', async () 
   assert.ok(firestore.state.audit[0].before, 'the audit must record what changed');
   assert.ok(firestore.state.audit[0].after);
 });
+
+// ---------------------------------------------------------------------------
+// Period sequence validation
+// ---------------------------------------------------------------------------
+test('touching periods are rejected because inclusive boundaries share a day', () => {
+  assert.match(
+    validatePeriods([
+      { startDate: '2026-09-01', endDate: '2026-12-31' },
+      { startDate: '2026-12-31', endDate: '2027-06-30' }
+    ]),
+    /must not overlap or share a boundary date/
+  );
+});
+
+test('genuinely overlapping periods are rejected', () => {
+  assert.match(
+    validatePeriods([
+      { startDate: '2026-09-01', endDate: '2027-01-31' },
+      { startDate: '2027-01-01', endDate: '2027-06-30' }
+    ]),
+    /must not overlap/
+  );
+});
+
+test('adjacent periods with a clean gap are accepted', () => {
+  assert.equal(validatePeriods([
+    { startDate: '2026-09-01', endDate: '2026-12-31' },
+    { startDate: '2027-01-01', endDate: '2027-06-30' }
+  ]), null);
+});
+
+test('out-of-order periods are rejected', () => {
+  assert.match(
+    validatePeriods([
+      { startDate: '2027-01-01', endDate: '2027-06-30' },
+      { startDate: '2026-09-01', endDate: '2026-12-31' }
+    ]),
+    /must be ordered by start date/
+  );
+});
+
+test('duplicate start dates are rejected', () => {
+  assert.match(
+    validatePeriods([
+      { startDate: '2026-09-01', endDate: '2026-10-31' },
+      { startDate: '2026-09-01', endDate: '2026-12-31' }
+    ]),
+    /cannot start on the same date/
+  );
+});
+
+test('nothing may follow an open-ended period', () => {
+  assert.match(
+    validatePeriods([
+      { startDate: '2026-09-01', endDate: null },
+      { startDate: '2027-01-01', endDate: '2027-06-30' }
+    ]),
+    /may follow an open-ended period/
+  );
+});
+
+test('more than twelve periods is refused', () => {
+  const many = Array.from({ length: 13 }, (_, i) => ({
+    startDate: String(2020 + i) + '-09-01',
+    endDate: String(2020 + i) + '-12-31'
+  }));
+  assert.match(validatePeriods(many), /At most twelve periods/);
+});
+
+test('an explicit empty schedule is inactive, not dates-needed', () => {
+  // A document that says `periods: []` has made a statement: no coverage.
+  const explicit = toRecord('r1', doc({ periods: [] }), '2026-09-01');
+  assert.equal(explicit.status, 'inactive');
+
+  // A document with no periods field at all never established its dates.
+  const legacy = toRecord('r2', { facultyId: 'fac-001', roleType: 'HICC', revision: 1 }, '2026-09-01');
+  assert.equal(legacy.status, 'dates-needed');
+});
+
+test('creating over an existing assignment id is refused, not silently overwritten', async () => {
+  const firestore = fakeFirestore({ assignments: [{ id: 'ra-1', ...doc({ revision: 1 }) }] });
+  const repository = createFirestoreRoleAssignmentRepository(firestore);
+  await assert.rejects(
+    () => repository.create({
+      assignment: { facultyId: 'fac-001', roleType: 'VISC', periods: [{ startDate: '2026-09-01' }] },
+      actorFirebaseUid: 'admin-1',
+      idFactory: () => 'ra-1'
+    }),
+    error => error.code === 'ASSIGNMENT_EXISTS' && error.status === 409
+  );
+  assert.equal(firestore.state.assignments.length, 1, 'the existing record must survive');
+  assert.equal(firestore.state.assignments[0].roleType, 'HICC', 'and must not be mutated');
+});
+
+test('a write without a verified actor is refused', async () => {
+  const firestore = fakeFirestore();
+  const repository = createFirestoreRoleAssignmentRepository(firestore);
+  await assert.rejects(
+    () => repository.create({ assignment: { facultyId: 'fac-001', roleType: 'HICC', periods: [{ startDate: '2026-09-01' }] }, actorFirebaseUid: '', idFactory: () => 'ra-9' }),
+    error => error.code === 'ACTOR_REQUIRED'
+  );
+  assert.equal(firestore.state.audit.length, 0);
+});
