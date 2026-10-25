@@ -16,6 +16,7 @@
 // so the browser shows an unimplemented state and the API reports it honestly.
 
 const { createFirestoreSessionRepository, unsupported } = require('./firestore/firestore-session-repository');
+const { createFirestoreUserRepository } = require('./firestore/firestore-user-repository');
 
 const SUPPORTED_BACKENDS = new Set(['sql', 'firestore']);
 
@@ -48,8 +49,21 @@ function unimplementedRepository(name) {
 // Firestore implementations that exist today. Everything else is deliberately
 // absent: this list is the honest measure of how much of the backend is done.
 const FIRESTORE_REPOSITORIES = Object.freeze({
-  sessions: firestore => createFirestoreSessionRepository(firestore)
+  sessions: firestore => createFirestoreSessionRepository(firestore),
+  users: firestore => createFirestoreUserRepository(firestore)
 });
+
+
+// Spreading a refusing proxy yields an empty object, because its target has no own
+// keys — the merged repository would then fail every "is this a function" guard
+// with a confusing message. Merging therefore detects a refusing input first and
+// stays refusing.
+function mergeRepositories(...repositories) {
+  if (repositories.some(repository => repository && repository.isImplemented === false)) {
+    return unimplementedRepository('merged');
+  }
+  return Object.assign({}, ...repositories);
+}
 
 function createFirestoreRepositories(firestore, names) {
   if (!firestore) {
@@ -78,6 +92,7 @@ module.exports = {
   SUPPORTED_BACKENDS,
   createFirestoreRepositories,
   firestoreCoverage,
+  mergeRepositories,
   resolveDataBackend,
   unimplementedRepository
 };

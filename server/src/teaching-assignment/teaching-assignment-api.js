@@ -30,7 +30,7 @@ function createTeachingAssignmentApi({verifyToken,findUser,repository,writeGates
     const uid=String(decoded?.uid || '').trim();
     if (!uid) return {response:fail(401,'UNAUTHENTICATED','The Firebase identity is unavailable.')};
     const user=await findUser(uid);
-    if (!user || user.active!==true) return {response:fail(403,'PROFILE_REQUIRED','An active SQL user profile is required.')};
+    if (!user || user.active!==true) return {response:fail(403,'PROFILE_REQUIRED','An active user profile is required.')};
     if (user.mustChangePassword===true) return {response:fail(403,'PASSWORD_CHANGE_REQUIRED','Password change is required before access.')};
     return {uid,user,role:roleOf(user)};
   }

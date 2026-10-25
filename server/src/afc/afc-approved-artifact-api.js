@@ -17,7 +17,7 @@ const error = (status, code, message) => result(status, { error: { code, message
 const SAFE_ARTIFACT_ERRORS = new Map([
   ['ARTIFACT_NOT_FOUND', [404, 'ARTIFACT_NOT_FOUND', 'The approved AFC artifact is not available.']],
   ['REQUEST_NOT_FOUND', [404, 'REQUEST_NOT_FOUND', 'The approved AFC artifact is not available.']],
-  ['ARTIFACT_PROFILE_REQUIRED', [403, 'PROFILE_REQUIRED', 'An active SQL user profile is required.']],
+  ['ARTIFACT_PROFILE_REQUIRED', [403, 'PROFILE_REQUIRED', 'An active user profile is required.']],
   ['ARTIFACT_SOURCE_CHANGED', [409, 'ARTIFACT_SOURCE_CHANGED', 'The approved AFC request changed; retrieve a fresh request before creating its artifact.']],
   ['ARTIFACT_INPUT_INVALID', [400, 'ARTIFACT_INPUT_INVALID', 'The approved AFC artifact request is invalid.']],
   ['ARTIFACT_TOO_LARGE', [413, 'ARTIFACT_TOO_LARGE', 'The approved AFC PDF exceeds the allowed size.']],
@@ -123,7 +123,7 @@ function createAfcApprovedArtifactApi({ verifyToken, findUser, repository, rende
     try {
       profile = await findUser(uid);
     } catch {
-      return error(503, 'SERVICE_UNAVAILABLE', 'The SQL profile service is temporarily unavailable.');
+      return error(503, 'SERVICE_UNAVAILABLE', 'The profile service is temporarily unavailable.');
     }
 
     const scope = authorizeProfile(profile);

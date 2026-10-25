@@ -277,7 +277,7 @@ function mapAfcWriteError(caught) {
 // authorization descriptor.
 function resolveScope(profile) {
   if (!profile || profile.active !== true) {
-    return error(403, 'PROFILE_REQUIRED', 'An active SQL user profile is required.');
+    return error(403, 'PROFILE_REQUIRED', 'An active user profile is required.');
   }
   if (profile.mustChangePassword === true) {
     return error(403, 'PASSWORD_CHANGE_REQUIRED', 'Password change is required before Dashboard access.');
@@ -327,7 +327,7 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
     try {
       profile = await findUser(decoded.uid);
     } catch (_) {
-      return error(503, 'SERVICE_UNAVAILABLE', 'The SQL read service is temporarily unavailable.');
+      return error(503, 'SERVICE_UNAVAILABLE', 'The data service is temporarily unavailable.');
     }
 
     const scope = resolveScope(profile);

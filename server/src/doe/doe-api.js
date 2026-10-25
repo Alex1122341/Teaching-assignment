@@ -43,8 +43,8 @@ function createDoeApi({ verifyToken, findUser, repository, calculationService, w
     if (!uid) return { response: fail(401, 'UNAUTHENTICATED', 'The Firebase identity is unavailable.') };
     let user;
     try { user = await findUser(uid); }
-    catch (_) { return { response: fail(503, 'SERVICE_UNAVAILABLE', 'The SQL user profile service is unavailable.') }; }
-    if (!user || user.active !== true) return { response: fail(403, 'PROFILE_REQUIRED', 'An active SQL user profile is required.') };
+    catch (_) { return { response: fail(503, 'SERVICE_UNAVAILABLE', 'The user profile service is unavailable.') }; }
+    if (!user || user.active !== true) return { response: fail(403, 'PROFILE_REQUIRED', 'An active user profile is required.') };
     if (user.mustChangePassword === true) return { response: fail(403, 'PASSWORD_CHANGE_REQUIRED', 'Password change is required before DOE access.') };
     const role = normalizeBaseRole(user.baseRole);
     return { uid, user, role };

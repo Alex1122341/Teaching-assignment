@@ -155,7 +155,7 @@ function validateSessionAssignmentReplacement(sessionId, payload) {
 
 function validateAuthorizedProfile(profile) {
   if (!profile || profile.active !== true) {
-    return result(403, { error: { code: 'PROFILE_REQUIRED', message: 'An active SQL user profile is required.' } });
+    return result(403, { error: { code: 'PROFILE_REQUIRED', message: 'An active user profile is required.' } });
   }
   if (profile.mustChangePassword === true) {
     return result(403, { error: { code: 'PASSWORD_CHANGE_REQUIRED', message: 'Password change is required before timetable access.' } });
@@ -223,7 +223,7 @@ function createDataApi({
     try {
       profile = await findUser(decoded.uid, timing);
     } catch (_) {
-      return result(503, { error: { code: 'SERVICE_UNAVAILABLE', message: 'The SQL read service is temporarily unavailable.' } });
+      return result(503, { error: { code: 'SERVICE_UNAVAILABLE', message: 'The data service is temporarily unavailable.' } });
     }
 
     let validated;

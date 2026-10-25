@@ -29,16 +29,27 @@ function unsupported(operation) {
   );
 }
 
-// A session dated 2027-01-12 belongs to academic year 2026-27: the academic year
-// starts in September, so January is still the year that began the previous
-// September. Kept as a pure function so it is directly testable.
+// An academic year runs from 1 May to 30 April. This is not an assumption: the
+// SQL session API enforces it explicitly —
+//
+//   OR @Date <  DATEFROMPARTS(LEFT(@AcademicYear,4),     5, 1)
+//   OR @Date >= DATEFROMPARTS(LEFT(@AcademicYear,4) + 1, 5, 1)
+//     (database/azure-sql/019_session_create_and_assignment_api.sql:83-84)
+//
+// and two independent call sites use the same boundary: 053_ccc_master_slots.sql
+// (`YEAR(@Date) - IIF(MONTH(@Date) < 5, 1, 0)`) and master-source-domain.js
+// (`month >= 5 ? bounds.year : bounds.year + 1`).
+//
+// So 2026-27 means 2026-05-01 .. 2027-04-30, and a session on 2027-01-12 belongs
+// to 2026-27. The earlier September boundary agreed with May for autumn and winter
+// dates but disagreed for May–August, which is exactly where summer sessions sit.
 function academicYearForDate(date) {
   const text = String(date || '').trim();
   const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(text);
   if (!match) return null;
   const year = Number(match[1]);
   const month = Number(match[2]);
-  const startYear = month >= 9 ? year : year - 1;
+  const startYear = month >= 5 ? year : year - 1;
   return canonicalAcademicYear(`${startYear}-${startYear + 1}`);
 }
 

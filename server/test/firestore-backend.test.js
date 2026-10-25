@@ -72,10 +72,17 @@ const sessionDocs = [
   { id: 's3', course: 'VETM 401', courseName: 'Small Animal Surgery', date: '2027-09-14', start: '08:00', end: '10:00', year: 4, semester: 'fall', type: 'SRL', room: 'OR 2', topic: 'Ovariohysterectomy', instructorNames: ['Chen, Morgan'], facultyIds: ['f1'], assignments: [], timeUnknown: false, week: 1 }
 ];
 
-test('an academic year starts in September', () => {
+test('an academic year runs from 1 May to 30 April, matching the SQL rule', () => {
+  // The boundary is May, not September: the SQL session API rejects a date
+  // outside DATEFROMPARTS(year,5,1) .. DATEFROMPARTS(year+1,5,1).
+  assert.equal(academicYearForDate('2026-05-01'), '2026-27');
+  assert.equal(academicYearForDate('2026-04-30'), '2025-26');
   assert.equal(academicYearForDate('2027-01-12'), '2026-27');
   assert.equal(academicYearForDate('2026-09-01'), '2026-27');
-  assert.equal(academicYearForDate('2026-08-31'), '2025-26');
+  // Summer sits in the year that has already started, which is where a September
+  // boundary would have been wrong.
+  assert.equal(academicYearForDate('2026-08-31'), '2026-27');
+  assert.equal(academicYearForDate('2027-05-01'), '2027-28');
   assert.equal(academicYearForDate('not-a-date'), null);
 });
 
@@ -141,10 +148,11 @@ test('an unimplemented repository refuses rather than answering "no rows"', () =
 
 test('coverage states plainly which repositories exist on Firestore', () => {
   const coverage = firestoreCoverage(['sessions', 'users', 'dashboard', 'afcWrite']);
-  assert.deepEqual(coverage.implemented, ['sessions']);
-  assert.deepEqual(coverage.unimplemented, ['users', 'dashboard', 'afcWrite']);
-  const built = createFirestoreRepositories(fakeFirestore({}), ['sessions', 'dashboard']);
+  assert.deepEqual(coverage.implemented, ['sessions', 'users']);
+  assert.deepEqual(coverage.unimplemented, ['dashboard', 'afcWrite']);
+  const built = createFirestoreRepositories(fakeFirestore({}), ['sessions', 'users', 'dashboard']);
   assert.equal(typeof built.sessions.list, 'function');
+  assert.equal(typeof built.users.findByUid, 'function');
   assert.throws(() => built.dashboard.list(), error => error.code === 'BACKEND_OPERATION_UNSUPPORTED');
 });
 
@@ -207,5 +215,36 @@ test('the Firestore backend reports its own unconfigured state, not the SQL one'
   }));
   assert.equal(response.status, 503);
   assert.equal(response.jsonBody.error.code, 'FIRESTORE_NOT_CONFIGURED');
+  await runtime.close();
+});
+
+test('under Firestore an unimplemented domain answers 501, never a false 503 or empty list', async () => {
+  const admin = {
+    initializeApp() { return {}; },
+    credential: { cert() { return {}; } },
+    auth() {
+      return { verifyIdToken: async () => ({ uid: 'u1', aud: 'vista-teaching-lab', iss: 'https://securetoken.google.com/vista-teaching-lab' }) };
+    },
+    firestore() {
+      return fakeFirestore({
+        sessions: sessionDocs,
+        // Authentication runs before any domain route, so a real profile has to
+        // exist or the request stops at 403 and never reaches the domain.
+        users: [{ id: 'u1', email: 'morgan.chen@example.test', name: 'Chen, Morgan', role: 'adfa_regular', active: true, mustChangePassword: false }]
+      });
+    }
+  };
+  const runtime = createSwaSqlRuntime({
+    env: { PAWS_DATA_BACKEND: 'firestore', FIREBASE_PROJECT_ID: 'vista-teaching-lab' },
+    admin
+  });
+  // A domain whose repository has no Firestore implementation. Its API catches the
+  // repository failure and would answer 503 SQL_UNAVAILABLE; the route translates
+  // that to 501 so "not built" is never mistaken for "temporarily broken".
+  const response = await runtime(new Request('https://example.test/api/v1/dashboard/faculty', {
+    headers: { authorization: 'Bearer token' }
+  }));
+  assert.equal(response.status, 501);
+  assert.equal(response.jsonBody.error.code, 'BACKEND_OPERATION_UNSUPPORTED');
   await runtime.close();
 });

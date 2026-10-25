@@ -27,7 +27,7 @@ function roleOf(profile) {
 }
 
 function authorizeProfile(profile) {
-  if (!profile || profile.active !== true) return error(403, 'PROFILE_REQUIRED', 'An active SQL user profile is required.');
+  if (!profile || profile.active !== true) return error(403, 'PROFILE_REQUIRED', 'An active user profile is required.');
   if (profile.mustChangePassword === true) return error(403, 'PASSWORD_CHANGE_REQUIRED', 'Password change is required before AFC access.');
   const role = roleOf(profile);
   if (!ALLOWED_ROLES.has(role)) return error(403, 'ROLE_DENIED', 'This role cannot access AFC requests.');
@@ -119,7 +119,7 @@ function validateSubmitPayload(payload, actorUid) {
 function mapRepositoryError(caught) {
   const number = Number(caught && caught.number);
   const known = {
-    51501: [403, 'PROFILE_REQUIRED', 'An active faculty-linked SQL user profile is required.'],
+    51501: [403, 'PROFILE_REQUIRED', 'An active faculty-linked user profile is required.'],
     51502: [404, 'FACULTY_NOT_FOUND', 'Active Faculty record was not found.'],
     51503: [409, 'REPORT_TO_AMBIGUOUS', 'Reports-To account mapping is ambiguous and must be corrected.'],
     51504: [422, 'INVALID_DATE_RANGE', 'AFC dates are invalid.'],
@@ -170,7 +170,7 @@ function createAfcRequestApi({ verifyToken, findUser, repository, idFactory = ra
     try {
       profile = await findUser(uid);
     } catch (_) {
-      return error(503, 'SERVICE_UNAVAILABLE', 'The SQL profile service is temporarily unavailable.');
+      return error(503, 'SERVICE_UNAVAILABLE', 'The profile service is temporarily unavailable.');
     }
 
     const scope = authorizeProfile(profile);

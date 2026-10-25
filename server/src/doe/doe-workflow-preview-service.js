@@ -45,7 +45,7 @@ function summarize(worksheet){
 }
 
 function createDoeWorkflowPreviewService({repository,worksheetService,calculationService}={}){
-  if(typeof repository?.loadSessionDoeFacts!=='function')throw new TypeError('A SQL session DOE repository is required.');
+  if(typeof repository?.loadSessionDoeFacts!=='function')throw new TypeError('A session DOE repository is required.');
   if(typeof worksheetService?.buildFacultyWorksheet!=='function'||typeof worksheetService?.previewFacultyWorksheet!=='function')throw new TypeError('A DOE worksheet preview service is required.');
   if(typeof calculationService?.preview!=='function')throw new TypeError('A server DOE calculation service is required.');
 

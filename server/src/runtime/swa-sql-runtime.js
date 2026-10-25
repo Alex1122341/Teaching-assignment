@@ -4,7 +4,7 @@ const { createSqlConnection, resolveSqlDriver, parseBooleanFlag } = require('../
 const { appServiceManagedIdentityTokenWithExpiry } = require('../data/sql-identity');
 const { createSqlUserRepository } = require('../data/sql-user-repository');
 const { createSqlSessionRepository } = require('../data/sql-session-repository');
-const { resolveDataBackend, unimplementedRepository } = require('../data/backend-provider');
+const { resolveDataBackend, unimplementedRepository, mergeRepositories } = require('../data/backend-provider');
 const { createFirestoreSessionRepository } = require('../data/firestore/firestore-session-repository');
 const { createFirestoreUserRepository } = require('../data/firestore/firestore-user-repository');
 const { createSqlDashboardRepository } = require('../data/sql-dashboard-repository');
@@ -131,6 +131,7 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   // remains the intended production database; the Firestore lab backend is what
   // the development environment can actually run.
   const dataBackend = resolveDataBackend(env);
+  const firestoreMode = dataBackend === 'firestore';
   const firestore = dataBackend === 'firestore'
     ? (typeof admin.firestore === 'function' ? admin.firestore() : null)
     : null;
@@ -148,12 +149,9 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   const sessions = dataBackend === 'firestore'
     ? (firestoreReady ? createFirestoreSessionRepository(firestore) : unimplementedRepository('sessions'))
     : createSqlSessionRepository(db);
-  const dashboard = {
-    ...createSqlDashboardRepository(db),
-    ...createSqlDoeTargetRepository(db)
-  };
-  const afcWrite = createSqlAfcWriteRepository(db);
-  const facultyAdminWrite = createSqlFacultyAdminRepository(db);
+  const dashboard = { ...(firestoreMode ? unimplementedRepository('dashboard') : createSqlDashboardRepository(db)), ...(firestoreMode ? unimplementedRepository('doeTarget') : createSqlDoeTargetRepository(db)) };
+  const afcWrite = (firestoreMode ? unimplementedRepository('afcWrite') : createSqlAfcWriteRepository(db));
+  const facultyAdminWrite = (firestoreMode ? unimplementedRepository('facultyAdmin') : createSqlFacultyAdminRepository(db));
   const writeGates = createWriteGates(env);
   const realVerify = createFirebaseSqlAuth({
     verifyIdToken: createFirebaseVerifier({ admin, projectId: env.FIREBASE_PROJECT_ID, serviceAccountJson: env.FIREBASE_SERVICE_ACCOUNT_JSON }),
@@ -161,11 +159,11 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   });
   const support=createSupportService({db,verifyToken:realVerify,findUser:users.findByUid});
   const verify=support.verify;
-  const doeRepository = createSqlDoeEngineRepository(db);
-  const doeAssignmentRepository = createSqlDoeAssignmentRepository(db);
+  const doeRepository = (firestoreMode ? unimplementedRepository('doeEngine') : createSqlDoeEngineRepository(db));
+  const doeAssignmentRepository = (firestoreMode ? unimplementedRepository('doeAssignment') : createSqlDoeAssignmentRepository(db));
   const doeCalculationService = createDoeCalculationService({ repository: doeRepository });
   const doeSessionService = createDoeSessionService({
-    repository: { ...doeRepository, ...doeAssignmentRepository },
+    repository: mergeRepositories(doeRepository, doeAssignmentRepository),
     calculationService: doeCalculationService
   });
   const timetable = createSwaFunctions({ api: createDataApi({
@@ -181,19 +179,19 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     writeGates
   }) });
   const dashboardRoutes = createDashboardFunctions({
-    traineeApi:createTraineeApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlTraineeRepository(db)}),
+    traineeApi:createTraineeApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('trainee') : createSqlTraineeRepository(db))}),
     api: createDashboardApi({ verifyToken: verify, findUser: users.findByUid, repository: dashboard, writeRepository: { ...afcWrite, ...facultyAdminWrite }, writeGates })
   });
   const afcRequestApi = createAfcRequestApi({
     verifyToken: verify,
     findUser: users.findByUid,
-    repository: createSqlAfcRequestRepository(db),
+    repository: (firestoreMode ? unimplementedRepository('afcRequest') : createSqlAfcRequestRepository(db)),
     writeGates
   });
   const afcApprovalApi = createAfcApprovalApi({
     verifyToken: verify,
     findUser: users.findByUid,
-    repository: createSqlAfcApprovalRepository(db),
+    repository: (firestoreMode ? unimplementedRepository('afcApproval') : createSqlAfcApprovalRepository(db)),
     writeGates
   });
   const afcRequests = createAfcRequestFunctions({
@@ -203,44 +201,44 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     api: createAfcApprovedArtifactApi({
       verifyToken: verify,
       findUser: users.findByUid,
-      repository: createSqlAfcArtifactRepository(db),
+      repository: (firestoreMode ? unimplementedRepository('afcArtifact') : createSqlAfcArtifactRepository(db)),
       writeGates
     })
   });
   const teachingAssignmentRoutes = createTeachingAssignmentFunctions({api:createTeachingAssignmentApi({
-    verifyToken:verify,findUser:users.findByUid,repository:createSqlTeachingAssignmentWorkflowRepository(db),writeGates
+    verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('teachingAssignmentWorkflow') : createSqlTeachingAssignmentWorkflowRepository(db)),writeGates
   })});
-  const doeWorksheetRepository = createSqlDoeWorksheetRepository(db);
+  const doeWorksheetRepository = (firestoreMode ? unimplementedRepository('doeWorksheet') : createSqlDoeWorksheetRepository(db));
   const doeWorksheetService = createWorksheetService({ repository: doeWorksheetRepository });
-  const doeTargetOverrideRepository = createSqlDoeTargetOverrideRepository(db);
-  const doePolicyRepository = createSqlDoePolicyRepository(db);
-  const doePolicyService = createDoePolicyService({ repository: { ...doeRepository, ...doePolicyRepository }, calculationService: doeCalculationService });
-  const doeWorkflowPreviewService=createDoeWorkflowPreviewService({repository:{...sessions,...doeAssignmentRepository},worksheetService:doeWorksheetService,calculationService:doeCalculationService});
+  const doeTargetOverrideRepository = (firestoreMode ? unimplementedRepository('doeTargetOverride') : createSqlDoeTargetOverrideRepository(db));
+  const doePolicyRepository = (firestoreMode ? unimplementedRepository('doePolicy') : createSqlDoePolicyRepository(db));
+  const doePolicyService = createDoePolicyService({ repository: mergeRepositories(doeRepository, doePolicyRepository), calculationService: doeCalculationService });
+  const doeWorkflowPreviewService=createDoeWorkflowPreviewService({repository:mergeRepositories(sessions,doeAssignmentRepository),worksheetService:doeWorksheetService,calculationService:doeCalculationService});
   const doeRoutes = createDoeFunctions({ api: createDoeApi({
     verifyToken: verify,
     findUser: users.findByUid,
-    repository: { ...doeRepository, ...doePolicyRepository },
+    repository: mergeRepositories(doeRepository, doePolicyRepository),
     calculationService: doeCalculationService,
     worksheetService: doeWorksheetService,
     workflowPreviewService: doeWorkflowPreviewService,
     assignmentService: createDoeAssignmentService({ repository: doeAssignmentRepository, calculationService: doeCalculationService }),
-    manualAssignmentService: createManualDoeService({ repository: createSqlManualDoeRepository(db) }),
+    manualAssignmentService: createManualDoeService({ repository: (firestoreMode ? unimplementedRepository('manualDoe') : createSqlManualDoeRepository(db)) }),
     targetOverrideService: createDoeTargetOverrideService({ repository: doeTargetOverrideRepository }),
     policyService: doePolicyService,
     writeGates
   }) });
   const swapRoutes = createSwapFunctions({api:createSwapApi({
-    verifyToken:verify,findUser:users.findByUid,repository:createSqlSwapRepository(db),workflowPreviewService:doeWorkflowPreviewService,worksheetService:doeWorksheetService,writeGates
+    verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('swap') : createSqlSwapRepository(db)),workflowPreviewService:doeWorkflowPreviewService,worksheetService:doeWorksheetService,writeGates
   })});
-  const cccScheduleRoutes=createCccScheduleFunctions({api:createCccScheduleApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlCccScheduleRepository(db)})});
-  const leadershipDirectoryRoutes=createLeadershipDirectoryFunctions({api:createLeadershipDirectoryApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlLeadershipDirectoryRepository(db)})});
-  const calendarActivityRoutes=createCalendarActivityFunctions({api:createCalendarActivityApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlCalendarActivityRepository(db,{importDb:calendarImportDb}),writeGates})});
-  const facultyAvailabilityRoutes=createFacultyAvailabilityFunctions({api:createFacultyAvailabilityApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlFacultyAvailabilityRepository(db)})});
-  const schedulingTaskRoutes=createSchedulingTaskFunctions({api:createSchedulingTaskApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlSchedulingTaskRepository(db),writeGates})});
-  const historyRoutes=createChangeHistoryFunctions({api:createChangeHistoryApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlChangeHistoryRepository(db)})});
-  const afcFormRoutes=createAfcFormFunctions({api:createAfcFormApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlAfcFormRepository(db),writeGates})});
-  const cccReplacementRoutes=createCccReplacementFunctions({api:createCccReplacementApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlCccReplacementRepository(db,{importDb:calendarImportDb}),writeGates})});
-  const route = async request => {
+  const cccScheduleRoutes=createCccScheduleFunctions({api:createCccScheduleApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('cccSchedule') : createSqlCccScheduleRepository(db))})});
+  const leadershipDirectoryRoutes=createLeadershipDirectoryFunctions({api:createLeadershipDirectoryApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('leadershipDirectory') : createSqlLeadershipDirectoryRepository(db))})});
+  const calendarActivityRoutes=createCalendarActivityFunctions({api:createCalendarActivityApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('calendarActivity') : createSqlCalendarActivityRepository(db,{importDb:calendarImportDb})),writeGates})});
+  const facultyAvailabilityRoutes=createFacultyAvailabilityFunctions({api:createFacultyAvailabilityApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('facultyAvailability') : createSqlFacultyAvailabilityRepository(db))})});
+  const schedulingTaskRoutes=createSchedulingTaskFunctions({api:createSchedulingTaskApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('schedulingTask') : createSqlSchedulingTaskRepository(db)),writeGates})});
+  const historyRoutes=createChangeHistoryFunctions({api:createChangeHistoryApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('changeHistory') : createSqlChangeHistoryRepository(db))})});
+  const afcFormRoutes=createAfcFormFunctions({api:createAfcFormApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('afcForm') : createSqlAfcFormRepository(db)),writeGates})});
+  const cccReplacementRoutes=createCccReplacementFunctions({api:createCccReplacementApi({verifyToken:verify,findUser:users.findByUid,repository:(firestoreMode ? unimplementedRepository('cccReplacement') : createSqlCccReplacementRepository(db,{importDb:calendarImportDb})),writeGates})});
+  const dispatch = async request => {
     const pathname = new URL(request.url).pathname;
     // No business database is a distinct, recoverable state, not an outage.
     // Answering every business route with one typed code lets the UI show
@@ -278,6 +276,30 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     if (pathname === '/api/v1/afc-requests' || pathname.startsWith('/api/v1/afc-requests/')) return afcRequests(request);
     return timetable(request);
   };
+
+  // Under Firestore there is no SQL server to be unavailable, so a 503 that says
+  // "SQL_UNAVAILABLE" can only mean the domain has no Firestore implementation
+  // yet. Reporting it as 501 keeps "not implemented" distinct from "temporarily
+  // broken", which is what the browser needs in order to show the right state.
+  // This is done once here rather than in the twenty-seven per-domain mappers,
+  // because every one of them would otherwise have to learn about the backend.
+  const SQL_UNAVAILABLE_CODES = new Set(['SQL_UNAVAILABLE', 'SERVICE_UNAVAILABLE', 'DATABASE_NOT_CONFIGURED']);
+  const route = async request => {
+    const response = await dispatch(request);
+    if (!firestoreMode || !response || response.status !== 503) return response;
+    const code = response.jsonBody?.error?.code;
+    if (!SQL_UNAVAILABLE_CODES.has(code)) return response;
+    return {
+      status: 501,
+      jsonBody: {
+        error: {
+          code: 'BACKEND_OPERATION_UNSUPPORTED',
+          message: 'This feature has no Firestore implementation yet. It is not broken; it is not built.'
+        }
+      }
+    };
+  };
+
   const handler = request => support.handle(request,route);
   handler.close = () => Promise.all([db.close(), calendarImportDb.close()]);
   return handler;

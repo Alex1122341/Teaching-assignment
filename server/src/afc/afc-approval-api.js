@@ -93,7 +93,7 @@ function createAfcApprovalApi({
     try {
       profile = await findUser(uid);
     } catch (_) {
-      return error(503, 'SERVICE_UNAVAILABLE', 'The SQL profile service is temporarily unavailable.');
+      return error(503, 'SERVICE_UNAVAILABLE', 'The profile service is temporarily unavailable.');
     }
 
     const scope = authorizeProfile(profile);
