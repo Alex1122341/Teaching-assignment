@@ -276,3 +276,76 @@ repository never coerces a document id into a UUID.
 - Firestore rules still allow a Faculty account to read its whole `faculty`
   document, which contradicts the administrator-only classification of DOE and
   workload policy data in §7. This is a live contradiction and is not fixed.
+
+---
+
+# Role assignments — date semantics resolved
+
+The earlier draft of this document proposed an **exclusive** `expirationDate`. That
+was wrong and is withdrawn.
+
+`server/src/roles/role-effective-status.js` is authoritative — it is the server
+counterpart of the Faculty Dashboard's `faculty-role-periods.js`, and
+`tests/leadership-directory-view.test.js` runs both over the same cases. Its
+header states the rule directly:
+
+> `startDate` and `endDate` are **inclusive** Calgary dates; a null `endDate` is
+> open-ended.
+
+So the contract is:
+
+| Date | Status |
+|---|---|
+| day before `startDate` | `upcoming` |
+| `startDate` | `active` |
+| `endDate` | **`active`** — the last day counts |
+| day after `endDate` | `inactive` |
+| between two periods | `inactive`, with `nextStartDate` |
+| no `startDate` at all | `dates-needed` |
+
+Statuses are `active`, `upcoming`, `inactive`, `dates-needed`. Status is **derived
+on read** from the periods and an as-of date in `America/Edmonton`; it is never
+stored, because a stored status is a second source of truth that drifts the moment
+a date passes.
+
+## Schema as implemented
+
+Collection `role_assignments`:
+
+```
+facultyId      string   required, validated inside the transaction
+academicYear   string
+roleCategory   string
+roleType       string   HICC / VISC / ADC / LAB …
+scopeKind      'course' | 'subject' | 'rotation' | 'none'
+scopeCode      string
+periods        array of { startDate, endDate }   inclusive; endDate null = open
+revision       number   optimistic concurrency token, starts at 1
+createdAtUtc / updatedAtUtc / createdBy / updatedBy
+```
+
+Audit collection `role_assignment_audit`, append-only, one document per accepted
+write carrying `action`, `revision`, actor, timestamp and the before/after
+documents.
+
+## The four concepts stay separate
+
+| Concept | Where it lives |
+|---|---|
+| Account permission role | `users.role` → `baseRole` |
+| Role assignment / appointment | `role_assignments` |
+| Stable teaching responsibility | the assignment's `roleType` + scope |
+| Temporal responsibility assignee | the assignment's `facultyId` + periods |
+
+They are not merged into one collection. An account with role `faculty` has no
+responsibility until an assignment says so, and an assignment confers no
+permission.
+
+## Still not implemented
+
+- No HTTP surface yet for role assignments: the repository exists and is tested,
+  but no route is mounted and no operation is listed in `IMPLEMENTED_OPERATIONS`.
+- HICC-CC and VISC directory projections are not built.
+- Faculty writes (`updateFaculty`, `deactivateFaculty`, `restoreFaculty`) remain
+  501.
+- The Firestore rules contradiction over administrator-only fields is unfixed.
