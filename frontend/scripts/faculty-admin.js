@@ -88,18 +88,51 @@
       sessionCount: number(r.sessionCount), roleCount: number(r.roleCount), afcCount: number(r.afcCount), jointAppointmentCount: number(r.jointAppointmentCount) };
   }
 
+  // A module the backend has not built answers 501. That is not a failure of the
+  // Dashboard: it means one tab is unavailable. Loading everything with one
+  // Promise.all meant a single 501 blanked the whole page, including the Faculty
+  // and Roles data that does work.
+  const dashboardUnavailable = new Set();
+
+  async function optionalModule(name, promise, fallback) {
+    try {
+      return await promise;
+    } catch (error) {
+      const status = error && (error.status || error.statusCode);
+      const code = error && error.code;
+      if (status === 501 || code === 'BACKEND_OPERATION_UNSUPPORTED') {
+        dashboardUnavailable.add(name);
+        return fallback;
+      }
+      // Any other failure of an optional module is also non-fatal: it must not
+      // take down the parts of the Dashboard that do work.
+      console.warn(`Dashboard module '${name}' is unavailable:`, error);
+      dashboardUnavailable.add(name);
+      return fallback;
+    }
+  }
+
   async function loadAdminDashboard() {
     const started = typeof performance?.now === 'function' ? performance.now() : 0;
     setDashboardLoading(true);
+    dashboardUnavailable.clear();
     try {
-      const [summary, rows, activeRows, canWrite, doeGates] = await Promise.all([
-        UCVM_PAWS_DATA.dashboardSummary(),
-        UCVM_PAWS_DATA.dashboardFaculty({ status: facultyStatus }),
-        facultyStatus === 'active' ? Promise.resolve(null) : UCVM_PAWS_DATA.dashboardFaculty({ status: 'active' }),
-        UCVM_PAWS_DATA.refreshFacultyAdminWriteCapabilities?.() ?? false,
-        UCVM_PAWS_DATA.refreshDoeWriteCapabilities?.() ?? {},
-        UCVM_PAWS_DATA.refreshAfcRecordWriteCapabilities?.() ?? {}
+      // Faculty is the load-bearing read. If it fails the Dashboard genuinely
+      // cannot render, so it stays outside the optional group.
+      const rows = await UCVM_PAWS_DATA.dashboardFaculty({ status: facultyStatus });
+      const activeRows = facultyStatus === 'active'
+        ? null
+        : await optionalModule('facultyActive', UCVM_PAWS_DATA.dashboardFaculty({ status: 'active' }), null);
+
+      // Everything else is optional and cannot block what already loaded.
+      const [summary, canWrite, doeGates] = await Promise.all([
+        optionalModule('summary', UCVM_PAWS_DATA.dashboardSummary(), null),
+        optionalModule('facultyWriteCapabilities', UCVM_PAWS_DATA.refreshFacultyAdminWriteCapabilities?.() ?? Promise.resolve(false), false),
+        optionalModule('doeWriteCapabilities', UCVM_PAWS_DATA.refreshDoeWriteCapabilities?.() ?? Promise.resolve({}), {})
       ]);
+      optionalModule('afcWriteCapabilities', UCVM_PAWS_DATA.refreshAfcRecordWriteCapabilities?.() ?? Promise.resolve({}), {})
+        .then(gates => { window.__pawsAfcWriteCapabilities = gates || {}; updateAfcWriteControls(); });
+
       dashboardSummary = summary && typeof summary === 'object' && !Array.isArray(summary) ? summary : {};
       facultyAdminWriteEnabled = canWrite === true;
       window.__pawsDoeWriteCapabilities = doeGates || {};
@@ -110,6 +143,8 @@
       afcLoaded = false;
       lookupMetrics = null;
       updateFilters(); populateAfcFacultyOptions(); updateKpis(); updateStatus(); renderActiveTab();
+      // Unavailable modules are surfaced as unavailable, never as zero values.
+      if (typeof markModulesUnavailable === 'function') markModulesUnavailable([...dashboardUnavailable]);
       void loadLookupMetrics();
       pawsTimingLog('summary+faculty', started);
     } catch (error) { console.error(error); markDashboardUnavailable(dashboardAuthFailureMessage(error)); }
