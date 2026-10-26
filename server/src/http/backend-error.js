@@ -46,6 +46,18 @@ const BACKEND_ERRORS = Object.freeze({
   UNAUTHENTICATED: { status: 401, message: 'Sign in required.' },
   FORBIDDEN: { status: 403, message: 'You are not authorized for this action.' },
 
+  // Firestore domain validation must not become a generic 503.
+  INVALID_ROLE_VERSION: { status: 400, message: 'Invalid appointment revision. Reload and retry.' },
+  INVALID_PERIOD: { status: 400, message: 'Invalid appointment periods.' },
+  INVALID_ID: { status: 400, message: 'Invalid document identifier.' },
+  INVALID_FACULTY_ID: { status: 400, message: 'Invalid Faculty identifier.' },
+  INVALID_SCOPE: { status: 400, message: 'Invalid role scope.' },
+  INVALID_DATE: { status: 400, message: 'Invalid date.' },
+  INVALID_FTE: { status: 400, message: 'FTE must be between zero and one.' },
+  NOT_FOUND: { status: 404, message: 'The requested record does not exist.' },
+  ASSIGNMENT_EXISTS: { status: 409, message: 'The assignment already exists.' },
+  FACULTY_VERSION_REQUIRED: { status: 400, message: 'Reload Faculty before editing.' },
+  ACTOR_REQUIRED: { status: 500, message: 'A verified actor is required by the service.' },
   // Concurrency.
   REVISION_CONFLICT: { status: 409, message: 'This record was changed by someone else. Reload and try again.' }
 });

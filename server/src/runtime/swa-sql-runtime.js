@@ -250,7 +250,8 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
       writeGates,
       // SQL validates Faculty ids as UUIDs; the lab uses document ids. The
       // validator is injected so SQL keeps its original strictness.
-      validFacultyId: firestoreMode ? validLabFacultyId : undefined
+      validFacultyId: firestoreMode ? validLabFacultyId : undefined,
+      validRoleId: firestoreMode ? validLabFacultyId : undefined
     })
   });
   const afcRequestApi = createAfcRequestApi({

@@ -99,7 +99,8 @@ function toRecord(id, document, asOf) {
 // covered twice by one assignment.
 function validatePeriods(periods) {
   if (!Array.isArray(periods)) return 'Periods must be a list.';
-  if (periods.length === 0) return 'At least one period is required.';
+  // Explicitly empty schedule is valid and classified inactive.
+  if (periods.length === 0) return null;
   if (periods.length > 12) return 'At most twelve periods are allowed.';
 
   let previousStart = null;
@@ -241,6 +242,8 @@ function createFirestoreRoleAssignmentRepository(firestore) {
       const problem = validatePeriods(periods);
       if (problem) throw Object.assign(Error(problem), { code: 'INVALID_PERIOD', status: 400 });
 
+      const actor = text(actorFirebaseUid);
+      if (!actor) throw Object.assign(Error('A verified actor is required.'), { code: 'ACTOR_REQUIRED', status: 500 });
       const now = new Date();
       return firestore.runTransaction(async transaction => {
         const ref = firestore.collection(COLLECTION).doc(id);
@@ -264,14 +267,14 @@ function createFirestoreRoleAssignmentRepository(firestore) {
           scopeCode: assignment.scopeCode === undefined ? before.scopeCode : text(assignment.scopeCode),
           revision: current + 1,
           updatedAtUtc: now,
-          updatedBy: text(actorFirebaseUid)
+          updatedBy: actor
         };
         transaction.set(ref, after);
         transaction.set(firestore.collection(AUDIT).doc(), {
           roleAssignmentId: id,
           action: 'update',
           revision: current + 1,
-          actorFirebaseUid: text(actorFirebaseUid),
+          actorFirebaseUid: actor,
           recordedAtUtc: now,
           before,
           after

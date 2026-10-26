@@ -319,11 +319,12 @@ function resolveYear(value) {
   }
 }
 
-function createDashboardApi({ verifyToken, findUser, repository, writeRepository = repository, writeGates = {}, validFacultyId = validUuid }) {
+function createDashboardApi({ verifyToken, findUser, repository, writeRepository = repository, writeGates = {}, validFacultyId = validUuid, validRoleId = validUuid }) {
   // Faculty identifiers differ per backend: SQL keys Faculty on a UUID, the lab on
   // a document id such as `fac-001`. The validator is injected rather than loosened
   // in place, so SQL keeps rejecting anything that is not a UUID.
   const facultyIdValid = typeof validFacultyId === 'function' ? validFacultyId : validUuid;
+  const roleIdValid = typeof validRoleId === 'function' ? validRoleId : validUuid;
   async function authorize(token) {
     let decoded;
     try {
@@ -460,7 +461,7 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
       return guarded(token, async (scope, decoded) => {
         if (!scope.administrator) return error(403,'ROLE_DENIED','This role cannot edit appointment effective periods.');
         if (writeGates.facultyAdmin !== true) return writeDisabled();
-        if (!validUuid(roleAssignmentId) || !payload || !Array.isArray(payload.periods) || payload.periods.length > 12) return error(400,'INVALID_ROLE_PERIODS','Provide up to 12 effective periods.');
+        if (!roleIdValid(roleAssignmentId) || !payload || !Array.isArray(payload.periods) || payload.periods.length > 12) return error(400,'INVALID_ROLE_PERIODS','Provide up to 12 effective periods.');
         // Two real concurrency contracts, never mixed. SQL identifies a row by an
         // eight-byte rowversion; Firestore identifies it by an integer revision.
         // The caller supplies the one its backend understands.

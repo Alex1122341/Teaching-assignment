@@ -101,7 +101,7 @@ test('period validation rejects impossible windows', () => {
   assert.match(validatePeriods([{ startDate: '2026-09-01', endDate: '2026-08-01' }]), /cannot end before it starts/);
   assert.match(validatePeriods([{ startDate: null, endDate: '2027-01-01' }]), /needs a start date/);
   assert.match(validatePeriods([{ startDate: 'not-a-date' }]), /Invalid start date/);
-  assert.match(validatePeriods([]), /At least one period/);
+  assert.equal(validatePeriods([]), null, 'explicit empty periods are valid and inactive');
   assert.equal(validatePeriods([{ startDate: '2026-09-01', endDate: '2026-09-01' }]), null, 'a one-day period is valid');
   assert.equal(validatePeriods([{ startDate: '2026-09-01', endDate: null }]), null);
 });
@@ -276,6 +276,10 @@ test('more than twelve periods is refused', () => {
     endDate: String(2020 + i) + '-12-31'
   }));
   assert.match(validatePeriods(many), /At most twelve periods/);
+});
+
+test('an explicit empty schedule can be saved without deleting the role', () => {
+  assert.equal(validatePeriods([]), null);
 });
 
 test('an explicit empty schedule is inactive, not dates-needed', () => {

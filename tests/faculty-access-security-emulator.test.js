@@ -84,6 +84,9 @@ check('nobody may delete a Faculty record, not even an administrator', async () 
     () => { throw Error('deleting a Faculty record must be denied'); },
     () => {}
   );
-  const still = await env.withSecurityRulesDisabled(async ctx => (await ctx.firestore().doc('faculty/f2').get()).exists);
-  if (!still) throw Error('the record must survive the refused delete');
+  // withSecurityRulesDisabled resolves to void: verify preservation inside its callback.
+  await env.withSecurityRulesDisabled(async ctx => {
+    const still = await ctx.firestore().doc('faculty/f2').get();
+    if (!still.exists) throw Error('the record must survive the refused delete');
+  });
 });

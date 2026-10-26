@@ -251,6 +251,10 @@ function createFirestoreFacultyRepository(firestore) {
           facultyId: row.facultyId,
           academicYear: academicYear ? text(academicYear) : null
         });
+        roles = roles.map(role => ({ ...role,
+          validityPeriods: role.periods, scheduleVersion: role.revision,
+          courseOrSubjectOrRotation: role.scopeCode || '',
+          facultyName: row.displayName, displayName: row.displayName }));
       } catch (error) {
         roles = null;
         unavailable.push('roles');
