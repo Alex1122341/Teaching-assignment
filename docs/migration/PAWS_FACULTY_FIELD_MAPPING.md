@@ -349,3 +349,59 @@ permission.
 - Faculty writes (`updateFaculty`, `deactivateFaculty`, `restoreFaculty`) remain
   501.
 - The Firestore rules contradiction over administrator-only fields is unfixed.
+
+---
+
+# Privacy boundary — current state and what remains
+
+## Rules as they now stand
+
+| Caller | `get` own | `get` other | `list` | `delete` |
+|---|---|---|---|---|
+| Administrator | yes | yes | yes | **no** |
+| Faculty (self-service) | yes | **no** | **no** | no |
+| Anonymous | no | no | no | no |
+
+Deletion is now refused outright. Employment ends by setting `active: false`
+(deactivation), because teaching assignments, role assignments, AFC records and
+audit history all reference the Faculty id — deleting it would orphan them and
+destroy the history the business requires.
+
+Covered by `tests/faculty-access-security-emulator.test.js`, which runs against
+the Firestore Emulator and skips (rather than silently passes) when
+`FIRESTORE_EMULATOR_HOST` is absent.
+
+## The unresolved gap
+
+A Faculty account can still read **its whole** Faculty document, including the
+administrator-only fields (§7): `doe`, `doeTeaching`, `contractTeachingDOE`,
+`teachingDOE`, `workloadPolicy*`, `facultySummary*`.
+
+That is a real contradiction between the documented classification and the
+enforced rule, and it is **not fixed**.
+
+It cannot be fixed by tightening the rule alone. These readers depend on the
+direct read today:
+
+| Reader | What it needs |
+|---|---|
+| `frontend/scripts/faculty-access.js:68` | the caller's own record for self-service |
+| `frontend/scripts/faculty-swap-safe.js:82` | a named Faculty record during a swap |
+| `frontend/scripts/approval-workflow.js:84` | several Faculty records during approval |
+| `frontend/scripts/availability-lookup.js` | the whole roster for availability search |
+| `frontend/scripts/bulk-import-firestore.js` | the whole roster for reconciliation |
+
+Denying the self-read would break self-service, swaps, approval and availability
+lookup at once. The two viable designs are:
+
+1. **Split the document.** Move the administrator-only fields to
+   `faculty_private/{id}` readable only by administrators, leave the shareable
+   fields on `faculty`, and migrate the readers that need private data to the
+   authorized API projection. The rule change is then small; the data migration
+   is not.
+2. **Deny direct reads entirely** and serve every Faculty read through the PAWS
+   API, which already enforces role policy. Cleaner boundary, larger frontend
+   change across five scripts.
+
+Neither is a rule edit. Both are a migration, and doing one badly would break
+working features. This is recorded as open rather than attempted.

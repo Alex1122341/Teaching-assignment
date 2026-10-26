@@ -494,7 +494,11 @@ service cloud.firestore {
    allow list: if admin();
    allow create: if teachingWritesOpen() && admin() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportCreate() || general());
    allow update: if (teachingWritesOpen() && admin() && !doeRecalculationMarkerChanged() && request.resource.data.updatedBy == request.auth.uid && (!bulkFacultyImportChange() || general())) || doeRecalculationFacultyWrite() || maintenanceFacultyUpdate();
-   allow delete: if teachingWritesOpen() && admin();
+   // A Faculty record is never deleted. Teaching assignments, role assignments,
+   // AFC records and audit history all reference it, so removal would orphan them
+   // and destroy the history the business requires. Employment ends by setting
+   // `active: false` (deactivation), which keeps every reference resolvable.
+   allow delete: if false;
   }
   match /change_requests/{id} {
    allow read: if routedRequestRead(id,resource.data) || legacyRequestRead(resource.data);
