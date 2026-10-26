@@ -26,11 +26,33 @@ function fakeFirestore(seed = { faculty: FACULTY, sessions: [], afc_requests: []
         },
         doc(id) {
           const found = rows.find(row => row.id === id);
-          const snapshot = { id, exists: Boolean(found), data: () => found || {}, get: async () => snapshot };
+          const snapshot = { id, _collection: name, exists: Boolean(found), data: () => found || {}, get: async () => snapshot };
           return snapshot;
         }
       };
       return api;
+    },
+    async runTransaction(fn) {
+      const ops = [];
+      const transaction = {
+        async get(ref) {
+          const rows = seed[ref._collection] || [];
+          const found = rows.find(row => row.id === ref.id);
+          return { id: ref.id, exists: Boolean(found), data: () => found || {} };
+        },
+        set(ref, data) {
+          ops.push({ ref, data });
+        }
+      };
+      const result = await fn(transaction);
+      for (const { ref, data } of ops) {
+        const rows = seed[ref._collection] || (seed[ref._collection] = []);
+        const index = rows.findIndex(row => row.id === ref.id);
+        const stored = { id: ref.id, ...data };
+        if (index >= 0) rows[index] = stored;
+        else rows.push(stored);
+      }
+      return result;
     }
   };
 }
@@ -179,18 +201,55 @@ test('counts are gathered in one query per collection, not per faculty', async (
   assert.equal(collectionReads, 4, 'counting must not scale with the number of faculty rows');
 });
 
-test('faculty writes refuse instead of reporting a save that did not happen', async () => {
+test('a faculty update writes and appends an audit record in one transaction', async () => {
+  const seed = { faculty: [{ ...FACULTY[0] }], sessions: [], afc_requests: [], role_assignments: [] };
+  const repository = createFirestoreFacultyRepository(fakeFirestore(seed));
+  const updated = await repository.updateFaculty({ facultyId: 'fac-001', rank: 'Professor Emeritus', actorFirebaseUid: 'admin-1' });
+  assert.equal(updated.rank, 'Professor Emeritus');
+  assert.equal(updated.displayName, 'Chen, Morgan');
+  const audit = seed.faculty_change_log || [];
+  assert.equal(audit.length, 1, 'an unaudited write must not be possible');
+  assert.equal(audit[0].action, 'update');
+});
+
+test('a write without a verified actor is refused', async () => {
   const repository = createFirestoreFacultyRepository(fakeFirestore());
-  for (const operation of ['updateFaculty', 'deactivateFaculty', 'restoreFaculty', 'updateRolePeriods']) {
-    assert.throws(() => repository[operation]({}), error => error.code === 'BACKEND_OPERATION_UNSUPPORTED', operation);
-  }
+  await assert.rejects(
+    () => repository.updateFaculty({ facultyId: 'fac-001', rank: 'X', actorFirebaseUid: '' }),
+    error => error.code === 'ACTOR_REQUIRED'
+  );
+});
+
+test('an FTE percentage is rejected rather than silently scaled', async () => {
+  const repository = createFirestoreFacultyRepository(fakeFirestore());
+  await assert.rejects(
+    () => repository.updateFaculty({ facultyId: 'fac-001', fte: 100, actorFirebaseUid: 'admin-1' }),
+    error => error.code === 'INVALID_FTE'
+  );
+});
+
+test('deactivation keeps the record and only changes its status', async () => {
+  const firestore = fakeFirestore();
+  const repository = createFirestoreFacultyRepository(firestore);
+  const after = await repository.deactivateFaculty({ facultyId: 'fac-001', actorFirebaseUid: 'admin-1' });
+  assert.equal(after.active, false);
+  // The record still exists, so historical references keep resolving.
+  assert.ok(await repository.facultyById({ facultyId: 'fac-001', includeInactive: true }));
+});
+
+test('a stale precondition is a 409 and writes nothing', async () => {
+  const repository = createFirestoreFacultyRepository(fakeFirestore());
+  await assert.rejects(
+    () => repository.updateFaculty({ facultyId: 'fac-001', rank: 'X', expectedUpdatedAtUtc: '2000-01-01T00:00:00Z', actorFirebaseUid: 'admin-1' }),
+    error => error.code === 'REVISION_CONFLICT' && error.status === 409
+  );
 });
 
 test('the Dashboard exposes Faculty reads and refuses the rest', async () => {
   const dashboard = createFirestoreDashboardRepository(fakeFirestore());
   assert.equal(typeof dashboard.faculty, 'function');
   assert.equal(typeof dashboard.facultyById, 'function');
-  for (const operation of ['summary', 'doeOverview', 'afcRecords', 'updateFaculty']) {
+  for (const operation of ['summary', 'doeOverview', 'afcRecords']) {
     assert.throws(() => dashboard[operation](), error => error.code === 'BACKEND_OPERATION_UNSUPPORTED', operation);
   }
   assert.throws(() => dashboard.somethingNew(), error => error.code === 'BACKEND_OPERATION_UNSUPPORTED');

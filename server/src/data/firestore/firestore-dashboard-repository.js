@@ -19,8 +19,7 @@ const FACULTY_READS = ['faculty', 'facultyById'];
 const NOT_IMPLEMENTED = [
   'summary', 'teachingSummary', 'doeOverview', 'doeTargets',
   'afcRecords', 'createAfcRecord', 'createAfcManualBatch', 'cancelAfcRecord',
-  'afcRecordWriteCapabilities', 'facultyAdminWriteCapabilities',
-  'updateFaculty', 'deactivateFaculty', 'restoreFaculty'
+  'afcRecordWriteCapabilities', 'facultyAdminWriteCapabilities'
 ];
 
 function createFirestoreDashboardRepository(firestore) {
@@ -29,6 +28,9 @@ function createFirestoreDashboardRepository(firestore) {
 
   const repository = {};
   for (const name of FACULTY_READS) repository[name] = faculty[name];
+  // Faculty writes live with the Faculty repository; the Dashboard is the surface
+  // the API talks to.
+  for (const name of ['updateFaculty', 'deactivateFaculty', 'restoreFaculty']) repository[name] = faculty[name];
 
   // GET /api/v1/dashboard/roles. Administrator-only, enforced by dashboard-api.
   // The response must carry the same fields the existing editor reads.

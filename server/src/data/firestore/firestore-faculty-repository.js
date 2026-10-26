@@ -270,11 +270,89 @@ function createFirestoreFacultyRepository(firestore) {
     }
   };
 
-  // Writes need the identifier decision applied to the API's own validation plus a
-  // revision and audit design. Until then they refuse; accepting would be a lie.
-  for (const operation of ['updateFaculty', 'deactivateFaculty', 'restoreFaculty', 'updateRolePeriods']) {
-    repository[operation] = () => { throw unsupported(`dashboard.${operation}`); };
+  // ---------------------------------------------------------------------
+  // Faculty writes
+  //
+  // Concurrency is a precondition on `updatedAt`, the field that actually changes,
+  // rather than an invented integer revision. The caller passes the value it read
+  // as `expectedUpdatedAtUtc`; a mismatch is a 409 and nothing is written.
+  //
+  // Deactivation never deletes. Historical teaching assignments, roles and AFC
+  // records reference the Faculty id, so the document must survive; only the
+  // status changes and an audit record is appended.
+  // ---------------------------------------------------------------------
+  const AUDIT = 'faculty_change_log';
+
+  function requireActor(actorFirebaseUid) {
+    const actor = text(actorFirebaseUid);
+    if (!actor) throw Object.assign(Error('A verified actor is required.'), { code: 'ACTOR_REQUIRED', status: 500 });
+    return actor;
   }
+
+  async function applyFacultyWrite({ facultyId, expectedUpdatedAtUtc, mutate, action, actorFirebaseUid }) {
+    const id = text(facultyId);
+    if (!id) throw Object.assign(Error('A faculty id is required.'), { code: 'INVALID_FACULTY_ID', status: 400 });
+    const actor = requireActor(actorFirebaseUid);
+    const now = new Date();
+
+    return firestore.runTransaction(async transaction => {
+      const ref = firestore.collection('faculty').doc(id);
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists) throw Object.assign(Error('Faculty record not found.'), { code: 'NOT_FOUND', status: 404 });
+
+      const before = snapshot.data() || {};
+      const currentVersion = isoFromTimestamp(before.updatedAt);
+      // A stale precondition is a conflict, never a silent overwrite.
+      if (text(expectedUpdatedAtUtc) && currentVersion && text(expectedUpdatedAtUtc) !== currentVersion) {
+        throw Object.assign(Error('This record was changed by someone else. Reload and try again.'), {
+          code: 'REVISION_CONFLICT', status: 409
+        });
+      }
+
+      const after = { ...before, ...mutate(before), updatedAt: now, updatedBy: actor };
+      transaction.set(ref, after);
+      transaction.set(firestore.collection(AUDIT).doc(), {
+        facultyId: id, action, actorFirebaseUid: actor, recordedAtUtc: now, before, after
+      });
+      return toRow(id, after);
+    });
+  }
+
+  repository.updateFaculty = async ({ facultyId, expectedUpdatedAtUtc, actorFirebaseUid, ...changes } = {}) => {
+    const allowed = ['firstName', 'lastName', 'email', 'rank', 'fte', 'ucid'];
+    return applyFacultyWrite({
+      facultyId, expectedUpdatedAtUtc, action: 'update', actorFirebaseUid,
+      mutate: before => {
+        const next = {};
+        for (const key of allowed) {
+          if (changes[key] === undefined) continue;
+          if (key === 'fte') {
+            const fte = toFte(changes.fte);
+            if (fte === null || fte < 0 || fte > 1) {
+              throw Object.assign(Error('FTE must be a fraction between 0 and 1.'), { code: 'INVALID_FTE', status: 400 });
+            }
+            next.fte = fte;
+            continue;
+          }
+          next[key] = text(changes[key]);
+        }
+        // A write must never silently promote an unestablished status to active.
+        if (next.active === undefined && before.active === undefined) {
+          // leave it unset; status stays unknown
+        }
+        return next;
+      }
+    });
+  };
+
+  repository.deactivateFaculty = async ({ facultyId, expectedUpdatedAtUtc, actorFirebaseUid } = {}) =>
+    applyFacultyWrite({ facultyId, expectedUpdatedAtUtc, action: 'deactivate', actorFirebaseUid, mutate: () => ({ active: false }) });
+
+  repository.restoreFaculty = async ({ facultyId, expectedUpdatedAtUtc, actorFirebaseUid } = {}) =>
+    applyFacultyWrite({ facultyId, expectedUpdatedAtUtc, action: 'restore', actorFirebaseUid, mutate: () => ({ active: true }) });
+
+  // Role periods are not a Faculty write; keep the refusal explicit.
+  repository.updateRolePeriods = () => { throw unsupported('dashboard.updateRolePeriods'); };
   return repository;
 }
 

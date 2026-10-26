@@ -7,6 +7,7 @@ const { createSqlSessionRepository } = require('../data/sql-session-repository')
 const { resolveDataBackend, unimplementedRepository, mergeRepositories, FIRESTORE_REPOSITORIES, isImplementedOperation, isPartiallyImplemented } = require('../data/backend-provider');
 const { createFirestoreDashboardRepository } = require('../data/firestore/firestore-dashboard-repository');
 const { createFirestoreLeadershipDirectoryRepository } = require('../data/firestore/firestore-leadership-directory-repository');
+const { validLabFacultyId } = require('../data/firestore/firestore-faculty-repository');
 const { backendFailure } = require('../http/backend-error');
 const { authorizeRoute } = require('../auth/route-authorization');
 const { createFirestoreSessionRepository } = require('../data/firestore/firestore-session-repository');
@@ -241,7 +242,16 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
     // Under Firestore the SQL write repositories are refusing proxies, and
     // spreading a proxy yields an empty object — so the write surface would silently
     // vanish. The Firestore dashboard repository is the write surface instead.
-    api: createDashboardApi({ verifyToken: verify, findUser: users.findByUid, repository: dashboard, writeRepository: firestoreMode ? dashboard : { ...afcWrite, ...facultyAdminWrite }, writeGates })
+    api: createDashboardApi({
+      verifyToken: verify,
+      findUser: users.findByUid,
+      repository: dashboard,
+      writeRepository: firestoreMode ? dashboard : { ...afcWrite, ...facultyAdminWrite },
+      writeGates,
+      // SQL validates Faculty ids as UUIDs; the lab uses document ids. The
+      // validator is injected so SQL keeps its original strictness.
+      validFacultyId: firestoreMode ? validLabFacultyId : undefined
+    })
   });
   const afcRequestApi = createAfcRequestApi({
     verifyToken: verify,

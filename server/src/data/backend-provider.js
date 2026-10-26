@@ -69,7 +69,9 @@ const IMPLEMENTED_OPERATIONS = Object.freeze([
   { method: 'PUT', pattern: /^\/api\/v1\/dashboard\/roles\/[^/]+\/periods$/, domain: 'dashboard' },
   // The leadership directory is readable by any authorised PAWS account, so it
   // must not be blocked by the dashboard-wide gate.
-  { method: 'GET', pattern: /^\/api\/v1\/dashboard\/leadership-directory$/, domain: 'dashboard' }
+  { method: 'GET', pattern: /^\/api\/v1\/dashboard\/leadership-directory$/, domain: 'dashboard' },
+  { method: 'PATCH', pattern: /^\/api\/v1\/dashboard\/faculty\/[^/]+$/, domain: 'dashboard' },
+  { method: 'POST', pattern: /^\/api\/v1\/dashboard\/faculty\/[^/]+\/(restore|deactivate)$/, domain: 'dashboard' }
 ]);
 
 // Domains that exist but are only partly built. Their repository is real, so a

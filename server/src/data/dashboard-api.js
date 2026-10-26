@@ -319,7 +319,11 @@ function resolveYear(value) {
   }
 }
 
-function createDashboardApi({ verifyToken, findUser, repository, writeRepository = repository, writeGates = {} }) {
+function createDashboardApi({ verifyToken, findUser, repository, writeRepository = repository, writeGates = {}, validFacultyId = validUuid }) {
+  // Faculty identifiers differ per backend: SQL keys Faculty on a UUID, the lab on
+  // a document id such as `fac-001`. The validator is injected rather than loosened
+  // in place, so SQL keeps rejecting anything that is not a UUID.
+  const facultyIdValid = typeof validFacultyId === 'function' ? validFacultyId : validUuid;
   async function authorize(token) {
     let decoded;
     try {
@@ -482,7 +486,7 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
       return guarded(token, async (scope, decoded) => {
         if (!scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot edit Faculty records.');
         if (writeGates.facultyAdmin !== true) return writeDisabled();
-        if (!validUuid(facultyId)) return error(400, 'INVALID_FACULTY_ID', 'Faculty id is not a valid identifier.');
+        if (!facultyIdValid(facultyId)) return error(400, 'INVALID_FACULTY_ID', 'Faculty id is not a valid identifier.');
         const validated = validateFacultyUpdate(payload, facultyId);
         if (validated.error) return validated.error;
         try {
@@ -502,7 +506,7 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
       return guarded(token, async (scope, decoded) => {
         if (!scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot deactivate Faculty records.');
         if (writeGates.facultyAdmin !== true) return writeDisabled();
-        if (!validUuid(facultyId)) return error(400, 'INVALID_FACULTY_ID', 'Faculty id is not a valid identifier.');
+        if (!facultyIdValid(facultyId)) return error(400, 'INVALID_FACULTY_ID', 'Faculty id is not a valid identifier.');
         const expectedUpdatedAtUtc = strictUtcVersion(payload && payload.expectedUpdatedAtUtc);
         if (!payload || payload.confirm !== true || !expectedUpdatedAtUtc) {
           return error(400, 'FACULTY_CONFIRMATION_REQUIRED', 'Confirm deactivation and reload the Faculty version before continuing.');
@@ -523,7 +527,7 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
       return guarded(token, async (scope, decoded) => {
         if (!scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot restore Faculty records.');
         if (writeGates.facultyAdmin !== true) return writeDisabled();
-        if (!validUuid(facultyId)) return error(400, 'INVALID_FACULTY_ID', 'Faculty id is not a valid identifier.');
+        if (!facultyIdValid(facultyId)) return error(400, 'INVALID_FACULTY_ID', 'Faculty id is not a valid identifier.');
         const expectedUpdatedAtUtc = strictUtcVersion(payload && payload.expectedUpdatedAtUtc);
         if (!payload || !expectedUpdatedAtUtc) {
           return error(400, 'FACULTY_VERSION_REQUIRED', 'Reload Faculty before restoring this record.');
