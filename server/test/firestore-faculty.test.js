@@ -1,8 +1,11 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createFirestoreFacultyRepository, displayNameOf, statusOf, toFte, validLabFacultyId, academicYearForDate } = require('../src/data/firestore/firestore-faculty-repository');
+const { createFirestoreFacultyRepository, displayNameOf, statusOf, toFte, validLabFacultyId, academicYearForDate, versionFromSnapshot } = require('../src/data/firestore/firestore-faculty-repository');
 const { createFirestoreDashboardRepository } = require('../src/data/firestore/firestore-dashboard-repository');
+
+const MOCK_UPDATE_TIME = { seconds: 1790208000, nanoseconds: 123456789 };
+const MOCK_VERSION = versionFromSnapshot({ updateTime: MOCK_UPDATE_TIME });
 
 // FTE is a fraction (SQL decimal(6,4); the seed writes 1 and 0.8), not a percentage.
 const FACULTY = [
@@ -22,11 +25,11 @@ function fakeFirestore(seed = { faculty: FACULTY, sessions: [], afc_requests: []
         orderBy() { return api; },
         async get() {
           if (failCollections.includes(name)) throw Object.assign(Error('query failed'), { code: 14 });
-          return { docs: rows.map(row => ({ id: row.id, data: () => row })) };
+          return { docs: rows.map(row => ({ id: row.id, updateTime: MOCK_UPDATE_TIME, data: () => row })) };
         },
         doc(id) {
           const found = rows.find(row => row.id === id);
-          const snapshot = { id, _collection: name, exists: Boolean(found), data: () => found || {}, get: async () => snapshot };
+          const snapshot = { id, _collection: name, exists: Boolean(found), updateTime: MOCK_UPDATE_TIME, data: () => found || {}, get: async () => snapshot };
           return snapshot;
         }
       };
@@ -38,7 +41,7 @@ function fakeFirestore(seed = { faculty: FACULTY, sessions: [], afc_requests: []
         async get(ref) {
           const rows = seed[ref._collection] || [];
           const found = rows.find(row => row.id === ref.id);
-          return { id: ref.id, exists: Boolean(found), data: () => found || {} };
+          return { id: ref.id, exists: Boolean(found), updateTime: MOCK_UPDATE_TIME, data: () => found || {} };
         },
         set(ref, data) {
           ops.push({ ref, data });
@@ -204,7 +207,7 @@ test('counts are gathered in one query per collection, not per faculty', async (
 test('a faculty update writes and appends an audit record in one transaction', async () => {
   const seed = { faculty: [{ ...FACULTY[0] }], sessions: [], afc_requests: [], role_assignments: [] };
   const repository = createFirestoreFacultyRepository(fakeFirestore(seed));
-  const updated = await repository.updateFaculty({ facultyId: 'fac-001', rank: 'Professor Emeritus', actorFirebaseUid: 'admin-1' });
+  const updated = await repository.updateFaculty({ facultyId: 'fac-001', rank: 'Professor Emeritus', expectedUpdatedAtUtc: MOCK_VERSION, actorFirebaseUid: 'admin-1' });
   assert.equal(updated.rank, 'Professor Emeritus');
   assert.equal(updated.displayName, 'Chen, Morgan');
   const audit = seed.faculty_change_log || [];
@@ -223,7 +226,7 @@ test('a write without a verified actor is refused', async () => {
 test('an FTE percentage is rejected rather than silently scaled', async () => {
   const repository = createFirestoreFacultyRepository(fakeFirestore());
   await assert.rejects(
-    () => repository.updateFaculty({ facultyId: 'fac-001', fte: 100, actorFirebaseUid: 'admin-1' }),
+    () => repository.updateFaculty({ facultyId: 'fac-001', fte: 100, expectedUpdatedAtUtc: MOCK_VERSION, actorFirebaseUid: 'admin-1' }),
     error => error.code === 'INVALID_FTE'
   );
 });
@@ -231,16 +234,24 @@ test('an FTE percentage is rejected rather than silently scaled', async () => {
 test('deactivation keeps the record and only changes its status', async () => {
   const firestore = fakeFirestore();
   const repository = createFirestoreFacultyRepository(firestore);
-  const after = await repository.deactivateFaculty({ facultyId: 'fac-001', actorFirebaseUid: 'admin-1' });
+  const after = await repository.deactivateFaculty({ facultyId: 'fac-001', expectedUpdatedAtUtc: MOCK_VERSION, actorFirebaseUid: 'admin-1' });
   assert.equal(after.active, false);
   // The record still exists, so historical references keep resolving.
   assert.ok(await repository.facultyById({ facultyId: 'fac-001', includeInactive: true }));
 });
 
+test('an absent Faculty precondition is refused, not interpreted as current', async () => {
+  const repository = createFirestoreFacultyRepository(fakeFirestore());
+  await assert.rejects(
+    () => repository.updateFaculty({ facultyId: 'fac-001', rank: 'X', actorFirebaseUid: 'admin-1' }),
+    error => error.code === 'FACULTY_VERSION_REQUIRED' && error.status === 400
+  );
+});
+
 test('a stale precondition is a 409 and writes nothing', async () => {
   const repository = createFirestoreFacultyRepository(fakeFirestore());
   await assert.rejects(
-    () => repository.updateFaculty({ facultyId: 'fac-001', rank: 'X', expectedUpdatedAtUtc: '2000-01-01T00:00:00Z', actorFirebaseUid: 'admin-1' }),
+    () => repository.updateFaculty({ facultyId: 'fac-001', rank: 'X', expectedUpdatedAtUtc: '2000-01-01T00:00:00.000000000Z', actorFirebaseUid: 'admin-1' }),
     error => error.code === 'REVISION_CONFLICT' && error.status === 409
   );
 });

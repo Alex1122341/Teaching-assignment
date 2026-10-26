@@ -24,6 +24,7 @@
       if (saving || !canWrite() || !f?.facultyId || !f.updatedAtUtc) return;
       ++editSequence;
       const p = profile || {}, roster = getFaculty();
+      const lab = f.dataBackend === 'firestore';
       const fields = new Map([
         ['preferredFirstName','Preferred first name',f.preferredFirstName,128],['preferredLastName','Preferred last name',f.preferredLastName,128],
         ['displayName','Stored display name',f.storedDisplayName ?? f.displayName,260],['ucid','UCID',f.ucid,64],['email','Email',f.email,256],
@@ -44,9 +45,13 @@
       const appointmentKeys = ['recordType','stream','rank','fte','serviceDate','priorYearsExperience'];
       const specialtyKeys = profileFields.map(([key]) => key).filter(key => !appointmentKeys.includes(key));
       const controls = keys => keys.map(key => fields.get(key));
-      $('faculty-record-fields').innerHTML = group('Identity & contact', [`<div class="field full"><span class="field-label">Faculty ID (immutable)</span><div class="field-value">${esc(f.facultyId)}</div></div>`, ...controls(identityKeys)]) + group('Appointment', controls(appointmentKeys)) + group('Specialty & education', controls(specialtyKeys));
+      const idInfo = `<div class="field full"><span class="field-label">Faculty ID (immutable)</span><div class="field-value">${esc(f.facultyId)}</div></div>`;
+      $('faculty-record-fields').innerHTML = lab
+        ? group('Identity & contact', [idInfo, ...controls(['preferredFirstName', 'preferredLastName'])]) + group('Appointment', controls(['rank', 'fte']))
+        : group('Identity & contact', [idInfo, ...controls(identityKeys)]) + group('Appointment', controls(appointmentKeys)) + group('Specialty & education', controls(specialtyKeys));
       $('faculty-record-title').textContent = `Edit Faculty · ${facultyName(f, f.facultyId)}`;
       const form = $('faculty-record-form'); form.dataset.facultyId = f.facultyId; form.dataset.expectedUpdatedAtUtc = f.updatedAtUtc;
+      form.dataset.backend = lab ? 'firestore' : 'sql';
       form.dataset.expectedProfileVersion = p.profileVersion || '';
       $('faculty-record-status').textContent = ''; $('faculty-record-save').disabled = false;
       if (!$('faculty-record-editor').open) $('faculty-record-editor').showModal();
@@ -66,6 +71,11 @@
       const value = name => form.elements.namedItem(name)?.value ?? '';
       const str = name => String(value(name)).trim() || null;
       const num = name => String(value(name)).trim() === '' ? null : Number(value(name));
+      if (form.dataset.backend === 'firestore') return {
+        expectedUpdatedAtUtc: form.dataset.expectedUpdatedAtUtc,
+        preferredFirstName: str('preferredFirstName'), preferredLastName: str('preferredLastName'),
+        rank: String(value('rank')).trim(), fte: num('fte')
+      };
       return {
         expectedUpdatedAtUtc: form.dataset.expectedUpdatedAtUtc,
         expectedProfileVersion: form.dataset.expectedProfileVersion || null,

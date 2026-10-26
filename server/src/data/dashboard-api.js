@@ -154,6 +154,47 @@ function validateFacultyUpdate(payload, facultyId) {
   return { value: { expectedUpdatedAtUtc, expectedProfileVersion, ...faculty, professionalProfile } };
 }
 
+// Firestore lab has no SQL ProfessionalProfile; only accept fields it can persist.
+function validateLabFacultyUpdate(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { error: error(400, 'INVALID_JSON', 'Faculty update must be an object.') };
+  }
+  const allowed = new Set(['expectedUpdatedAtUtc', 'preferredFirstName', 'preferredLastName', 'rank', 'fte']);
+  if (Object.keys(payload).some(field => !allowed.has(field))) {
+    return { error: error(400, 'INVALID_FACULTY_FIELDS', 'Unsupported lab Faculty field.') };
+  }
+  const expectedUpdatedAtUtc = strictLabVersion(payload.expectedUpdatedAtUtc);
+  if (!expectedUpdatedAtUtc) return { error: error(400, 'FACULTY_VERSION_REQUIRED', 'Reload Faculty before saving.') };
+  const changes = {};
+  for (const [from, to] of [['preferredFirstName', 'firstName'], ['preferredLastName', 'lastName'], ['rank', 'rank']]) {
+    if (!Object.prototype.hasOwnProperty.call(payload, from)) continue;
+    if (typeof payload[from] !== 'string' || payload[from].trim().length > 128) {
+      return { error: error(400, 'INVALID_FACULTY_FIELDS', 'Invalid Faculty field value.') };
+    }
+    if (from !== 'rank' && !payload[from].trim()) {
+      return { error: error(400, 'INVALID_FACULTY_FIELDS', 'Faculty names cannot be blank.') };
+    }
+    changes[to] = payload[from].trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'fte')) {
+    const fte = payload.fte;
+    if (fte !== null && (typeof fte !== 'number' || !Number.isFinite(fte) || fte < 0 || fte > 1 ||
+        Math.abs(fte * 10000 - Math.round(fte * 10000)) > 0.0000001)) {
+      return { error: error(400, 'INVALID_FTE', 'FTE must be a 0-1 fraction with at most four decimal places.') };
+    }
+    changes.fte = fte;
+  }
+  if (!Object.keys(changes).length) return { error: error(400, 'INVALID_FACULTY_FIELDS', 'No supported changes.') };
+  return { value: { expectedUpdatedAtUtc, ...changes } };
+}
+
+function strictLabVersion(value) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z$/.test(raw)) return null;
+  const date = new Date(raw);
+  return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 19) === raw.slice(0, 19) ? raw : null;
+}
+
 function facultyWriteFailure(caught) {
   const typedFailure = backendFailure(caught);
   if (typedFailure) return typedFailure;
@@ -319,7 +360,7 @@ function resolveYear(value) {
   }
 }
 
-function createDashboardApi({ verifyToken, findUser, repository, writeRepository = repository, writeGates = {}, validFacultyId = validUuid, validRoleId = validUuid }) {
+function createDashboardApi({ verifyToken, findUser, repository, writeRepository = repository, writeGates = {}, validFacultyId = validUuid, validRoleId = validUuid, labFacultyWrites = false }) {
   // Faculty identifiers differ per backend: SQL keys Faculty on a UUID, the lab on
   // a document id such as `fac-001`. The validator is injected rather than loosened
   // in place, so SQL keeps rejecting anything that is not a UUID.
@@ -488,7 +529,7 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
         if (!scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot edit Faculty records.');
         if (writeGates.facultyAdmin !== true) return writeDisabled();
         if (!facultyIdValid(facultyId)) return error(400, 'INVALID_FACULTY_ID', 'Faculty id is not a valid identifier.');
-        const validated = validateFacultyUpdate(payload, facultyId);
+        const validated = labFacultyWrites ? validateLabFacultyUpdate(payload) : validateFacultyUpdate(payload, facultyId);
         if (validated.error) return validated.error;
         try {
           const faculty = await writeRepository.updateFaculty({
@@ -508,7 +549,7 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
         if (!scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot deactivate Faculty records.');
         if (writeGates.facultyAdmin !== true) return writeDisabled();
         if (!facultyIdValid(facultyId)) return error(400, 'INVALID_FACULTY_ID', 'Faculty id is not a valid identifier.');
-        const expectedUpdatedAtUtc = strictUtcVersion(payload && payload.expectedUpdatedAtUtc);
+        const expectedUpdatedAtUtc = labFacultyWrites ? strictLabVersion(payload && payload.expectedUpdatedAtUtc) : strictUtcVersion(payload && payload.expectedUpdatedAtUtc);
         if (!payload || payload.confirm !== true || !expectedUpdatedAtUtc) {
           return error(400, 'FACULTY_CONFIRMATION_REQUIRED', 'Confirm deactivation and reload the Faculty version before continuing.');
         }
@@ -529,7 +570,7 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
         if (!scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot restore Faculty records.');
         if (writeGates.facultyAdmin !== true) return writeDisabled();
         if (!facultyIdValid(facultyId)) return error(400, 'INVALID_FACULTY_ID', 'Faculty id is not a valid identifier.');
-        const expectedUpdatedAtUtc = strictUtcVersion(payload && payload.expectedUpdatedAtUtc);
+        const expectedUpdatedAtUtc = labFacultyWrites ? strictLabVersion(payload && payload.expectedUpdatedAtUtc) : strictUtcVersion(payload && payload.expectedUpdatedAtUtc);
         if (!payload || !expectedUpdatedAtUtc) {
           return error(400, 'FACULTY_VERSION_REQUIRED', 'Reload Faculty before restoring this record.');
         }

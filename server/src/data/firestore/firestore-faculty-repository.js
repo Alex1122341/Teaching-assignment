@@ -62,6 +62,17 @@ function isoFromTimestamp(value) {
   return null;
 }
 
+// Firestore updateTime is server-assigned and nanosecond-precise.
+// It is the optimistic-concurrency token even for legacy documents without updatedAt.
+function versionFromSnapshot(snapshot) {
+  const stamp = snapshot && snapshot.updateTime;
+  if (!stamp || !Number.isInteger(stamp.seconds) || !Number.isInteger(stamp.nanoseconds) ||
+      stamp.nanoseconds < 0 || stamp.nanoseconds >= 1e9) return null;
+  const seconds = new Date(stamp.seconds * 1000);
+  if (!Number.isFinite(seconds.valueOf())) return null;
+  return seconds.toISOString().slice(0, 19) + '.' + String(stamp.nanoseconds).padStart(9, '0') + 'Z';
+}
+
 // "Last Name, First Name" — composed server-side so every backend produces the
 // same string and the browser never assembles a name itself.
 function displayNameOf(document) {
@@ -82,6 +93,7 @@ function statusOf(document) {
 function toRow(id, document) {
   return {
     facultyId: id,
+    dataBackend: 'firestore',
     preferredFirstName: text(document.firstName),
     preferredLastName: text(document.lastName),
     displayName: displayNameOf(document),
@@ -167,7 +179,11 @@ function createFirestoreFacultyRepository(firestore) {
 
   async function loadAll() {
     const snapshot = await firestore.collection('faculty').get();
-    return snapshot.docs.map(doc => toRow(doc.id, doc.data() || {}));
+    return snapshot.docs.map(doc => {
+      const row = toRow(doc.id, doc.data() || {});
+      row.updatedAtUtc = versionFromSnapshot(doc);
+      return row;
+    });
   }
 
   // Three queries total, shared by the whole page of rows.
@@ -236,6 +252,7 @@ function createFirestoreFacultyRepository(firestore) {
       if (!snapshot.exists) return null;
 
       const row = toRow(snapshot.id, snapshot.data() || {});
+      row.updatedAtUtc = versionFromSnapshot(snapshot);
       if (row.status !== 'active' && !includeInactive) return null;
 
       const gathered = await gatherCounts(academicYear ? text(academicYear) : null);
@@ -297,6 +314,10 @@ function createFirestoreFacultyRepository(firestore) {
     const id = text(facultyId);
     if (!id) throw Object.assign(Error('A faculty id is required.'), { code: 'INVALID_FACULTY_ID', status: 400 });
     const actor = requireActor(actorFirebaseUid);
+    const wantedVersion = text(expectedUpdatedAtUtc);
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z$/.test(wantedVersion)) {
+      throw Object.assign(Error('Reload Faculty before saving.'), { code: 'FACULTY_VERSION_REQUIRED', status: 400 });
+    }
     const now = new Date();
 
     return firestore.runTransaction(async transaction => {
@@ -305,9 +326,12 @@ function createFirestoreFacultyRepository(firestore) {
       if (!snapshot.exists) throw Object.assign(Error('Faculty record not found.'), { code: 'NOT_FOUND', status: 404 });
 
       const before = snapshot.data() || {};
-      const currentVersion = isoFromTimestamp(before.updatedAt);
-      // A stale precondition is a conflict, never a silent overwrite.
-      if (text(expectedUpdatedAtUtc) && currentVersion && text(expectedUpdatedAtUtc) !== currentVersion) {
+      const currentVersion = versionFromSnapshot(snapshot);
+      if (!currentVersion) {
+        throw Object.assign(Error('Firestore document version is unavailable.'), { code: 'BACKEND_UNAVAILABLE', status: 503 });
+      }
+      // Require an exact match, never accept an absent or truncated version.
+      if (wantedVersion !== currentVersion) {
         throw Object.assign(Error('This record was changed by someone else. Reload and try again.'), {
           code: 'REVISION_CONFLICT', status: 409
         });
@@ -323,7 +347,8 @@ function createFirestoreFacultyRepository(firestore) {
   }
 
   repository.updateFaculty = async ({ facultyId, expectedUpdatedAtUtc, actorFirebaseUid, ...changes } = {}) => {
-    const allowed = ['firstName', 'lastName', 'email', 'rank', 'fte', 'ucid'];
+    // Identity changes require a separate uniqueness and privacy migration.
+    const allowed = ['firstName', 'lastName', 'rank', 'fte'];
     return applyFacultyWrite({
       facultyId, expectedUpdatedAtUtc, action: 'update', actorFirebaseUid,
       mutate: before => {
@@ -332,7 +357,7 @@ function createFirestoreFacultyRepository(firestore) {
           if (changes[key] === undefined) continue;
           if (key === 'fte') {
             const fte = toFte(changes.fte);
-            if (fte === null || fte < 0 || fte > 1) {
+            if (changes.fte !== null && (fte === null || fte < 0 || fte > 1)) {
               throw Object.assign(Error('FTE must be a fraction between 0 and 1.'), { code: 'INVALID_FTE', status: 400 });
             }
             next.fte = fte;
@@ -369,5 +394,6 @@ module.exports = {
   statusOf,
   toFte,
   toRow,
+  versionFromSnapshot,
   validLabFacultyId
 };

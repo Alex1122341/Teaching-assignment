@@ -278,7 +278,7 @@ function findChrome(env=process.env){
  }
  return'';
 }
-async function waitForDebugPort(userDataDir,child,timeoutMs=15000){
+async function waitForDebugPort(userDataDir,child,timeoutMs=60000){
  const active=path.join(userDataDir,'DevToolsActivePort'),started=Date.now();
  while(Date.now()-started<timeoutMs){
   if(child.exitCode!==null)throw Error(`Chrome exited before DevTools became available (exit ${child.exitCode}).`);
@@ -1198,7 +1198,7 @@ async function run(){
   '--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage',
   '--no-first-run','--no-default-browser-check','--disable-component-update',
   '--remote-debugging-port=0',`--user-data-dir=${userDataDir}`,'about:blank'
- ],{stdio:['ignore','ignore','pipe']});
+ ],{stdio:['ignore','ignore','pipe'],env:{...process.env,DBUS_SESSION_BUS_ADDRESS:''}});
  child.stderr.on('data',chunk=>{stderr+=chunk.toString()});
  try{
   const debugPort=await waitForDebugPort(userDataDir,child);
