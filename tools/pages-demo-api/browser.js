@@ -51,7 +51,7 @@ const { Buffer } = require('buffer');
   }
 
   root.fetch = demoFetch;
-  root.UCVM_PAWS_DEMO_API = Object.freeze({ store, reset: () => store.reset(), backend: 'browser-memory', authoritative: false });
+  root.UCVM_PAWS_DEMO_API = Object.freeze({ store, reset: () => store.reset(), backend: 'browser-memory', authoritative: false, testingOnly: require('./testing-only.js').createTestingOnly(store) });
   // "Reset demo data" in the Role Tester also resets the PAWS tables.
   const hookReset = () => {
     const demo = root.UCVM_PAGES_DEMO;

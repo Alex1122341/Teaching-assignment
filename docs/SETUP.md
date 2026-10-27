@@ -76,12 +76,28 @@ The demo auto-signs in with a synthetic ADFA General account and adds a small ro
 
 The authoritative DOE API is intentionally unavailable. Timetable/Faculty UI can show DOE-related states and queue-like frontend behavior, but the Pages demo does not claim that any DOE value is authoritative.
 
+### PAWS (beta) pages on the test site
+
+Since the beta-parity change, the Pages test site publishes the **PAWS pages from `frontend/`** (the same pages as beta) instead of the legacy `web/` app:
+
+- `tools/build-paws-pages.js` copies the PAWS pages and bundles `tools/pages-demo-api/` into `pages-demo-api.js`. That bundle runs the real `server/src` API modules **in the browser** against synthetic in-memory tables, so the pages call the same `/api/v1/...` routes as beta without any server, SQL database or real data.
+- `tools/stage-github-pages.js --mode paws` injects the demo runtime, the demo API and the banner `PAWS Frontend Demo · synthetic browser-local data`.
+- `tools/paws-browser-smoke.js` opens every PAWS page as several demo roles before deployment.
+- Demo writes persist only in the tester's browser; **Reset demo data** restores both the legacy demo data and the PAWS tables.
+- The DOE shown is calculated in the browser from synthetic data and is not authoritative.
+
+Features the old testing site had that beta does not are kept on the test site and marked with a small **T** badge ("Testing site only – not on beta"). They live in `frontend/scripts/testing-only-features.js` (plus small, commented hooks in `timetable.js` and `faculty-admin.js`):
+
+- Timetable: Course List, Semester "All", Show CCC, Show University Closures, All Approvals, Work Queue (ADC / LAB / Open Work), Requests (faculty), workflow notifications pop-up, Select Sessions (bulk edit).
+- Faculty Dashboard: Campus filter, Import Away from Campus, Teaching Data Synchronization, Import Legacy Workload DOE Breakdown, Sessional / Other, DOE Reconciliation, Faculty Database, Derived Index Health.
+- Change Password: reset by email (demo only — no email is sent).
+
 ### GitHub Pages test-site setup
 
 1. In GitHub repository **Settings > Pages**, set the source to **GitHub Actions**.
 2. Keep the standard `github-pages` Environment available to same-repository pull-request deployments.
 3. No Firebase Web config, Firebase service-account secret, Authorized Domain, or Firebase Authentication user is required to run the Pages demo.
-4. Open the fixed Pages URL after a successful PR deployment and confirm the banner says **Frontend Demo** and **DOE backend off**.
+4. Open the fixed Pages URL after a successful PR deployment and confirm the banner says **PAWS Frontend Demo** (authoritative DOE stays off).
 5. Use the role selector in the upper-left corner to exercise role-specific UI. Use **Reset demo data** to restore the deterministic synthetic dataset.
 
 The fixed Pages URL always shows the latest successful same-repository pull request deployment. Forked pull requests do not deploy the test site. Firebase Hosting is not used for the active Frontend Demo; GitHub Pages is the fixed browser test host.

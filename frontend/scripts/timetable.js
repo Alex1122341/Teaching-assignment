@@ -451,6 +451,8 @@
   let selectedYear = 'all';
   let selectedSemester = 'fall';
   let viewMode = 'week';
+  // Testing site only: hooks for testing-only-features.js.
+  window.UCVM_TIMETABLE_TESTING_HOOKS=Object.freeze({render:()=>render(),currentUser:()=>currentUser,viewMode:()=>viewMode,refresh:()=>refreshSessionScope()});
   let listSessionMode = 'ALL';
   let listAcademicYear = '';
   let lastFacultyTeachingView = 'day';
@@ -1142,10 +1144,14 @@
     const q = $('search-input').value.trim().toLowerCase();
     const searchWords=q.split(/[\s,]+/).filter(Boolean);
     const month = $('filter-month').value;
+    const testingOnly=window.UCVM_TESTING_ONLY; // Testing site only (Show CCC, Semester "All").
+    const allSemesters=Boolean(testingOnly?.allSemesters?.(viewMode));
     return source.filter(s => {
+      if(s.testingOnlyRow)return true;
+      if(testingOnly?.keepSession&&!testingOnly.keepSession(s))return false;
       if(s.isWorkingActivity?!activityTypeFilter.matchesActivity(s.sourceActivity):!activityTypeFilter.matchesSession(s))return false;
       if ((!options.ignorePeriod||selectedYear==='rotation') && !(window.PAWS_ACTIVITY_PLACEMENT?.matchesYear(s,selectedYear)??(selectedYear==='all'||String(s.year)===selectedYear))) return false;
-      if (!options.ignorePeriod && s.semester !== selectedSemester) return false;
+      if (!options.ignorePeriod && !allSemesters && s.semester !== selectedSemester) return false;
       if (!options.ignorePeriod && month !== 'all' && String(parseYmd(s.date).getMonth()) !== month) return false;
       if (courseFilterActive && !selectedCourses.has(String(s.course))) return false;
       if (myTimetableOnly && currentUser && !sessionBelongsToCurrentFaculty(s)) return false;
@@ -1205,7 +1211,9 @@
 
   function calendarSourceSessions() {
     const scope=workingActivityScope(workingActivityRange());
-    return currentUser&&workingCalendarScope===JSON.stringify(scope)?[...sessions,...workingCalendarRows]:sessions;
+    const rows=currentUser&&workingCalendarScope===JSON.stringify(scope)?[...sessions,...workingCalendarRows]:sessions;
+    // Testing site only: lets testing-only-features.js add University Closures.
+    return window.UCVM_TESTING_ONLY?.calendarRows?window.UCVM_TESTING_ONLY.calendarRows(rows):rows;
   }
 
   function setCalendarActivityRows(rows,{range,scope}) {
@@ -1555,7 +1563,9 @@
   }
 
   async function startSessionSelection(){
-    if(!requireSessionWrites())return;
+    // Testing site only: Select Sessions saves through the single-session edit API.
+    const testingSelection=Boolean(window.UCVM_TESTING_ONLY?.selectSessions&&window.UCVM_PAWS_DATA?.sessionEditEnabled?.());
+    if(!testingSelection&&!requireSessionWrites())return;
     if(!canEdit())return;
     await ensureFacultyDirectory();
     selectionViewFlow.begin(viewMode);
@@ -1582,7 +1592,7 @@
     return facultyDirectory.map(f=>{const state=doeState.get(String(f.__id))||{},current=state.current===null||state.current===undefined?'Unavailable':swapPct(state.current),target=state.target||window.UCVM_FACULTY_DOE.effectiveTarget(f),targetLabel=window.UCVM_FACULTY_DOE.targetLabel(f);return `<label class="selection-faculty-option"><input type="checkbox" data-selection-faculty-option value="${escapeHtml(f.__id)}" ${selected.has(String(f.__id))?'checked':''}><span><strong>${escapeHtml(displayFaculty(swapFacultyName(f)))}</strong><small>Assigned DOE ${current} · ${escapeHtml(targetLabel)}${target.source==='override'?'<span class="doe-override-pill">Override</span>':''}</small></span></label>`}).join('');
   }
   function updateSelectionFacultyPicker(picker){
-    const checked=[...picker.querySelectorAll('[data-selection-faculty-option]:checked')],summary=picker.querySelector('summary'),chips=picker.querySelector('.selection-faculty-chips');
+    const checked=[...picker.querySelectorAll('[data-selection-faculty-option]:checked')],summary=picker.querySelector('summary'),chips=picker.querySelector('.selection-faculty-chips')||picker.parentElement.querySelector('.selection-faculty-chips');
     summary.textContent=checked.length?`${checked.length} faculty selected`:'Choose faculty';
     chips.innerHTML=checked.map(input=>{const f=facultyDirectory.find(row=>String(row.__id)===String(input.value)),state=selectionDoeState.get(String(input.value))||{},current=state.current===null||state.current===undefined?'DOE unavailable':`Assigned ${swapPct(state.current)}`;return `<span>${escapeHtml(displayFaculty(swapFacultyName(f)))}<small>${current}</small></span>`}).join('');
   }
@@ -1620,8 +1630,36 @@
     });
   }
   async function saveSelectedChanges(){
-    toast('Multi-session edits are unavailable until the PAWS University API supports this operation.',true);
-    return false;
+    if(!window.UCVM_TESTING_ONLY?.selectSessions){
+      toast('Multi-session edits are unavailable until the PAWS University API supports this operation.',true);
+      return false;
+    }
+    // Testing site only: save each selected row through the single-session API.
+    const button=$('selection-save-btn'),errors=$('selection-errors');
+    const originals=new Map([...selectedSessionOriginals].map(([id,row])=>[String(id),row]));
+    const rows=readSelectionRows(),failures=[];let saved=0;
+    if(button){button.disabled=true;button.textContent='Saving...'}
+    for(const row of rows){
+      const original=originals.get(String(row.id))||{};
+      const patch={date:row.date,startTime:row.start,endTime:row.end,courseCode:row.course,sessionType:row.type,topic:row.topic,room:row.room};
+      const fieldsChanged=patch.date!==original.date||patch.startTime!==original.start||patch.endTime!==original.end||patch.courseCode!==String(original.course||'')||patch.sessionType!==String(original.type||'')||patch.topic!==String(original.topic||'')||patch.room!==String(original.room||'');
+      const before=[...new Set([...(original.facultyIds||[]),...(original.assignments||[]).map(a=>a.facultyId||a.ucid)].filter(Boolean).map(String))];
+      const after=[...new Set((row.facultyIds||[]).map(String))];
+      // Only replace instructors when PAWS Faculty were picked; an empty or legacy-only pick keeps the current instructors.
+      const pawsIds=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const facultyChanged=after.length>0&&after.every(id=>pawsIds.test(id))&&before.join('|')!==after.join('|');
+      if(!fieldsChanged&&!facultyChanged)continue;
+      try{
+        if(fieldsChanged)await window.UCVM_PAWS_DATA.patchSession(row.id,patch);
+        if(facultyChanged)await window.UCVM_PAWS_DATA.replaceSessionAssignments(row.id,after.map(facultyId=>({facultyId,teachingRole:String((original.assignments||[]).find(a=>String(a.facultyId||a.ucid)===facultyId)?.role||'Lecture')})));
+        saved++;
+      }catch(error){failures.push(`${row.course} ${row.date}: ${error?.message||error}`)}
+    }
+    if(button){button.disabled=false;button.textContent='Save changes'}
+    if(failures.length){if(errors){errors.textContent=failures.join(' · ');errors.classList.remove('hidden')}toast(`${saved} saved, ${failures.length} could not be saved.`,true);return false}
+    if(!saved){toast('No changes to save.');return false}
+    invalidateAllSessions();cancelSessionSelection();await refreshSessionScope();toast(`${saved} session${saved===1?'':'s'} updated and audited.`);
+    return true;
   }
 
   function openSessionDetail(id, currentSession = null) {
@@ -2498,7 +2536,8 @@
     b.classList.toggle('is-admin', canEdit());
     const sessionCreateEnabled=Boolean(window.UCVM_PAWS_DATA?.sessionCreateEnabled?.());
     $('add-session-btn').classList.toggle('hidden', !canEditExistingSqlSession() || !sessionCreateEnabled);
-    $('selection-controls').classList.add('hidden');
+    // Select Sessions (bulk edit) is hidden on beta; the testing site shows it with a T badge.
+    $('selection-controls').classList.toggle('hidden',!(window.UCVM_TESTING_ONLY?.selectSessions&&canEditExistingSqlSession()&&window.UCVM_PAWS_DATA?.sessionEditEnabled?.()));
     $('bulk-add-session-btn').classList.toggle('hidden', !canEditExistingSqlSession() || !sessionCreateEnabled);
     $('outlook-invite-btn').classList.toggle('hidden', !UCVM.admin(currentUser));
     $('manage-users-btn').classList.toggle('hidden', !(UCVM.general(currentUser) || currentUser?.role === 'hicc'));
@@ -2518,6 +2557,7 @@
     $('my-timetable-btn').classList.toggle('hidden', !currentUser || roleIsFaculty(currentUser));
     $('my-timetable-btn').textContent = currentUser && myTimetableOnly ? 'Show All Timetable' : 'My Timetable';
     scheduleWorkspace?.sync(Boolean(currentUser));
+    window.dispatchEvent(new CustomEvent('ucvm-timetable-user',{detail:{user:currentUser}})); // Testing site only.
   }
 
   function openUserManager() {

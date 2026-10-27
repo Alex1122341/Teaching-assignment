@@ -206,7 +206,8 @@ function pawsFacultyIndex(documents){
     const entries=(doc.data.entries||[]).map(entry=>{
       const row=byLegacy.get(entry.key);
       if(!row)return entry;
-      return {...entry,id:row.ucid,name:row.displayName,hrName:row.hrName,email:row.email,reportsTo:row.reportsToFacultyId||'',active:row.active!==false,roleTypes:[]};
+      const campus=Number(String(entry.key).replace(/\D/g,''))%3===0?'Spy Hill':'Foothills';
+      return {...entry,id:row.ucid,name:row.displayName,hrName:row.hrName,email:row.email,reportsTo:row.reportsToFacultyId||'',active:row.active!==false,roleTypes:[],campus};
     });
     return {...doc,data:{...doc.data,entries}};
   });

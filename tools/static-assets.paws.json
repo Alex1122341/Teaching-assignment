@@ -93,5 +93,6 @@
   "schedule-filter-view.js",
   "workspace-navigation.js",
   "office-workspace.js",
-  "faculty-route-access.js"
+  "faculty-route-access.js",
+  "testing-only-features.js"
 ]
