@@ -177,6 +177,18 @@
     }
 
     return Object.freeze({
+      reportCatalog:()=>request('/api/v1/reports/catalog'),
+      reportQuery:definition=>request('/api/v1/reports/query',{method:'POST',body:definition}),
+      reportPage(snapshot,source,offset){return request('/api/v1/reports/page?'+new URLSearchParams({snapshot:String(snapshot),source:String(source),offset:String(offset)}));},
+      async reportExport(snapshot,format,source){
+        const query=new URLSearchParams({snapshot:String(snapshot),format:String(format)});if(source!==undefined)query.set('source',String(source));
+        const file=await request('/api/v1/reports/export?'+query),types={csv:'text/csv',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
+        const counts=file?.rowCounts,entries=counts&&typeof counts==='object'&&!Array.isArray(counts)?Object.entries(counts):[];
+        if(!types[format]||typeof file?.fileName!=='string'||!/^paws-reports[-a-z0-9]*\.(csv|xlsx)$/.test(file.fileName)||!file.fileName.endsWith('.'+format)||typeof file.contentType!=='string'||file.contentType.split(';')[0]!==types[format]||typeof file.fileBase64!=='string'||file.fileBase64.length>8388608||!file.fileBase64.length||!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.fileBase64)||!entries.length||entries.some(([id,count])=>!['workload','schedule','roles','history'].includes(id)||!Number.isSafeInteger(count)||count<0||count>5000)||entries.reduce((sum,[,count])=>sum+count,0)!==file.rowCount||file.rowCount>10000||format==='csv'&&(entries.length!==1||entries[0][0]!==source)){
+          const error=new Error('The report download could not be verified. Preview again.');error.code='INVALID_REPORT_ARTIFACT';throw error;
+        }
+        return file;
+      },
       facultyAvailability({facultyId,mode='upcoming',startDate=null,endDate=null,kind='all',cursor=null,limit=50}={}){
         const query=new URLSearchParams({mode,kind,limit:String(limit)});
         if(startDate)query.set('startDate',startDate);

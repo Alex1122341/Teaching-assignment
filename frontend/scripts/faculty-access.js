@@ -12,13 +12,15 @@ window.UCVM=(()=>{
  // `other_office` is retired in the current PAWS architecture and must fail closed
  // at this explicit capability boundary even though legacy UCVM.admin() still knows it.
  const DASHBOARD_ROLES=['developer','adfa_general','adfa_regular','faculty','hicc','visc'];
- function canOpenFacultyDashboard(p){return DASHBOARD_ROLES.includes(role(p?.role));}
+ function canOpenFacultyDashboard(p){const shared=typeof window!=='undefined'&&window.PAWS_FACULTY_ROUTE_ACCESS;return shared?shared.canOpenFacultyDashboard(p):DASHBOARD_ROLES.includes(role(p?.role));}
+ // Match Teaching Assignments' existing admission, including its legacy aliases.
+ // Navigation does not add developer/other-office/contributor access to that route.
+ function canOpenTeachingAssignments(p){const shared=typeof window!=='undefined'&&window.PAWS_FACULTY_ROUTE_ACCESS;return shared?shared.canOpenTeachingAssignments(p):['owner','administrator','admin','adfa_general','adfa_regular','hicc','visc','faculty'].includes(rawRole(p?.role||p?.baseRole).trim());}
  const historyAll=p=>['developer','adfa_general','adfa_regular'].includes(role(p?.role));
  const label=r=>({developer:'Developer',owner:'ADFAD Owner',adfa_general:'ADFAD Owner',administrator:'ADFAD Admin',adfa_regular:'ADFAD Admin',admin:'ADFAD Admin',other_office:'Other Office',hicc:'HICC',visc:'VISC',faculty:'Faculty',editor:'Faculty',viewer:'Faculty'}[rawRole(r)]||rawRole(r));
  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const number=v=>{if(v===undefined||v===null||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null};
  function installWeekTimeAlignmentFix(){if(document.getElementById('ucvm-week-time-alignment-fix'))return;const style=document.createElement('style');style.id='ucvm-week-time-alignment-fix';style.textContent='.tg-track{top:0!important;bottom:0!important}.tg-block{position:absolute!important}';document.head.appendChild(style)}
- installWeekTimeAlignmentFix();
  function installStableWeekLanes(){
   const keyFor=b=>(b.querySelector('.tg-block-l1')?.textContent||b.dataset.sessionId||'').trim().toLowerCase();
   const alignColumn=col=>{
@@ -40,7 +42,8 @@ window.UCVM=(()=>{
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',queue,{once:true});else queue();
   new MutationObserver(m=>{if(m.some(x=>[...x.addedNodes].some(n=>n.nodeType===1&&(n.matches?.('.tg-day-col,.tg-block')||n.querySelector?.('.tg-day-col,.tg-block')))))queue()}).observe(document.documentElement,{childList:true,subtree:true});
  }
- installStableWeekLanes();
+ // Office pages import the same role helpers without installing Calendar observers.
+ if(typeof document!=='undefined'&&document.getElementById('calendar-body')){installWeekTimeAlignmentFix();installStableWeekLanes();}
  let persistenceStarted=false;
  function init(){
   if(!firebase.apps.length)firebase.initializeApp(config);
@@ -105,7 +108,7 @@ window.UCVM=(()=>{
   async function more(){if(loading)return;loading=true;$('audit-more').disabled=true;$('audit-status').textContent='Loading changes…';try{await page('session_change_log','session');if(includeFaculty)await page('faculty_change_log','faculty');await page('account_audit','account');entries.sort((a,b)=>{const at=a.changedAt?.toMillis?a.changedAt.toMillis():0,bt=b.changedAt?.toMillis?b.changedAt.toMillis():0;return bt-at});render();$('audit-more').hidden=exhausted.session&&exhausted.faculty&&exhausted.account;$('audit-status').textContent=`${entries.length} changes loaded · ${canReadAll?'all authorized users':'your changes only'}.` }catch(e){$('audit-status').textContent='Could not load history: '+e.message}finally{loading=false;$('audit-more').disabled=false}}
   $('audit-search').oninput=render;$('audit-kind').onchange=render;$('audit-more').onclick=more;await more()
  }
- return {config,role,admin,general,historyAll,canOpenFacultyDashboard,label,esc,number,init,ready,enrichFacultyIdentity,watch,logs};
+ return {config,role,admin,general,historyAll,canOpenFacultyDashboard,canOpenTeachingAssignments,label,esc,number,init,ready,enrichFacultyIdentity,watch,logs};
 })();
 
 // W1D authority containment: legacy Firestore approval and Faculty/DOE writers

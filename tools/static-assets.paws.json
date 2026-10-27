@@ -1,4 +1,6 @@
 [
+  "faculty-reports.js",
+  "faculty-reports.css",
   "absence-from-campus-app.pdf",
   "afc-actions.js",
   "afc-form-state.js",
@@ -75,7 +77,9 @@
   "faculty-admin-afc-forms.js",
   "faculty-admin-ccc-replacement.js",
   "lab-session-detail.js",
+  "calendar-activity-placement.js",
   "calendar-activities.js",
+  "calendar-search.js",
   "change-history.css",
   "change-history.js",
   "calendar-activities.css",
@@ -85,5 +89,9 @@
   "ccc-schedule.js",
   "ccc-schedule.css",
   "leadership-directory.css",
-  "leadership-directory.js"
+  "leadership-directory.js",
+  "schedule-filter-view.js",
+  "workspace-navigation.js",
+  "office-workspace.js",
+  "faculty-route-access.js"
 ]

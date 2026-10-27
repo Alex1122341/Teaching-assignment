@@ -28,5 +28,50 @@
     const srl=model.srl.map(row=>`<tr><th scope="row">${title(row)}</th><td>${room(row)}</td><td>${escape(slot(row))}</td>${actionCell(row)}</tr>`).join('');
     return `<div class="lab-tables"><p class="lab-source-note">Times shown are the stored activity intervals. Student group rotations are not provided in the current source.</p><div class="lab-table-scroll"><table class="lab-detail-table"><caption class="sr-only">LAB activities and source intervals</caption><thead><tr><th scope="col">Station / Instructor</th><th scope="col">Room</th>${model.slots.map(time=>`<th scope="col">${escape(time)}</th>`).join('')}${actionHead}</tr></thead><tbody>${stations}</tbody></table></div>${srl?`<div class="lab-table-scroll"><table class="lab-detail-table"><caption class="sr-only">SRL activities</caption><thead><tr><th scope="col">SRL / Instructor</th><th scope="col">Room</th><th scope="col">Time</th>${actionHead}</tr></thead><tbody>${srl}</tbody></table></div>`:''}</div>`;
   }
-  return Object.freeze({buildModel,render});
+
+  // Calendar-only projection. SQL Session rows and the existing detail model stay unchanged.
+  // A group has a real member ID, a source-derived union interval and a display-only count.
+  function calendarBlocks(rows,{gridOnly=false}={}){
+    if(!Array.isArray(rows))return [];
+    const minute=value=>{
+      const v=text(value);
+      return /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(v)?Number(v.slice(0,2))*60+Number(v.slice(3)):null;
+    };
+    const clock=value=>String(Math.floor(value/60)).padStart(2,'0')+':'+String(value%60).padStart(2,'0');
+    const normalize=value=>text(value).replace(/\s+/g,' ').toLowerCase();
+    const output=[],groups=new Map();
+    rows.forEach((row,order)=>{
+      const start=minute(row?.start),end=minute(row?.end);
+      const valid=row&&normalize(row.type)==='lab'&&!row.isCcc&&!row.readOnlyActivity&&
+        !row.timeUnknown&&text(row.id)&&text(row.course)&&text(row.date)&&
+        text(row.academicYear)&&text(row.year)&&text(row.topic)&&
+        start!==null&&end!==null&&end>start&&(!gridOnly||(end>450&&start<1020));
+      if(!valid){output.push({order,row});return;}
+      const key=JSON.stringify([normalize(row.course),text(row.date),normalize(row.academicYear),
+        normalize(row.year),normalize(row.topic)]);
+      if(!groups.has(key))groups.set(key,[]);
+      const members=groups.get(key);
+      // A source record that appears twice is still one physical SQL session.
+      if(!members.some(item=>text(item.row.id)===text(row.id)))members.push({row,order,start,end});
+    });
+    for(const members of groups.values()){
+      members.sort((a,b)=>a.start-b.start||a.end-b.end||a.order-b.order);
+      let run=[],lastEnd=-1;
+      function finish(){
+        if(!run.length)return;
+        const first=run[0];
+        const result=run.length===1?first.row:{...first.row,start:clock(first.start),
+          end:clock(lastEnd),labDisplayCount:run.length,labDisplayIds:run.map(item=>String(item.row.id))};
+        output.push({order:Math.min(...run.map(item=>item.order)),row:result});
+        run=[];lastEnd=-1;
+      }
+      for(const item of members){
+        if(run.length&&item.start>lastEnd)finish();
+        run.push(item);lastEnd=Math.max(lastEnd,item.end);
+      }
+      finish();
+    }
+    return output.sort((a,b)=>a.order-b.order).map(item=>item.row);
+  }
+  return Object.freeze({buildModel,render,calendarBlocks});
 });

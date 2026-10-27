@@ -14,6 +14,23 @@
   const DAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   const SQL_SESSION_EDIT_ROLES = new Set(['developer','owner','administrator','adfa_general','adfa_regular','admin']);
 
+  // Calendar search responsiveness. calendar-search.js is published before this
+  // file and provides three primitives: a trailing-edge debounce for the search
+  // field, a user/range/faculty-scoped cache for Working Activity rows, and one
+  // delegated session click listener. When the module is absent the page keeps
+  // the previous immediate-render behaviour, so a stale cached script cannot
+  // turn the filter box into a dead input.
+  const calendarSearch = window.UCVM_CALENDAR_SEARCH || null;
+  const workingActivityCache = calendarSearch
+    ? calendarSearch.createActivityCache({ ttlMs: calendarSearch.ACTIVITY_CACHE_TTL_MS })
+    : null;
+  const searchDebouncer = calendarSearch
+    ? calendarSearch.createDebouncer({ delay: calendarSearch.SEARCH_DEBOUNCE_MS, invoke: () => render() })
+    : null;
+  // Calendar activity writers (imports, replacements) can announce themselves;
+  // rows already in memory must never survive a confirmed change.
+  window.addEventListener('ucvm:calendar-activities-updated', () => {resetWorkingCalendar();if(currentUser)render();});
+
 
   // Firebase Web configuration is public by design. This local harness uses the
   // separate Tester Teaching project for REAL Authentication and REAL role lookup.
@@ -441,6 +458,7 @@
   let selectedCourses = new Set();
   let courseFilterActive = false;
   let workingActivityRenderToken = 0;
+  let workingCalendarRows = [], workingCalendarScope = '';
   let renderedSessions = [];
   let colorsOn = true;
   let myTimetableOnly = false;
@@ -454,7 +472,12 @@
   let selectionDoeState = new Map();
 
   const $ = (id) => document.getElementById(id);
-  const activityTypeFilter = window.PAWS_CALENDAR_ACTIVITIES.createActivityTypeFilter({host:$('activity-type-filter'),onChange:()=>render()});
+  let scheduleWorkspace = null;
+  let contentFilterBatch = false;
+  const activityTypeFilter = window.PAWS_CALENDAR_ACTIVITIES.createActivityTypeFilter({host:$('activity-type-filter'),activityCategories:['ccc','rotation_participant'],onChange:()=>{if(!contentFilterBatch)render();}});
+  const activeFilterView = window.PAWS_SCHEDULE_FILTER_VIEW.mount($('schedule-active-filters'),{
+    onRemove:changeContentFilter,onClear:()=>changeContentFilter('clear'),focusFallback:$('search-input')
+  });
   const memoryStore = {};
   function storageGet(key) {
     try { return window.localStorage ? window.localStorage.getItem(key) : (memoryStore[key] ?? null); }
@@ -477,6 +500,7 @@
     button.setAttribute('aria-expanded',String(expanded));
     const chevron=button.querySelector('.schedule-filter-chevron');
     if(chevron)chevron.textContent=expanded?'⌃':'⌄';
+    if(expanded)syncWeekUI();
     if(persist)try{window.sessionStorage.setItem(SCHEDULE_FILTERS_KEY,String(expanded))}catch(_){ }
   }
   function initializeScheduleFilters(matchMedia=window.matchMedia.bind(window)) {
@@ -516,6 +540,7 @@
 
   function sessionTypeClass(type) {
     const normalized = String(type || '').trim().toLowerCase();
+    if (normalized === 'rotation') return 'tg-type-rotation';
     if (normalized === 'ccc') return 'tg-type-ccc';
     if (normalized === 'lec') return 'tg-type-lec';
     if (normalized === 'lab') return 'tg-type-lab';
@@ -892,6 +917,7 @@
     populateCourseFilter();
     renderWeekControls();
     bindControls();
+    bindCalendarSearchInput();
     updateAuthUI();
     setAppLocked(true, 'Checking login status...');
     initFirebaseAuth();
@@ -912,6 +938,7 @@
   function sessionBelongsToCurrentFaculty(s){
     if(!currentUser)return false;
     const facultyId=String(currentUser.profile?.facultyId||'').trim();
+    if(s.isWorkingActivity)return s.activityOwnerUid===currentUser.uid&&Boolean(facultyId)&&s.activityFacultyId===facultyId;
     const aliases=new Set([currentUser.instructorName,currentUser.name,currentUser.email].map(swapNameKey).filter(Boolean));
     const assignments=Array.isArray(s.assignments)?s.assignments:[];
     if(facultyId&&assignments.some(a=>String(a?.ucid||a?.facultyId||'').trim()===facultyId))return true;
@@ -926,21 +953,41 @@
     for (let w = 1; w <= WEEK_COUNT; w++) {
       const b = document.createElement('button');
       b.className = 'pill-btn' + (w === selectedWeek ? ' active' : '');
-      b.textContent = `W${w}`; b.dataset.week = w;
+      const start=weekStart(w,selectedSemester),end=addDays(start,4);
+      b.textContent = window.PAWS_SCHEDULE_FILTER_VIEW.weekLabel(w,start,end); b.dataset.week = w;
+      b.type='button';b.setAttribute('aria-pressed',String(w===selectedWeek));
+      b.title=`Week ${w}: ${formatDate(start)}, ${start.getFullYear()} to ${formatDate(end)}, ${end.getFullYear()}`;
       b.addEventListener('click', () => { selectedWeek = w; syncWeekUI(); refreshSessionScope(); });
       (w <= 8 ? r1 : r2).appendChild(b);
       const opt = document.createElement('option'); opt.value = w; opt.textContent = `Week ${w} - ${formatDate(weekStart(w, selectedSemester))}`;
       if (w === selectedWeek) opt.selected = true;
       mobile.appendChild(opt);
     }
+    syncWeekUI();
   }
 
   function syncWeekUI() {
-    document.querySelectorAll('[data-week]').forEach(b => b.classList.toggle('active', Number(b.dataset.week) === selectedWeek));
+    document.querySelectorAll('[data-week]').forEach(b => {const selected=Number(b.dataset.week)===selectedWeek;b.classList.toggle('active',selected);b.setAttribute('aria-pressed',String(selected));});
     $('week-mobile-select').value = String(selectedWeek);
+    requestAnimationFrame(()=>{
+      const host=$('academic-week-navigator'),active=host.querySelector('[aria-pressed="true"]');
+      if(!active||!host.clientWidth)return;
+      const bounds=host.getBoundingClientRect(),selected=active.getBoundingClientRect();
+      if(selected.left<bounds.left||selected.right>bounds.right)host.scrollLeft+=(selected.left+selected.right-bounds.left-bounds.right)/2;
+    });
   }
 
   function bindControls() {
+    window.addEventListener('resize',syncWeekUI);
+    if(window.ResizeObserver)new ResizeObserver(syncWeekUI).observe($('academic-week-navigator'));
+    $('academic-week-navigator').addEventListener('keydown',event=>{
+      const active=event.target.closest('[data-week]');
+      if(!active||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+      event.preventDefault();
+      const buttons=[...$('academic-week-navigator').querySelectorAll('[data-week]')],index=buttons.indexOf(active);
+      const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:Math.max(0,Math.min(buttons.length-1,index+(event.key==='ArrowRight'?1:-1)));
+      if(next!==index)buttons[next].click();buttons[next].focus();
+    });
     $('year-btn-row').addEventListener('click', e => {
       const b = e.target.closest('[data-year]'); if (!b) return;
       selectedYear = b.dataset.year;
@@ -956,14 +1003,13 @@
       refreshSessionScope();
     });
     $('week-mobile-select').addEventListener('change', e => { selectedWeek = Number(e.target.value); syncWeekUI(); refreshSessionScope(); });
-    $('search-input').addEventListener('input', render);
     $('filter-month').addEventListener('change', e => {
       if (e.target.value !== 'all') {
         { const m=Number(e.target.value); selectedSemester = m>=7 ? 'fall' : (m<=3 ? 'winter' : 'spring'); }
         document.querySelectorAll('[data-semester]').forEach(x => x.classList.toggle('active', x.dataset.semester === selectedSemester));
         renderWeekControls();
       }
-      refreshSessionScope();
+      refreshContentFilterScope();
     });
     $('reset-filters').addEventListener('click', resetFilters);
     $('cal-prev').addEventListener('click', () => moveCalendar(-1));
@@ -1011,6 +1057,52 @@
       if(roleIsFaculty(currentUser)){viewMode=lastFacultyTeachingView;myTimetableOnly=true}
       setViewButtons();refreshSessionScope();
     });
+    initializeWorkspaceNavigation();
+  }
+
+  function initializeWorkspaceNavigation() {
+    const home=document.createElement('a');home.href='index.html';home.textContent='Teaching Schedule';home.setAttribute('aria-current','page');
+    const entry=(id,icon)=>({node:$(id),icon});
+    scheduleWorkspace=window.PAWS_WORKSPACE_NAVIGATION.mount({document,window,header:document.querySelector('.ucalgary-masthead-inner'),
+      groups:[
+        {label:'Teaching',entries:[{node:home,icon:'▦'},entry('teaching-assignments-btn','≡'),entry('ccc-schedule-btn','C'),entry('hicc-cc-list-btn','H'),entry('visc-list-btn','V')]},
+        {label:'Faculty',entries:[entry('faculty-dashboard-btn','♙')]},
+        {label:'Workflows',entries:[entry('swap-inbox-btn','⇄'),entry('afc-request-btn','↗'),entry('my-change-history-btn','◷')]},
+        {label:'Administration',entries:[entry('manage-users-btn','⚙')]}
+      ],globalNodes:[document.querySelector('.timetable-top-actions'),document.querySelector('.conn-status'),$('account-toggle'),$('dark-toggle')]});
+  }
+
+  function renderActiveContentFilters() {
+    const month=$('filter-month');
+    activeFilterView.render({search:$('search-input').value,month:month.value==='all'?null:{value:month.value,label:month.selectedOptions[0].textContent},
+      courses:courseFilterActive?[...selectedCourses]:null,typeKeys:activityTypeFilter.selectedKeys(),types:activityTypeFilter.options()});
+  }
+
+  function changeContentFilter(kind,value) {
+    let scopeChanged=false,coursesChanged=false;
+    contentFilterBatch=true;
+    try{
+      if(kind==='clear'){
+        $('search-input').value='';$('filter-month').value='all';selectedCourses.clear();courseFilterActive=false;
+        activityTypeFilter.reset();scopeChanged=true;coursesChanged=true;
+      }else if(kind==='search')$('search-input').value='';
+      else if(kind==='month'){$('filter-month').value='all';scopeChanged=true;}
+      else if(kind==='course'){selectedCourses.delete(value);coursesChanged=true;}
+      else if(kind==='type')activityTypeFilter.setSelected(activityTypeFilter.selectedKeys().filter(key=>key!==value));
+      else if(kind==='restore-courses'){courseFilterActive=false;selectedCourses.clear();coursesChanged=true;}
+      else if(kind==='restore-types')activityTypeFilter.reset();
+      else return;
+    }finally{contentFilterBatch=false;}
+    if(coursesChanged)populateCourseFilter();
+    if(scopeChanged)refreshContentFilterScope();else render();
+  }
+
+  function refreshContentFilterScope() {
+    const range=visibleSessionRange(),sameScope=currentUser&&sessionUnsubscribe&&sessionRangeKey===`${viewMode}:${range.start}:${range.end}`;
+    // Month selection and chip removal share this path. Same-range subscriptions
+    // return early; changed ranges render on load without a duplicate activity call.
+    if(sameScope)render();else renderActiveContentFilters();
+    return refreshSessionScope();
   }
 
   function resetFilters() {
@@ -1046,27 +1138,87 @@
   }
 
   function filteredSessions(source=sessions, options={}) {
-    activityTypeFilter.setSessionTypes(source.map(row=>row.type));
+    activityTypeFilter.setSessionTypes(source.filter(row=>!row.isWorkingActivity).map(row=>row.type));
     const q = $('search-input').value.trim().toLowerCase();
+    const searchWords=q.split(/[\s,]+/).filter(Boolean);
     const month = $('filter-month').value;
     return source.filter(s => {
-      if(!activityTypeFilter.matchesSession(s))return false;
-      if (!options.ignorePeriod && selectedYear !== 'all' && String(s.year) !== selectedYear) return false;
+      if(s.isWorkingActivity?!activityTypeFilter.matchesActivity(s.sourceActivity):!activityTypeFilter.matchesSession(s))return false;
+      if ((!options.ignorePeriod||selectedYear==='rotation') && !(window.PAWS_ACTIVITY_PLACEMENT?.matchesYear(s,selectedYear)??(selectedYear==='all'||String(s.year)===selectedYear))) return false;
       if (!options.ignorePeriod && s.semester !== selectedSemester) return false;
       if (!options.ignorePeriod && month !== 'all' && String(parseYmd(s.date).getMonth()) !== month) return false;
       if (courseFilterActive && !selectedCourses.has(String(s.course))) return false;
       if (myTimetableOnly && currentUser && !sessionBelongsToCurrentFaculty(s)) return false;
-      if (q && !`${s.course} ${s.topic} ${s.instructor} ${s.room} ${s.type}`.toLowerCase().includes(q)) return false;
+      if (searchWords.length && !searchWords.every(word=>`${s.course} ${s.topic} ${displayFacultyList(s.instructor||'')} ${s.room} ${s.type}`.toLowerCase().includes(word))) return false;
       return true;
     });
   }
 
+  // Search is a filter over data the view already holds, so one trailing render
+  // per burst is enough. Enter applies immediately (a keyboard action cannot be
+  // lost to the re-render the way a queued mouse click can), and every other
+  // render supersedes a pending search render.
+  function wireCalendarSearchInput(input,{schedule,flush}={}) {
+    if (!input || typeof schedule !== 'function') return null;
+    input.addEventListener('input', () => schedule());
+    input.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || event.isComposing || typeof flush !== 'function') return;
+      flush();
+    });
+    return input;
+  }
+
+  // Search is bound after the generic controls so the debounce owns the input
+  // event outright. Without the module the field keeps its immediate listener.
+  function bindCalendarSearchInput() {
+    const input = $('search-input');
+    if (!input) return null;
+    if (searchDebouncer) {
+      return wireCalendarSearchInput(input, { schedule: () => searchDebouncer.schedule(), flush: () => searchDebouncer.flush() });
+    }
+    input.addEventListener('input', render);
+    return input;
+  }
+
   function render() {
+    if(searchDebouncer)searchDebouncer.cancel();
+    renderCalendarView();
+    renderWorkingActivities();
+    renderActiveContentFilters();
+  }
+
+  function renderCalendarView() {
     if(viewMode==='day')renderDay();
     else if(viewMode==='week')renderWeek();
     else if(viewMode==='month')renderMonth();
     else renderList();
-    renderWorkingActivities();
+  }
+
+  function workingActivityScope(range) {
+    return {uid:String(currentUser?.uid||''),role:String(currentUser?.role||currentUser?.profile?.role||''),supportContextId:String(window.PAWS_SUPPORT?.contextId?.()||''),start:range?.start||'',end:range?.end||'',facultyId:myTimetableOnly?String(currentUser?.profile?.facultyId||''):'',selfOnly:Boolean(myTimetableOnly&&roleIsFaculty(currentUser?.profile))};
+  }
+
+  function resetWorkingCalendar() {
+    workingCalendarRows=[];workingCalendarScope='';++workingActivityRenderToken;
+    workingActivityCache?.invalidate();window.PAWS_CALENDAR_ACTIVITIES?.clear();
+  }
+
+  function calendarSourceSessions() {
+    const scope=workingActivityScope(workingActivityRange());
+    return currentUser&&workingCalendarScope===JSON.stringify(scope)?[...sessions,...workingCalendarRows]:sessions;
+  }
+
+  function setCalendarActivityRows(rows,{range,scope}) {
+    if(JSON.stringify(scope)!==JSON.stringify(workingActivityScope(range)))return;
+    const placement=window.PAWS_ACTIVITY_PLACEMENT;
+    if(!placement)throw Error('Calendar activity display is unavailable. Reload to retry.');
+    const projected=placement.projectSessions(rows,range).map(row=>{
+      const year=Number(row.date.slice(0,4))-(Number(row.date.slice(5,7))<5?1:0);
+      return {...row,...academicPositionForDate(parseYmd(row.date)),academicYear:`${year}-${String(year+1).slice(-2)}`,activityOwnerUid:scope.uid,activityFacultyId:scope.facultyId};
+    });
+    workingCalendarRows=projected;workingCalendarScope=JSON.stringify(scope);
+    if($('working-activities-lane'))$('working-activities-lane').innerHTML='';
+    renderCalendarView();
   }
 
   function workingActivityRange() {
@@ -1082,25 +1234,54 @@
     return {start:ymd(week),end:ymd(addDays(week,7))};
   }
 
-  async function renderWorkingActivities() {
+  async function renderWorkingActivities(refresh = false, retryCancelled = true) {
     const host=$('working-activities-lane'),view=window.PAWS_CALENDAR_ACTIVITIES,token=++workingActivityRenderToken,uid=currentUser?.uid;
     if(!host)return;
     if(!currentUser||!view||reviewingSelection){view?.clear();host.innerHTML='';return;}
     const range=workingActivityRange();if(!range){host.textContent='Select an academic year to view working activities.';return;}
     const filters={typeKeys:activityTypeFilter.selectedKeys(),search:$('search-input').value.trim()};
     if(!filters.typeKeys.some(key=>key.startsWith('work:'))){view.clear();host.innerHTML='';return;}
-    host.innerHTML='<p class="activity-notice" role="status">Loading working activities…</p>';
-    try{
-      const rows=myTimetableOnly
-        ? currentUser.profile?.facultyId ? await view.loadFacultyRange(currentUser.profile.facultyId,range,{self:roleIsFaculty(currentUser.profile)}) : []
-        : await view.loadRange(range);
-      if(token!==workingActivityRenderToken||uid!==currentUser?.uid)return;
-      host.innerHTML=view.renderRangeLane(rows,{...range,filters});
-    }catch(error){
-      if(token!==workingActivityRenderToken||uid!==currentUser?.uid)return;
-      host.innerHTML='<p class="activity-notice activity-error" role="alert">Working activities could not be loaded. Teaching sessions remain available. <button type="button" data-activity-retry>Retry</button></p>';
-      host.querySelector('[data-activity-retry]').onclick=renderWorkingActivities;
+    const facultyId=myTimetableOnly?String(currentUser.profile?.facultyId||''):'';
+    // Calendar activity rows are scoped by identity, support context, requested
+    // range and faculty scope. Search text and activity-type filters are applied
+    // by renderRangeLane to rows already in memory, so they deliberately do not
+    // take part in the cache key: typing or toggling a type must not refetch.
+    const scope=workingActivityScope(range);
+    const current=()=>token===workingActivityRenderToken&&uid===currentUser?.uid;
+    const paint=rows=>{if(current())setCalendarActivityRows(rows,{range,scope,filters});};
+    // A faculty-scoped view without a linked faculty id legitimately has no rows;
+    // it is not an empty cache entry and must not be requested.
+    if(myTimetableOnly&&!facultyId){paint([]);return;}
+    if(workingActivityCache&&!refresh){
+      const cached=workingActivityCache.peek(scope);
+      if(cached){paint(cached);return;}
     }
+    host.innerHTML='<p class="activity-notice" role="status">Loading working activities…</p>';
+    const load=loadScope=>loadScope.facultyId
+      ? view.loadFacultyRange(loadScope.facultyId,{start:loadScope.start,end:loadScope.end},{self:loadScope.selfOnly,onCancel:'throw'})
+      : view.loadRange({start:loadScope.start,end:loadScope.end},{onCancel:'throw'});
+    try{
+      const rows=workingActivityCache
+        ? await workingActivityCache.get(scope,{refresh:refresh===true,load})
+        : await load(scope);
+      paint(rows);
+    }catch(error){
+      if(!current())return;
+      // A -> B -> A can rejoin an A promise already superseded by B. Only the
+      // visible render retries, bypassing that promise once. A second cancellation
+      // exposes Retry instead of leaving Loading forever or starting a loop.
+      if(retryCancelled&&(error?.code==='CALENDAR_ACTIVITY_CANCELLED'||error?.name==='AbortError'))return renderWorkingActivities(true,false);
+      host.innerHTML='<p class="activity-notice activity-error" role="alert">Working activities could not be loaded. Teaching sessions remain available. <button type="button" data-activity-retry>Retry</button></p>';
+      const retry=host.querySelector('[data-activity-retry]');
+      if(retry)retry.onclick=()=>renderWorkingActivities(true);
+    }
+  }
+
+
+  // The LAB grouping is a visual projection only. renderedSessions, SQL IDs,
+  // selection operations and the pre-existing LAB modal still use original rows.
+  function calendarDisplaySessions(rows,options={}){
+    return selectionMode?rows:(window.UCVM_LAB_DETAIL?.calendarBlocks?.(rows,options)||rows);
   }
 
   function layoutDaySessions(items) {
@@ -1183,17 +1364,17 @@
   function renderDay() {
     const date=addDays(weekStart(selectedWeek,selectedSemester),selectedDayIndex), dateText=ymd(date);
     $('cal-label').textContent=formatLongDate(date);
-    const data=filteredSessions(sessions).filter(s=>s.date===dateText);
+    const data=filteredSessions(calendarSourceSessions()).filter(s=>s.date===dateText);
     renderedSessions=data;
     const DAY_START=CALENDAR_DAY_START,DAY_END=CALENDAR_DAY_END,SPAN=DAY_END-DAY_START,marks=[450,480,540,600,660,720,780,840,900,960,1020];
     let html=`<div class="tg-wrap day-single"><div class="tg-corner"></div><div class="tg-day-head"><div class="week-dow">${DAYS[selectedDayIndex]}</div><div class="week-date">${date.getDate()}</div></div></div><div class="tg-body day-single"><div class="tg-time-axis"><div class="tg-track">`;
     marks.forEach(m=>{const top=((m-DAY_START)/SPAN)*100,h=Math.floor(m/60),min=m%60,h12=((h+11)%12)+1;html+=`<span class="tg-hour-label" style="top:${top}%">${h12}:${String(min).padStart(2,'0')}</span>`});
     html+='</div></div><div class="tg-day-col">';
     marks.forEach(m=>{html+=`<div class="tg-gridline" style="top:${((m-DAY_START)/SPAN)*100}%"></div>`});
-    layoutDaySessions(data).forEach(item=>{
+    layoutDaySessions(calendarDisplaySessions(data,{gridOnly:true})).forEach(item=>{
       const s=item.session,startM=Math.max(DAY_START,item.startM),endM=Math.min(DAY_END,item.endM);if(endM<=startM)return;
       const top=((startM-DAY_START)/SPAN)*100,height=Math.max(3.5,((endM-startM)/SPAN)*100),laneWidth=100/item.laneCount,left=item.lane*laneWidth;
-      html+=`<div class="tg-block ${colorsOn?sessionTypeClass(s.type):'colors-off'}" data-session-id="${escapeHtml(s.id)}" style="top:${top}%;height:${height}%;left:calc(${left}% + 2px);right:auto;width:calc(${laneWidth}% - 4px)"><div class="tg-block-l1">${escapeHtml(s.course)} - ${escapeHtml(s.type)}${window.PAWS_SWAP?.isPending(s.id)?'<span class="sql-swap-pending">SWAP PENDING</span>':''}</div><div class="tg-block-l2">${escapeHtml(s.topic)}</div><div class="tg-block-l3">${escapeHtml(s.start)}-${escapeHtml(s.end)}${s.room?` | ${escapeHtml(s.room)}`:''}<br>${escapeHtml(displayFacultyList(s.instructor||'TBD'))}</div></div>`;
+      html+=`<div class="tg-block ${colorsOn?sessionTypeClass(s.type):'colors-off'}" data-session-id="${escapeHtml(s.id)}" style="top:${top}%;height:${height}%;left:calc(${left}% + 2px);right:auto;width:calc(${laneWidth}% - 4px)"><div class="tg-block-l1">${escapeHtml(s.course)} - ${escapeHtml(s.type)}${(Array.isArray(s.labDisplayIds)?s.labDisplayIds:[s.id]).some(id=>window.PAWS_SWAP?.isPending(id))?'<span class="sql-swap-pending">SWAP PENDING</span>':''}</div><div class="tg-block-l2">${escapeHtml(s.topic)}</div><div class="tg-block-l3">${escapeHtml(s.start)}-${escapeHtml(s.end)}${s.labDisplayCount>1?' · '+s.labDisplayCount+' LAB sessions':(s.room?` | ${escapeHtml(s.room)}`:'')+'<br>'+escapeHtml(displayFacultyList(s.instructor||'TBD'))}</div></div>`;
     });
     html+='</div></div>'+(window.PAWS_TASKS?'':unpositionedSessionsHtml(data));$('calendar-body').innerHTML=html;bindSessionBlocks();
   }
@@ -1201,7 +1382,7 @@
   function renderWeek() {
     const start = weekStart(selectedWeek, selectedSemester); const end = addDays(start, 4);
     $('cal-label').textContent = `${selectedSemester === 'winter' ? 'Winter' : (selectedSemester === 'spring' ? 'Spring' : 'Fall')} Week ${selectedWeek} - ${formatDate(start)} to ${formatDate(end)}, ${end.getFullYear()}`;
-    const data = filteredSessions(sessions).filter(s => s.week === selectedWeek);
+    const data = filteredSessions(calendarSourceSessions()).filter(s => s.isWorkingActivity?s.date>=ymd(start)&&s.date<=ymd(end):s.week===selectedWeek);
     renderedSessions=data;
     const DAY_START=CALENDAR_DAY_START, DAY_END=CALENDAR_DAY_END, SPAN=DAY_END-DAY_START; // 7:30am-5:00pm
     let html = '<div class="tg-wrap"><div class="tg-corner"></div>';
@@ -1220,7 +1401,7 @@
       const date = ymd(addDays(start, day));
       html += '<div class="tg-day-col">';
       marks.forEach(m => { const top=((m-DAY_START)/SPAN)*100; html += `<div class="tg-gridline" style="top:${top}%"></div>`; });
-      const dayItems=layoutDaySessions(data.filter(s => s.date === date));
+      const dayItems=layoutDaySessions(calendarDisplaySessions(data.filter(s => s.date === date),{gridOnly:true}));
       dayItems.forEach(item => {
         const s=item.session;
         const startM = Math.max(DAY_START, item.startM), endM = Math.min(DAY_END, item.endM);
@@ -1229,9 +1410,9 @@
         const height = Math.max(3.5, ((endM - startM) / SPAN) * 100);
         const laneWidth=100/item.laneCount, left=item.lane*laneWidth;
         html += `<div class="tg-block ${colorsOn ? sessionTypeClass(s.type) : 'colors-off'} " data-session-id="${escapeHtml(s.id)}" style="top:${top}%;height:${height}%;left:calc(${left}% + 2px);right:auto;width:calc(${laneWidth}% - 4px)">
-          <div class="tg-block-l1">${escapeHtml(s.course)} - ${escapeHtml(s.type)}${window.PAWS_SWAP?.isPending(s.id)?'<span class="sql-swap-pending">SWAP PENDING</span>':''}</div>
+          <div class="tg-block-l1">${escapeHtml(s.course)} - ${escapeHtml(s.type)}${(Array.isArray(s.labDisplayIds)?s.labDisplayIds:[s.id]).some(id=>window.PAWS_SWAP?.isPending(id))?'<span class="sql-swap-pending">SWAP PENDING</span>':''}</div>
           <div class="tg-block-l2">${escapeHtml(s.topic)}</div>
-          <div class="tg-block-l3">${escapeHtml(s.start)}-${escapeHtml(s.end)}${s.room ? ` | ${escapeHtml(s.room)}` : ''}<br>${escapeHtml(displayFacultyList(s.instructor || 'TBD'))}</div>
+          <div class="tg-block-l3">${escapeHtml(s.start)}-${escapeHtml(s.end)}${s.labDisplayCount>1?' · '+s.labDisplayCount+' LAB sessions':(s.room ? ` | ${escapeHtml(s.room)}` : '')+'<br>'+escapeHtml(displayFacultyList(s.instructor || 'TBD'))}</div>
         </div>`;
       });
       html += '</div>';
@@ -1252,16 +1433,18 @@
     const jsDay = monday.getDay();
     const delta = jsDay === 0 ? -6 : 1 - jsDay;
     monday.setDate(monday.getDate() + delta);
-    const data = filteredSessions(sessions);
+    const data = filteredSessions(calendarSourceSessions());
     renderedSessions=data;
     let html = '<div class="cal-month"><div class="cal-dow-header">' + DAYS.map(d => `<div class="cal-dow">${d}</div>`).join('') + '</div><div class="cal-grid">';
     let cursor = new Date(monday);
     while (cursor <= last || cursor.getDay() !== 1) {
       for (let i = 0; i < 5; i++) {
         const cell = addDays(cursor, i); const dateStr = ymd(cell);
-        const events = data.filter(s => s.date === dateStr).slice(0, 4);
+        const events = calendarDisplaySessions(data.filter(s => s.date === dateStr));
         html += `<div class="cal-cell"><div class="cal-date-num">${cell.getDate()}</div><div class="cal-events">`;
-        events.forEach(s => html += `<div class="cal-event ${colorsOn ? sessionTypeClass(s.type) : 'colors-off'} " data-session-id="${escapeHtml(s.id)}"><div class="cal-event-l1">${escapeHtml(s.course)} ${escapeHtml(s.type)}</div><div class="cal-event-l2">${s.timeUnknown?'Time not specified':escapeHtml(s.start)} ${escapeHtml(s.topic)}</div></div>`);
+        const eventHtml=s=>`<div class="cal-event ${colorsOn ? sessionTypeClass(s.type) : 'colors-off'} " data-session-id="${escapeHtml(s.id)}"><div class="cal-event-l1">${escapeHtml(s.course)} ${escapeHtml(s.type)}</div><div class="cal-event-l2">${s.timeUnknown?'Time not specified':escapeHtml(s.start)+(s.labDisplayCount>1?'–'+escapeHtml(s.end):'')} ${escapeHtml(s.topic)}${s.labDisplayCount>1?' · '+s.labDisplayCount+' LAB sessions':''}</div></div>`;
+        html+=events.slice(0,4).map(eventHtml).join('');
+        if(events.length>4)html+=`<details class="cal-more"><summary>${events.length-4} more activities</summary>${events.slice(4).map(eventHtml).join('')}</details>`;
         html += '</div></div>';
       }
       cursor = addDays(cursor, 7);
@@ -1274,12 +1457,13 @@
 
   function renderList(){
     if(reviewingSelection){renderSelectionEditor();return}
-    const years=[...new Set(sessions.map(session=>String(session.academicYear||'').trim()).filter(Boolean))].sort((a,b)=>b.localeCompare(a,undefined,{numeric:true}));
-    if(!years.includes(listAcademicYear))listAcademicYear=years[0]||'';
+    const anchor=weekStart(selectedWeek,selectedSemester),baseYear=anchor.getFullYear()-(anchor.getMonth()<4?1:0),currentYear=`${baseYear}-${String(baseYear+1).slice(-2)}`;
+    const years=[...new Set([...sessions.map(session=>String(session.academicYear||'').trim()).filter(Boolean),...[-1,0,1].map(offset=>`${baseYear+offset}-${String(baseYear+offset+1).slice(-2)}`)])].sort((a,b)=>b.localeCompare(a,undefined,{numeric:true}));
+    if(!years.includes(listAcademicYear))listAcademicYear=currentYear;
     const yearSelect=$('list-academic-year');
     if(yearSelect){const options=years.map(year=>`<option value="${escapeHtml(year)}" ${year===listAcademicYear?'selected':''}>${escapeHtml(year)}</option>`).join('');if(yearSelect.innerHTML!==options)yearSelect.innerHTML=options;yearSelect.value=listAcademicYear}
     $('list-session-mode').value=listSessionMode;
-    const yearSessions=sessions.filter(session=>String(session.academicYear||'')===listAcademicYear);
+    const yearSessions=calendarSourceSessions().filter(session=>String(session.academicYear||'')===listAcademicYear&&(window.PAWS_ACTIVITY_PLACEMENT?.matchesYear(session,selectedYear)??true));
     const classified=filteredSessions(yearSessions,{ignorePeriod:true}).map(session=>({session,check:calendarTimingDisposition(session)}));
     const checkRows=classified.filter(row=>row.check.disposition!=='grid');
     const gridRows=classified.filter(row=>row.check.disposition==='grid');
@@ -1296,22 +1480,71 @@
     bindSessionBlocks();
   }
 
+  let sessionBlockController = null;
+  // Fallback used only when calendar-search.js did not load. It keeps the same
+  // delegated, O(N) contract (one container listener, one id index) instead of
+  // restoring a listener and a linear scan per rendered row, so session detail
+  // clicks, selection mode and CCC read-only behaviour survive a failed asset.
+  function createInlineSessionBlockController(options) {
+    const host=options&&options.host,query='[data-session-id]';
+    if(!host||typeof host.addEventListener!=='function'||typeof host.querySelectorAll!=='function')return null;
+    let index=new Map(),bound=false;
+    function activate(id){
+      const row=index.get(String(id));
+      if(!options.getSelectionMode()){options.onOpen(String(id));return;}
+      if(row&&(row.isCcc||row.readOnlyActivity)){options.onRejected((row.isCcc?'CCC':'Working activity')+' records are read-only and cannot be selected.');return;}
+      try{options.onToggle(String(id),row);}
+      catch(error){options.onRejected(error&&error.message?error.message:String(error));}
+    }
+    function handleClick(event){
+      const target=event&&event.target;
+      if(!target||typeof target.closest!=='function')return;
+      const element=target.closest(query);
+      if(!element||!element.dataset||element.dataset.sessionId===undefined||element.dataset.sessionId===null)return;
+      activate(element.dataset.sessionId);
+    }
+    return {refresh(){
+      index=new Map();
+      for(const row of options.getRows()||[]){if(row&&row.id!==undefined&&row.id!==null)index.set(String(row.id),row);}
+      const selectionMode=Boolean(options.getSelectionMode());
+      for(const element of host.querySelectorAll(query)){
+        const id=element&&element.dataset?element.dataset.sessionId:null;
+        if(id===undefined||id===null||id==='')continue;
+        const row=index.get(String(id));
+        element.classList.toggle('selection-candidate',selectionMode&&!row?.isCcc&&!row?.readOnlyActivity);
+        element.classList.toggle('selection-selected',Boolean(options.isSelected(String(id))));
+      }
+      if(!bound){bound=true;host.addEventListener('click',handleClick);}
+    }};
+  }
+
+  // #calendar-body is stable across view changes (only its innerHTML is
+  // replaced), so one delegated listener and one id index survive every render.
+  // This replaces a per-row listener plus a linear session scan per row.
+  function scheduledSessionBlockController() {
+    if(sessionBlockController)return sessionBlockController;
+    const host=$('calendar-body'),factory=window.UCVM_CALENDAR_SEARCH;
+    if(!host)return null;
+    const options={
+      host,
+      getRows:()=>renderedSessions,
+      getSelectionMode:()=>selectionMode,
+      isSelected:id=>sessionSelection.has(id),
+      onOpen:id=>openSessionDetail(id),
+      onToggle:(id,row)=>{
+        const selected=sessionSelection.toggle(id);
+        if(selected&&row)selectedSessionOriginals.set(String(row.id),JSON.parse(JSON.stringify(row)));
+        if(!selected)selectedSessionOriginals.delete(String(id));
+        updateSelectionControls();render();
+      },
+      onRejected:message=>toast(message,true)
+    };
+    sessionBlockController=factory?.createSessionBlockController?factory.createSessionBlockController(options):createInlineSessionBlockController(options);
+    return sessionBlockController;
+  }
+
   function bindSessionBlocks() {
-    document.querySelectorAll('[data-session-id]').forEach(el => {
-      const s=renderedSessions.find(row=>String(row.id)===String(el.dataset.sessionId));
-      el.classList.toggle('selection-candidate',selectionMode&&!s?.isCcc);
-      el.classList.toggle('selection-selected',sessionSelection.has(el.dataset.sessionId));
-      el.addEventListener('click',()=>{
-        if(!selectionMode){openSessionDetail(el.dataset.sessionId);return}
-        if(s?.isCcc){toast('CCC records are read-only and cannot be selected.',true);return}
-        try{
-          const selected=sessionSelection.toggle(el.dataset.sessionId);
-          if(selected&&s)selectedSessionOriginals.set(String(s.id),JSON.parse(JSON.stringify(s)));
-          if(!selected)selectedSessionOriginals.delete(String(el.dataset.sessionId));
-          updateSelectionControls();render();
-        }catch(error){toast(error.message,true)}
-      });
-    });
+    scheduledSessionBlockController()?.refresh();
   }
 
   function switchCalendarView(next){
@@ -1393,6 +1626,11 @@
 
   function openSessionDetail(id, currentSession = null) {
     const s = currentSession || renderedSessions.find(x => x.id === id) || sessions.find(x => x.id === id) || sessionCache.get(id); if (!s) return;
+    if(s.readOnlyActivity){
+      const source=s.sourceActivity||{};
+      showModal(`<div class="modal-header"><div class="modal-title">${escapeHtml(s.course)} · ${escapeHtml(s.topic)}</div><div class="modal-subtitle">${escapeHtml(s.date)}</div></div><div class="modal-body"><div class="form-grid">${detailField('Time',`${s.start}–${s.end}${s.timeDefaulted?' · Default time':' · Source time'}`)}${detailFieldMultiline('Faculty',displayFacultyList(s.instructor||'Not provided'))}${detailField('Source range',`${source.startDate||'Not provided'} to ${source.endDate||'Not provided'}`)}</div><p class="form-hint">Read-only working activity. ${s.timeDefaulted?'08:30–16:30 is the display default; source time remains unconfirmed and Needs Review for SWAP.':'The recorded time evidence is preserved.'} DOE and teaching assignments are unchanged.</p></div><div class="modal-footer"><button class="btn btn-secondary" id="detail-close">Close</button></div>`);
+      $('detail-close').onclick=closeModal;return;
+    }
     if (!s.isCcc && String(s.type).toUpperCase() === 'LAB' && window.UCVM_LAB_DETAIL) return openLabSessionDetail(s);
     const edit = !s.isCcc&&canEditExistingSqlSession()&&window.UCVM_PAWS_DATA?.sessionEditEnabled?.() ? `<button class="btn btn-primary" id="detail-edit">Edit Session</button>` : '';
     const assignmentEdit = !s.isCcc&&s.assignmentManagementAvailable===true&&canEditExistingSqlSession()&&window.UCVM_PAWS_DATA?.sessionEditEnabled?.() ? `<button class="btn btn-secondary" id="detail-assignments">Manage Instructors</button>` : '';
@@ -1443,7 +1681,7 @@
 
   async function openSqlSessionAssignmentForm(session){
     if(!canEditExistingSqlSession()||!window.UCVM_PAWS_DATA?.sessionEditEnabled?.()){toast('Administrator permission is required to manage instructors.',true);return}
-    if(!session?.id||session.isCcc||session.assignmentManagementAvailable!==true){toast('Canonical instructor assignments are unavailable for this session.',true);return}
+    if(!session?.id||session.isCcc||session.readOnlyActivity||session.assignmentManagementAvailable!==true){toast('Canonical instructor assignments are unavailable for this session.',true);return}
     let directory;
     try{directory=await ensureCanonicalWriteFacultyDirectory()}catch(error){console.error('[canonical faculty directory]',error);toast('The canonical Faculty list could not be loaded.',true);return}
     const rows=(Array.isArray(session.assignments)?session.assignments:[]).filter(row=>row?.facultyId).map(row=>({facultyId:String(row.facultyId),teachingRole:String(row.role||'')}));
@@ -1479,7 +1717,7 @@
 
   function openSqlSessionEditForm(session) {
     if(!canEditExistingSqlSession()||!window.UCVM_PAWS_DATA?.sessionEditEnabled?.()){toast('Administrator permission is required to edit this session.',true);return}
-    if(!session?.id||session.isCcc){toast('Only an existing VetMed-Ops session can be edited here.',true);return}
+    if(!session?.id||session.isCcc||session.readOnlyActivity){toast('Only an existing VetMed-Ops session can be edited here.',true);return}
     showModal(`<div class="modal-header"><div class="modal-title">Edit VetMed-Ops Session</div><div class="modal-subtitle">Only session facts are editable. The University server recalculates affected DOE; missing rules or mappings are shown as Needs Review.</div></div>
       <form id="sql-session-edit-form"><div class="modal-body"><div class="form-grid">
         ${input('sql-edit-date','Date','date',session.date)}
@@ -1861,6 +2099,7 @@
           const name = window.PAWS_FACULTY_NAME.format(profile.name || user.displayName || (email ? email.split('@')[0] : phone) || 'UCVM User');
           sessions = [];
           invalidateAllSessions();
+          resetWorkingCalendar();
           sessionCache.clear();sessionRangeLoads.clear();sessionDateLoads.clear();
           activityTypeFilter.resetForUser();
           currentUser = {
@@ -1939,7 +2178,7 @@
           window.PAWS_CCC_SCHEDULE?.close();
           window.PAWS_LEADERSHIP_DIRECTORY?.close();
           activityTypeFilter.resetForUser();
-          ++workingActivityRenderToken;window.PAWS_CALENDAR_ACTIVITIES?.clear();
+          resetWorkingCalendar();
           if($('working-activities-lane'))$('working-activities-lane').innerHTML='';
           viewMode = 'week'; setViewButtons();
           myTimetableOnly = false;
@@ -2278,6 +2517,7 @@
     updateScheduleSourceUI();
     $('my-timetable-btn').classList.toggle('hidden', !currentUser || roleIsFaculty(currentUser));
     $('my-timetable-btn').textContent = currentUser && myTimetableOnly ? 'Show All Timetable' : 'My Timetable';
+    scheduleWorkspace?.sync(Boolean(currentUser));
   }
 
   function openUserManager() {
@@ -2286,7 +2526,7 @@
 
   function openExportDialog(format){
     const today=ymd(new Date());
-    showModal(`<div class="modal-header"><div class="modal-title">Export ${format==='ics'?'Calendar':'Schedule Data'}</div><div class="modal-subtitle">Exports teaching sessions using the current course, type, search and My Timetable filters. Working activity ranges remain in the separate Calendar section.</div></div><form id="export-form"><div class="modal-body">
+    showModal(`<div class="modal-header"><div class="modal-title">Export ${format==='ics'?'Calendar':'Schedule Data'}</div><div class="modal-subtitle">Exports teaching sessions using the current course, type, search and My Timetable filters. CCC and Rotation are working activities, so they are not included in this teaching-only export.</div></div><form id="export-form"><div class="modal-body">
       <div class="login-cheatsheet"><label><input type="radio" name="scope" value="date" checked> Date range</label> &nbsp; <label><input type="radio" name="scope" value="academic"> Academic period</label> &nbsp; <label><input type="radio" name="scope" value="all"> All dates</label></div>
       <div class="form-grid" id="export-date-fields">${input('export-start','Start date','date',today)}${input('export-end','End date','date','2027-08-31')}</div>
       <div class="form-grid hidden" id="export-academic-fields">${select('export-semester','Semester',['fall','winter','spring'],selectedSemester)}${select('export-week','Week',['all',...Array.from({length:WEEK_COUNT},(_,i)=>String(i+1))],'all')}${select('export-year','Year',['all','1','2','3','4'],selectedYear)}</div>

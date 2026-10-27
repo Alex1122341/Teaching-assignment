@@ -277,6 +277,13 @@ function effectiveDoeSum(storedDoe, calculatedDoe, resolvedCount, lineCount) {
 
 function createSqlDashboardRepository(db) {
   return {
+    async reportFaculty() {
+      const rows=await db.query(`SELECT TOP (@limit) f.FacultyId AS facultyId,
+        f.PreferredFirstName AS preferredFirstName, f.PreferredLastName AS preferredLastName,
+        f.DisplayName AS displayName, f.Rank AS rank, f.Stream AS stream,
+        f.Fte AS fte, f.Active AS active FROM paws.Faculty f ORDER BY f.FacultyId`,{limit:10001});
+      return rows.map(row=>({facultyId:row.facultyId,preferredFirstName:toText(row.preferredFirstName),preferredLastName:toText(row.preferredLastName),displayName:toText(row.displayName),rank:toText(row.rank),stream:toText(row.stream),fte:toNumber(row.fte),active:toBool(row.active)}));
+    },
     // ---------------------------------------------------------------- summary
     // Complete business KPI set for the Dashboard. Faculty-scoped callers
     // receive the same counters narrowed to their own assignments.

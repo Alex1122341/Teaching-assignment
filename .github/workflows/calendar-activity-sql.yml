@@ -1,7 +1,7 @@
 name: Calendar Activity SQL Acceptance
 on:
   pull_request:
-    paths: ['database/azure-sql/**','tools/*calendar*','tools/test-change-history-sql.ps1','tools/test-afc-form-sql.ps1','tools/test-ccc-replacement*.ps1','server/src/data/sql-ccc-replacement-repository.js','server/src/runtime/swa-ccc-replacement-functions.js','server/test/ccc-*','server/src/afc/afc-form*','server/test/afc-form*','server/src/data/sql-afc-form-repository.js','server/src/history/**','server/src/data/sql-change-history-repository.js','server/src/data/sql-doe-policy-repository.js','server/src/calendar/**','server/src/data/sql-calendar-activity-repository.js','server/src/data/sql-swap-repository.js','server/test/calendar-activity*','server/test/change-history*','server/test/fixtures/calendar-activity*','.github/workflows/calendar-activity-sql.yml']
+    paths: ['database/azure-sql/**','tools/*calendar*','tools/test-swap-approval-sql.ps1','server/test/swap-approval-sql-contract.test.js','tools/test-change-history-sql.ps1','tools/test-afc-form-sql.ps1','tools/test-ccc-replacement*.ps1','server/src/data/sql-ccc-replacement-repository.js','server/src/runtime/swa-ccc-replacement-functions.js','server/test/ccc-*','server/src/afc/afc-form*','server/test/afc-form*','server/src/data/sql-afc-form-repository.js','server/src/history/**','server/src/data/sql-change-history-repository.js','server/src/data/sql-doe-policy-repository.js','server/src/calendar/**','server/src/data/sql-calendar-activity-repository.js','server/src/data/sql-swap-repository.js','server/test/calendar-activity*','server/test/change-history*','server/test/fixtures/calendar-activity*','.github/workflows/calendar-activity-sql.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,6 +26,13 @@ jobs:
             Start-Sleep -Seconds 2
           }
           if(-not $ready){throw 'Synthetic SQL container did not become ready.'}
+      - name: Check scoped SWAP approval read and rollback
+        shell: pwsh
+        run: |
+          ./tools/test-swap-approval-sql.ps1 -ContainerName paws-calendar-sql-test | Tee-Object -Variable output
+          foreach($marker in @('SWAP_APPROVAL_READ_059_WRITE_GRANTS_UNCHANGED','SWAP_APPROVAL_READ_059_ROLLBACK_OK')){
+            if(($output -join "`n") -notmatch $marker){throw "SWAP_APPROVAL_059_RECEIPT_MISSING: $marker"}
+          }
       - name: Check scheduling task detection
         shell: pwsh
         run: ./tools/test-scheduling-task-sql.ps1 -ContainerName paws-calendar-sql-test
