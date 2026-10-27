@@ -58,7 +58,11 @@ function sourcePathAtCommit(root, ref, asset) {
 }
 
 function readAssetManifest(root = ROOT) {
-  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'tools/static-assets.json'), 'utf8'));
+  // The PAWS manifest is tools/static-assets.paws.json in this repository;
+  // tools/static-assets.json belongs to the legacy web/ application.
+  const pawsManifest = path.join(root, 'tools/static-assets.paws.json');
+  const manifestPath = fs.existsSync(pawsManifest) ? pawsManifest : path.join(root, 'tools/static-assets.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   if (!Array.isArray(manifest) || manifest.length === 0) throw new Error('Static asset manifest must be a non-empty array.');
   if (new Set(manifest).size !== manifest.length) throw new Error('Static asset manifest contains duplicates.');
   for (const asset of manifest) frontendRelativePath(asset);

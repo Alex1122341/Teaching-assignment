@@ -44,7 +44,10 @@ test('Pages workflow deploys only verified same-repository PRs to one fixed envi
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
   assert.match(workflow,/node tools\/build-static\.js/);
   assert.match(workflow,/node tools\/stage-github-pages\.js/);
-  assert.match(workflow,/node tools\/browser-smoke\.js --demo/);
+  assert.match(workflow,/node tools\/build-paws-pages\.js/);
+  assert.match(workflow,/--mode paws/);
+  assert.match(workflow,/node tools\/paws-browser-smoke\.js/);
+  assert.ok(workflow.indexOf('node tools/build-static.js')<workflow.indexOf('node tools/build-paws-pages.js'));
   assert.ok(workflow.indexOf('Stage GitHub Pages frontend demo')<workflow.indexOf('Browser smoke staged frontend demo'));
   assert.ok(workflow.indexOf('Browser smoke staged frontend demo')<workflow.indexOf('Configure GitHub Pages'));
   assert.match(workflow,/--pr\s+["']?\$\{\{ github\.event\.pull_request\.number \}\}["']?/);
@@ -229,5 +232,45 @@ test('Pages preview runs the frontend demo without cloud Firebase or DOE API wir
   assert.match(stage,/frontend-demo/);
   assert.match(runtime,/UCVM_FRONTEND_DEMO_MODE/);
   assert.match(runtime,/no cloud writes|doeAuthoritative:false/);
+});
+})();
+
+// ------------------------------------------------------------------------
+// PAWS Frontend Demo staging (--mode paws)
+// ------------------------------------------------------------------------
+(() => {
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const {stagePawsDirectory}=require('../tools/stage-github-pages');
+
+const identity={prNumber:7,headSha:'3333333333333333333333333333333333333333',buildSha:'4444444444444444444444444444444444444444'};
+
+test('PAWS staging injects the demo runtime, demo API and PAWS banner',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'paws-stage-'));
+  try{
+    fs.writeFileSync(path.join(dir,'pages-demo-api.js'),'/* demo api */');
+    fs.writeFileSync(path.join(dir,'index.html'),'<!doctype html><html><head><script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script></head><body><main>PAWS</main><script src="./timetable.js"></script></body></html>');
+    const result=stagePawsDirectory(dir,identity);
+    assert.equal(result.mode,'paws-frontend-demo');
+    const html=fs.readFileSync(path.join(dir,'index.html'),'utf8');
+    for(const file of ['pages-demo-data.js','pages-demo-runtime.js','pages-demo-api.js'])assert.ok(html.includes(`./${file}`),file);
+    assert.ok(html.indexOf('./pages-demo-api.js')<html.indexOf('./timetable.js'));
+    assert.match(html,/PAWS Frontend Demo · synthetic browser-local data · PR #7/);
+    assert.match(fs.readFileSync(path.join(dir,'faculty-dashboard.html'),'utf8'),/faculty-admin\.html/);
+    const seed=fs.readFileSync(path.join(dir,'pages-demo-data.js'),'utf8');
+    const payload=JSON.parse(seed.slice(seed.indexOf('=')+1).replace(/;\s*$/,''));
+    const index=payload.documents.find(doc=>doc.path==='settings/faculty_index');
+    assert.ok(index.data.entries.every(entry=>entry.id&&entry.email&&entry.key),'faculty index entries carry beta fields');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir,'github-pages-build.json'),'utf8')).api,'browser-memory');
+  }finally{fs.rmSync(dir,{recursive:true,force:true})}
+});
+
+test('PAWS staging refuses to run before the demo API is built',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'paws-stage-'));
+  try{assert.throws(()=>stagePawsDirectory(dir,identity),/pages-demo-api\.js/)}
+  finally{fs.rmSync(dir,{recursive:true,force:true})}
 });
 })();
