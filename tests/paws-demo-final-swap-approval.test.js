@@ -73,6 +73,8 @@ test('synthetic final approval never marks a request applied when the apply writ
 test('missing or stale synthetic replacement consent and revision cannot be finalized',async()=>{
  const {store,swap}=setup();
  const request=list(store).find(r=>r.status==='pending'&&r.nextStage==='adfa');
+ // Give this negative fixture a different ID: the canonical seeded ID is intentionally auto-repaired.
+ request.requestId='11111111-1111-4111-8111-111111111111';
  request.history=request.history.filter(x=>x.stage!=='target');
  await assert.rejects(()=>swap.decide({actorFirebaseUid:'uid-developer',requestId:request.requestId,
    payload:{expectedRevision:request.revision,decision:'approve',comment:'Test',overrideReason:'Known conflict'},
