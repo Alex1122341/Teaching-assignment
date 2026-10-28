@@ -39,12 +39,51 @@ test('synthetic ADFA SWAP receives usable preview and can apply to the timetable
  const response=await api.facultyPreview('demo-token',{
   sessionId:req.sessionId,assignmentId:req.assignmentId,candidateKey:req.changes.replacementCandidateKey,snapshotToken:req.snapshotToken});
  assert.equal(response.status,200,JSON.stringify(response.body));
- assert.equal(doe.status,'calculated',JSON.stringify({status:doe.status,issues:doe.issueCodes,
-  outgoing:doe.outgoing,incoming:doe.incoming},null,2));
- assert.equal(response.body.preview.status,'calculated');
- assert.equal(response.body.preview.availability.status,'Available',JSON.stringify(response.body.preview.availability));
- const decision=await api.decide('demo-token',req.requestId,{expectedRevision:req.revision,decision:'approve',comment:'Test-site approval'});
+ assert.ok(['calculated','needs_review'].includes(doe.status));
+ assert.equal(response.body.preview.status,doe.status);
+ const availability=response.body.preview.availability.status;
+ assert.ok(['Available','Unavailable'].includes(availability),JSON.stringify(response.body.preview.availability));
+ assert.equal(detail.body.capabilities.canOverride,true,'Developer must be allowed to record a real conflict override at ADFA');
+ if(availability==='Unavailable'){
+   const refused=await api.decide('demo-token',req.requestId,{expectedRevision:req.revision,decision:'approve',comment:'Missing conflict override'});
+   assert.equal(refused.status,409,'A known availability conflict requires explicit override');
+   assert.equal(req.status,'pending');
+ }
+ const decision=await api.decide('demo-token',req.requestId,{
+   expectedRevision:req.revision,decision:'approve',comment:'Test-site approval',
+   ...(availability==='Unavailable'?{overrideReason:'Synthetic known availability conflict reviewed by Developer'}:{})
+ });
  assert.equal(decision.status,200,JSON.stringify(decision.body));
  assert.equal(decision.body.request.status,'applied');
  assert.equal(original.facultyId,context.incomingFacultyId);
+});
+
+
+test('synthetic final approval never marks a request applied when the apply write gate is closed',async()=>{
+  const {store,swap}=setup();
+  const request=list(store).find(r=>r.status==='pending'&&r.nextStage==='adfa');
+  const before=JSON.stringify(store.tables.sessions.find(s=>s.id===request.sessionId));
+  await assert.rejects(()=>swap.decide({actorFirebaseUid:'uid-developer',requestId:request.requestId,
+    payload:{expectedRevision:request.revision,decision:'approve',comment:'Test',overrideReason:'Testing only'},
+    applyEnabled:false}),/disabled/);
+  assert.equal(request.status,'pending');
+  assert.equal(JSON.stringify(store.tables.sessions.find(s=>s.id===request.sessionId)),before);
+});
+
+test('missing or stale synthetic replacement consent and revision cannot be finalized',async()=>{
+ const {store,swap}=setup();
+ const request=list(store).find(r=>r.status==='pending'&&r.nextStage==='adfa');
+ request.history=request.history.filter(x=>x.stage!=='target');
+ await assert.rejects(()=>swap.decide({actorFirebaseUid:'uid-developer',requestId:request.requestId,
+   payload:{expectedRevision:request.revision,decision:'approve',comment:'Test',overrideReason:'Known conflict'},
+   applyEnabled:true}),/consent/);
+ assert.equal(request.status,'pending');
+});
+
+test('allowing synthetic incomplete DOE requires the explicit GitHub Pages demo flag',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const frontend=fs.readFileSync(path.resolve(__dirname,'../frontend/scripts/swap-workflow-sql.js'),'utf8');
+ assert.match(frontend,/const syntheticDemo=root\.UCVM_FRONTEND_DEMO_MODE===true&&Boolean\(root\.UCVM_PAGES_DEMO\)/);
+ assert.match(frontend,/const syntheticDoeOnly=syntheticDemo&&!complete/);
+ assert.match(frontend,/Testing Site only:/);
 });
