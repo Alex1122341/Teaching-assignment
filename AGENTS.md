@@ -1,72 +1,27 @@
 # AGENTS.md
 
-## Repository and deployment source of truth
+## First visit — required
+Read [agent.md](agent.md), [PAWS_CONSTITUTION.md](PAWS_CONSTITUTION.md), the [environment map](docs/architecture/testing-environments.md) and [role matrix](docs/security/role-matrix.md) before substantive changes. They explain the product, selected runtime and authority-specific permissions. Use the [English manual acceptance catalog](docs/acceptance/PAWS_TESTING_MANUAL_ACCEPTANCE.md) for affected workflows.
 
-- Production repository: `Alex1122341/Teaching-assignment`.
-- `main` is the only production source of truth.
-- Do not commit feature work directly to `main`; use a feature branch / worktree and open a PR.
-- The active development/test frontend is the fixed GitHub Pages site at `https://alex1122341.github.io/Teaching-assignment/`.
-- Build `.deploy-static` with `node tools/build-static.js` from the source allowlist in `tools/static-assets.json` and the deterministic bundle map in `tools/runtime-bundles.json`. Manifest paths are relative to `web/` and keep the same relative path in `.deploy-static`.
-- GitHub Pages and any future host must publish the same generated `.deploy-static` artifact.
-- Do not publish the raw repository source tree or maintain a second frontend copy.
-- Azure workflows and `tools/deploy_azure_static_web.ps1` are retained as paused production/fallback history; they are not part of the active Firebase lab development path.
+## Repository and modes
+- Target repository: **UCVM-Teaching-Assignment/Teaching-assignment**. Work on a feature branch and reviewed PR against main; preserve unrelated work.
+- Normal PR Pages publication is the **PAWS Frontend Demo**: synthetic, browser-local data and simulated identity. The shared URL/banner identifies the actual deployed PR/SHA. Inspect `.github/workflows/github-pages-test.yml` before a release.
+- PAWS Demo sources are `frontend/` and `tools/pages-demo-api/`; build using `tools/build-paws-pages.js` and stage `--mode paws`. Its public allowlist is `tools/static-assets.paws.json`.
+- Legacy `web/` has a separate build: `tools/build-static.js`, `tools/static-assets.json`, `tools/runtime-bundles.json`. Keep its tests/build intact. Edit the source tree actually selected by the task.
+- Firebase Lab is manual, explicitly selected and restricted to **vista-teaching-lab**. Review `.github/workflows/firebase-lab-pages.yml`. Production tester-teaching and University SQL are outside this Testing target.
+- Publish only the generated `.deploy-static` artifact for the chosen mode. Documents, Graphify, credentials, exports, staff originals and repository sources are not runtime assets. Historical Azure/SQL tooling is not an active deployment instruction.
 
-## Repository layout
+## Authority and data
+Use the selected authority's existing role/scope helpers: legacy `web/js/core/faculty-access.js`, PAWS `frontend/scripts/faculty-access.js`, ported API `server/src/auth/role-policy.js`, and Lab `firebase/firestore.rules`. Differences are recorded in the role matrix; a browser alias must never expand a server role. Formal roles and additional Developer/ADC/LAB office contexts are not interchangeable.
 
-- `web/` — the browser application (the static site root). HTML pages sit at its top level; `web/js/<area>/` holds scripts by feature (`core`, `accounts`, `timetable`, `absence-from-campus`, `approvals`, `faculty`, `doe`, `bulk-import`, `data-index`); `web/styles/` holds CSS; `web/assets/forms/` holds the AFC PDF templates.
-- `shared/doe-policy/` — Node-only DOE policy engine used by `server/` and `tools/`; never shipped to the browser.
-- `firebase/` — `firestore.rules` and `firestore.indexes.json` (referenced from the root `firebase.json`).
-- `deploy/azure/` — paused Azure Static Web Apps configuration.
-- `server/`, `tools/`, `tests/`, `test-support/`, `database/`, `docs/` — unchanged roles.
+Enforce scope, privacy, stale-request protection and approvals at the trusted boundary. Demo role switching is only a UI test harness. Preserve binary AFC availability, sanitized faculty candidates, required Sessional/Other notes and final availability rechecks. Read the Constitution before changing names, DOE, academic-year scope, originals, migrations or audit behavior. Keep authoritative DOE writes out of the Lab browser; use reviewed trusted admin tooling. Never weaken Firestore rules to make a screen work.
 
-## Application architecture
+## Graphify — before relationship tracing and after every merge
+Read [the graph guide](docs/architecture/script-dependency-graph.md). Consult the raw index or views **before** investigating imports/calls, build wiring, API/repository dependencies or change impact; verify referenced current source. Refresh when the source fingerprint differs or the graph is missing. After every merge, regenerate raw index and both views from exact merged main, record SHA/hash/counts/warnings and verify a source edge. An absent edge does not prove a script unused. Keep raw multigraph intact; cluster a copy. Code-only extraction must not upload source or invoke model labeling.
 
-- Frontend: vanilla HTML, CSS and JavaScript.
-- Authentication: Firebase Authentication.
-- Active development/test database: Cloud Firestore project `vista-teaching-lab`, synthetic/test data only.
-- Pull-request GitHub Pages browser testing must use `vista-teaching-lab` through repository variable `LAB_FIREBASE_WEB_CONFIG_JSON`. The Pages runtime must keep the DOE API endpoint blank.
-- Ordinary application data continues to use Firebase Authentication + Firestore. Authoritative DOE policy publication, impact preview persistence and recalculation writes must run only through the manually dispatched `Firebase DOE Admin Job` GitHub Action (or equivalent trusted admin tooling), never directly from the browser.
-- DOE browser writes remain denied by `firebase/firestore.rules`. Do not weaken that boundary to make an admin screen work.
-- `tester-teaching` is reserved for future production work and must not be used by the active Pages test site.
-- Security decisions must be enforced by Firestore rules and by minimizing what data is delivered to the browser.
-- Do not weaken Firestore rules merely to make a UI feature work.
-
-## Roles
-
-Formal roles:
-- `owner`
-- `administrator`
-- `other_office`
-- `hicc`
-- `visc`
-- `faculty`
-
-Legacy compatibility remains in place for `adfa_general`, `adfa_regular`, `admin`, `editor`, and `viewer` until migration is complete. Use the shared role helpers in `web/js/core/faculty-access.js` instead of inventing new role checks.
-
-## Faculty privacy rules
-
-For faculty-facing workflows involving other faculty members:
-- Never expose another faculty member's UCID.
-- Never expose another faculty member's email, DOE values, HR fields, AFC purpose/reason, or other confidential Faculty Directory data unless the user is authorized for those fields.
-- AFC may be exposed to another faculty member only as binary availability: `Available` / `Unavailable`.
-- Do not reveal why AFC makes a person unavailable.
-- A timetable conflict may show the conflicting course and time because timetable data is already visible to authorized timetable users.
-- Prefer sanitized derived documents over granting ordinary faculty read access to `/faculty`.
-
-## Swap-request rules
-
-- Faculty self-replacement requests list active faculty from a sanitized directory, not from login accounts alone.
-- Candidate availability combines sanitized AFC availability with live timetable conflicts.
-- `Sessional` and `Other` are valid replacement categories.
-- `Sessional` and `Other` require a non-blank reason/note before submission.
-- ADFA approval must resolve sanitized candidate keys through an admin-only mapping and re-check live availability before applying a change.
-- Existing HICC group-swap behavior should not be broadened unless the task explicitly requests it.
-
-## Testing and change discipline
-
-- Add or update tests before implementation for behavior changes where practical.
-- Run `npm test` before claiming a change is complete.
-- Run the Firestore/Auth emulator suite for security-rule changes when the environment is available.
-- Preserve existing audit logging, stale-request protection, DOE calculations, and approval checks.
-- Preserve lazy/deferred boundaries for AFC PDF generation, approval workflow, swap compatibility, and Faculty Dashboard enhancements unless a reviewed build change explicitly replaces them.
-- Avoid unrelated refactors in a feature PR.
+## Verification and handoff
+- Use tests before behavior changes where practical; preserve audit, version/revision checks, DOE calculations, approval rules and lazy/deferred feature boundaries.
+- Run `npm test` before claiming completion. Use `npm run test:all` for static/server coverage; rules changes also need the Firestore/Auth emulator suite when available. Report environmental blockers and skips accurately.
+- Build/test the selected artifact. Root package scripts and workflow files are authoritative for commands.
+- Manual acceptance uses synthetic fixtures and the specified Demo/Lab/backend lane. Missing fixtures/adapters are Blocked, not Pass or silently N/A.
+- Report tested SHA/mode, changed files, tests, evidence and remaining gaps. Separate implementation, simulation, real persistence/security acceptance and human signoff.
