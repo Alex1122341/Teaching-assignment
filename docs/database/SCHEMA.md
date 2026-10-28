@@ -1,4 +1,4 @@
-# VISTA Firestore Schema
+# PAWS Firestore Schema
 
 **Database:** `vista-teaching-lab` (Firestore Native, `northamerica-northeast1` / Montreal)
 **Purpose:** isolated development, test and CI database. Synthetic data only.

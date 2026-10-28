@@ -150,6 +150,8 @@ function sessionRows(courses, faculty) {
           curriculumYear: String(course.curriculumYear),
           courseCode: course.courseCode,
           courseName: course.courseName,
+          // Synthetic subject relationship for scoped VISC review.
+          subjectKey: course.courseCode === 'VTMD 200' ? 'Anatomy' : null,
           topic: type === 'Exam' ? 'Final examination' : type === 'Quiz/Midterm' ? 'Midterm' : type === 'OSCE' ? 'OSCE stations' : `${TOPICS[(week + slotIndex) % TOPICS.length]} ${week + 1}`,
           sessionType: type,
           date: day,

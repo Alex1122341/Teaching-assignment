@@ -1,6 +1,6 @@
 # Faculty Dashboard - Spark Basic Mode
 
-VISTA uses Firebase Authentication and Firestore on the Spark-compatible client architecture. Production remains `tester-teaching`; committed pull-request/runtime configuration defaults to the isolated synthetic-data lab project `vista-teaching-lab`, and localhost uses the Firebase Emulator Suite.
+PAWS uses Firebase Authentication and Firestore on the Spark-compatible client architecture. Production remains `tester-teaching`; committed pull-request/runtime configuration defaults to the isolated synthetic-data lab project `vista-teaching-lab`, and localhost uses the Firebase Emulator Suite.
 
 ## What works without Blaze
 

@@ -1,5 +1,5 @@
 'use strict';
-// Deterministic synthetic dataset for the VISTA teaching-assignment system.
+// Deterministic synthetic dataset for the PAWS teaching-assignment system.
 //
 // Everything here is fictional. No real staff data may ever be added.
 // The generator is pure and seeded, so the same version always produces the
@@ -47,9 +47,9 @@ const FACULTY_SEED = [
 // Accounts. Password-completion and inactive states are represented on purpose
 // so tests can prove those gates behave.
 const USER_SEED = [
-  {uid: 'uid-developer', name: 'VISTA Developer', role: 'developer'},
-  {uid: 'uid-owner', name: 'VISTA Owner', role: 'owner'},
-  {uid: 'uid-admin', name: 'VISTA Administrator', role: 'administrator'},
+  {uid: 'uid-developer', name: 'PAWS Developer', role: 'developer'},
+  {uid: 'uid-owner', name: 'PAWS Owner', role: 'owner'},
+  {uid: 'uid-admin', name: 'PAWS Administrator', role: 'administrator'},
   {uid: 'uid-otheroffice', name: 'Other Office', role: 'other_office'},
   {uid: 'uid-adfa-general', name: 'ADFA General', role: 'adfa_general'},
   {uid: 'uid-adfa-regular', name: 'ADFA Regular', role: 'adfa_regular'},
@@ -59,7 +59,7 @@ const USER_SEED = [
   {uid: 'uid-lab-2', name: 'LAB Backup', role: 'lab', office: 'LAB Office'},
   {uid: 'uid-hicc-1', name: 'HICC Lead', role: 'hicc'},
   {uid: 'uid-hicc-2', name: 'HICC Member', role: 'hicc'},
-  {uid: 'uid-visc-1', name: 'VISC Lead', role: 'visc'},
+  {uid: 'uid-visc-1', name: 'VISC Lead', role: 'visc', facultyId: 'fac-002'},
   {uid: 'uid-inactive', name: 'Retired Account', role: 'adc', active: false},
   {uid: 'uid-pwchange', name: 'New Hire', role: 'faculty', facultyId: 'fac-014', mustChangePassword: true}
 ];
@@ -130,7 +130,7 @@ function buildUsers() {
       active: entry.active !== false,
       mustChangePassword: entry.mustChangePassword === true,
       updatedBy: 'uid-owner',
-      updatedByName: 'VISTA Owner',
+      updatedByName: 'PAWS Owner',
       updatedAt: stamp(0),
       createdAt: stamp(0)
     };
@@ -158,7 +158,7 @@ function buildUsers() {
         active: true,
         mustChangePassword: false,
         updatedBy: 'uid-owner',
-        updatedByName: 'VISTA Owner',
+        updatedByName: 'PAWS Owner',
         updatedAt: stamp(0),
         createdAt: stamp(0)
       }
@@ -209,7 +209,7 @@ function buildFaculty() {
       bulkImportedAt: stamp(0),
       bulkImportedBy: 'uid-owner',
       updatedBy: 'uid-owner',
-      updatedByName: 'VISTA Owner',
+      updatedByName: 'PAWS Owner',
       updatedAt: stamp(0)
     };
     if (hasOverride) {
@@ -746,7 +746,7 @@ function buildAuditLogs(sessions) {
         facultyName: 'Mira Okonkwo',
         changes: [{field: 'managedRoles2026_27', label: 'DOE-linked faculty roles', before: [], after: ['visc']}],
         changedBy: 'uid-owner',
-        changedByName: 'VISTA Owner',
+        changedByName: 'PAWS Owner',
         changedByEmail: 'uid-owner@example.test',
         changedAt: stamp(-500)
       }
@@ -757,7 +757,7 @@ function buildAuditLogs(sessions) {
         action: 'account_provisioned',
         targetUid: 'uid-fac-014',
         changedBy: 'uid-owner',
-        changedByName: 'VISTA Owner',
+        changedByName: 'PAWS Owner',
         changedAt: stamp(-900)
       }
     },
@@ -767,7 +767,7 @@ function buildAuditLogs(sessions) {
         action: 'index_rebuilt',
         detail: 'Derived indexes rebuilt after import.',
         changedBy: 'uid-owner',
-        changedByName: 'VISTA Owner',
+        changedByName: 'PAWS Owner',
         changedAt: stamp(-590)
       }
     }
@@ -804,7 +804,7 @@ function buildBulkImport() {
 function buildDoePolicy() {
   const policyId = 'lab-synthetic-2026-27';
   const policyVersionId = 'lab-synthetic-2026-27-v1';
-  const note = 'TEST ONLY - synthetic VISTA lab fixture; not an approved UCVM workload policy.';
+  const note = 'TEST ONLY - synthetic PAWS lab fixture; not an approved UCVM workload policy.';
   const createdAt = stamp(-800);
   const documents = [
     {
@@ -812,7 +812,7 @@ function buildDoePolicy() {
       data: {
         policyId,
         academicYear: ACADEMIC_YEAR,
-        name: 'VISTA Lab Synthetic DOE Policy',
+        name: 'PAWS Lab Synthetic DOE Policy',
         description: note,
         currentActiveVersionId: policyVersionId,
         testOnly: true,
@@ -831,7 +831,7 @@ function buildDoePolicy() {
         versionNumber: 1,
         status: 'active',
         revision: 1,
-        name: 'VISTA Lab Synthetic DOE Policy v1',
+        name: 'PAWS Lab Synthetic DOE Policy v1',
         description: note,
         sourceType: 'synthetic_test_fixture',
         testOnly: true,
@@ -940,7 +940,7 @@ function buildPublicInfo() {
         facultyCount: 1,
         source: 'seed-2026-27',
         updatedBy: 'uid-owner',
-        updatedByName: 'VISTA Owner',
+        updatedByName: 'PAWS Owner',
         updatedAt: stamp(-100)
       }
     }

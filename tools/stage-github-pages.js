@@ -44,7 +44,7 @@ function injectTestBanner(html,identity,detail){
   const source=String(html);
   if(source.includes(`id="${BANNER_ID}"`))return source;
   if(!/<body(?:\s[^>]*)?>/i.test(source))throw Error('HTML file is missing a <body> element.');
-  return source.replace(/<body(?:\s[^>]*)?>/i,match=>`${match}\n${bannerMarkup(identity,detail)}`);
+  return source.replace(/<body(?:\s[^>]*)?>/i,match=>`${match}\n${bannerMarkup(identity,detail)}\n<script defer src="./pages-demo-panels.js"></script>`);
 }
 
 function demoScriptTags(){
@@ -219,6 +219,7 @@ function writeDemoRuntime(directory,{paws=false}={}){
   const payload={version:1,generatedFrom:dataset.generatedFrom,counts:dataset.counts,documents:dataset.documents};
   fs.writeFileSync(path.join(directory,DEMO_DATA_FILE),'window.UCVM_PAGES_DEMO_SEED='+JSON.stringify(payload)+';\n');
   fs.copyFileSync(path.join(__dirname,DEMO_RUNTIME_FILE),path.join(directory,DEMO_RUNTIME_FILE));
+  fs.copyFileSync(path.join(__dirname,'pages-demo-panels.js'),path.join(directory,'pages-demo-panels.js'));
   return dataset.documents.length;
 }
 

@@ -15,13 +15,18 @@ const person = f => f ? { firstName: f.preferredFirstName, lastName: f.preferred
 const snapshotOf = s => sha256Hex(JSON.stringify([s.id, s.courseCode, s.date, s.startTime, s.endTime, s.sessionType, s.room, s.topic, s.assignments.map(a => a.facultyId + a.teachingRole)]));
 
 function list(store) {
-  return store.bag('swaps', () => {
+  const items = store.bag('swaps', () => {
     const t = store.tables;
     const pick = (course, type) => t.sessions.find(s => s.courseCode === course && s.sessionType === type && s.date >= '2026-10-26' && s.startTime);
     const make = (session, i, status, nextStage, changes, requesterUid) => {
       const a = session.assignments[0];
       const replacement = changes.replacementCandidateKey ? facultyByCandidate(store, changes.replacementCandidateKey) : null;
-      return { requestId: uuidFor(`swap:${i}`), sessionId: session.id, assignmentId: a.sessionAssignmentId, snapshotToken: snapshotOf(session), revision: 1, status, nextStage, changes, note: i === 0 ? 'Conference travel that week – Petra has agreed to cover.' : 'Room clash with the anatomy lab.', notifyReplacement: Boolean(replacement), requesterUid, createdAtUtc: '2026-10-20T16:00:00.000Z', updatedAtUtc: '2026-10-22T16:00:00.000Z', routing: { needsAdc: SCHEDULE.some(k => k in changes), needsLab: false, needsVisc: false, notifyReplacement: Boolean(replacement) }, history: [], revisions: [{ revision: 1, createdAtUtc: '2026-10-20T16:00:00.000Z', actorUid: requesterUid }] };
+      const consentUid = replacement && nextStage !== 'target' && targetUidFor(store, changes.replacementCandidateKey, true);
+      const priorConsent = consentUid
+        ? [{revision:1,stage:'target',decision:'approve',createdAtUtc:'2026-10-21T16:00:00.000Z',
+           comment:'Synthetic replacement consent fixture',overrideReason:'',actorUid:consentUid}]
+        : [];
+      return { requestId: uuidFor(`swap:${i}`), sessionId: session.id, assignmentId: a.sessionAssignmentId, snapshotToken: snapshotOf(session), revision: 1, status, nextStage, changes, note: i === 0 ? 'Conference travel that week – Petra has agreed to cover.' : 'Room clash with the anatomy lab.', notifyReplacement: Boolean(replacement), requesterUid, createdAtUtc: '2026-10-20T16:00:00.000Z', updatedAtUtc: '2026-10-22T16:00:00.000Z', routing: { needsAdc: SCHEDULE.some(k => k in changes), needsLab: false, needsVisc: false, notifyReplacement: Boolean(replacement) }, history: priorConsent, revisions: [{ revision: 1, createdAtUtc: '2026-10-20T16:00:00.000Z', actorUid: requesterUid }] };
     };
     const rows = [];
     const s1 = pick('VTMD 200', 'LEC'), s2 = pick('VTMD 302', 'LAB') || pick('VTMD 304', 'LEC');
@@ -30,23 +35,57 @@ function list(store) {
     if (s2) rows.push(make(s2, 1, 'pending', 'adc', { room: 'HSB 1403' }, 'uid-' + (t.faculty.find(f => f.facultyId === s2.assignments[0].facultyId)?.legacyId || 'fac-002')));
     return rows;
   });
+  // Repair only the known historic synthetic fixture. Existing testers have
+  // persisted this request at ADFA but the original seed omitted target consent.
+  const seeded = items.find(row => row.requestId === uuidFor('swap:0') && row.status === 'pending'
+    && row.nextStage === 'adfa' && row.notifyReplacement === true
+    && !row.history.some(h => h.stage === 'target'));
+  if (seeded) {
+    const targetUid = targetUidFor(store, seeded.changes.replacementCandidateKey, true);
+    if (targetUid) {
+      seeded.history.push({revision:seeded.revision,stage:'target',decision:'approve',
+        createdAtUtc:'2026-10-21T16:00:00.000Z',comment:'Synthetic replacement consent fixture',
+        overrideReason:'',actorUid:targetUid});
+      store.commit();
+    }
+  }
+  return items;
 }
 
 function routingKeys(r) { return [...(r.routing.notifyReplacement ? ['target'] : []), ...(r.routing.needsVisc ? ['visc'] : []), ...(r.routing.needsAdc ? ['adc'] : []), ...(r.routing.needsLab ? ['lab'] : []), 'adfa']; }
 
+// Mirror the SQL approval authority: only senior ADFA roles can override
+// intermediate office stages, and replacement consent cannot be fabricated.
+const canOverrideStage = role => ['developer', 'owner', 'adfa_general'].includes(role);
+function targetUidFor(store, key, notified) {
+  if (!notified) return null;
+  const target = facultyByCandidate(store, key);
+  if (!target) return null;
+  const users = store.tables.users.filter(user => user.facultyId === target.facultyId && user.active === true && user.mustChangePassword !== true);
+  return users.length === 1 ? users[0].firebaseUid : null;
+}
+function scopedVisc(store, request, user) {
+  const session = store.tables.sessions.find(s => s.id === request.sessionId);
+  if (!session?.subjectKey || !user.facultyId) return false;
+  return store.tables.roles.some(role => role.roleType === 'VISC'
+    && role.facultyId === user.facultyId && role.academicYear === session.academicYear
+    && (!role.effectiveDate || role.effectiveDate <= session.date)
+    && (!role.expirationDate || role.expirationDate >= session.date)
+    && String(role.courseOrSubjectOrRotation).toLowerCase() === String(session.subjectKey).toLowerCase());
+}
 function canDecideStage(store, r, uid) {
   const u = userOf(store, uid), role = String(u.baseRole || '').toLowerCase();
   if (r.status !== 'pending') return false;
-  if (r.nextStage === 'target') { const f = facultyByCandidate(store, r.changes.replacementCandidateKey); return Boolean(f && u.facultyId === f.facultyId); }
-  if (r.nextStage === 'adc') return role === 'adc' || isAdministratorRole(role);
-  if (r.nextStage === 'lab') return role === 'lab' || isAdministratorRole(role);
-  if (r.nextStage === 'visc') return role === 'visc' || isAdministratorRole(role);
-  return isAdministratorRole(role);
+  if (r.nextStage === 'target') return targetUidFor(store, r.changes.replacementCandidateKey, r.notifyReplacement) === uid;
+  if (r.nextStage === 'adfa') return isAdministratorRole(role);
+  if (r.nextStage === 'adc') return role === 'adc' || canOverrideStage(role);
+  if (r.nextStage === 'lab') return role === 'lab' || canOverrideStage(role);
+  if (r.nextStage === 'visc') return role === 'visc' && scopedVisc(store, r, u) || canOverrideStage(role);
+  return false;
 }
-
 function canSee(store, r, uid) {
   const u = userOf(store, uid), role = String(u.baseRole || '').toLowerCase();
-  if (isAdministratorRole(role) || r.requesterUid === uid || canDecideStage(store, r, uid) || ['adc', 'lab'].includes(role)) return true;
+  if (isAdministratorRole(role) || r.requesterUid === uid || canDecideStage(store, r, uid) || ['adc', 'lab'].includes(role) || role === 'visc' && scopedVisc(store, r, u)) return true;
   const session = store.tables.sessions.find(s => s.id === r.sessionId);
   const replacement = facultyByCandidate(store, r.changes.replacementCandidateKey);
   return Boolean(u.facultyId && ((session && session.assignments.some(a => a.facultyId === u.facultyId)) || (replacement && replacement.facultyId === u.facultyId)));
@@ -64,10 +103,10 @@ function requestJson(store, r, uid) {
 function detailJson(store, r, uid) {
   const u = userOf(store, uid), admin = isAdministratorRole(u.baseRole), decide = canDecideStage(store, r, uid);
   const actorName = au => { const x = userOf(store, au); const f = store.tables.faculty.find(ff => ff.facultyId === x.facultyId); return person(f) || { displayName: x.displayName || 'PAWS user' }; };
-  const requiresOverride = admin && r.status === 'pending' && r.nextStage !== 'adfa';
+  const requiresOverride = canOverrideStage(String(u.baseRole || '').toLowerCase()) && r.status === 'pending' && r.nextStage !== 'adfa';
   return {
     request: requestJson(store, r, uid),
-    capabilities: { canRevise: r.requesterUid === uid && ['pending', 'changes_requested'].includes(r.status), canWithdraw: r.requesterUid === uid && ['pending', 'changes_requested'].includes(r.status), canDecide: decide, canOverride: requiresOverride, requiresOverride: false, decisions: decide ? ['approve', 'reject', 'push_back'] : [], editableFields: r.requesterUid === uid ? ['replacementCandidateKey', ...SCHEDULE, 'topic'] : [] },
+    capabilities: { canRevise: r.requesterUid === uid && ['pending', 'changes_requested'].includes(r.status), canWithdraw: r.requesterUid === uid && ['pending', 'changes_requested'].includes(r.status), canDecide: decide, canOverride: requiresOverride, requiresOverride: requiresOverride && decide, decisions: decide ? ['approve', 'reject', 'push_back'] : [], editableFields: r.requesterUid === uid ? ['replacementCandidateKey', ...SCHEDULE, 'topic'] : [] },
     history: r.history.map(h => ({ ...h, actor: actorName(h.actorUid) })),
     revisions: r.revisions.map(v => ({ revision: v.revision, createdAtUtc: v.createdAtUtc, actor: actorName(v.actorUid) })),
     notifications: r.notifyReplacement ? [{ revision: r.revision, status: r.history.some(h => h.stage === 'target') ? 'acknowledged' : 'sent' }] : []
@@ -97,24 +136,23 @@ function applyChanges(store, r, actorUid) {
 
 function createSwapRepository(store) {
   const find = (id, uid) => { const r = list(store).find(x => x.requestId === id); if (!r || !canSee(store, r, uid)) throw sqlError(53004, 'The request is unavailable in your scope.'); return r; };
-  const routeFor = (session, changes, notify) => ({ needsAdc: SCHEDULE.some(k => changes[k] !== undefined) || (changes.topic !== undefined && session.sessionType !== 'LAB'), needsLab: changes.topic !== undefined && session.sessionType === 'LAB', needsVisc: false, notifyReplacement: Boolean(changes.replacementCandidateKey && notify) });
+  const routeFor = (session, changes, notify, creatorRole = '') => ({ needsAdc: SCHEDULE.some(k => changes[k] !== undefined) || (changes.topic !== undefined && session.sessionType !== 'LAB'), needsLab: changes.topic !== undefined && (session.sessionType === 'LAB' || changes.sessionType === 'LAB'), needsVisc: Boolean(changes.replacementCandidateKey && !notify && ['faculty', 'hicc', 'visc'].includes(creatorRole)), notifyReplacement: Boolean(changes.replacementCandidateKey && notify) });
   return {
     async context({ actorFirebaseUid, sessionId }) {
       const t = store.tables, session = t.sessions.find(s => s.id === sessionId);
       if (!session) throw sqlError(53004, 'Session not found');
       const u = userOf(store, actorFirebaseUid), role = String(u.baseRole || '').toLowerCase(), admin = isAdministratorRole(role);
       const own = u.facultyId && session.assignments.some(a => a.facultyId === u.facultyId);
-      const hicc = u.facultyId && t.roles.some(r => r.facultyId === u.facultyId && ['HICC', 'Course Coordinator'].includes(r.roleType) && t.courses.some(c => c.catalogLabel === r.courseOrSubjectOrRotation && c.courseCode === session.courseCode));
-      if (!(admin || own || hicc || ['adc', 'lab', 'visc'].includes(role))) throw sqlError(53003, 'Session is outside your SWAP scope.');
+      if (!(admin || own || ['adc', 'lab'].includes(role) || role === 'visc' && scopedVisc(store, {sessionId}, u))) throw sqlError(53003, 'Session is outside your SWAP scope.');
       const assigned = new Set(session.assignments.map(a => a.facultyId));
       return {
         session: { sessionId: session.id, academicYear: session.academicYear, curriculumYear: session.curriculumYear, courseCode: session.courseCode, courseName: session.courseName, sessionType: session.sessionType, date: session.date, startTime: session.startTime, endTime: session.endTime, topic: session.topic, room: session.room, snapshotToken: snapshotOf(session) },
-        assignments: session.assignments.map(a => { const f = t.faculty.find(x => x.facultyId === a.facultyId); return { assignmentId: a.sessionAssignmentId, candidateKey: candidateKey(a.facultyId), displayName: f ? f.displayName : a.sourceFacultyName, canReplace: Boolean(admin || hicc || ['adc', 'lab', 'visc'].includes(role) || a.facultyId === u.facultyId) }; }),
+        assignments: session.assignments.map(a => { const f = t.faculty.find(x => x.facultyId === a.facultyId); return { assignmentId: a.sessionAssignmentId, candidateKey: candidateKey(a.facultyId), displayName: f ? f.displayName : a.sourceFacultyName, canReplace: Boolean(admin || ['adc', 'lab'].includes(role) || role === 'visc' && scopedVisc(store, {sessionId}, u) || a.facultyId === u.facultyId) }; }),
         candidates: t.faculty.filter(f => f.active && !assigned.has(f.facultyId)).map(f => { const av = availabilityFor(store, session, f.facultyId); const linked = t.users.filter(x => x.facultyId === f.facultyId && x.active).length === 1; return { candidateKey: candidateKey(f.facultyId), displayName: f.displayName, availabilityStatus: av.status, available: av.status === 'Available', notifyAvailable: linked, notifyUnavailableReason: linked ? null : 'One active linked account is required.' }; }),
-        fields: [['replacementCandidateKey', 'adfa'], ['courseCode', 'adc'], ['date', 'adc'], ['startTime', 'adc'], ['endTime', 'adc'], ['sessionType', 'adc'], ['room', 'adc'], ['topic', session.sessionType === 'LAB' ? 'lab' : 'adc']].map(([key, office]) => ({ key, editable: true, office, reason: null })),
+        fields: [['replacementCandidateKey', 'adfa'], ['courseCode', 'adc'], ['date', 'adc'], ['startTime', 'adc'], ['endTime', 'adc'], ['sessionType', 'adc'], ['room', 'adc'], ['topic', session.sessionType === 'LAB' ? 'lab' : 'adc']].map(([key, office]) => ({ key, editable: Boolean(admin || key === 'replacementCandidateKey' && (own || ['adc', 'lab'].includes(role) || role === 'visc' && scopedVisc(store, {sessionId}, u)) || key !== 'replacementCandidateKey' && role === office), office, reason: null })),
         options: { courses: t.courses.map(c => ({ courseCode: c.courseCode, courseName: c.courseName })), sessionTypes: ['LEC', 'LAB', 'SRL', 'Quiz/Midterm', 'OSCE', 'Exam'] },
         canCreate: true, unavailableReasons: [],
-        reviewers: [{ stage: 'visc', available: true }, { stage: 'adc', available: true }, { stage: 'lab', available: true }]
+        reviewers: [{ stage: 'visc', available: t.users.some(account => account.baseRole === 'visc' && account.active && scopedVisc(store, {sessionId}, account)) }, { stage: 'adc', available: t.users.some(account => account.baseRole === 'adc' && account.active) }, { stage: 'lab', available: t.users.some(account => account.baseRole === 'lab' && account.active) }]
       };
     },
     async queue({ actorFirebaseUid }) {
@@ -125,11 +163,25 @@ function createSwapRepository(store) {
     async create({ actorFirebaseUid, payload }) {
       const session = store.tables.sessions.find(s => s.id === payload.sessionId);
       if (!session) throw sqlError(53004, 'Session not found');
+      const actor = userOf(store, actorFirebaseUid), role = String(actor.baseRole || '').toLowerCase();
+      const admin = isAdministratorRole(role), own = actor.facultyId && session.assignments.some(a => a.facultyId === actor.facultyId);
+      const visc = role === 'visc' && scopedVisc(store, {sessionId:session.id}, actor);
+      if (!(admin || own || visc || ['adc', 'lab'].includes(role))) throw sqlError(53003, 'Session is outside your SWAP scope.');
+      if (payload.changes?.replacementCandidateKey && own && !admin && !visc && !['adc', 'lab'].includes(role) && !session.assignments.some(a => a.sessionAssignmentId === payload.assignmentId && a.facultyId === actor.facultyId)) throw sqlError(53003, 'You may replace only your own session assignment.');
+      for (const field of Object.keys(payload.changes || {})) {
+        const eligible = admin || field === 'replacementCandidateKey' && (own || visc || ['adc', 'lab'].includes(role))
+          || field === 'topic' && (session.sessionType === 'LAB' ? role === 'lab' : role === 'adc')
+          || ['courseCode', 'date', 'startTime', 'endTime', 'sessionType', 'room'].includes(field) && role === 'adc';
+        if (!eligible) throw sqlError(53003, 'This role cannot propose that SWAP field.');
+      }
       if (snapshotOf(session) !== payload.snapshotToken) throw sqlError(53010, 'The session changed; reload it.');
       const existing = list(store).find(r => r.requestId === payload.requestId);
       if (existing) return detailJson(store, existing, actorFirebaseUid);
       const now = store.nowIso();
-      const r = { requestId: payload.requestId, sessionId: session.id, assignmentId: payload.assignmentId || null, snapshotToken: payload.snapshotToken, revision: 1, status: 'pending', nextStage: null, changes: clone(payload.changes), note: payload.note || '', notifyReplacement: payload.notifyReplacement === true, requesterUid: actorFirebaseUid, createdAtUtc: now, updatedAtUtc: now, routing: routeFor(session, payload.changes, payload.notifyReplacement), history: [], revisions: [{ revision: 1, createdAtUtc: now, actorUid: actorFirebaseUid }] };
+      if (payload.notifyReplacement === true && !targetUidFor(store, payload.changes?.replacementCandidateKey, true)) throw sqlError(53001, 'Replacement consent requires exactly one active linked account.');
+      const routing = routeFor(session, payload.changes, payload.notifyReplacement, role);
+      if (routing.needsVisc && !store.tables.users.some(u => u.baseRole === 'visc' && u.active && !u.mustChangePassword && scopedVisc(store, {sessionId:session.id}, u))) throw sqlError(53001, 'No scoped VISC reviewer is assigned.');
+      const r = { requestId: payload.requestId, sessionId: session.id, assignmentId: payload.assignmentId || null, snapshotToken: payload.snapshotToken, revision: 1, status: 'pending', nextStage: null, changes: clone(payload.changes), note: payload.note || '', notifyReplacement: payload.notifyReplacement === true, requesterUid: actorFirebaseUid, originRole: role, createdAtUtc: now, updatedAtUtc: now, routing, history: [], revisions: [{ revision: 1, createdAtUtc: now, actorUid: actorFirebaseUid }] };
       r.nextStage = routingKeys(r)[0];
       list(store).unshift(r);
       store.audit({ domain: 'teaching', changeType: 'swap_requested', sessionId: session.id, actorFirebaseUid, after: clone(r.changes) });
@@ -141,8 +193,9 @@ function createSwapRepository(store) {
       if (r.requesterUid !== actorFirebaseUid) throw sqlError(53003, 'Only the requester can revise.');
       if (payload.expectedRevision !== r.revision) throw sqlError(53009, 'Revision conflict');
       const session = store.tables.sessions.find(s => s.id === r.sessionId);
+      if (payload.notifyReplacement === true && !targetUidFor(store, payload.changes?.replacementCandidateKey, true)) throw sqlError(53001, 'Replacement consent requires exactly one active linked account.');
       r.changes = clone(payload.changes); r.note = payload.note || r.note; r.notifyReplacement = payload.notifyReplacement === true; if (payload.assignmentId) r.assignmentId = payload.assignmentId;
-      r.revision += 1; r.status = 'pending'; r.routing = routeFor(session, r.changes, r.notifyReplacement); r.nextStage = routingKeys(r)[0]; r.updatedAtUtc = store.nowIso();
+      r.revision += 1; r.status = 'pending'; r.routing = routeFor(session, r.changes, r.notifyReplacement, r.originRole || String(userOf(store, r.requesterUid).baseRole || '').toLowerCase()); r.nextStage = routingKeys(r)[0]; r.updatedAtUtc = store.nowIso();
       r.revisions.push({ revision: r.revision, createdAtUtc: r.updatedAtUtc, actorUid: actorFirebaseUid });
       store.commit();
       return detailJson(store, r, actorFirebaseUid);
@@ -150,15 +203,17 @@ function createSwapRepository(store) {
     async decide({ actorFirebaseUid, requestId, payload, applyEnabled }) {
       const r = find(requestId, actorFirebaseUid);
       if (payload.expectedRevision !== r.revision) throw sqlError(53009, 'Revision conflict');
-      const admin = isAdministratorRole(userOf(store, actorFirebaseUid).baseRole);
+      const decisionRole = String(userOf(store, actorFirebaseUid).baseRole || '').toLowerCase();
+      const admin = isAdministratorRole(decisionRole);
       if (!canDecideStage(store, r, actorFirebaseUid)) throw sqlError(53003, 'You cannot decide this stage.');
+      if (canOverrideStage(decisionRole) && r.nextStage !== 'adfa' && !String(payload.overrideReason || '').trim()) throw sqlError(53003, 'A recorded override reason is required for an administrative early decision.');
       const now = store.nowIso();
       r.history.push({ revision: r.revision, stage: r.nextStage, decision: payload.decision, createdAtUtc: now, comment: payload.comment || '', overrideReason: payload.overrideReason || '', actorUid: actorFirebaseUid });
       if (payload.decision === 'reject') r.status = 'rejected';
       else if (payload.decision === 'push_back') r.status = 'changes_requested';
       else {
         const keys = routingKeys(r), index = keys.indexOf(r.nextStage);
-        const override = admin && r.nextStage !== 'adfa' && String(payload.overrideReason || '').trim();
+        const override = canOverrideStage(decisionRole) && r.nextStage !== 'adfa' && String(payload.overrideReason || '').trim();
         if (r.nextStage === 'adfa' || override) { if (applyEnabled !== false) applyChanges(store, r, actorFirebaseUid); r.status = 'applied'; r.nextStage = null; }
         else r.nextStage = keys[index + 1];
       }

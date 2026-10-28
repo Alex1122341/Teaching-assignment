@@ -213,7 +213,7 @@
 
     const applyUser = user => {
       const role = roleOf(user);
-      $('testing-only-approvals-btn')?.classList.toggle('hidden', !ADMIN_ROLES.has(role));
+      $('testing-only-approvals-btn')?.classList.toggle('hidden', !(ADMIN_ROLES.has(role) || FACULTY_ROLES.has(role) || role === 'adc' || role === 'lab'));
       $('testing-only-work-queue-btn')?.classList.toggle('hidden', !ADMIN_ROLES.has(role));
       $('testing-only-requests-btn')?.classList.toggle('hidden', !FACULTY_ROLES.has(role));
       if (user) showNotifications(user);
@@ -266,30 +266,125 @@
   const AFC_STAGE = { pending_report_to: 'Waiting for Report-to', pending_admin: 'Waiting for Admin', approved: 'Approved', rejected: 'Rejected', withdrawn: 'Withdrawn' };
   const afcTone = status => (status === 'approved' ? 'good' : status === 'rejected' ? 'bad' : status === 'withdrawn' ? '' : 'warn');
 
-  async function openApprovals() {
-    const body = openPanel('All Approvals', { wide: true });
-    try {
-      const [afc, swaps] = await Promise.all([api('/api/v1/afc-requests'), api('/api/v1/swaps/queue')]);
-      const afcRows = (afc.afcRequests || []).filter(r => r.status === 'pending_report_to' || r.status === 'pending_admin');
-      const swapRows = (swaps.requests || []).filter(r => r.status === 'pending');
-      body.innerHTML = `<p>One list of everything waiting for a decision. Use <strong>Open</strong> to decide it in the beta screen.</p>
-        <h3>Away from Campus (AFC) requests (${afcRows.length})</h3>${table([
-          { label: 'Faculty', value: r => r.facultyName }, { label: 'Dates', value: r => `${r.startDate} → ${r.endDate}` },
-          { label: 'Reason', value: r => r.reason }, { label: 'Stage', html: r => pill(AFC_STAGE[r.status] || r.status, 'warn') },
-          { label: 'Submitted', value: r => String(r.submittedAtUtc || '').slice(0, 10) },
-          { label: '', html: () => '<button type="button" class="testing-only-btn" data-open="afc">Open</button>' }
-        ], afcRows, 'No AFC requests are waiting.')}
-        <h3 style="margin-top:14px">Timetable (SWAP) requests (${swapRows.length})</h3>${table([
-          { label: 'Course', value: r => r.courseCode }, { label: 'Date', value: r => r.date }, { label: 'Topic', value: r => r.topic },
-          { label: 'Requested by', value: r => r.requesterName || '' }, { label: 'Next step', html: r => pill(String(r.nextStage || '').toUpperCase(), 'warn') },
-          { label: '', html: () => '<button type="button" class="testing-only-btn" data-open="swap">Open</button>' }
-        ], swapRows, 'No SWAP requests are waiting.')}`;
-      body.addEventListener('click', event => {
-        const target = event.target.closest('[data-open]'); if (!target) return;
-        closePanel();
-        if (target.dataset.open === 'swap') $('swap-inbox-btn')?.click(); else $('afc-request-btn')?.click();
+  async function openApprovals(){
+    const body=openPanel('All Approvals',{wide:true});
+    const current=root.UCVM_TIMETABLE_TESTING_HOOKS?.currentUser?.()||{};
+    const account=root.firebase?.auth?.().currentUser;
+    const uid=String(account?.uid||'');
+    const admin=ADMIN_ROLES.has(roleOf(current));
+    const read=async path=>{try{return{value:await api(path),error:null};}catch(error){return{value:null,error};}};
+    const [a,s,ag,sg]=await Promise.all([read('/api/v1/afc-requests'),read('/api/v1/swaps/queue'),read('/api/v1/afc-requests/write-capabilities'),read('/api/v1/swaps/capabilities')]);
+    if(!body.isConnected)return;
+    if(!a.value&&!s.value){failure(body,new Error('Neither AFC nor SWAP approvals could load. Check your access and retry.'));return;}
+    const afcWritable=ag.value?.writeCapabilities?.decisions===true;
+    const swapWritable=sg.value?.writeCapabilities?.swapDecision===true;
+    const afcRows=(a.value?.afcRequests||[]).filter(r=>r.status==='pending_report_to'||r.status==='pending_admin');
+    const swaps=(s.value?.requests||[]).filter(r=>r.status==='pending');
+    const permissions=r=>{
+      if(!afcWritable)return[];
+      const reportTo=r.reportToFirebaseUid===uid&&r.status==='pending_report_to';
+      return [...(reportTo?[['recommend','Recommend']]:[]),...(admin&&r.status==='pending_admin'?[['approve','Approve']]:[]),...(reportTo||admin?[['reject','Reject']]:[])];
+    };
+    const button=(kind,id,action,label)=>`<button type="button" class="testing-only-btn${action==='approve'||action==='recommend'?' primary':''}" data-approval-kind="${kind}" data-approval-id="${esc(id)}" data-approval-action="${action}">${esc(label)}</button>`;
+    const swapActions=r=>{
+      const items=[button('swap',r.requestId,'open','Review details')];
+      if(r.canDecide===true&&swapWritable){items.unshift(button('swap',r.requestId,'approve','Approve'));items.push(button('swap',r.requestId,'reject','Reject'),button('swap',r.requestId,'push_back','Push back'));}
+      return `<div class="testing-only-row">${items.join('')}</div>`;
+    };
+    body.innerHTML=`<p>Actions use the current approval stage and server permissions. Final SWAP application, overrides and DOE-sensitive changes require the full review screen.</p>
+  <h3>Away from Campus (AFC) requests (${afcRows.length})</h3>
+  ${a.error?`<p class="testing-only-status">AFC: ${esc(a.error.message)}</p>`:''}
+  ${!afcWritable&&afcRows.length?'<p class="testing-only-status">AFC decisions are disabled by the API.</p>':''}
+  ${table([
+    {label:'Faculty',value:r=>r.facultyName},{label:'Dates',value:r=>`${r.startDate} → ${r.endDate}`},
+    {label:'Reason',value:r=>r.purposeDestination||r.reason},
+    {label:'Stage',html:r=>pill(AFC_STAGE[r.status]||r.status,'warn')},
+    {label:'Submitted',value:r=>String(r.submittedAtUtc||'').slice(0,10)},
+    {label:'Decision',html:r=>{const actions=permissions(r);return actions.length?`<div class="testing-only-row">${actions.map(([a,l])=>button('afc',r.afcRequestId,a,l)).join('')}</div>`:'<span class="testing-only-status">View only — awaiting authorized approver</span>';}}
+  ],afcRows,'No AFC requests are waiting.')}
+  <h3 style="margin-top:14px">Timetable (SWAP) requests (${swaps.length})</h3>
+  ${s.error?`<p class="testing-only-status">SWAP: ${esc(s.error.message)}</p>`:''}
+  ${table([
+    {label:'Course',value:r=>r.courseCode},{label:'Date',value:r=>r.date},
+    {label:'Topic',value:r=>r.topic},{label:'Requested by',value:r=>r.requesterName||''},
+    {label:'Next step',html:r=>pill(String(r.nextStage||'').toUpperCase(),'warn')},
+    {label:'Decision',html:swapActions}
+  ],swaps,'No SWAP requests are waiting.')}
+  <section id="testing-only-decision" class="testing-only-section" hidden></section>`;
+    let busy=false;
+    body.addEventListener('click',async event=>{
+      const target=event.target.closest('[data-approval-kind]');
+      if(!target||busy)return;
+      const {approvalKind:kind,approvalId:id,approvalAction:action}=target.dataset;
+      if(kind==='swap'){
+        const review=()=>{if(!root.PAWS_SWAP?.openDetail){toast('SWAP review is unavailable. Reload the page.',true);return;}closePanel();root.PAWS_SWAP.openDetail(id);};
+        if(action==='open'){review();return;}
+        if(!swapWritable)return;
+        let detail;
+        try{detail=await api(`/api/v1/swaps/${encodeURIComponent(id)}`);}catch(e){toast(e.message||'Could not load this SWAP decision.',true);return;}
+        const request=detail.request||{},caps=detail.capabilities||{};
+        if(request.status!=='pending'||!caps.canDecide||!Array.isArray(caps.decisions)||!caps.decisions.includes(action)||detail.workflow?.verified===false){
+          toast('You cannot decide this SWAP stage; reload the queue.',true);return;
+        }
+        if(caps.requiresOverride||(action==='approve'&&(request.nextStage==='adfa'||request.changes?.replacementCandidateKey))){review();return;}
+        const region=$('testing-only-decision');if(!region)return;
+        region.hidden=false;
+        const caption=action==='approve'?'Approve':action==='reject'?'Reject':'Push back';
+        region.innerHTML=`<h3>${esc(caption)} SWAP request</h3><p>${esc(request.courseCode||'Session')} · ${esc(request.date||'')} · ${esc(request.nextStage)} · revision ${esc(request.revision)}</p>
+  <p>Intermediate approval advances the workflow. Only final ADFA approval applies timetable changes.</p>
+  <form id="testing-only-swap-decision-form" class="testing-only-section">
+  <label>Comment ${action==='approve'?'(optional)':'(required)'}<textarea class="input" name="comment" maxlength="2000" ${action==='approve'?'':'required'}></textarea></label>
+  <div class="testing-only-row"><button type="submit" class="testing-only-btn primary">Confirm ${esc(caption)}</button><button type="button" id="testing-only-decision-cancel" class="testing-only-btn">Cancel</button></div>
+  <p role="alert" id="testing-only-decision-status" class="testing-only-status"></p></form>`;
+        $('testing-only-decision-cancel').addEventListener('click',()=>{region.hidden=true;region.replaceChildren();});
+        $('testing-only-swap-decision-form').addEventListener('submit',async e=>{
+          e.preventDefault();if(busy)return;
+          const form=e.currentTarget;if(!form.reportValidity())return;
+          const comment=form.elements.namedItem('comment').value.trim();
+          if(action!=='approve'&&!comment)return;
+          busy=true;const submit=form.querySelector('[type="submit"]');submit.disabled=true;
+          try{
+            await api(`/api/v1/swaps/${encodeURIComponent(id)}/decisions`,{method:'POST',body:{expectedRevision:request.revision,decision:action,comment}});
+            toast(`SWAP ${action} recorded.`);if(body.isConnected)await openApprovals();
+          }catch(error){const status=$('testing-only-decision-status');if(status)status.textContent=error.message||'Decision failed. Refresh and retry.';}
+          finally{busy=false;if(submit.isConnected)submit.disabled=false;}
+        });
+        region.scrollIntoView({block:'nearest',behavior:'smooth'});return;
+      }
+      const item=afcRows.find(r=>r.afcRequestId===id);
+      if(!item||!permissions(item).some(([a])=>a===action)){toast('This AFC decision is unavailable to this actor.',true);return;}
+      const region=$('testing-only-decision');if(!region)return;
+      region.hidden=false;
+      region.innerHTML=`<h3>${esc(action==='recommend'?'Recommend AFC':action==='approve'?'Approve AFC':'Reject AFC')}</h3>
+  <p>${esc(item.facultyName)} · ${esc(item.startDate)} → ${esc(item.endDate)}</p>
+  <form id="testing-only-decision-form" class="testing-only-section">
+  <label>Typed signature <input class="input" name="signature" maxlength="260" required value="${esc(current.displayName||account?.displayName||'')}"></label>
+  ${action==='reject'?'<label>Rejection reason <textarea class="input" name="reason" maxlength="1000" required></textarea></label>':''}
+  <label class="testing-only-check"><input type="checkbox" name="attested" required> I confirm this is my decision and electronic signature</label>
+  <div class="testing-only-row"><button type="submit" class="testing-only-btn primary">Confirm ${esc(action)}</button><button type="button" id="testing-only-decision-cancel" class="testing-only-btn">Cancel</button></div>
+  <p role="alert" id="testing-only-decision-status" class="testing-only-status"></p></form>`;
+      $('testing-only-decision-cancel').addEventListener('click',()=>{region.hidden=true;region.replaceChildren();});
+      $('testing-only-decision-form').addEventListener('submit',async e=>{
+        e.preventDefault();if(busy)return;
+        const form=e.currentTarget;if(!form.reportValidity())return;
+        const name=form.elements.namedItem('signature').value.trim();
+        const reason=form.elements.namedItem('reason')?.value?.trim()||'';
+        const attested=form.elements.namedItem('attested').checked;
+        if(!uid||!name||!attested||(action==='reject'&&!reason))return;
+        busy=true;const submit=form.querySelector('[type="submit"]');submit.disabled=true;
+        try{
+          const signedAt=new Date().toISOString();
+          const data=new TextEncoder().encode(['paws-afc-decision',id,action,uid,name,signedAt].join('|'));
+          const hash=await root.crypto.subtle.digest('SHA-256',data);
+          const fingerprint=[...new Uint8Array(hash)].map(n=>n.toString(16).padStart(2,'0')).join('');
+          const payload={signature:{mode:'typed',name,uid,signedAt,fingerprint,attested:true},...(action==='reject'?{rejectionReason:reason}:{})};
+          await api(`/api/v1/afc-requests/${encodeURIComponent(id)}/${action}`,{method:'POST',body:payload});
+          toast(`AFC ${action} recorded.`);if(body.isConnected)await openApprovals();
+        }catch(error){const status=$('testing-only-decision-status');if(status)status.textContent=error.message||'Decision failed. Refresh and retry.';}
+        finally{busy=false;if(submit.isConnected)submit.disabled=false;}
       });
-    } catch (error) { failure(body, error); }
+      region.scrollIntoView({block:'nearest',behavior:'smooth'});
+    });
   }
 
   async function openWorkQueue() {
@@ -366,7 +461,7 @@
         <button type="button" class="testing-only-btn" data-notify-open>Open</button> <button type="button" class="testing-only-btn" data-notify-close>Dismiss</button></div>`);
       doc.body.appendChild(box);
       box.addEventListener('click', event => {
-        if (event.target.closest('[data-notify-open]')) (ADMIN_ROLES.has(role) ? openApprovals : openRequests)();
+        if (event.target.closest('[data-notify-open]')) (ADMIN_ROLES.has(role) || reportTo ? openApprovals : openRequests)();
         if (event.target.closest('[data-notify-open],[data-notify-close]')) { box.remove(); try { root.sessionStorage.setItem('testing-only-notified-' + uid, '1'); } catch (_) {} }
       });
     } catch (_) { /* notifications are best effort */ }
