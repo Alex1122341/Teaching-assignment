@@ -39,6 +39,7 @@ Legend: **Admin** = Developer, Owner, Administrator after normalization. **Gener
 | CCC / activities / trainees / appointments | Feature-specific admin scope | Authorized own/sanitized projections | Feature-specific; no role-wide inference | Fail closed | CCC/calendar/trainee/leadership APIs |
 | History and export | Administrative year/source scope | Own authorized changes | Explicit workflow scope only | No blanket history right | `server/src/history/change-history-api.js` |
 | Teaching-assignment draft/review/final/publish | Capability depends on package role, ownership and stage | Explicit package assignee scope | Explicit package office stage | No inferred right | `server/src/teaching-assignment/teaching-assignment-api.js` |
+| Developer support session / captured Undo | Developer only; not every Admin | Denied | Denied | Denied | `server/src/support/support-service.js`: reason, active target,30-minute expiry, route allowlist, real-actor audit and guarded Undo; requires a trusted backend, not the Demo role panel. |
 
 Read the specific endpoint and repository predicate before altering permissions. The table intentionally avoids assigning one global Yes to every admin operation.
 

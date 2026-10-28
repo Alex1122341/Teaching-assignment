@@ -2,6 +2,8 @@
 
 All cases start **Not run**. This is an English execution checklist, not a claim that the site has passed. It covers the PAWS Beta feature baseline and the Testing-only harness. Use the filterable [Excel checklist](PAWS_TESTING_MANUAL_ACCEPTANCE.xlsx) for actual results, evidence, tester and date; [case catalog](manual-acceptance-cases.json) is the versioned source.
 
+Maintain case definitions in the JSON catalog and keep Markdown/blank Excel IDs, steps and expectations aligned. Preserve completed operator copies, evidence and signatures when issuing a new blank checklist; never regenerate over an in-progress or signed run.
+
 ## Record the run
 
 - Site URL: ____________________
@@ -55,8 +57,9 @@ Prepare separate synthetic Developer, Owner, Administrator, Faculty, HICC, VISC,
 - [Bulk imports and source replacement](#bulk-imports-and-source-replacement) — 3 cases
 - [Privacy and failure boundaries](#privacy-and-failure-boundaries) — 5 cases
 - [Release and handoff](#release-and-handoff) — 4 cases
+- [Developer support sessions](#developer-support-sessions) — 6 cases
 
-**Total: 135 cases across 26 feature groups.** Role-sensitive cases must be repeated for each relevant allowed and denied identity; the case count is not a count of completed runs.
+**Total: 141 cases across 27 feature groups.** Role-sensitive cases must be repeated for each relevant allowed and denied identity; the case count is not a count of completed runs.
 
 ## Environment and isolation
 
@@ -675,6 +678,33 @@ Prepare separate synthetic Developer, Owner, Administrator, Faculty, HICC, VISC,
   - Steps: Perform a separately authorized restart/recovery drill only in a disposable backend.
   - Expected: Approved API/source/gates/ingress restore without data loss; a changed Quick Tunnel domain is detected, not silently declared healthy.
   - Coverage / prerequisite: Not executable on the cloud-free Pages frontend.
+
+## Developer support sessions
+
+- [ ] **SUP-01 — Developer — Lane B**
+  - Steps: Choose an active synthetic target account, submit a blank/oversized reason, then start with a valid reason.
+  - Expected: Reason is required and bounded; only an active supported target starts a30-minute context with the real Developer actor retained.
+  - Coverage / prerequisite: Developer support adapter/backend required; Demo role switching is not equivalent.
+- [ ] **SUP-02 — Developer — Lane B**
+  - Steps: Inspect the support banner and perform an allowed synthetic edit, then inspect recent operations and audit.
+  - Expected: Target context is clear, actions are real in that environment, and actor/target/reason/change capture are attributable without identity transfer.
+  - Coverage / prerequisite: Use disposable backend records only; never real staff data.
+- [ ] **SUP-03 — Developer — Lane B**
+  - Steps: Select Return to myself, reload and inspect subsequent requests and private views.
+  - Expected: Context ends and support headers/cached target data clear; subsequent actions use the Developer's own identity.
+  - Coverage / prerequisite: Ending an already ended context must not reopen it.
+- [ ] **SUP-04 — Developer — Lane B**
+  - Steps: Expire the context at30minutes, disable the target or require its password change, then retry a supported action.
+  - Expected: Expired/ended/unavailable targets fail closed; stale tabs cannot keep acting as the target.
+  - Coverage / prerequisite: Use controlled expiry and target fixtures, not production account edits.
+- [ ] **SUP-05 — Developer — Lane B**
+  - Steps: Undo a captured own operation without a later change; repeat Undo and try another with a conflicting later edit.
+  - Expected: Valid Undo restores only captured data once; conflict/foreign operation is refused and later edits/audit history remain.
+  - Coverage / prerequisite: Actual version/transaction/recovery evidence required.
+- [ ] **SUP-06 — Faculty / Administrator / Developer — Lane B**
+  - Steps: Try non-Developer start/list/end/Undo, a foreign context ID and unsupported support routes such as protected artifacts.
+  - Expected: Authority denies non-Developer/foreign-context or restricted-route access; support is not a blanket data/download bypass.
+  - Coverage / prerequisite: server/src/support/support-service.js is the ported contract.
 
 ## Release decision
 

@@ -10,3 +10,4 @@ output/
 __pycache__/
 .deploy-metadata/
 graphify-out/
+docs/architecture/graphify/cache/
