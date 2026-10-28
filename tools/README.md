@@ -1,5 +1,7 @@
 # Firebase to Azure SQL mirror tools
 
+**Historical operational reference.** These examples are not the active Testing deployment path and do not authorize production exports, migrations or retired Azure deployment. Use the root [README](../README.md) and [environment map](../docs/architecture/testing-environments.md) for the current PAWS Frontend Demo / manually selected Firebase Lab. Keep any authorized private export outside Git and browser artifacts.
+
 These scripts create a typed JSON export of the Firestore collections used by the site and load it into `dbo.FirestoreDocument`. The JSON retains document paths, IDs, Firestore REST field types, timestamps, and a collection count manifest.
 
 The export contains private faculty and account data. Keep it outside the repository; this project ignores `firebase-export-private/` and `*.private.json`.

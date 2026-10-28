@@ -1,0 +1,20 @@
+# Source-only relationship extraction. Generated graphs never index themselves.
+.git/**
+**/node_modules/**
+.deploy-static/**
+.deploy-metadata/**
+.firebase/**
+output/**
+graphify-out/**
+docs/**
+agent.Ai/**
+**/*.log
+**/.env*
+**/*.private.*
+**/*private-export*/**
+**/*.pem
+**/*.pfx
+**/*.xlsx
+**/*.csv
+**/*.pdf
+**/*.zip
