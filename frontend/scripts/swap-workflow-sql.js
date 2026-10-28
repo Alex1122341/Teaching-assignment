@@ -158,6 +158,7 @@
       const request=detail.request||{},caps={...detail.capabilities},workflow=detail.workflow||{};
       caps.canRevise=caps.canRevise===true&&gates.writeCapabilities?.swapRequest===true;caps.canWithdraw=caps.canWithdraw===true&&gates.writeCapabilities?.swapRequest===true;caps.canDecide=caps.canDecide===true&&gates.writeCapabilities?.swapDecision===true&&workflow.verified!==false;detail.capabilities=caps;
       const final=request.nextStage==='adfa',applyEnabled=gates.writeCapabilities?.swapApply===true;
+      const syntheticDemo=root.UCVM_FRONTEND_DEMO_MODE===true&&Boolean(root.UCVM_PAGES_DEMO);
       const showDoe=gates.canPreviewDoe===true&&request.status==='pending'&&request.changes?.replacementCandidateKey&&Object.keys(request.changes).length===1;
       let doeState=showDoe?'loading':'not_required';
       const actionLabel=(decision,override=false)=>decision==='approve'?(override||caps.requiresOverride?'Override & apply to timetable':final?'Approve & apply to timetable':request.nextStage==='target'?'Accept replacement':'Approve '+stage(request.nextStage)):decision==='reject'?'Reject':'Push back / request changes';
@@ -197,7 +198,14 @@
           if(!root.PAWS_ADFA_SWAP?.renderReview)throw Error('The read-only DOE review component is unavailable. Reload the approved bundle.');
           region.innerHTML=root.PAWS_ADFA_SWAP.renderReview(preview,request.replacementDisplayName||'Not provided',request.original?.assignmentDisplayName||'Not provided');
           const complete=preview.status==='calculated'&&[preview.outgoing?.current,preview.outgoing?.projected,preview.incoming?.current,preview.incoming?.projected].every(row=>row?.status==='calculated'&&typeof row.currentDoe==='number'&&Number.isFinite(row.currentDoe));
-          doeState=complete&&preview.availability?.status==='Available'?'ready':complete&&preview.availability?.status==='Unavailable'?'conflict':'needs_review';
+          // The GitHub Pages demo deliberately includes incomplete, non-authoritative DOE examples.
+          // Permit a synthetic workflow test without changing the production DOE gate.
+          // Availability must still be known; only senior reviewers can override a conflict.
+          const syntheticDoeOnly=syntheticDemo&&!complete;
+          doeState=(complete||syntheticDoeOnly)&&preview.availability?.status==='Available'?'ready'
+            :(complete||syntheticDoeOnly)&&preview.availability?.status==='Unavailable'?'conflict':'needs_review';
+          if(syntheticDoeOnly)region.insertAdjacentHTML('beforeend',
+            '<p class="sql-swap-warning" role="status"><strong>Testing Site only:</strong> This faculty DOE preview is incomplete synthetic data. Authorized approval may apply this demo request to browser-local test data, subject to consent, version and availability checks. This is not a production DOE approval.</p>');
           if(approve)approve.disabled=!caps.canDecide||(final||caps.requiresOverride)&&!applyEnabled||!['ready',...(caps.canOverride?['conflict']:[])].includes(doeState);
         }catch(error){if(valid(token)){doeState='needs_review';if([401,403].includes(error.status)){generation++;content().innerHTML='<p role="alert">Access changed. Request details have been cleared; reload with an authorized account.</p>';addReload(()=>openDetail(id));}else region.textContent=errorText(error);}}
       }

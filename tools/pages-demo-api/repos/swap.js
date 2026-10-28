@@ -106,7 +106,7 @@ function detailJson(store, r, uid) {
   const requiresOverride = canOverrideStage(String(u.baseRole || '').toLowerCase()) && r.status === 'pending' && r.nextStage !== 'adfa';
   return {
     request: requestJson(store, r, uid),
-    capabilities: { canRevise: r.requesterUid === uid && ['pending', 'changes_requested'].includes(r.status), canWithdraw: r.requesterUid === uid && ['pending', 'changes_requested'].includes(r.status), canDecide: decide, canOverride: requiresOverride, requiresOverride: requiresOverride && decide, decisions: decide ? ['approve', 'reject', 'push_back'] : [], editableFields: r.requesterUid === uid ? ['replacementCandidateKey', ...SCHEDULE, 'topic'] : [] },
+    capabilities: { canRevise: r.requesterUid === uid && ['pending', 'changes_requested'].includes(r.status), canWithdraw: r.requesterUid === uid && ['pending', 'changes_requested'].includes(r.status), canDecide: decide, canOverride: canOverrideStage(String(u.baseRole || '').toLowerCase()) && decide, requiresOverride: requiresOverride && decide, decisions: decide ? ['approve', 'reject', 'push_back'] : [], editableFields: r.requesterUid === uid ? ['replacementCandidateKey', ...SCHEDULE, 'topic'] : [] },
     history: r.history.map(h => ({ ...h, actor: actorName(h.actorUid) })),
     revisions: r.revisions.map(v => ({ revision: v.revision, createdAtUtc: v.createdAtUtc, actor: actorName(v.actorUid) })),
     notifications: r.notifyReplacement ? [{ revision: r.revision, status: r.history.some(h => h.stage === 'target') ? 'acknowledged' : 'sent' }] : []
@@ -206,7 +206,26 @@ function createSwapRepository(store) {
       const decisionRole = String(userOf(store, actorFirebaseUid).baseRole || '').toLowerCase();
       const admin = isAdministratorRole(decisionRole);
       if (!canDecideStage(store, r, actorFirebaseUid)) throw sqlError(53003, 'You cannot decide this stage.');
+      if (payload.overrideReason && !canOverrideStage(decisionRole)) throw sqlError(53003, 'Only senior ADFA can record an override.');
       if (canOverrideStage(decisionRole) && r.nextStage !== 'adfa' && !String(payload.overrideReason || '').trim()) throw sqlError(53003, 'A recorded override reason is required for an administrative early decision.');
+      const willApply = payload.decision === 'approve' && (r.nextStage === 'adfa' || canOverrideStage(decisionRole) && Boolean(String(payload.overrideReason || '').trim()));
+      if (willApply) {
+        if (applyEnabled !== true) throw sqlError(53011, 'Final SWAP application is disabled.');
+        const session = store.tables.sessions.find(row => row.id === r.sessionId);
+        if (!session || snapshotOf(session) !== r.snapshotToken) throw sqlError(53010, 'The source session changed; reload the approval.');
+        if (r.changes.replacementCandidateKey) {
+          const incoming = facultyByCandidate(store, r.changes.replacementCandidateKey);
+          const outgoing = session.assignments.find(row => row.sessionAssignmentId === r.assignmentId);
+          if (!incoming?.active || !outgoing || incoming.facultyId === outgoing.facultyId || session.assignments.some(a => a.facultyId === incoming.facultyId))
+            throw sqlError(53011, 'The proposed replacement is not a valid active, distinct faculty assignment.');
+          if (r.notifyReplacement === true && !r.history.some(h => h.revision === r.revision && h.stage === 'target' && h.decision === 'approve'))
+            throw sqlError(53011, 'Replacement consent is not recorded for this revision.');
+          const availability = availabilityFor(store, session, incoming.facultyId);
+          if (availability.status === 'Needs Review') throw sqlError(53011, 'Replacement availability cannot be verified.');
+          if (availability.status === 'Unavailable' && !(canOverrideStage(decisionRole) && String(payload.overrideReason || '').trim()))
+            throw sqlError(53011, 'A known faculty availability conflict requires an authorized recorded override.');
+        }
+      }
       const now = store.nowIso();
       r.history.push({ revision: r.revision, stage: r.nextStage, decision: payload.decision, createdAtUtc: now, comment: payload.comment || '', overrideReason: payload.overrideReason || '', actorUid: actorFirebaseUid });
       if (payload.decision === 'reject') r.status = 'rejected';
@@ -214,7 +233,7 @@ function createSwapRepository(store) {
       else {
         const keys = routingKeys(r), index = keys.indexOf(r.nextStage);
         const override = canOverrideStage(decisionRole) && r.nextStage !== 'adfa' && String(payload.overrideReason || '').trim();
-        if (r.nextStage === 'adfa' || override) { if (applyEnabled !== false) applyChanges(store, r, actorFirebaseUid); r.status = 'applied'; r.nextStage = null; }
+        if (r.nextStage === 'adfa' || override) { applyChanges(store, r, actorFirebaseUid); r.status = 'applied'; r.nextStage = null; }
         else r.nextStage = keys[index + 1];
       }
       r.updatedAtUtc = now;

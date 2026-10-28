@@ -139,7 +139,7 @@ function worksheetSources(store, academicYear, facultyId = null) {
       if (session.academicYear !== academicYear) continue;
       for (const a of session.assignments.filter(x => x.facultyId === member.facultyId)) {
         const resolved = resolveTeachingDoe({ ...a, sessionType: session.sessionType });
-        lines.push({ lineId: a.sessionAssignmentId, sourceEntityType: 'legacy_session_assignment', sourceEntityId: a.sessionAssignmentId, category: 'teaching', roleType: a.teachingRole || '', sessionId: session.id, courseCode: session.courseCode, scopeText: `${session.courseCode} · ${session.topic}`, legacyResultDoe: a.doeCredit, legacyDoeStatus: a.doeStatus, facts: { sessionType: session.sessionType, date: session.date }, creditedHours: a.creditedHours, doeQuantity: a.doeQuantity, resultDoe: resolved.effectiveDoe ?? null, calculatedDoe: resolved.calculatedDoe ?? null, storedDoe: resolved.storedDoe ?? null, doeSource: resolved.source, status: resolved.source === 'missing' ? 'needs_review' : resolved.status, applicable: resolved.applicable, requiresReview: resolved.requiresReview === true, reviewReason: resolved.reviewReason ?? null, ruleKey: resolved.ruleCode, reference: { title: resolved.sourceReference || resolved.calculatorSource }, errorCode: resolved.reviewReason ? resolved.reviewReason.replace(/-/g, '_').toUpperCase() : null, calculatedAt: session.updatedAtUtc });
+        lines.push({ lineId: a.sessionAssignmentId, sourceEntityType: 'session_assignment', sourceEntityId: a.sessionAssignmentId, category: 'teaching', roleType: a.teachingRole || '', sessionId: session.id, courseCode: session.courseCode, scopeText: `${session.courseCode} · ${session.topic}`, legacyResultDoe: a.doeCredit, legacyDoeStatus: a.doeStatus, facts: { sessionType: session.sessionType, date: session.date }, creditedHours: a.creditedHours, doeQuantity: a.doeQuantity, resultDoe: resolved.effectiveDoe ?? null, calculatedDoe: resolved.calculatedDoe ?? null, storedDoe: resolved.storedDoe ?? null, doeSource: resolved.source, status: resolved.source === 'missing' ? 'needs_review' : resolved.status, applicable: resolved.applicable, requiresReview: resolved.requiresReview === true, reviewReason: resolved.reviewReason ?? null, ruleKey: resolved.ruleCode, reference: { title: resolved.sourceReference || resolved.calculatorSource }, errorCode: resolved.reviewReason ? resolved.reviewReason.replace(/-/g, '_').toUpperCase() : null, calculatedAt: session.updatedAtUtc });
       }
     }
     for (const role of t.roles.filter(r => r.facultyId === member.facultyId && r.academicYear === academicYear)) {
@@ -157,7 +157,7 @@ function worksheetSources(store, academicYear, facultyId = null) {
       targetPolicyVersionLabel: active ? active.version.versionLabel : '', workloadSourceReference: 'Teaching Assignments 2026-27 MASTER (synthetic)',
       supervisionDataAvailable: Boolean(trainee),
       target: target ? { contractTeachingDoe: target.contractTeachingDoe, overrideDoe: target.overrideDoe, overrideReason: target.overrideReason || '', overrideNotes: target.overrideNotes || '', effectiveTargetDoe: target.effectiveTargetDoe, source: target.source, policyVersionId: target.policyVersionId || '' } : { contractTeachingDoe: null, overrideDoe: null, effectiveTargetDoe: null },
-      reservePolicy: { ...RESERVE }, lines
+      reservePolicy: { ...RESERVE }, lines: lines.map(line => ({ ...line, policyVersionId: active?.version.policyVersionId || '' }))
     };
   });
 }
