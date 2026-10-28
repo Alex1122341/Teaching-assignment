@@ -32,7 +32,7 @@ Prepare separate synthetic Developer, Owner, Administrator, Faculty, HICC, VISC,
 ## Feature inventory
 
 - [Environment and isolation](#environment-and-isolation) — 5 cases
-- [Authentication and session](#authentication-and-session) — 8 cases
+- [Authentication and session](#authentication-and-session) — 9 cases
 - [Navigation and layout](#navigation-and-layout) — 4 cases
 - [Names and display formats](#names-and-display-formats) — 4 cases
 - [Calendar and filters](#calendar-and-filters) — 9 cases
@@ -52,14 +52,15 @@ Prepare separate synthetic Developer, Owner, Administrator, Faculty, HICC, VISC,
 - [Teaching assignment workflow](#teaching-assignment-workflow) — 5 cases
 - [History and exports](#history-and-exports) — 5 cases
 - [Custom reports](#custom-reports) — 5 cases
-- [Accounts and effective access](#accounts-and-effective-access) — 6 cases
+- [Accounts and effective access](#accounts-and-effective-access) — 8 cases
 - [Collaboration and announcements](#collaboration-and-announcements) — 5 cases
 - [Bulk imports and source replacement](#bulk-imports-and-source-replacement) — 3 cases
 - [Privacy and failure boundaries](#privacy-and-failure-boundaries) — 5 cases
 - [Release and handoff](#release-and-handoff) — 4 cases
 - [Developer support sessions](#developer-support-sessions) — 6 cases
+- [Scheduling Tasks queue](#scheduling-tasks-queue) — 4 cases
 
-**Total: 141 cases across 27 feature groups.** Role-sensitive cases must be repeated for each relevant allowed and denied identity; the case count is not a count of completed runs.
+**Total: 148 cases across 28 feature groups.** Role-sensitive cases must be repeated for each relevant allowed and denied identity; the case count is not a count of completed runs.
 
 ## Environment and isolation
 
@@ -118,6 +119,10 @@ Prepare separate synthetic Developer, Owner, Administrator, Faculty, HICC, VISC,
   - Steps: Change or expire an authorization fixture while another tab is open, then perform a protected action.
   - Expected: Current authority is rechecked and stale privileged views/actions fail closed.
   - Coverage / prerequisite: PR148 effective-access subsystem absent in current port.
+- [ ] **AUTH-09 — Synthetic phone user — Lane L**
+  - Steps: Where enabled, exercise phone/SMS test-number sign-in, invalid/expired code, resend and cancel; otherwise inspect the unavailable-provider state.
+  - Expected: Only configured providers work; errors and retry limits are clear and cancellation grants no session. A disabled provider is not falsely reported as tested.
+  - Coverage / prerequisite: Use Firebase test numbers or an authorized disposable recipient; no real staff SMS.
 
 ## Navigation and layout
 
@@ -598,6 +603,14 @@ Prepare separate synthetic Developer, Owner, Administrator, Faculty, HICC, VISC,
   - Steps: Confirm two scoped duties through one approved intent, then revoke one and retry stale work.
   - Expected: Exact grants/audit count, provenance, effective windows and authority epoch are correct; unrelated identity/DOE remains unchanged.
   - Coverage / prerequisite: Real backend and recovery receipt required.
+- [ ] **ACC-07 — Owner — Lane D/L**
+  - Steps: In the older Testing account form, preview bulk provisioning with missing/duplicate email and orphaned-auth fixtures, then change source data before apply.
+  - Expected: Invalid/ambiguous identities are excluded for review; stale preview refuses apply; unsupported SQL role cleanup is explicitly refused.
+  - Coverage / prerequisite: Legacy Testing form; not the PR148 SQL-authoritative account contract.
+- [ ] **ACC-08 — Owner / new Faculty — Lane L**
+  - Steps: Provision only approved synthetic Lab accounts from a current preview and inspect partial failures, required password change and cleared temporary-password fields.
+  - Expected: Counts and linked profiles agree with real Auth; initial password-change policy holds; failures are recoverable and no credential enters logs/history/exports.
+  - Coverage / prerequisite: Real Lab provisioning only when explicitly authorized; Demo accounts are simulated.
 
 ## Collaboration and announcements
 
@@ -705,6 +718,25 @@ Prepare separate synthetic Developer, Owner, Administrator, Faculty, HICC, VISC,
   - Steps: Try non-Developer start/list/end/Undo, a foreign context ID and unsupported support routes such as protected artifacts.
   - Expected: Authority denies non-Developer/foreign-context or restricted-route access; support is not a blanket data/download bypass.
   - Coverage / prerequisite: server/src/support/support-service.js is the ported contract.
+
+## Scheduling Tasks queue
+
+- [ ] **TSK-01 — Administrator / Faculty — Lane D/B**
+  - Steps: Open Calendar Tasks, inspect every available task category and combine year, course, faculty, date, undated and review-status filters.
+  - Expected: Only authorized tasks and counts appear; missing assignments and undated issues remain explicit; pagination does not duplicate or omit records.
+  - Coverage / prerequisite: server/src/scheduling/scheduling-task-api.js and repository are the contract.
+- [ ] **TSK-02 — Administrator — Lane D/B**
+  - Steps: Mark an eligible current task reviewed, reopen it if supported, and repeat with the review-write gate off.
+  - Expected: Only the supported current-version review transition saves; disabled writes remain disabled; reviewing does not silently alter the timetable.
+  - Coverage / prerequisite: Demo ALL_WRITES cannot certify actual backend gate state.
+- [ ] **TSK-03 — Faculty / Administrator — Lane B**
+  - Steps: Attempt an unauthorized review and a review using a stale task/source version after another edit.
+  - Expected: Authority rejects unauthorized or stale actions and asks for refresh rather than falsely reporting completion.
+  - Coverage / prerequisite: Requires trusted identity and source-version recheck.
+- [ ] **TSK-04 — Reviewer — Lane B**
+  - Steps: Use the empty-to-assigned-to-empty fixture from TA-04, including an Undo, then reload reviewed tasks.
+  - Expected: Assignment version changes invalidate the prior review even if values return to empty; task state matches the current source.
+  - Coverage / prerequisite: Verify the actual version-trigger/ABA behavior, not just a browser badge.
 
 ## Release decision
 
