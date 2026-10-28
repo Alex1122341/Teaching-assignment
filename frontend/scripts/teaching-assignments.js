@@ -1,15 +1,16 @@
 (() => {
   'use strict';
 
-  const FIREBASE_CONFIG = { apiKey: 'AIzaSyDS9VE2zTXv0656_Mh0uDXB67-mZ5Y_Lk', authDomain: 'tester-teaching.firebaseapp.com', projectId: 'tester-teaching', storageBucket: 'tester-teaching.firebasestorage.app', messagingSenderId: '566638053186', appId: '1:566638053186:web:90e04b52251c4b859baadb' };
+  const FIREBASE_CONFIG = { apiKey: "AIzaSyDS9VE2zTXv0656_Mh0uDXB67-mZ5Y_LkY", authDomain: 'tester-teaching.firebaseapp.com', projectId: 'tester-teaching', storageBucket: 'tester-teaching.firebasestorage.app', messagingSenderId: '566638053186', appId: '1:566638053186:web:90e04b52251c4b859baadb' };
   const $ = id => document.getElementById(id);
+  const officeWorkspace = window.PAWS_OFFICE_WORKSPACE?.mount({document,window,page:'assignments'});
   const displayFaculty = value => window.PAWS_FACULTY_NAME.format(value);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]);
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const adminRoles = new Set(['owner','administrator','adfa_general','adfa_regular','admin']);
   const queueRoles = new Set(['hicc','visc',...adminRoles]);
   let profile = null, packages = [], selectedId = '', selectedPackage = null, capabilities = {}, facultyOptions = [], facultyEvidence = new Map();
-  let auth = null, activeView = 'queue', busy = false, focusedAssignmentEditor = null;
+  let auth = null, authGeneration = 0, activeView = 'queue', busy = false, focusedAssignmentEditor = null, controlsBound = false;
 
   function academicYearNow() {
     const now = new Date(); const start = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
@@ -21,8 +22,8 @@
     const node = $('toast'); node.textContent = text; node.classList.toggle('error', error); node.classList.add('show');
     window.clearTimeout(setStatus.timer); setStatus.timer = window.setTimeout(() => node.classList.remove('show'), 4200);
   }
-  function showGate(text) { $('gate-copy').textContent = text; document.body.classList.add('auth-locked'); $('auth-gate').classList.remove('hidden'); $('app').classList.add('hidden'); }
-  function unlock() { document.body.classList.remove('auth-locked'); $('auth-gate').classList.add('hidden'); $('app').classList.remove('hidden'); }
+  function showGate(text) { officeWorkspace?.sync(null);$('gate-copy').textContent = text; document.body.classList.add('auth-locked'); $('auth-gate').classList.remove('hidden'); $('app').classList.add('hidden'); }
+  function unlock() { officeWorkspace?.sync(profile);document.body.classList.remove('auth-locked'); $('auth-gate').classList.add('hidden'); $('app').classList.remove('hidden'); }
   function dateText(value) { if (!value) return 'Not set'; const date = new Date(value); return Number.isNaN(date.valueOf()) ? esc(value) : date.toLocaleString(); }
   function statusLabel(value) {
     return ({ draft:'HICC draft', changes_requested:'Changes requested', visc_review:'Waiting for VISC', visc_approved:'Ready for HICC final submit', submitted_to_adfad:'ADFAD review', adfad_finalized:'Finalized' })[value] || value || 'Unknown';
@@ -98,22 +99,26 @@
     loadPackageHistory(pkg.packageId);
   }
   async function loadPackageHistory(packageId) {
+    const g=authGeneration;
     try {
       const history = await UCVM_PAWS_DATA.teachingAssignmentHistory(packageId), node = $('package-activity');
-      if (!node) return;
+      if (g!==authGeneration || !node) return;
       const activities = Array.isArray(history.activities) ? history.activities : [];
       node.innerHTML = activities.length ? activities.slice(0,40).map(item => `<div class="activity-row"><strong>${esc(item.eventType)}</strong><span>${esc(displayFaculty(item.actorName || 'PAWS user'))} · ${dateText(item.occurredAtUtc)}</span>${item.metadataJson ? `<details><summary>Details</summary><pre>${esc(item.metadataJson)}</pre></details>` : ''}</div>`).join('') : '<span class="muted">No recorded activity.</span>';
-    } catch (error) { const node = $('package-activity'); if (node) node.textContent = apiError(error); }
+    } catch (error) { if(g!==authGeneration)return; const node = $('package-activity'); if (node) node.textContent = apiError(error); }
   }
   async function loadQueue() {
+    const g=authGeneration;
     $('queue-list').innerHTML = '<p class="empty">Loading work queue…</p>';
     const year = $('academic-year').value.trim();
     try {
-      packages = await UCVM_PAWS_DATA.teachingAssignmentWorkQueue({academicYear:year});
+      const rows = await UCVM_PAWS_DATA.teachingAssignmentWorkQueue({academicYear:year});
+      if(g!==authGeneration)return;
+      packages=rows;
       $('queue-caption').textContent = `${packages.length} package${packages.length === 1 ? '' : 's'} in your server-authorized scope`;
       renderQueue();
       if (selectedId) await openPackage(selectedId);
-    } catch (error) { packages = []; $('queue-list').innerHTML = `<p class="empty error-copy">${esc(apiError(error))}</p>`; }
+    } catch (error) { if(g!==authGeneration)return; packages = []; $('queue-list').innerHTML = `<p class="empty error-copy">${esc(apiError(error))}</p>`; }
   }
   function renderQueue() {
     const filter = $('queue-filter').value;
@@ -122,23 +127,28 @@
     $('queue-list').innerHTML = rows.map(row => `<button class="queue-card ${selectedId === row.packageId ? 'selected' : ''}" data-open-package="${esc(row.packageId)}"><span class="queue-card-top"><span class="status-pill status-${esc(row.status)}">${esc(statusLabel(row.status))}</span><span>${esc(row.academicYear)}</span></span><strong>${esc(row.groupName || row.groupId)}</strong><span>${esc(row.hiccLabel || row.responsibleHiccResponsibilityId || 'HICC scope unavailable')}</span><span>Revision ${esc(row.workingRevision || 0)} · Due ${esc(row.dueAtUtc ? new Date(row.dueAtUtc).toLocaleDateString() : 'not set')}</span><span class="next-action">${esc(nextAction(row))}</span><small>Updated ${dateText(row.lastActivityAtUtc)}</small></button>`).join('');
   }
   async function openPackage(packageId) {
+    const g=authGeneration;
     selectedId = packageId; $('detail-panel').innerHTML = '<p class="empty">Loading authorized package…</p>'; renderQueue();
-    try { selectedPackage = await UCVM_PAWS_DATA.teachingAssignmentPackage(packageId); renderDetail(); }
-    catch (error) { selectedPackage = null; $('detail-panel').innerHTML = `<p class="empty error-copy">${esc(apiError(error))}</p>`; }
+    try { const pkg = await UCVM_PAWS_DATA.teachingAssignmentPackage(packageId); if(g!==authGeneration || selectedId!==packageId)return; selectedPackage=pkg; renderDetail(); }
+    catch (error) { if(g!==authGeneration || selectedId!==packageId)return; selectedPackage = null; $('detail-panel').innerHTML = `<p class="empty error-copy">${esc(apiError(error))}</p>`; }
   }
   async function loadPublished() {
+    const g=authGeneration;
     const node = $('published-content'); node.innerHTML = '<p class="empty">Loading published release…</p>';
     try {
       const release = await UCVM_PAWS_DATA.teachingAssignmentPublished({academicYear:$('academic-year').value.trim()});
+      if(g!==authGeneration)return;
       if (!release?.releaseId) { node.innerHTML = '<p class="empty">No publication exists for this academic year yet.</p>'; return; }
       node.innerHTML = `<div class="release-summary"><span class="release-mark">v${esc(release.versionNumber)}</span><div><strong>Release ${esc(release.releaseId)}</strong><p>Published ${dateText(release.publishedAtUtc)} by ${esc(release.publishedBy || 'PAWS administrator')}</p>${release.publicationNote ? `<p>${esc(release.publicationNote)}</p>` : ''}</div></div><div class="published-sessions">${renderSessionRows(release.sessions || [],{purpose:'published'})}</div>`;
-    } catch (error) { node.innerHTML = `<p class="empty error-copy">${esc(apiError(error))}</p>`; }
+    } catch (error) { if(g!==authGeneration)return; node.innerHTML = `<p class="empty error-copy">${esc(apiError(error))}</p>`; }
   }
   async function loadReleaseHistory() {
+    const g=authGeneration;
     try {
       const releases = await UCVM_PAWS_DATA.teachingAssignmentPublicationHistory({academicYear:$('academic-year').value.trim()});
+      if(g!==authGeneration)return;
       $('release-history').innerHTML = releases.length ? `<div class="release-table">${releases.map(item => `<article class="release-row"><strong>Release ${esc(item.versionNumber)} ${item.isCurrent ? '<span class="status-pill status-current">Current</span>' : ''}</strong><span>${dateText(item.publishedAtUtc)} · ${esc(item.publishedBy || 'PAWS administrator')}</span><span>${esc(item.publishedSessionCount)} published sessions</span>${item.publicationNote ? `<p>${esc(item.publicationNote)}</p>` : ''}</article>`).join('')}</div>` : '<p class="empty">No releases have been published for this academic year.</p>';
-    } catch (error) { $('release-history').innerHTML = `<p class="empty error-copy">${esc(apiError(error))}</p>`; }
+    } catch (error) { if(g!==authGeneration)return; $('release-history').innerHTML = `<p class="empty error-copy">${esc(apiError(error))}</p>`; }
   }
   function apiError(error) { return error?.message || 'The University API could not complete this request. Refresh and try again.'; }
   async function selectView(view) {
@@ -166,16 +176,18 @@
     } catch (error) { node.innerHTML = `<p class="empty error-copy">${esc(apiError(error))}</p>`; }
   }
   async function loadCapabilities() {
-    try { capabilities = await UCVM_PAWS_DATA.teachingAssignmentWriteCapabilities(); }
-    catch (_) { capabilities = {}; }
+    const g=authGeneration;
+    try { const value = await UCVM_PAWS_DATA.teachingAssignmentWriteCapabilities(); if(g!==authGeneration)return; capabilities=value; }
+    catch (_) { if(g!==authGeneration)return; capabilities = {}; }
     $('capability-strip').textContent = `Draft / submit ${capabilities.taDraft ? 'available to current HICC scope' : 'closed'} · VISC review ${capabilities.taReview ? 'available to current group leads' : 'closed'} · ADFAD final ${capabilities.taFinal ? 'available to administrators' : 'closed'} · Publish ${capabilities.taPublish ? 'available to administrators' : 'closed'}`;
     $('publish-button').disabled = !isAdmin() || capabilities.taPublish !== true;
     $('publish-button').dataset.gateDisabled = String(!isAdmin() || capabilities.taPublish !== true);
   }
   async function loadFacultyReference() {
     if (!isAdmin()) return;
-    try { facultyOptions = await UCVM_PAWS_DATA.dashboardFaculty({limit:200}); }
-    catch (_) { facultyOptions = []; }
+    const g=authGeneration;
+    try { const value = await UCVM_PAWS_DATA.dashboardFaculty({limit:200}); if(g!==authGeneration)return; facultyOptions=value; }
+    catch (_) { if(g!==authGeneration)return; facultyOptions = []; }
   }
   function formatEvidenceValue(value, suffix = '') { return value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? 'Unavailable' : `${Number(value).toFixed(2)}${suffix}`; }
   async function loadDecisionEvidence() {
@@ -232,6 +244,7 @@
     finally { setBusy(false); }
   }
   function bind() {
+    if(controlsBound)return;controlsBound=true;
     document.querySelectorAll('.view-tab').forEach(button => button.addEventListener('click',() => selectView(button.dataset.view)));
     $('reload-button').addEventListener('click',() => selectView(activeView)); $('queue-filter').addEventListener('change',renderQueue); $('publish-button').addEventListener('click',publish);
     $('queue-list').addEventListener('click',event => { const button = event.target.closest('[data-open-package]'); if (button) openPackage(button.dataset.openPackage); });
@@ -257,20 +270,28 @@
     $('academic-year').addEventListener('keydown',event => { if (event.key === 'Enter') selectView(activeView); });
   }
   async function start(user) {
+    const generation=++authGeneration;
+    profile=null; packages=[]; selectedId=''; selectedPackage=null; capabilities={}; facultyOptions=[]; facultyEvidence.clear();
+    focusedAssignmentEditor=null;
+    for(const id of ['queue-list','detail-panel','published-content','release-history','contribution-targets'])if($(id))$(id).textContent='';
+    showGate('Checking Teaching Assignments access…');
     if (!user) { showGate('Sign in from the PAWS timetable to continue.'); return; }
     try {
-      profile = await UCVM_PAWS_DATA.currentUser();
+      const nextProfile = await UCVM_PAWS_DATA.currentUser();
+      if(generation!==authGeneration || auth.currentUser?.uid!==user.uid)return;
+      profile=nextProfile;
       if (!profile || profile.active !== true) { showGate('An active PAWS account is required.'); return; }
       if (profile.mustChangePassword === true) { location.replace('password.html'); return; }
       if (!queueRoles.has(role()) && role() !== 'faculty') { showGate('This account can’t access Teaching Assignments.'); return; }
       $('identity-chip').textContent = `${displayFaculty(profile.displayName || profile.name || user.displayName || user.email || 'PAWS user')} · ${role()}`;
       document.querySelectorAll('.admin-only').forEach(button => button.classList.toggle('hidden',!isAdmin()));
       document.querySelectorAll('.contributor-only').forEach(button => button.classList.toggle('hidden',!['adc','lab'].includes(role())));
-      if (!queueRoles.has(role())) document.querySelector('[data-view="queue"]').classList.add('hidden');
-      if (!['adc','lab'].includes(role())) $('contribution-tab').classList.add('hidden');
+      document.querySelector('[data-view="queue"]').classList.toggle('hidden',!queueRoles.has(role()));
+      $('contribution-tab').classList.toggle('hidden',!['adc','lab'].includes(role()));
       unlock(); $('academic-year').value = academicYearNow(); bind(); await Promise.all([loadCapabilities(),loadFacultyReference()]);
+      if(generation!==authGeneration || auth.currentUser?.uid!==user.uid)return;
       await selectView(queueRoles.has(role()) ? 'queue' : ['adc','lab'].includes(role()) ? 'contributions' : 'published');
-    } catch (error) { console.error(error); showGate(apiError(error)); }
+    } catch (error) { if(generation!==authGeneration)return; console.error(error); showGate(apiError(error)); }
   }
   try {
     if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);

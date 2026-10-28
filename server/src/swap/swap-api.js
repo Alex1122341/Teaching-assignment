@@ -2,6 +2,7 @@
 const {UUID,validChanges,onlyKeys}=require('./swap-domain');
 const {writeDisabled}=require('../data/write-gates');
 const {isAdministratorRole}=require('../auth/role-policy');
+const approvalView=require('./swap-view');
 const fail=(status,code,message)=>({status,body:{error:{code,message}}});
 const number=value=>value===null||value===undefined||value===''?null:Number.isFinite(Number(value))?Number(value):null;
 const doeSummary=value=>({status:value?.status==='calculated'?'calculated':'needs_review',contractDoe:number(value?.target?.contractTeachingDoe??value?.contractDoe),currentDoe:value?.status==='calculated'?number(value.totals?.assignedTeachingDoe):null,targetDoe:value?.status==='calculated'?number(value.totals?.effectiveTargetDoe):null,remainingDoe:value?.status==='calculated'?number(value.totals?.remainingDoe):null});
@@ -18,7 +19,7 @@ function createSwapApi({verifyToken,findUser,repository,workflowPreviewService,w
   async function call(token,method,params={},gate){
     const a=await auth(token);if(a.response)return a.response;
     if(gate&&writeGates[gate]!==true)return writeDisabled();
-    try{const body=await repository[method]({...params,actorFirebaseUid:a.uid});return body?{status:200,body}:fail(404,'NOT_FOUND','The request or session is unavailable in your scope.');}
+    try{const value=await repository[method]({...params,actorFirebaseUid:a.uid});const body=value&&(method==='queue'?approvalView.queue(value):method==='context'?value:approvalView.detail(value));return body?{status:200,body}:fail(404,'NOT_FOUND','The request or session is unavailable in your scope.');}
     catch(error){const n=Number(error.number||error.code);if(n>=53000&&n<53100)return fail([53009,53010,53011].includes(n)?409:n===53003?403:n===53004?404:400,n===53009?'REVISION_CONFLICT':n===53010?'STALE_SESSION':'SWAP_REJECTED',error.message);return fail(503,'SERVICE_UNAVAILABLE','The SWAP service is unavailable.');}
   }
   return Object.freeze({

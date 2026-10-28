@@ -11,8 +11,10 @@ test('only literal unassigned CCC may bypass real assigned faculty presentation'
  for(const bad of [{...locum,category:'clinical_day'},{...locum,staffingLabel:'Unknown'},{...locum,facultyKey:'invented'},{...locum,staffingKind:'other'}])assert.throws(()=>publicActivity(bad),{code:'INVALID_CALENDAR_RESPONSE'});
 });
 test('public range shows Locum/block with escaped labels, keyword search and missing time',()=>{
+ const original=JSON.stringify(locum);
  const html=renderRangeLane([locum],{start:'2026-10-01',end:'2026-11-01',filters:{search:'Locum'}});
- assert.match(html,/Locum/);assert.match(html,/Example &lt;Block&gt;/);assert.match(html,/Time: Not provided/);assert.doesNotMatch(html,/<Block>|09:00|faculty-id/);
+ assert.match(html,/Locum/);assert.match(html,/Example &lt;Block&gt;/);assert.match(html,/Default time: 08:30–16:30/);assert.match(html,/Needs Review/);assert.doesNotMatch(html,/<Block>|09:00|faculty-id/);
+ assert.equal(JSON.stringify(locum),original,'display default must not rewrite source time status or evidence');
 });
 test('personal schedule excludes unassigned staffing even if an adapter returns it',()=>{
  const view=createCalendarActivityView({api:{},getUser:()=>({uid:'test'})});

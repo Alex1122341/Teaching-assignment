@@ -35,7 +35,8 @@ html.dark .tg-type-exam,html.dark .cal-event.tg-type-exam{background:#471d1d;bor
 html.dark .tg-type-other,html.dark .cal-event.tg-type-other{background:#263244;border-left-color:#94a3b8}
 
 /* Admin faculty swap */
-.tg-block,.cal-event{position:relative}
+.cal-event{position:relative}
+.cal-more summary{cursor:pointer;font-size:11px;font-weight:600;padding:5px 2px;color:var(--text)}.cal-more .cal-event{margin-top:2px}
 .tg-block.admin-swap-enabled{padding-right:42px}.cal-event.admin-swap-enabled{padding-right:39px}
 .swap-chip{position:absolute;top:2px;right:2px;z-index:8;border:1px solid rgba(26,58,107,.42);background:rgba(255,255,255,.92);color:#14305a;border-radius:4px;padding:1px 4px;font-size:8px;font-weight:900;line-height:1.35;letter-spacing:.02em;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .swap-chip:hover{background:#14305a;color:#fff;border-color:#14305a}.dark .swap-chip{background:rgba(17,30,48,.94);color:#dbeafe;border-color:#55729c}.dark .swap-chip:hover{background:#dbeafe;color:#14305a}

@@ -35,16 +35,16 @@ function normalizeLabIdentity(input={}){
   return{prNumber:Number.isInteger(prNumber)&&prNumber>=0?prNumber:0,headSha,buildSha};
 }
 
-function bannerMarkup(identity){
+function bannerMarkup(identity,detail='Frontend Demo · synthetic browser-local data · DOE backend off'){
   const value=normalizeIdentity(identity);
-  return `<style id="github-pages-test-site-style">.${BANNER_CLASS}{position:fixed;top:10px;right:10px;z-index:2147483647;max-width:390px;padding:9px 12px;border:2px solid #8a6d00;border-radius:8px;background:#fff3cd;color:#3d3300;font:700 12px/1.35 Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.22)}.${BANNER_CLASS} small{display:block;margin-top:2px;font-weight:600}</style><div id="${BANNER_ID}" class="${BANNER_CLASS}" role="status">TEST SITE - GitHub Pages<small>Frontend Demo · synthetic browser-local data · DOE backend off · PR #${value.prNumber} · ${value.headSha.slice(0,7)}</small></div>`;
+  return `<style id="github-pages-test-site-style">.${BANNER_CLASS}{position:fixed;top:10px;right:10px;z-index:2147483647;max-width:390px;padding:9px 12px;border:2px solid #8a6d00;border-radius:8px;background:#fff3cd;color:#3d3300;font:700 12px/1.35 Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.22)}.${BANNER_CLASS} small{display:block;margin-top:2px;font-weight:600}</style><div id="${BANNER_ID}" class="${BANNER_CLASS}" role="status">TEST SITE - GitHub Pages<small>${detail} · PR #${value.prNumber} · ${value.headSha.slice(0,7)}</small></div>`;
 }
 
-function injectTestBanner(html,identity){
+function injectTestBanner(html,identity,detail){
   const source=String(html);
   if(source.includes(`id="${BANNER_ID}"`))return source;
   if(!/<body(?:\s[^>]*)?>/i.test(source))throw Error('HTML file is missing a <body> element.');
-  return source.replace(/<body(?:\s[^>]*)?>/i,match=>`${match}\n${bannerMarkup(identity)}`);
+  return source.replace(/<body(?:\s[^>]*)?>/i,match=>`${match}\n${bannerMarkup(identity,detail)}`);
 }
 
 function demoScriptTags(){
@@ -176,17 +176,55 @@ function injectDemoRuntime(html){
   throw Error('Could not find a safe insertion point for the GitHub Pages demo runtime.');
 }
 
-function writeDemoRuntime(directory){
+const DEMO_API_FILE='pages-demo-api.js';
+const PAWS_BANNER='PAWS Frontend Demo · synthetic browser-local data';
+function pawsDemoScriptTags(){
+  return demoScriptTags()+'<script src="./'+DEMO_API_FILE+'"></script>';
+}
+
+// PAWS pages load the Firebase compat SDK from the CDN and then their own
+// scripts. The demo runtime replaces window.firebase and the demo API installs
+// its fetch interceptor, so both must run after the SDK and before any page
+// script.
+function injectPawsDemoRuntime(html){
+  const source=String(html);
+  if(source.includes(DEMO_API_FILE))return source;
+  const sdk=[...source.matchAll(/<script[^>]+gstatic\.com\/firebasejs\/[^"']+["'][^>]*><\/script>/gi)];
+  if(sdk.length){const last=sdk[sdk.length-1];const at=last.index+last[0].length;return source.slice(0,at)+'\n'+pawsDemoScriptTags()+source.slice(at);}
+  const firstScript=/<script\b/i.exec(source);
+  if(firstScript)return source.slice(0,firstScript.index)+pawsDemoScriptTags()+'\n'+source.slice(firstScript.index);
+  throw Error('Could not find a safe insertion point for the PAWS Frontend Demo runtime.');
+}
+
+// PAWS pages read the faculty index in beta's shape (id, email, active...).
+// Keep the legacy "key" field so nothing else changes.
+function pawsFacultyIndex(documents){
+  const {facultyRows}=require('./pages-demo-api/dataset.js');
+  const byLegacy=new Map(facultyRows().map(row=>[row.legacyId,row]));
+  return documents.map(doc=>{
+    if(doc.path!=='settings/faculty_index')return doc;
+    const entries=(doc.data.entries||[]).map(entry=>{
+      const row=byLegacy.get(entry.key);
+      if(!row)return entry;
+      const campus=Number(String(entry.key).replace(/\D/g,''))%3===0?'Spy Hill':'Foothills';
+      return {...entry,id:row.ucid,name:row.displayName,hrName:row.hrName,email:row.email,reportsTo:row.reportsToFacultyId||'',active:row.active!==false,roleTypes:[],campus};
+    });
+    return {...doc,data:{...doc.data,entries}};
+  });
+}
+
+function writeDemoRuntime(directory,{paws=false}={}){
   const dataset=buildDataset();
+  if(paws)dataset.documents=pawsFacultyIndex(dataset.documents);
   const payload={version:1,generatedFrom:dataset.generatedFrom,counts:dataset.counts,documents:dataset.documents};
   fs.writeFileSync(path.join(directory,DEMO_DATA_FILE),'window.UCVM_PAGES_DEMO_SEED='+JSON.stringify(payload)+';\n');
   fs.copyFileSync(path.join(__dirname,DEMO_RUNTIME_FILE),path.join(directory,DEMO_RUNTIME_FILE));
   return dataset.documents.length;
 }
 
-function buildFacultyDashboardRedirect(identity){
-  const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=./index.html"><title>Redirecting…</title></head><body><p>Redirecting to <a href="./index.html">UCVM Timetable</a>…</p><script>window.location.replace('./index.html');</script></body></html>`;
-  return injectTestBanner(html,identity);
+function buildFacultyDashboardRedirect(identity,targetPage='./index.html',label='UCVM Timetable',detail){
+  const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=${targetPage}"><title>Redirecting…</title></head><body><p>Redirecting to <a href="${targetPage}">${label}</a>…</p><script>window.location.replace('${targetPage}');</script></body></html>`;
+  return injectTestBanner(html,identity,detail);
 }
 
 function buildLabDashboardRedirect(identity){
@@ -208,10 +246,11 @@ function stagePagesDirectory(directory,identity,options={}){
   const target=path.resolve(directory);
   if(!fs.existsSync(target)||!fs.statSync(target).isDirectory())throw Error(`Pages directory does not exist: ${target}`);
   const mode=String(options.mode||'demo').trim().toLowerCase();
-  if(mode!=='demo'&&mode!=='lab')throw Error(`Unknown Pages staging mode: ${mode}`);
+  if(mode!=='demo'&&mode!=='lab'&&mode!=='paws')throw Error(`Unknown Pages staging mode: ${mode}`);
   const value=mode==='lab'?normalizeLabIdentity(identity):normalizeIdentity(identity);
 
   if(mode==='lab')return stageLabDirectory(target,value,options);
+  if(mode==='paws')return stagePawsDirectory(target,value);
 
   const htmlFiles=listHtmlFiles(target);
   for(const filename of htmlFiles){
@@ -223,6 +262,22 @@ function stagePagesDirectory(directory,identity,options={}){
   fs.writeFileSync(path.join(target,'.nojekyll'),'');
   fs.writeFileSync(path.join(target,'github-pages-build.json'),JSON.stringify({environment:'github-pages-test',mode:'frontend-demo',doeBackend:'disabled',demoDocuments,...value},null,2)+'\n');
   return{directory:target,mode:'frontend-demo',htmlFiles:htmlFiles.length,demoDocuments,identity:value};
+}
+
+// PAWS Frontend Demo staging: the PAWS pages from frontend/ with the synthetic
+// Firebase runtime and the in-browser PAWS API (built by tools/build-paws-pages.js).
+function stagePawsDirectory(target,value){
+  if(!fs.existsSync(path.join(target,DEMO_API_FILE)))throw Error(`Missing ${DEMO_API_FILE}; run tools/build-paws-pages.js first.`);
+  const htmlFiles=listHtmlFiles(target);
+  for(const filename of htmlFiles){
+    const source=fs.readFileSync(filename,'utf8');
+    fs.writeFileSync(filename,injectTestBanner(injectPawsDemoRuntime(source),value,PAWS_BANNER));
+  }
+  const demoDocuments=writeDemoRuntime(target,{paws:true});
+  fs.writeFileSync(path.join(target,'faculty-dashboard.html'),buildFacultyDashboardRedirect(value,'./faculty-admin.html','Faculty Dashboard',PAWS_BANNER));
+  fs.writeFileSync(path.join(target,'.nojekyll'),'');
+  fs.writeFileSync(path.join(target,'github-pages-build.json'),JSON.stringify({environment:'github-pages-test',mode:'paws-frontend-demo',pages:'frontend/',api:'browser-memory',doeBackend:'browser-memory',demoDocuments,...value},null,2)+'\n');
+  return{directory:target,mode:'paws-frontend-demo',htmlFiles:htmlFiles.length,demoDocuments,identity:value};
 }
 
 // Firebase Lab staging: real Firebase SDK, no synthetic compatibility runtime.
@@ -278,6 +333,8 @@ module.exports={
   injectLabBanner,
   injectLabRuntime,
   writeDemoRuntime,
+  injectPawsDemoRuntime,
+  stagePawsDirectory,
   writeLabRuntime,
   readLabConfig,
   buildFacultyDashboardRedirect,

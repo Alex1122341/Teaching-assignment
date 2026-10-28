@@ -23,6 +23,16 @@ window.UCVM_ASSETS=(()=>{
    return typeof value==='string'?value.trim():'';
   }catch(_){return ''}
  }
+ async function ensureReports(){
+  if(!document.querySelector('link[data-paws-reports]')){const link=document.createElement('link');link.rel='stylesheet';link.href='faculty-reports.css';link.dataset.pawsReports='1';document.head.appendChild(link);}
+  return loadScriptOnce('faculty-reports.js','PAWS_REPORTS');
+ }
+ function createReportEntry(options){
+  let generation=0,view=null,identity=null;
+  const key=()=>JSON.stringify([options.getUser()?.uid,options.getUser()?.role,options.getAcademicYear?.(),window.PAWS_SUPPORT?.contextId?.()||'']);
+  const allowed=()=>options.getUser()?.uid&&(options.isAdministrator||window.UCVM?.admin)?.(options.getUser())&&!window.PAWS_SUPPORT?.contextId?.();
+  return {async open(){const id=++generation,next=key();if(!allowed()){this.clear();return;}if(identity!==next){view?.destroy();view=null;identity=next;}if(view)return view.refresh();try{const module=await ensureReports();if(id===generation&&key()===next&&allowed())view=module.mount(options.host,options);}catch(_){if(id===generation&&key()===next&&options.host)options.host.textContent='Reports could not be loaded. Reopen this tab to retry.';}},clear(){++generation;view?.destroy();view=null;identity=null;if(options.host)options.host.innerHTML='';}};
+ }
  async function ensureApprovalWorkflow(){
   return false;
  }
@@ -46,5 +56,5 @@ window.UCVM_ASSETS=(()=>{
  function loadApprovalWorkflowAfterPage(){ensureApprovalWorkflow().catch(error=>console.error('[approval workflow loader]',error));scheduleFacultyDashboardLink();setTimeout(enableTeachingAssignmentLink,0)}
  window.addEventListener('ucvm:sessions-updated',()=>{scheduleFacultyDashboardLink();enableTeachingAssignmentLink()});
  if(document.readyState==='complete')setTimeout(loadApprovalWorkflowAfterPage,0);else window.addEventListener('load',loadApprovalWorkflowAfterPage,{once:true});
- return{loadScriptOnce,ensureAfcPdf,ensureApprovalWorkflow,ensureTrainees,createTraineeEntry};
+ return{loadScriptOnce,ensureAfcPdf,ensureApprovalWorkflow,ensureTrainees,createTraineeEntry,ensureReports,createReportEntry};
 })();

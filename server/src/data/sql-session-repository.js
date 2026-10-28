@@ -1,12 +1,18 @@
 'use strict';
 
 const { facultyDisplayNameSql } = require('./faculty-display-name');
+const { canonicalAcademicYear } = require('./academic-year');
 
 function createSqlSessionRepository(db) {
   return {
-    async list({ start = null, end = null, facultyId = null, includeAssignmentTargets = false } = {}) {
+    async list({ start = null, end = null, facultyId = null, academicYear = null, includeAssignmentTargets = false, includeUnresolvedAssignmentLabels = false } = {}) {
       const predicates = [];
       const params = {};
+
+      if (academicYear !== null) {
+        params.academicYear = canonicalAcademicYear(academicYear);
+        predicates.push('c.AcademicYear = @academicYear');
+      }
 
       if (start && end) {
         predicates.push('c.SessionDate >= @start', 'c.SessionDate < @end');
@@ -21,10 +27,10 @@ function createSqlSessionRepository(db) {
 
       const where = predicates.length ? ' WHERE ' + predicates.join(' AND ') : '';
       const assignmentProjection = includeAssignmentTargets
-        ? `COALESCE((SELECT sa.FacultyId AS facultyId, sa.TeachingRole AS teachingRole, ${facultyDisplayNameSql()} AS displayName, f.Active AS active
+        ? `COALESCE((SELECT sa.FacultyId AS facultyId, sa.TeachingRole AS teachingRole, ${includeUnresolvedAssignmentLabels?'f.DisplayName AS displayName, sa.SourceFacultyName AS sourceFacultyName':facultyDisplayNameSql()+' AS displayName'}, f.Active AS active
                        FROM paws.SessionAssignment sa
                        LEFT JOIN paws.Faculty f ON f.FacultyId = sa.FacultyId
-                      WHERE sa.SessionId = c.SessionId AND sa.FacultyId IS NOT NULL
+                      WHERE sa.SessionId = c.SessionId${includeUnresolvedAssignmentLabels?'':' AND sa.FacultyId IS NOT NULL'}
                       FOR JSON PATH, INCLUDE_NULL_VALUES), N'[]') AS assignmentsJson,
             (SELECT COUNT_BIG(*) FROM paws.SessionAssignment unresolved WHERE unresolved.SessionId = c.SessionId AND unresolved.FacultyId IS NULL) AS unresolvedAssignmentCount`
         : `CAST(N'[]' AS nvarchar(max)) AS assignmentsJson, CAST(0 AS bigint) AS unresolvedAssignmentCount`;

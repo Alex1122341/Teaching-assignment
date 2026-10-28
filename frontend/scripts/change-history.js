@@ -39,7 +39,12 @@
     try{const file=await api.changeHistoryExport(snapshot,format);if(destroyed||version!==sequence)return;
      await download(file,format);if(destroyed||version!==sequence)return;
      update({busy:false,message:`Downloaded ${file.rowCount} filtered ${countName}.`});
-    }catch(error){if(!destroyed&&version===sequence)failed(error);}
+    }catch(error){if(!destroyed&&version===sequence){
+     // These export-only rejections leave the authorized browsing snapshot valid.
+     // Auth, scope, expiry and unknown failures retain the fail-closed path.
+     if((error?.code==='HISTORY_LIMIT'&&error.status===413)||(error?.code==='HISTORY_EXPORT_BUSY'&&error.status===429))update({busy:false,message:error.message});
+     else failed(error);
+    }}
    },
    clear(message='History cleared. Apply filters to refresh.'){
     sequence++;state={rows:[],snapshot:null,total:0,offset:0,pageSize:100,busy:false,dirty:true,facets:{},coverage:[],message};emit();

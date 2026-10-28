@@ -23,6 +23,8 @@
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
+    "buffer": "^6.0.3",
+    "esbuild": "^0.24.2",
     "firebase": "^12.18.0",
     "firebase-tools": "^14.12.0"
   }

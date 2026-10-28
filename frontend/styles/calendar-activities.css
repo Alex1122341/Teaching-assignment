@@ -35,3 +35,8 @@
 .activity-type-actions{display:flex;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--border,#dbe0e9)}
 .activity-type-actions button{border:1px solid var(--border,#dbe0e9);border-radius:4px;padding:7px 10px;background:var(--surface-2,#f5f6fa);color:var(--text-1,#25364a);cursor:pointer;font:inherit}
 .activity-type-picker :is(summary,button,input):focus-visible{outline:2px solid var(--accent,#cf001c);outline-offset:3px}
+.activity-toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:16px 0}
+.activity-toolbar label{display:grid;gap:5px;color:var(--muted,#46536a);font-size:13px}
+.activity-toolbar input,.activity-toolbar select{font:inherit;padding:8px 10px;border:1px solid var(--border,#cbd3df);border-radius:5px;background:var(--surface,#fff);color:var(--text,#172b49);max-width:100%}
+.activity-toolbar input[type=search]{min-width:220px}
+.tg-type-rotation{border-left-color:var(--gold,#f2c400);background:var(--surface-alt,#fff8d9)}

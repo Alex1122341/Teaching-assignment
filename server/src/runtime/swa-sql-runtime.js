@@ -69,6 +69,9 @@ const {createFacultyAvailabilityFunctions}=require('./swa-faculty-availability-f
 const {createChangeHistoryApi}=require('../history/change-history-api');
 const {createSqlChangeHistoryRepository}=require('../data/sql-change-history-repository');
 const {createChangeHistoryFunctions}=require('./swa-change-history-functions');
+const {createReportApi}=require('../reports/report-api');
+const {createReportSources}=require('../reports/report-sources');
+const {createReportFunctions}=require('./swa-report-functions');
 const {createAfcFormApi}=require('../afc/afc-form-api');
 const {createSqlAfcFormRepository}=require('../data/sql-afc-form-repository');
 const {createAfcFormFunctions}=require('./swa-afc-form-functions');
@@ -219,7 +222,10 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
   const calendarActivityRoutes=createCalendarActivityFunctions({api:createCalendarActivityApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlCalendarActivityRepository(db,{importDb:calendarImportDb}),writeGates})});
   const facultyAvailabilityRoutes=createFacultyAvailabilityFunctions({api:createFacultyAvailabilityApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlFacultyAvailabilityRepository(db)})});
   const schedulingTaskRoutes=createSchedulingTaskFunctions({api:createSchedulingTaskApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlSchedulingTaskRepository(db),writeGates})});
-  const historyRoutes=createChangeHistoryFunctions({api:createChangeHistoryApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlChangeHistoryRepository(db)})});
+  const historyApi=createChangeHistoryApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlChangeHistoryRepository(db)});
+  const historyRoutes=createChangeHistoryFunctions({api:historyApi});
+  const reportSources=createReportSources({dashboard,sessions,activities:createSqlCalendarActivityRepository(db),worksheetService:doeWorksheetService,historyApi});
+  const reportRoutes=createReportFunctions({api:createReportApi({verifyToken:verify,findUser:users.findByUid,loadSources:reportSources.load})});
   const afcFormRoutes=createAfcFormFunctions({api:createAfcFormApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlAfcFormRepository(db),writeGates})});
   const cccReplacementRoutes=createCccReplacementFunctions({api:createCccReplacementApi({verifyToken:verify,findUser:users.findByUid,repository:createSqlCccReplacementRepository(db,{importDb:calendarImportDb}),writeGates})});
   const route = async request => {
@@ -237,6 +243,7 @@ function createSwaSqlRuntime({ env = process.env, admin = require('firebase-admi
       await realVerify(header.replace(/^Bearer\s+/i,''));
       return{status:503,jsonBody:{error:{code:'DATABASE_NOT_CONFIGURED',message:'The business database is not configured. Business data is unavailable until a database is connected.'}}};
     }
+    if(pathname==='/api/v1/reports'||pathname.startsWith('/api/v1/reports/'))return reportRoutes(request);
     if(pathname==='/api/v1/ccc-schedule')return cccScheduleRoutes(request);
     if(pathname===LEADERSHIP_DIRECTORY_PATH)return leadershipDirectoryRoutes(request);
     if(pathname==='/api/v1/afc-forms'||pathname.startsWith('/api/v1/afc-forms/'))return afcFormRoutes(request);

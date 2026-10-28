@@ -54,19 +54,25 @@ jobs:
       - name: Run Firestore and Auth emulator tests
         run: npm run test:emulator
 
+      # The legacy web/ app still builds so its tests keep guarding it, but the
+      # test site now publishes the PAWS (beta) pages with in-browser demo data.
       - name: Build static site
         run: node tools/build-static.js
+
+      - name: Build PAWS pages with demo API
+        run: node tools/build-paws-pages.js
 
       - name: Stage GitHub Pages frontend demo
         run: >-
           node tools/stage-github-pages.js
           --directory .deploy-static
+          --mode paws
           --pr "${{ github.event.pull_request.number }}"
           --head-sha "${{ github.event.pull_request.head.sha }}"
           --build-sha "${{ github.event.pull_request.head.sha }}"
 
       - name: Browser smoke staged frontend demo
-        run: node tools/browser-smoke.js --demo
+        run: node tools/paws-browser-smoke.js
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
