@@ -8,7 +8,7 @@
   const TERMS_SOURCE='absence-from-campus-app.pdf#page=2';
   const AFC_REQUEST_UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const SELF_ROLES=new Set(['faculty','hicc','visc']);
-  const ADMIN_ROLES=new Set(['owner','administrator','adfa_general','adfa_regular','admin']);
+  const ADMIN_ROLES=new Set(['developer','owner','administrator','adfa_general','adfa_regular','admin']);
 
   function normalizeRole(value){
     return String(value??'').trim().toLowerCase().replace(/[\s-]+/g,'_');

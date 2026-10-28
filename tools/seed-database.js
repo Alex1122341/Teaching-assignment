@@ -1,5 +1,5 @@
 'use strict';
-// Seeds the VISTA Firestore database from tools/seed/dataset.js.
+// Seeds the PAWS Firestore database from tools/seed/dataset.js.
 //
 //   node tools/seed-database.js --dry-run
 //   node tools/seed-database.js --emulator

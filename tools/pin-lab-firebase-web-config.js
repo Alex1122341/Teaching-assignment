@@ -6,7 +6,7 @@ const {execFileSync}=require('node:child_process');
 const {normalize}=require('./build-firebase-config.js');
 
 const PROJECT_ID='vista-teaching-lab';
-const DEFAULT_WEB_APP_NAME='VISTA GitHub Pages Lab';
+const DEFAULT_WEB_APP_NAME='PAWS GitHub Pages Lab';
 const root=path.resolve(__dirname,'..');
 const target=path.join(__dirname,'lab-firebase-web-config.json');
 const REAL_API_KEY=/^AIza[0-9A-Za-z_-]{35}$/;
