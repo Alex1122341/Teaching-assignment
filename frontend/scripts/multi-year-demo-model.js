@@ -146,7 +146,7 @@
       for(const s of Object.values(state.annual[year]||{}).flatMap(c=>c.working.map(x=>({...x,courseCode:c.code}))))for(const x of s.assignments||[])for(const afc of state.afc){if(afc.active===false||afc.facultyId!==x.facultyId)continue;if(s.date>=afc.startDate&&s.date<=afc.endDate){rows.push({courseCode:s.courseCode,sessionId:s.id,date:s.date,facultyId:x.facultyId,sourceId:afc.afcRecordId});}}
       return rows;
     }
-    function getConflicts(a,year){staff(a);const y=inspect(year);if(y.status==='archived')return clone([...state.archives].reverse().find(v=>v.year===year)?.conflicts||[]);return clone(conflictRows(year));}
+    function getConflicts(a,year){staff(a);if(!canAdfa(a)&&!['adc','lab'].includes(normalized(a.role).toLowerCase()))invalid('Office scope permission required');const y=inspect(year);if(y.status==='archived')return clone([...state.archives].reverse().find(v=>v.year===year)?.conflicts||[]);return clone(conflictRows(year));}
     function addAfc(a,input){adfa(a);if(!faculty(input.facultyId))invalid('Unknown Faculty');if(!input.startDate||!input.endDate||input.startDate>input.endDate)invalid('Invalid AFC dates');
       if(state.afc.some(x=>x.afcRecordId===input.afcRecordId))invalid('Duplicate AFC');state.afc.push(clone(input));logged('afc_added',a,'shared',{afcRecordId:input.afcRecordId});return true;
     }
