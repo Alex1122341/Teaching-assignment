@@ -1,20 +1,18 @@
 {
   "repository": "UCVM-Teaching-Assignment/Teaching-assignment",
-  "sourceCommit": "069914cdfa1c2fb0f844b0abdd278f5275bde8f4",
-  "generatedAt": "2026-10-28T21:14:21.281Z",
+  "sourceCommit": "01f876ce99ddd6e826757d98b88e96d6f60abbb9",
+  "generatedAt": "2026-10-29T18:04:26.312614+00:00",
   "graphifyVersion": "0.9.97",
   "mode": "code-only; no clustering raw index; no model labeling",
-  "codeFilesScanned": 809,
-  "nodes": 7437,
-  "edges": 17208,
-  "rawSha256": "ff3fea6c72954c16cb4d2c1fc540542371e3af90dfa18c6d6c4543d84d887fa4",
-  "sourceFingerprint": "dbaaf1291afecc31c6df2361d061528646ee83d2c9d1a9c5c05e38e9984eac47",
-  "fingerprintedFiles": 842,
+  "codeFilesScanned": 806,
+  "nodes": 7348,
+  "edges": 17118,
+  "rawSha256": "d3a2c7d8e11a111ebbc2909d7889588783747242acec8fcd07ad42e0c9e09eb8",
+  "sourceFingerprint": "f392cfa6848838942a07a97b577708439b678012903645c3ff88b80d628eba0c",
+  "fingerprintedFiles": 839,
   "sourceInputPaths": [
     ".github/workflows/azure-doe-api-production-deploy.yml",
-    ".github/workflows/azure-production-deploy.yml",
     ".github/workflows/azure-sql-migration-test.yml",
-    ".github/workflows/azure-static-web-apps.yml",
     ".github/workflows/calendar-activity-sql.yml",
     ".github/workflows/ccc-schedule-sql.yml",
     ".github/workflows/doe-api-test.yml",
@@ -549,7 +547,6 @@
     "tests/approval.test.js",
     "tests/audit-log-append-only-emulator.test.js",
     "tests/audit.test.js",
-    "tests/azure-deployment.test.js",
     "tests/browser-smoke.test.js",
     "tests/bulk-import-controller.test.js",
     "tests/bulk-import-maintenance-security-emulator.test.js",
@@ -856,8 +853,8 @@
   ],
   "configSha256": "90bc7083548d8cb141a0fc064692074cef78de7bbfe7d7a16f69593df3306814",
   "overview": {
-    "communities": 469,
-    "edges": 1039,
+    "communities": 466,
+    "edges": 1042,
     "projectionNotRaw": true
   },
   "warnings": [
@@ -881,5 +878,9 @@
     }
   ],
   "extractedSourceDirty": false,
-  "documentationAndIgnoreChangesDuringExtraction": true
+  "documentationAndIgnoreChangesDuringExtraction": false,
+  "sourceFingerprintAlgorithm": "SHA256 of sorted UTF-8 path + NUL + lowercase file SHA256 + LF records",
+  "inputModelTokens": 0,
+  "outputModelTokens": 0,
+  "refreshReason": "Post-merge PR95 retirement of obsolete Azure frontend workflows and requiring tests. Raw graph kept separate from the clustered copy."
 }
