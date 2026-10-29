@@ -187,3 +187,13 @@ test('Faculty-linked course roles cannot access all-year AFC conflict evidence',
  assert.throws(()=>m.getConflicts(lead,'2026-27'),/office|scope|permission/i);
  assert.doesNotThrow(()=>m.getConflicts(adc,'2026-27'));
 });
+
+test('initial migration retains original synthetic Change History as read-only evidence',()=>{
+ const data=structuredClone(source);
+ data.history=[{changeId:'legacy1',changeType:'session_updated',actorFirebaseUid:'adfa1',changedAtUtc:'2026-10-01T12:00:00Z',academicYear:'2026-27',before:{topic:'Old'},after:{topic:'New'}}];
+ const m=createEngine({source:data,storage:memory()});
+ const events=m.getState().audit;
+ assert.equal(events.some(e=>e.event==='session_updated'&&e.legacy===true),true);
+ assert.equal(events.find(e=>e.legacy).detail.original.changeId,'legacy1');
+ assert.equal(data.history.length,1);
+});
