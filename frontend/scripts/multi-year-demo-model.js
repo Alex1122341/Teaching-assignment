@@ -132,8 +132,9 @@
     }
     function getTeaching(a,year){who(a);inspect(year);return publicationRows(year).map(s=>({...s,assignments:(s.assignments||[]).filter(x=>!isFaculty(a)||x.facultyId===a.facultyId)})).filter(s=>!isFaculty(a)||s.assignments.length)}
     function getCalendar(a,year){who(a);const y=inspect(year);if(isFaculty(a)&&y.status==='archived')invalid('Archived Calendar is hidden from Faculty');
-      if(isFaculty(a))return getTeaching(a,year);
-      return Object.values(state.annual[year]||{}).flatMap(c=>(y.status==='archived'?(currentRelease(c)?.sessions||[]):c.working).map(s=>({...clone(s),courseName:c.title,courseCode:c.code})));
+      const rows=isFaculty(a)?publicationRows(year):Object.values(state.annual[year]||{}).flatMap(c=>(y.status==='archived'?(currentRelease(c)?.sessions||[]):c.working).map(s=>({...s,courseName:c.title,courseCode:c.code})));
+      return rows.map(s=>({id:s.id,courseCode:s.courseCode,courseName:s.courseName,date:s.date,topic:s.topic,sessionType:s.sessionType,startTime:s.startTime,endTime:s.endTime,room:s.room,
+        instructorNames:(s.assignments||[]).map(x=>faculty(x.facultyId)?.name||'Unassigned').join('; ')}));
     }
     function getDoe(a,year){who(a);inspect(year);const d=state.doe[year];if(!d.released)return{status:'pending',items:[]};
       const items=Object.values(d.records).filter(r=>!isFaculty(a)||r.facultyId===a.facultyId).map(clone);return{status:'published',items};
