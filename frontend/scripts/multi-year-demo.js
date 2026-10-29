@@ -40,7 +40,7 @@
   }
   function viewTeaching(a,s){
     const sessions=load().getTeaching(a,selectedYear);
-    return wrap('Published Teaching · '+selectedYear,'<p class="paws-my-muted">Shows only the last formally Published Course version, including archived years. Working Draft is never shown here.</p>'+table(['Course','Date','Topic','Instructor','DOE credit'],sessions.slice(0,200).map(x=>[E(x.courseCode),E(x.date),E(x.topic),E((x.assignments||[]).map(f=>facultyName(s,f.facultyId)).join('; ')),E((x.assignments||[]).reduce((n,f)=>n+(Number(f.doeCredit)||0),0))])));
+    return wrap('Published Teaching · '+selectedYear,'<p class="paws-my-muted">Shows only the last formally Published Course version, including archived years. Working Draft is never shown here.</p>'+table(['Course','Date','Topic','Instructor','DOE credit'],sessions.slice(0,200).map(x=>[E(x.courseCode),E(x.date),E(x.topic),E((x.assignments||[]).map(f=>facultyName(s,f.facultyId)).join('; ')),E(isAdfa(a.role)||['faculty','hicc','visc'].includes(a.role)?(x.assignments||[]).reduce((n,f)=>n+(Number(f.doeCredit)||0),0):'Not available')])));
   }
   function viewCourses(a,s){
     const annual=s.annual[selectedYear]||{},yearState=s.years[selectedYear].status;
