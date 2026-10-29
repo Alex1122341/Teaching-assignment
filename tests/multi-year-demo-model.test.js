@@ -133,3 +133,21 @@ test('publishing unchanged Working revision is rejected without duplicate releas
  assert.throws(()=>m.publishCourse(adfa,'2026-27','VTMD 306'),/no changes|already published/i);
  assert.equal(m.getState().annual['2026-27']['VTMD 306'].published.length,before);
 });
+
+test('Faculty Calendar shows all Published sessions but no private DOE details',()=>{
+ const m=engine();m.createYear(owner,'2027-28');m.addCourse(adfa,'2027-28','VTMD 306');
+ m.addSession(adfa,'2027-28','VTMD 306',{id:'public-s1',date:'2027-09-01',topic:'Public Lab',sessionType:'LAB',assignments:[{facultyId:'f2',doeCredit:6}]});
+ m.finalizeCourse(adfa,'2027-28','VTMD 306');m.publishCourse(lead,'2027-28','VTMD 306');
+ const rows=m.getCalendar(faculty,'2027-28');
+ assert.equal(rows.length,1);
+ assert.equal(rows[0].instructorNames,'Morgan Hart');
+ assert.equal(Object.hasOwn(rows[0],'assignments'),false);
+ assert.doesNotMatch(JSON.stringify(rows),/doeCredit|facultyId/);
+ assert.equal(m.getTeaching(faculty,'2027-28').length,0);
+});
+test('ADC Calendar projection omits private DOE credits',()=>{
+ const m=engine();const adc={uid:'adc1',role:'adc'};
+ const rows=m.getCalendar(adc,'2026-27');
+ assert.ok(rows.length>0);
+ assert.doesNotMatch(JSON.stringify(rows),/doeCredit/);
+});
