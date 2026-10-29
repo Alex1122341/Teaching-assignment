@@ -58,7 +58,7 @@
     const stamp=()=>now().toISOString();
     const getState=()=>clone(state);
     const logged=(event,actor,year,detail={})=>{state.audit.push({event,actor:actor.uid||'',year,at:stamp(),detail:clone(detail)});persist()};
-    const who=a=>{if(!a||!normalized(a.uid)||!normalized(a.role))invalid('Signed-in demo actor required');return a};
+    const who=a=>{if(!a||!normalized(a.uid)||!normalized(a.role))invalid('Signed-in demo actor required');if(!canPlan(a)&&!isFaculty(a))invalid('Unsupported role permission');return a};
     const inspect=year=>{validateYear(year);const y=state.years[year];if(!y)invalid('Academic year not found');return y};
     const editable=year=>{const y=inspect(year);if(y.status==='archived')invalid('Archived academic year is read-only');return y};
     const staff=a=>{who(a);if(!canPlan(a))invalid('Planning permission required')};
@@ -130,13 +130,13 @@
       const d=state.doe[year];d.overrides[fid]=Number(value);if(d.released){const row=d.records[fid]||{facultyId:fid,base:0};row.override=Number(value);row.effective=Number(value);row.needsReview=false;d.records[fid]=row}
       logged('doe_override_set',a,year,{facultyId:fid});return true;
     }
-    function getTeaching(a,year){who(a);inspect(year);return publicationRows(year).map(s=>({...s,assignments:(s.assignments||[]).filter(x=>!isFaculty(a)||x.facultyId===a.facultyId)})).filter(s=>!isFaculty(a)||s.assignments.length)}
+    function getTeaching(a,year){who(a);inspect(year);return publicationRows(year).map(s=>({...s,assignments:(s.assignments||[]).filter(x=>!isFaculty(a)||x.facultyId===a.facultyId).map(x=>(isFaculty(a)||canAdfa(a))?x:{facultyId:x.facultyId,teachingRole:x.teachingRole})})).filter(s=>!isFaculty(a)||s.assignments.length)}
     function getCalendar(a,year){who(a);const y=inspect(year);if(isFaculty(a)&&y.status==='archived')invalid('Archived Calendar is hidden from Faculty');
       const rows=isFaculty(a)?publicationRows(year):Object.values(state.annual[year]||{}).flatMap(c=>(y.status==='archived'?(currentRelease(c)?.sessions||[]):c.working).map(s=>({...s,courseName:c.title,courseCode:c.code})));
       return rows.map(s=>({id:s.id,courseCode:s.courseCode,courseName:s.courseName,date:s.date,topic:s.topic,sessionType:s.sessionType,startTime:s.startTime,endTime:s.endTime,room:s.room,
         instructorNames:(s.assignments||[]).map(x=>faculty(x.facultyId)?.name||'Unassigned').join('; ')}));
     }
-    function getDoe(a,year){who(a);inspect(year);const d=state.doe[year];if(!d.released)return{status:'pending',items:[]};
+    function getDoe(a,year){who(a);inspect(year);if(!isFaculty(a)&&!canAdfa(a))invalid('DOE access denied');const d=state.doe[year];if(!d.released)return{status:'pending',items:[]};
       const items=Object.values(d.records).filter(r=>!isFaculty(a)||r.facultyId===a.facultyId).map(clone);return{status:'published',items};
     }
     function getWorkingDoe(a,year){adfa(a);inspect(year);const values={};for(const c of Object.values(state.annual[year]||{}))for(const s of c.working)for(const x of s.assignments||[])values[x.facultyId]=(values[x.facultyId]||0)+(Number(x.doeCredit)||0);
