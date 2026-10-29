@@ -115,3 +115,21 @@ test('working-session conflict checker responds to shared AFC, not only publishe
  m.addAfc(adfa,{afcRecordId:'a3',facultyId:'f1',startDate:'2027-09-01',endDate:'2027-09-01',active:true});
  assert.equal(m.getConflicts(adfa,'2027-28').length,1);
 });
+
+test('DOE override review remains pending until ADFAD explicitly confirms',()=>{
+ const m=engine();m.createYear(owner,'2027-28');m.addCourse(adfa,'2027-28','VTMD 306');
+ m.addSession(adfa,'2027-28','VTMD 306',{id:'review-s1',date:'2027-09-01',topic:'A',assignments:[{facultyId:'f1',doeCredit:4}]});
+ m.finalizeCourse(adfa,'2027-28','VTMD 306');m.publishCourse(lead,'2027-28','VTMD 306');
+ m.approvePolicy(adfa,'2027-28');m.publishDoe(adfa,'2027-28');m.setOverride(adfa,'2027-28','f1',9);
+ m.addSession(adfa,'2027-28','VTMD 306',{id:'review-s2',date:'2027-09-02',topic:'B',assignments:[{facultyId:'f1',doeCredit:3}]});
+ m.finalizeCourse(adfa,'2027-28','VTMD 306');m.publishCourse(lead,'2027-28','VTMD 306');
+ assert.equal(m.getDoe(faculty,'2027-28').items[0].needsReview,true);
+ m.addSession(adfa,'2027-28','VTMD 306',{id:'review-s3',date:'2027-09-03',topic:'C',assignments:[{facultyId:'f2',doeCredit:2}]});
+ m.finalizeCourse(adfa,'2027-28','VTMD 306');m.publishCourse(lead,'2027-28','VTMD 306');
+ assert.equal(m.getDoe(faculty,'2027-28').items[0].needsReview,true);
+});
+test('publishing unchanged Working revision is rejected without duplicate release',()=>{
+ const m=engine();const before=m.getState().annual['2026-27']['VTMD 306'].published.length;
+ assert.throws(()=>m.publishCourse(adfa,'2026-27','VTMD 306'),/no changes|already published/i);
+ assert.equal(m.getState().annual['2026-27']['VTMD 306'].published.length,before);
+});
