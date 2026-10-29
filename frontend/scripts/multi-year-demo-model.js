@@ -20,7 +20,7 @@
   const canAdfa=a=>['owner','developer','adfa_general','adfa_regular','administrator','admin'].includes(normalized(a&&a.role).toLowerCase());
   const owner=a=>normalized(a&&a.role).toLowerCase()==='owner';
   function bootstrap(source){
-    const faculty=clone(source.faculty||[]).map(f=>({id:f.facultyId,name:f.displayName||f.preferredLastName||f.facultyId,active:f.active!==false,contractDoe:Number(f.contractTeachingDoe)||0}));
+    const faculty=clone(source.faculty||[]).map(f=>({id:f.facultyId,name:f.displayName||f.preferredLastName||f.facultyId,active:f.active!==false,appointmentValid:f.appointmentValid!==false,contractDoe:Number(f.contractTeachingDoe)||0}));
     const users=clone(source.users||[]).map(u=>({uid:u.firebaseUid,role:u.baseRole,facultyId:u.facultyId||null,name:u.displayName||u.firebaseUid}));
     const catalog=clone(source.courses||[]).map(c=>({code:codeFor(c.courseCode),title:c.courseName||c.courseCode,curriculumYear:c.curriculumYear||null}));
     const grouping={};
@@ -35,7 +35,7 @@
       const item=catalog.find(c=>c.code===code);
       annual['2026-27'][code]={code,title:item?item.title:code,working:clone(sessions),revision:1,finalizedRevision:1,published:[{version:1,revision:1,sessions:clone(sessions),at:'2026-10-29T00:00:00.000Z',by:'demo-initial-migration'}],publishers:[]};
     }
-    const roles={'2026-27':clone(source.roles||[]).map(r=>({id:r.roleAssignmentId,facultyId:r.facultyId,roleType:r.roleType,scope:r.courseOrSubjectOrRotation||'',start:r.effectiveDate||'',end:r.expirationDate||'',status:'confirmed',sourceId:r.roleAssignmentId}))};
+    const roles={'2026-27':clone(source.roles||[]).map(r=>({id:r.roleAssignmentId,facultyId:r.facultyId,roleType:r.roleType,scope:r.courseOrSubjectOrRotation||'',start:r.effectiveDate&&r.effectiveDate>'2026-05-01'?r.effectiveDate:'2026-05-01',end:r.expirationDate&&r.expirationDate<'2027-04-30'?r.expirationDate:'2027-04-30',sourceEnd:r.expirationDate||'',status:'confirmed',sourceId:r.roleAssignmentId}))};
     // Original synthetic role dates span July-June. Add one marked May-Apr sample for rollover testing.
     if(!roles['2026-27'].some(r=>r.start<='2026-05-01'&&r.end>='2027-04-30')){
       const valid=roles['2026-27'].find(r=>r.roleType==='HICC'&&faculty.some(f=>f.id===r.facultyId&&f.active));
@@ -93,9 +93,9 @@
       const previous=String(Number(year.slice(0,4))-1)+'-'+String(Number(year.slice(0,4))%100).padStart(2,'0');if(!state.years[previous])invalid('Prior academic year required');
       state.years[year]={status:'planning',revision:1};state.annual[year]={};state.doe[year]={policy:{status:'draft',copiedFrom:previous},released:false,records:{},overrides:{}};
       state.roles[year]=(state.roles[previous]||[]).map((r,index)=>{
-        const eligible=!!faculty(r.facultyId)?.active;
+        const person=faculty(r.facultyId),eligible=Boolean(person?.active&&person?.appointmentValid);
         const full=r.start<=startOf(previous)&&r.end>=endOf(previous);
-        return {...clone(r),id:'renew-'+year+'-'+index,sourceId:r.id,start:startOf(year),end:endOf(year),status:full&&eligible?'confirmed':'draft',rolloverReason:!full?'partial year':!eligible?'inactive Faculty':'eligible full year'};
+        return {...clone(r),id:'renew-'+year+'-'+index,sourceId:r.id,start:startOf(year),end:endOf(year),status:full&&eligible?'confirmed':'draft',rolloverReason:!full?'partial year':!person?.active?'inactive Faculty':!person?.appointmentValid?'invalid Appointment':'eligible full year'};
       });
       logged('year_created',a,year,{previous,roles:state.roles[year].length});return getState().years[year];
     }
