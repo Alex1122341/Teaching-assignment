@@ -5,8 +5,8 @@
 // and faculty-admin.js pointing at the shared live project, while every pull
 // request publishes a public preview site. The configuration now lives in a
 // single runtime file whose committed default targets the isolated LAB project.
-// The public production Web SDK config is pinned under tools/ and is consumed
-// only by the main build; it is not part of the deployed source allowlist or PR preview.
+// The legacy production Web SDK config is pinned under tools/ and stays
+// outside the deployed source allowlist and PR preview.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -95,8 +95,6 @@ test('production Firebase Web config is pinned tools-only and excluded from prev
   const manifest=JSON.parse(read('tools/static-assets.json'));
   assert.equal(manifest.includes('tools/production-firebase-web-config.json'),false);
   assert.equal(manifest.includes('production-firebase-web-config.json'),false);
-  const workflow=read('.github/workflows/azure-static-web-apps.yml');
-  assert.match(workflow,/--from-json tools\/production-firebase-web-config\.json/);
   assert.doesNotMatch(read('web/js/core/firebase-config.js'),/tester-teaching/);
 });
 
