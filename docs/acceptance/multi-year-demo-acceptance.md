@@ -53,6 +53,27 @@
 - Some deep DVM course structure and non-teaching activities in the existing pages still use the original single-year sample environment. Do not treat the demo window as a live global migration.
 - Every manual acceptance requires the tested PR/SHA, role, browser and evidence.
 
+## Coursedog-inspired enhancements (PR #96 follow-up)
+
+**Scope:** Same browser-only synthetic Demo; the test page header now carries an Academic Year Selector synchronized with the multi-year workspace. It opens the Demo Calendar on a year switch so that the original single-year Calendar is never mislabeled.
+
+| ID | Manual scenario | Expected behavior | Result |
+| --- | --- | --- | --- |
+| MYD-25 | Select 2027-28 in Calendar top Academic Year selector | Opens the Demo Calendar using 2027-28; original Beta-derived Calendar remains unchanged | Not run |
+| MYD-26 | Newly created 2027-28 before optional rollover | No annual Course, Session or Assignment records | Not run |
+| MYD-27 | Rollover preview: VTMD 306 from 2026-27 Published, default fields | Shows release, counts, source/destination; copies Course metadata only after confirmation | Not run |
+| MYD-28 | Rollover selecting Session topics but no schedule | Creates unscheduled Working Sections without teachers; Publish Review blocks unscheduled publication | Not run |
+| MYD-29 | Rollover selecting Sessions, Instructor, Dates/Room | Copies previous Published data, shifts year date, excludes ineligible Faculty, resets approvals/DOE | Not run |
+| MYD-30 | Attempt rollover into existing annual Course | Rejects rather than overwrites existing Course/Working or Published data | Not run |
+| MYD-31 | ADFAD/Owner Scheduling Phase select Planning -> Review -> Active | Stage badge updates; invalid or unauthorized transitions denied; Published Course pointers unchanged | Not run |
+| MYD-32 | Publish Review: unfinalized, missing date, inactive Faculty, conflicting AFC | Shows Block vs Warning clearly, Working/Published diff and DOE impact before commit | Not run |
+| MYD-33 | Publish Changes with DOE already released and manual override | Published recalculation runs; override persists and Needs ADFAD Review remains | Not run |
+| MYD-34 | Year Comparison as ADFAD and Faculty | ADFAD sees authorized Published teaching/DOE; Faculty sees only own, future DOE Pending displayed | Not run |
+| MYD-35 | Switch simulated account Owner -> Faculty | Faculty defaults current year; previous privileged workspace is not retained | Not run |
+| MYD-36 | Re-open on mobile and reload after modifications | Selector, actions, tables remain usable; synthetic state persists per browser | Not run |
+
+**Limit:** Header year navigation and this workspace share one Demo state, but the original legacy Calendar/Dashboard data pipelines are *not* migrated or rewritten. The header selector opens the Demo view to avoid showing mismatched year labels.
+
 ## Handoff rule
 
 After Owner manually accepts the Testing UI, plan a separate Beta review of actual table schema, authorization, DOE rules, data migration and integration. Do not merge sample identities or change live data as part of this acceptance.

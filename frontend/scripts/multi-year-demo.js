@@ -7,7 +7,7 @@
   const roleCanWork=role=>['owner','developer','adfa_general','adfa_regular','administrator','admin','adc','lab','hicc','visc'].includes(role);
   const isAdfa=role=>['owner','developer','adfa_general','adfa_regular','administrator','admin'].includes(role);
   const opts=(items,value,label)=>items.map(item=>'<option value="'+E(value(item))+'">'+E(label(item))+'</option>').join('');
-  let engine=null,selectedYear='',selectedCode='',tab='calendar',dialog=null,message='',rolloverPreview=null,comparisonYear='',calendarMonth='all';
+  let engine=null,selectedYear='',selectedCode='',tab='calendar',dialog=null,message='',rolloverPreview=null,comparisonYear='',calendarMonth='all',lastHeaderUid='';
   function identity(){
     const demo=root.UCVM_PAWS_DEMO_API;
     const current=root.firebase&&root.firebase.auth&&root.firebase.auth().currentUser;
@@ -41,6 +41,13 @@
     if(!header)return;
     try{
       const a=identity();if(!a)return;
+      // Test Role Selector can change identity without navigating. Do not carry
+      // an ADFAD-selected planning year or open privileged dialog into Faculty.
+      if(lastHeaderUid&&lastHeaderUid!==a.uid){
+        selectedYear='';selectedCode='';rolloverPreview=null;comparisonYear='';calendarMonth='all';tab='calendar';
+        if(dialog?.open)dialog.close();
+      }
+      lastHeaderUid=a.uid;
       const m=load(),s=m.getState(),allowed=Object.keys(s.years).sort(),year=selectedYear&&s.years[selectedYear]?selectedYear:m.getPreferredYear(a);
       header.innerHTML=opts(allowed,x=>x,x=>x+' · '+s.years[x].status);header.value=year;
       if(phase)phase.textContent=PHASE_LABELS[s.years[year].status]||s.years[year].status;
