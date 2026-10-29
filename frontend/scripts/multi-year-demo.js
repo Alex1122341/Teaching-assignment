@@ -36,6 +36,32 @@
   function guard(fn){try{message='';const result=fn();if(!message)message='Updated in this browser Demo only.';render();syncHeader();return result}catch(error){message=error.message||String(error);render();return null;}}
   const previousYear=year=>{const n=Number(year.slice(0,4))-1;return n+'-'+String((n+1)%100).padStart(2,'0')};
   const PHASE_LABELS={planning:'Planning · editable Working',review:'Review · validate before publishing',active:'Active · Published with controlled changes',archived:'Archived · read-only'};
+  function maskLegacyCalendar(a,s,year){
+    // The existing PAWS timetable still uses the original 2026-27 Demo data.
+    // Never allow a future-year header selection to relabel that calendar.
+    if(!doc.getElementById('calendar-body'))return;
+    const status=s.years[year].status,masked=year!=='2026-27'||status==='archived';
+    doc.body.classList.toggle('paws-my-year-preview-required',masked);
+    let banner=doc.getElementById('paws-year-preview-notice');
+    if(!banner){
+      banner=doc.createElement('div');banner.id='paws-year-preview-notice';
+      banner.className='paws-my-year-preview-notice';
+      const calendar=doc.getElementById('cal-card');
+      if(!calendar||!calendar.parentNode)return;
+      calendar.parentNode.insertBefore(banner,calendar);
+      banner.addEventListener('click',event=>{
+        const button=event.target.closest('[data-my-preview-open]');
+        if(button)open({year:selectedYear||load().getPreferredYear(actual()),tab:button.dataset.myPreviewOpen});
+      });
+    }
+    banner.hidden=!masked;
+    if(!masked)return;
+    if(['faculty','hicc','visc'].includes(a.role)&&status==='archived'){
+      banner.innerHTML='<strong>'+E(year)+' · Archived Calendar hidden</strong><p>Faculty can still view their historical Published Teaching and DOE.</p><button type="button" data-my-preview-open="teaching">View Historical Teaching</button> <button type="button" data-my-preview-open="doe">View Historical DOE</button>';
+    }else{
+      banner.innerHTML='<strong>'+E(year)+' · Academic Year Demo Calendar</strong><p>The original 2026-27 timetable is hidden to prevent mixing academic years. Open the Demo to view '+E(year)+' Sessions.</p><button type="button" data-my-preview-open="calendar">Open Selected Year Calendar</button>';
+    }
+  }
   function syncHeader(){
     const header=doc.getElementById('paws-global-academic-year'),phase=doc.getElementById('paws-global-academic-phase');
     if(!header)return;
@@ -51,6 +77,7 @@
       const m=load(),s=m.getState(),allowed=Object.keys(s.years).sort(),year=selectedYear&&s.years[selectedYear]?selectedYear:m.getPreferredYear(a);
       header.innerHTML=opts(allowed,x=>x,x=>x+' · '+s.years[x].status);header.value=year;
       if(phase)phase.textContent=PHASE_LABELS[s.years[year].status]||s.years[year].status;
+      maskLegacyCalendar(a,s,year);
     }catch(_){/* Demo auth/API bootstrap has not initialized yet */}
   }
   function viewCalendar(a,s){

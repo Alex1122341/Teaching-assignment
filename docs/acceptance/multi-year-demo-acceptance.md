@@ -70,6 +70,7 @@
 | MYD-33 | Publish Changes with DOE already released and manual override | Published recalculation runs; override persists and Needs ADFAD Review remains | Not run |
 | MYD-34 | Year Comparison as ADFAD and Faculty | ADFAD sees authorized Published teaching/DOE; Faculty sees only own, future DOE Pending displayed | Not run |
 | MYD-35 | Switch simulated account Owner -> Faculty | Faculty defaults current year; previous privileged workspace is not retained | Not run |
+| MYD-37 | Select 2027-28 then close Academic Year workspace | Original 2026-27 Calendar is masked with an explicit shortcut to the selected-year Demo; no mixed-year display | Not run |
 | MYD-36 | Re-open on mobile and reload after modifications | Selector, actions, tables remain usable; synthetic state persists per browser | Not run |
 
 **Limit:** Header year navigation and this workspace share one Demo state, but the original legacy Calendar/Dashboard data pipelines are *not* migrated or rewritten. The header selector opens the Demo view to avoid showing mismatched year labels.
