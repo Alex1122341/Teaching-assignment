@@ -19,6 +19,7 @@ const faculty={uid:'faculty1',role:'faculty',facultyId:'f1'};
 const other={uid:'other1',role:'faculty',facultyId:'f2'};
 const memory=()=>{const data=new Map();return {getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)}};
 const engine=(storage=memory())=>createEngine({source,storage,now:()=>new Date('2026-10-29T18:00:00Z')});
+
 test('initial 2026-27 Published teaching and DOE remain Faculty visible',()=>{
  const m=engine(); const t=m.getTeaching(faculty,'2026-27');
  assert.equal(t.length,1);assert.equal(t[0].assignments[0].facultyId,'f1');
@@ -103,6 +104,8 @@ test('storage reload preserves publication and user-specific default year',()=>{
  assert.equal(b.getPreferredYear(faculty),'2026-27');
  assert.equal(Object.keys(b.getState().years).length,2);
 });
+
+// Security-adjacent contracts: simulated denials are not a real Auth/SQL proof.
 test('other scoped HICC cannot edit VTMD 304, and retirement requires confirmation',()=>{
  const m=engine();m.createYear(owner,'2027-28');m.addCourse(adfa,'2027-28','VTMD 304');
  assert.throws(()=>m.addSession(lead,'2027-28','VTMD 304',{id:'rogue',date:'2027-09-01'}),/scope|permission/i);
@@ -115,7 +118,6 @@ test('working-session conflict checker responds to shared AFC, not only publishe
  m.addAfc(adfa,{afcRecordId:'a3',facultyId:'f1',startDate:'2027-09-01',endDate:'2027-09-01',active:true});
  assert.equal(m.getConflicts(adfa,'2027-28').length,1);
 });
-
 test('DOE override review remains pending until ADFAD explicitly confirms',()=>{
  const m=engine();m.createYear(owner,'2027-28');m.addCourse(adfa,'2027-28','VTMD 306');
  m.addSession(adfa,'2027-28','VTMD 306',{id:'review-s1',date:'2027-09-01',topic:'A',assignments:[{facultyId:'f1',doeCredit:4}]});
@@ -124,16 +126,17 @@ test('DOE override review remains pending until ADFAD explicitly confirms',()=>{
  m.addSession(adfa,'2027-28','VTMD 306',{id:'review-s2',date:'2027-09-02',topic:'B',assignments:[{facultyId:'f1',doeCredit:3}]});
  m.finalizeCourse(adfa,'2027-28','VTMD 306');m.publishCourse(lead,'2027-28','VTMD 306');
  assert.equal(m.getDoe(faculty,'2027-28').items[0].needsReview,true);
+ // A later publication affecting a different Faculty must not clear this review.
  m.addSession(adfa,'2027-28','VTMD 306',{id:'review-s3',date:'2027-09-03',topic:'C',assignments:[{facultyId:'f2',doeCredit:2}]});
  m.finalizeCourse(adfa,'2027-28','VTMD 306');m.publishCourse(lead,'2027-28','VTMD 306');
  assert.equal(m.getDoe(faculty,'2027-28').items[0].needsReview,true);
 });
+
 test('publishing unchanged Working revision is rejected without duplicate release',()=>{
  const m=engine();const before=m.getState().annual['2026-27']['VTMD 306'].published.length;
  assert.throws(()=>m.publishCourse(adfa,'2026-27','VTMD 306'),/no changes|already published/i);
  assert.equal(m.getState().annual['2026-27']['VTMD 306'].published.length,before);
 });
-
 test('Faculty Calendar shows all Published sessions but no private DOE details',()=>{
  const m=engine();m.createYear(owner,'2027-28');m.addCourse(adfa,'2027-28','VTMD 306');
  m.addSession(adfa,'2027-28','VTMD 306',{id:'public-s1',date:'2027-09-01',topic:'Public Lab',sessionType:'LAB',assignments:[{facultyId:'f2',doeCredit:6}]});
@@ -151,7 +154,6 @@ test('ADC Calendar projection omits private DOE credits',()=>{
  assert.ok(rows.length>0);
  assert.doesNotMatch(JSON.stringify(rows),/doeCredit/);
 });
-
 test('ordinary office roles cannot read private Published DOE or teaching credit',()=>{
  const m=engine();const adc={uid:'adc1',role:'adc'};
  assert.throws(()=>m.getDoe(adc,'2026-27'),/DOE.*denied|permission/i);
@@ -165,7 +167,6 @@ test('unsupported office role receives no year data by default',()=>{
  assert.throws(()=>m.getTeaching(unknown,'2026-27'),/unsupported|permission/i);
  assert.throws(()=>m.getDoe(unknown,'2026-27'),/unsupported|permission/i);
 });
-
 test('full-year Role with invalid next-year Faculty appointment becomes Draft',()=>{
  const data=structuredClone(source);
  data.faculty[1].active=true;data.faculty[1].appointmentValid=false;
@@ -181,13 +182,11 @@ test('legacy annual Role displayed dates never extend beyond April 30',()=>{
  const m=createEngine({source:data,storage:memory()});const roles=m.getState().roles['2026-27'];
  assert.equal(roles.find(r=>r.id==='r4').end,'2027-04-30');
 });
-
 test('Faculty-linked course roles cannot access all-year AFC conflict evidence',()=>{
  const m=engine();const adc={uid:'adc1',role:'adc'};
  assert.throws(()=>m.getConflicts(lead,'2026-27'),/office|scope|permission/i);
  assert.doesNotThrow(()=>m.getConflicts(adc,'2026-27'));
 });
-
 test('initial migration retains original synthetic Change History as read-only evidence',()=>{
  const data=structuredClone(source);
  data.history=[{changeId:'legacy1',changeType:'session_updated',actorFirebaseUid:'adfa1',changedAtUtc:'2026-10-01T12:00:00Z',academicYear:'2026-27',before:{topic:'Old'},after:{topic:'New'}}];

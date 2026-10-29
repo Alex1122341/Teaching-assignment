@@ -14,6 +14,7 @@
   const nextOf=year=>String(Number(year.slice(0,4))+1)+'-05-01';
   const endOf=year=>String(Number(year.slice(0,4))+1)+'-04-30';
   const validateYear=year=>{const m=/^(\d{4})-(\d{2})$/.exec(year||'');if(!m||Number(m[2])!==(Number(m[1])+1)%100)invalid('Invalid academic year');return year};
+  const nextYear=year=>{const n=Number(year.slice(0,4))+1;return n+'-'+String((n+1)%100).padStart(2,'0')};
   const currentYear=date=>{const d=date instanceof Date?date:new Date(date),n=d.getUTCFullYear()-(d.getUTCMonth()<4?1:0);return n+'-'+String((n+1)%100).padStart(2,'0')};
   const isFaculty=a=>['faculty','hicc','visc'].includes(normalized(a&&a.role).toLowerCase());
   const canPlan=a=>['owner','developer','adfa_general','adfa_regular','administrator','admin','adc','lab','hicc','visc'].includes(normalized(a&&a.role).toLowerCase());
@@ -36,7 +37,8 @@
       annual['2026-27'][code]={code,title:item?item.title:code,working:clone(sessions),revision:1,finalizedRevision:1,published:[{version:1,revision:1,sessions:clone(sessions),at:'2026-10-29T00:00:00.000Z',by:'demo-initial-migration'}],publishers:[]};
     }
     const roles={'2026-27':clone(source.roles||[]).map(r=>({id:r.roleAssignmentId,facultyId:r.facultyId,roleType:r.roleType,scope:r.courseOrSubjectOrRotation||'',start:r.effectiveDate&&r.effectiveDate>'2026-05-01'?r.effectiveDate:'2026-05-01',end:r.expirationDate&&r.expirationDate<'2027-04-30'?r.expirationDate:'2027-04-30',sourceEnd:r.expirationDate||'',status:'confirmed',sourceId:r.roleAssignmentId}))};
-    // Original synthetic role dates span July-June. Add one marked May-Apr sample for rollover testing.
+    // The historical Demo seed uses July-June appointments. One explicitly labelled
+    // synthetic full-year fixture allows testers to verify eligible automatic renewal.
     if(!roles['2026-27'].some(r=>r.start<='2026-05-01'&&r.end>='2027-04-30')){
       const valid=roles['2026-27'].find(r=>r.roleType==='HICC'&&faculty.some(f=>f.id===r.facultyId&&f.active));
       if(valid)roles['2026-27'].push({...clone(valid),id:valid.id+'-full-year-demo',sourceId:valid.id+'-full-year-demo',start:'2026-05-01',end:'2027-04-30',fixture:true});
@@ -84,6 +86,12 @@
       }
       d.records=records;
     }
+    function authorizeCourseEditor(a,row){staff(a);if(canAdfa(a))return;
+      const identity=state.users.find(u=>u.uid===a.uid);
+      const fid=a.facultyId||identity&&identity.facultyId;
+      const source=(state.roles[row.year]||[]).filter(r=>r.status==='confirmed'&&r.facultyId===fid&&r.scope.toUpperCase().startsWith(row.course.code));
+      if(!row.course.publishers.includes(a.uid)&&!source.length)invalid('Course scope permission required');
+    }
     function canPublish(a,year,row){if(canAdfa(a))return true;
       const uid=normalized(a&&a.uid),fid=a&&a.facultyId||state.users.find(u=>u.uid===uid)?.facultyId;
       if(row.publishers.includes(uid))return true;
@@ -121,8 +129,140 @@
     function publishCourse(a,year,code){who(a);editable(year);const row=annual(year,code);if(!canPublish(a,year,row))invalid('Course publisher scope permission required');
       if(row.finalizedRevision!==row.revision)invalid('Current Working revision is not finalized');
       if(currentRelease(row)?.revision===row.revision)invalid('No changes: Working revision already published');
+      const review=previewPublication(a,year,code);
+      if(!review.canPublish)invalid('Course publication validation failed: '+review.issues.filter(x=>x.severity==='block').map(x=>x.code).join(', '));
       const release={version:row.published.length+1,revision:row.revision,sessions:clone(row.working),at:stamp(),by:a.uid};row.published.push(release);refreshPublishedDoe(year,true);
       logged('course_published',a,year,{code:row.code,version:release.version});return clone(release);
+    }
+    // Selective rollover is opt-in: only the previous year's *last Published*
+    // snapshot may seed the new annual Course. Never transfer approvals or DOE.
+    function previewRollover(a,request){
+      staff(a);
+      const fromYear=validateYear(request?.fromYear),toYear=validateYear(request?.toYear),code=codeFor(request?.code);
+      editable(toYear);inspect(fromYear);
+      const previous=String(Number(toYear.slice(0,4))-1)+'-'+String(Number(toYear.slice(0,4))%100).padStart(2,'0');
+      if(fromYear!==previous)invalid('Rollover source must be the previous academic year');
+      const source=annual(fromYear,code),release=currentRelease(source);
+      if(!release)invalid('Source Course has no Published release');
+      if(state.annual[toYear][code])invalid('Target Annual Course already exists; rollover never overwrites');
+      if(!state.catalog.some(c=>c.code===code))invalid('Course not found in shared Catalog');
+      if(!canPublish(a,toYear,{code,publishers:[]}))invalid('Course scope permission required');
+      const opts=request.options||{};
+      const options={course:true,sessions:opts.sessions===true,instructors:opts.instructors===true,schedule:opts.schedule===true};
+      if(options.instructors&&!options.sessions)invalid('Instructor rollover requires Sessions');
+      if(options.schedule&&!options.sessions)invalid('Schedule rollover requires Sessions');
+      if(opts.course===false)invalid('Course snapshot is required for rollover');
+      const excluded=new Set(),included=new Set();
+      for(const session of release.sessions)for(const x of session.assignments||[]){
+        const person=faculty(x.facultyId);
+        if(person&&person.active&&person.appointmentValid)included.add(x.facultyId);
+        else excluded.add(x.facultyId||'missing');
+      }
+      return {sourceYear:fromYear,destinationYear:toYear,code,title:source.title,sourceReleaseVersion:release.version,
+        sessionCount:release.sessions.length,copyCount:options.sessions?release.sessions.length:0,
+        eligibleInstructors:included.size,excludedInstructors:excluded.size,options};
+    }
+    function shiftDate(date,years){
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date||''))return '';
+      const [y,m,d]=date.split('-').map(Number);
+      const last=new Date(Date.UTC(y+years,m,0)).getUTCDate();
+      return String(y+years)+'-'+String(m).padStart(2,'0')+'-'+String(Math.min(d,last)).padStart(2,'0');
+    }
+    function rolloverCourse(a,request){
+      const preview=previewRollover(a,request),source=annual(preview.sourceYear,preview.code),release=currentRelease(source),options=preview.options;
+      const course={code:preview.code,title:source.title,working:[],revision:1,finalizedRevision:0,published:[],publishers:[],
+        rollover:{sourceYear:preview.sourceYear,sourceReleaseVersion:release.version,options,at:stamp(),actor:a.uid}};
+      if(options.sessions){
+        const years=Number(preview.destinationYear.slice(0,4))-Number(preview.sourceYear.slice(0,4));
+        course.working=release.sessions.map(session=>({
+          id:'demo-rollover-'+(++state.serial),courseCode:preview.code,
+          date:options.schedule?shiftDate(session.date,years):'',topic:session.topic||'',sessionType:session.sessionType||'',
+          startTime:options.schedule?session.startTime||'':'',endTime:options.schedule?session.endTime||'':'',
+          room:options.schedule?session.room||'':'',
+          assignments:options.instructors?(session.assignments||[]).filter(x=>faculty(x.facultyId)?.active&&faculty(x.facultyId)?.appointmentValid).map(clone):[]
+        }));
+      }
+      state.annual[preview.destinationYear][preview.code]=course;
+      logged('course_rolled_over',a,preview.destinationYear,{sourceYear:preview.sourceYear,code:preview.code,
+        release:preview.sourceReleaseVersion,options,excludedInstructors:preview.excludedInstructors});
+      return clone(course);
+    }
+    function setYearPhase(a,year,phase){
+      adfa(a);const item=editable(year),next=normalized(phase).toLowerCase();
+      const allowed={planning:['review'],review:['planning','active'],active:['review']};
+      if(next===item.status)return clone(item);
+      if(!allowed[item.status]?.includes(next))invalid('Invalid year phase transition');
+      item.status=next;item.revision++;logged('year_phase_changed',a,year,{phase:next});return clone(item);
+    }
+    function previewPublication(a,year,code){
+      who(a);const y=inspect(year),row=annual(year,code),published=currentRelease(row),issues=[];
+      const problem=(severity,code,message,sessionId='')=>issues.push({severity,code,message,sessionId});
+      if(y.status==='archived')problem('block','ARCHIVED','The academic year is archived');
+      if(!canPublish(a,year,row))problem('block','SCOPE_DENIED','Course publication permission required');
+      if(row.finalizedRevision!==row.revision)problem('block','NOT_FINALIZED','Current Working revision is not finalized');
+      if(published?.revision===row.revision)problem('block','NO_CHANGES','Working revision already Published');
+      const before=published?.sessions||[],after=row.working||[],past=new Map(before.map(x=>[x.id,x])),newMap=new Map(after.map(x=>[x.id,x]));
+      const diff={added:after.filter(x=>!past.has(x.id)).length,removed:before.filter(x=>!newMap.has(x.id)).length,modified:0,assignmentChanges:0,changes:[]};
+      for(const s of after){
+        const old=past.get(s.id);
+        if(!old){diff.changes.push({kind:'added',sessionId:s.id,topic:s.topic||''});continue;}
+        const beforeAssignments=JSON.stringify(old.assignments||[]),afterAssignments=JSON.stringify(s.assignments||[]);
+        const updated=['date','topic','sessionType','startTime','endTime','room'].some(k=>(old[k]||'')!==(s[k]||''))||beforeAssignments!==afterAssignments;
+        if(updated){diff.modified++;diff.changes.push({kind:'modified',sessionId:s.id,topic:s.topic||'',instructorChanged:beforeAssignments!==afterAssignments});}
+        if(beforeAssignments!==afterAssignments)diff.assignmentChanges++;
+      }
+      for(const s of before)if(!newMap.has(s.id))diff.changes.push({kind:'removed',sessionId:s.id,topic:s.topic||''});
+      const totals=sessions=>{
+        const map={};for(const session of sessions)for(const x of session.assignments||[]){if(x.facultyId)map[x.facultyId]=(map[x.facultyId]||0)+(Number(x.doeCredit)||0)}return map;
+      };
+      const oldDoe=totals(before),newDoe=totals(after),faculties=new Set([...Object.keys(oldDoe),...Object.keys(newDoe)]);
+      const doeImpact=[...faculties].map(facultyId=>({facultyId,before:oldDoe[facultyId]||0,after:newDoe[facultyId]||0,
+        delta:Math.round(((newDoe[facultyId]||0)-(oldDoe[facultyId]||0))*100)/100})).filter(x=>x.delta!==0);
+      const seen=new Map();
+      for(const s of after){
+        const date=s.date||'';
+        if(!date)problem('block','UNSCHEDULED_SESSION','Session needs a scheduled date',s.id);
+        else if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+'T00:00:00Z'))||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date||date<startOf(year)||date>=nextOf(year))
+          problem('block','INVALID_DATE','Session date is outside this academic year',s.id);
+        if(s.startTime&&s.endTime&&s.endTime<=s.startTime)problem('block','INVALID_TIME','End time must follow start time',s.id);
+        if(Boolean(s.startTime)!==Boolean(s.endTime))problem('block','INVALID_TIME','Both start and end time are required',s.id);
+        if(!(s.assignments||[]).some(x=>x.facultyId))problem('warn','UNASSIGNED_INSTRUCTOR','Session has no instructor',s.id);
+        if(!s.room)problem('warn','UNASSIGNED_ROOM','Room not selected',s.id);
+        for(const x of s.assignments||[]){
+          const f=faculty(x.facultyId);
+          if(!f||!f.active||!f.appointmentValid)problem('block','INACTIVE_FACULTY','Instructor is inactive or ineligible',s.id);
+          if(date)for(const afc of state.afc){
+            if(afc.active!==false&&afc.facultyId===x.facultyId&&date>=afc.startDate&&date<=afc.endDate)
+              problem('warn','AFC_CONFLICT','Instructor has an AFC overlap',s.id);
+          }
+        }
+        if(date&&s.startTime&&s.endTime){
+          const key=date;
+          const overlaps=seen.get(key)||[];
+          for(const old of overlaps){
+            if(s.startTime<old.endTime&&s.endTime>old.startTime){
+              if(s.room&&s.room===old.room)problem('warn','ROOM_CONFLICT','Room overlaps another session',s.id);
+              if((s.assignments||[]).some(x=>old.facultyIds.includes(x.facultyId)))problem('warn','INSTRUCTOR_CONFLICT','Instructor overlaps another session',s.id);
+            }
+          }
+          overlaps.push({room:s.room,startTime:s.startTime,endTime:s.endTime,facultyIds:(s.assignments||[]).map(x=>x.facultyId)});seen.set(key,overlaps);
+        }
+      }
+      return {year,code:row.code,sourceRevision:row.revision,currentPublishedVersion:published?.version||null,
+        diff,doeImpact,issues,canPublish:!issues.some(x=>x.severity==='block')};
+    }
+    function compareYears(a,fromYear,toYear){
+      who(a);inspect(fromYear);inspect(toYear);
+      const staffView=canAdfa(a),officeView=['adc','lab'].includes(a.role);
+      const people=staffView||officeView?state.faculty:state.faculty.filter(f=>f.id===a.facultyId);
+      const measure=(year,facultyId)=>{
+        const teachingSessions=publicationRows(year).filter(s=>(s.assignments||[]).some(x=>x.facultyId===facultyId)).length;
+        const published=state.doe[year];const allowed=staffView||(!officeView&&facultyId===a.facultyId);
+        const item=allowed&&published?.released?published.records[facultyId]:null;
+        return {teachingSessions,doeStatus:allowed?(published?.released?'published':'pending'):'restricted',doe:item?item.effective:null};
+      };
+      return {fromYear,toYear,rows:people.map(f=>({facultyId:f.id,name:f.name,
+        left:measure(fromYear,f.id),right:measure(toYear,f.id)}))};
     }
     function approvePolicy(a,year){adfa(a);editable(year);state.doe[year].policy.status='approved';logged('doe_policy_approved',a,year);return true}
     function publishDoe(a,year){adfa(a);editable(year);const d=state.doe[year];if(d.policy.status!=='approved')invalid('Approved DOE rules required');d.released=true;refreshPublishedDoe(year,false);logged('doe_initial_published',a,year);return clone(d.records)}
@@ -165,7 +305,7 @@
     function setPreferredYear(a,year){who(a);inspect(year);state.preferences[a.uid]=year;persist()}
     function getPreferredYear(a){who(a);const current=currentYear(now());if(isFaculty(a))return state.years[current]?current:Object.keys(state.years)[0];return state.years[state.preferences[a.uid]]?state.preferences[a.uid]:state.years[current]?current:Object.keys(state.years)[0]}
     function reset(){state=bootstrap(source);persist();return getState()}
-    return Object.freeze({getState,createYear,addCourse,updateCatalog,addSession,editAssignment,finalizeCourse,publishCourse,approvePolicy,publishDoe,setOverride,getTeaching,getCalendar,getDoe,getWorkingDoe,getConflicts,addAfc,retireYear,restoreYear,copyHistorical,confirmRole,setPreferredYear,getPreferredYear,reset,currentYear});
+    return Object.freeze({getState,createYear,addCourse,previewRollover,rolloverCourse,setYearPhase,previewPublication,compareYears,updateCatalog,addSession,editAssignment,finalizeCourse,publishCourse,approvePolicy,publishDoe,setOverride,getTeaching,getCalendar,getDoe,getWorkingDoe,getConflicts,addAfc,retireYear,restoreYear,copyHistorical,confirmRole,setPreferredYear,getPreferredYear,reset,currentYear});
   }
   return Object.freeze({createEngine,STORAGE_KEY,currentYear,validateYear});
 });
