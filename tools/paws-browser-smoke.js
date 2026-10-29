@@ -15,13 +15,14 @@ const USER_KEY='ucvm-pages-demo-user-v2';
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 const CHECKS=Object.freeze([
- {page:'index.html',uid:'uid-developer',text:['Teaching Schedule','Week','DEMO ROLE TESTER']},
+ {page:'index.html',uid:'uid-developer',text:['Teaching Schedule','Week','DEMO ROLE TESTER','Academic Years · Demo']},
+ {page:'index.html',uid:'uid-owner',text:['Teaching Schedule','Academic Years · Demo']},
  {page:'index.html',uid:'uid-admin',text:['Teaching Schedule','Admin tools']},
  {page:'index.html',uid:'uid-hicc-1',text:['Teaching Schedule']},
  {page:'index.html',uid:'uid-fac-001',text:['Teaching Schedule','My Teaching']},
- {page:'faculty-admin.html',uid:'uid-developer',text:['Faculty Dashboard','Lookup','DOE Overview','AFC Records']},
+ {page:'faculty-admin.html',uid:'uid-developer',text:['Faculty Dashboard','Lookup','DOE Overview','AFC Records','Academic Years · Demo']},
  {page:'faculty-admin.html',uid:'uid-admin',text:['Faculty Dashboard','Teaching Summary']},
- {page:'teaching-assignments.html',uid:'uid-admin',text:['Teaching Assignments']},
+ {page:'teaching-assignments.html',uid:'uid-admin',text:['Teaching Assignments','Academic Years · Demo']},
  {page:'teaching-assignments.html',uid:'uid-fac-001',text:['Teaching Assignments']},
  {page:'user-management.html',uid:'uid-owner',text:['User Management','Accounts']},
  {page:'password.html',uid:'uid-fac-001',text:['Change Password']}
@@ -79,6 +80,12 @@ async function main(){
    if(!ok)problems.push(`${label}: missing ${check.text.filter(text=>!body.includes(text)).join(', ')||'banner'}`);
    if(errors.length)problems.push(`${label}: script error ${errors[0].split('\n')[0]}`);
    if(apiCalls.length)problems.push(`${label}: request reached the real PAWS API ${apiCalls[0]}`);
+   if(check.page==='index.html'&&check.uid==='uid-owner'&&ok){
+     // Exercise the multi-year workspace through the actual staged browser.
+     const probe=await cdp.send('Runtime.evaluate',{expression:"(function(){try{const launcher=document.getElementById('paws-multi-year-open');if(!launcher)return{ok:false,error:'Launcher missing'};launcher.click();const dialog=document.getElementById('paws-multi-year-demo');if(!dialog||!dialog.open)return{ok:false,error:'Academic Year dialog did not open'};const before=dialog.querySelector('[data-my-year]');if(!before||before.value!=='2026-27')return{ok:false,error:'2026-27 initial year missing'};const create=dialog.querySelector('[data-my-action=\"create-year\"]');if(!create)return{ok:false,error:'Owner Create Next Year missing'};create.click();const after=dialog.querySelector('[data-my-year]');if(!after||after.value!=='2027-28')return{ok:false,error:'Create Next Year did not select 2027-28',year:after?.value||''};const model=window.PAWS_MULTI_YEAR_DEMO_MODEL;if(!model)return{ok:false,error:'Domain model missing'};const state=JSON.parse(localStorage.getItem(model.STORAGE_KEY)||'null');if(!state||state.years['2027-28']?.status!=='planning'||Object.keys(state.annual['2027-28']||{}).length)return{ok:false,error:'New year did not initialize as empty Planning'};return{ok:true};}catch(error){return{ok:false,error:String(error?.message||error)}}})()",returnByValue:true});
+     if(!probe.result?.value?.ok)problems.push(label+': multi-year modal probe failed: '+JSON.stringify(probe.result?.value||probe.exceptionDetails||'no result'));
+     else console.log('ok   Multi-year Owner workspace creates an empty 2027-28 planning year');
+   }
    if(check.page==='index.html'&&check.uid==='uid-developer'&&ok){
      // Real staged-browser test: approve a seeded ADFA SWAP with synthetic data.
      const executed=await cdp.send('Runtime.evaluate',{expression:"(async function demoApprovalBrowserProbe(){\n  try{\n    const api=window.UCVM_PAWS_DATA,swap=window.PAWS_SWAP;\n    if(!api?.swapQueue||!swap?.openDetail)return{ok:false,error:'SWAP client not ready'};\n    const queue=await api.swapQueue();\n    const request=(queue.requests||[]).find(r=>r.nextStage==='adfa'&&r.status==='pending'&&r.changes?.replacementCandidateKey);\n    if(!request)return{ok:false,error:'No seeded final ADFA request'};\n    await swap.openDetail(request.requestId);\n    const approve=document.querySelector('.sql-swap-approval-dialog [data-decision=\"approve\"]');\n    if(!approve)return{ok:false,error:'Approve button not rendered'};\n    if(approve.disabled)return{ok:false,error:'Approve disabled',preview:document.querySelector('[data-approval-doe]')?.innerText||''};\n    const reason=document.querySelector('.sql-swap-approval-dialog [data-override]');\n    if(reason)reason.value='Synthetic conflict reviewed by Developer';\n    approve.click();\n    const confirm=document.querySelector('.sql-swap-approval-dialog [data-confirm-action]');\n    if(!confirm)return{ok:false,error:'Approval confirmation not shown'};\n    confirm.click();\n    for(let i=0;i<50;i++){\n      await new Promise(resolve=>setTimeout(resolve,150));\n      const detail=await api.swapDetail(request.requestId);\n      if(detail.request?.status==='applied')return{ok:true,status:'applied',requestId:request.requestId};\n    }\n    return{ok:false,error:'Approval did not reach applied state'};\n  }catch(error){return{ok:false,error:String(error?.message||error)};}\n})()",awaitPromise:true,returnByValue:true});
