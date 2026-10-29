@@ -8,6 +8,21 @@
 
 > This is a design, not authorization to change production data, deploy Firebase Lab, merge application code, or perform a Beta migration. The Testing site's default PAWS Frontend Demo uses browser-local synthetic records; that is not the University SQL runtime.
 
+
+## Owner-approved Testing-only execution addendum — 2026-10-29 (supersedes backend tasks above)
+
+Owner clarification: **Build and exercise all agreed multi-year workflows using only the PAWS Frontend Demo's synthetic browser data; no database work now.** Store proposed SQL model and future Beta migration details exclusively in a separate Markdown handoff. Owner has approved this revised design and instructed implementation to start.
+
+- The implementation target is \`UCVM-Teaching-Assignment/Teaching-assignment\`. Only the normal \`--mode paws\` PAWS Frontend Demo may be modified/tested/published as part of this work. No SQL DDL, SQL data migrations, real SQL credentials, University API, Firestore writes, Firebase Lab deployment, or Beta code changes.
+- Functional Demo rules still model year isolation, Course-scoped publication, Working vs Published DOE, Role rollover, Owner Retire/Restore, exact role-specific history and Conflict snapshots. They must be operable against browser-local synthetic data, not merely described in prose.
+- Demo may use a locally simulated role/person selector as a **test harness**, but prominently distinguish this from real authentication/authorization. Simulated denial assertions are not SQL/Firebase security certifications.
+- If a workflow depends on a trusted backend for actual production atomicity/security, model its intended state change in the Demo and record the backend work as **deferred** in \`docs/architecture/multi-year-beta-migration-notes.md\`.
+- The existing Beta SQL discussion in sections 3, 5, 7, 9, 12, 13 and 14 is future architecture reference only and no longer part of the Testing implementation deliverable. Separate Beta transfer is contingent on Owner human testing/acceptance.
+- Preserve the existing Testing Demo functionality and the currently visible synthetic 2026-27 Teaching/DOE. Create the 2027-28 year as planning, empty of annual Courses/Assignments/Sessions, with copied DOE Draft and proposed role renewals.
+- Keep the feature off the legacy \`web/\` and Firebase Lab execution paths unless explicitly separately requested.
+
+This addendum is the controlling scope when earlier text proposes implementing a trusted SQL/Firestore adapter or staging a database operation during the Testing phase.
+
 ## 1. Purpose and acceptance outcome
 
 PAWS must support concurrent work on the current and following academic years, while keeping annual teaching assignments and DOE independent; carrying forward only the correct kinds of master data, historical references, and eligible annual roles; publishing courses individually; keeping confidential planning drafts away from faculty; and allowing the Owner to archive and restore completed years without data loss.
