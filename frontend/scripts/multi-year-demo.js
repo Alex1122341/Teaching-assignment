@@ -95,7 +95,7 @@
       table(['Faculty','Role','Scope','Start','End','Status','Action'],roles.slice(0,200).map(r=>[E(facultyName(s,r.facultyId)),E(r.roleType),E(r.scope),E(r.start),E(r.end),E(r.status==='draft'?'Draft · '+(r.rolloverReason||'Review needed'):'Confirmed'),showAll&&r.status==='draft'&&s.years[selectedYear].status!=='archived'?'<button data-my-confirm-role="'+E(r.id)+'">Confirm</button>':'']));
     return wrap('Annual Roles & Appointments',body);
   }
-  function viewArchive(a,s){const status=s.years[selectedYear].status,admin=isAdfa(a.role),isOwner=a.role==='owner';let html='<p><strong>Year status:</strong> '+E(status)+'</p>';
+  function viewArchive(a,s){if(!isAdfa(a.role)&&!['adc','lab'].includes(a.role))return wrap('Access','Office scope permission required.');const status=s.years[selectedYear].status,admin=isAdfa(a.role),isOwner=a.role==='owner';let html='<p><strong>Year status:</strong> '+E(status)+'</p>';
     if(isOwner){
       if(status==='archived')html+='<button data-my-action="restore">Restore Academic Year</button>';
       else html+='<button data-my-action="retire">Retire Academic Year</button>';
@@ -117,7 +117,7 @@
     if(!current[selectedCode])selectedCode=Object.keys(current).sort()[0]||'';
     const showStaff=roleCanWork(a.role)&&a.role!=='faculty';
     const names=[['calendar','Calendar'],['teaching','Teaching'],['courses','Courses & Assignments'],['doe','DOE'],['roles','Roles'],['archive','Archive & AFC'],['catalog','Course Catalog']];
-    const visible=names.filter(n=>!['courses','archive','catalog'].includes(n[0])||showStaff||n[0]==='courses'&&a.role==='faculty');
+    const visible=names.filter(n=>n[0]==='archive'?(isAdfa(a.role)||['adc','lab'].includes(a.role)):n[0]==='catalog'?showStaff:n[0]==='courses'?(showStaff||a.role==='faculty'):true);
     let body='';try{body=({calendar:()=>viewCalendar(a,s),teaching:()=>viewTeaching(a,s),courses:()=>viewCourses(a,s),doe:()=>viewDoe(a,s),roles:()=>viewRoles(a,s),archive:()=>viewArchive(a,s),catalog:()=>viewCatalog(a,s)})[tab]();}catch(error){body=wrap('Access',E(error.message))}
     const createYear=a.role==='owner'&&s.years[selectedYear].status!=='archived'?'<button data-my-action="create-year" type="button">Create Next Year</button>':'';
     dialog.innerHTML='<div class="paws-my-shell"><header class="paws-my-head"><div><small>PAWS · Testing site only · Browser-local simulation</small><h2>Academic Year Workspace</h2><p>'+E(a.name)+' · '+E(a.role)+' · No database connection</p></div><button data-my-action="close" type="button" aria-label="Close Academic Year Workspace">Close ×</button></header>'+
