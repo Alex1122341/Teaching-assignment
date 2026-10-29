@@ -143,3 +143,15 @@ test('validation blocks publication with ineligible instructors',()=>{
  assert.ok(m.previewPublication(adfa,'2027-28','VTMD 306').issues.some(x=>x.code==='INACTIVE_FACULTY'&&x.severity==='block'));
  assert.throws(()=>m.publishCourse(lead,'2027-28','VTMD 306'),/validation/i);
 });
+
+test('publication validation flags same-year overlaps with another annual Course',()=>{
+ const m=build();m.createYear(owner,'2027-28');
+ m.addCourse(adfa,'2027-28','VTMD 306');m.addCourse(adfa,'2027-28','VTMD 304');
+ m.addSession(adfa,'2027-28','VTMD 306',{id:'cross-a',date:'2027-09-15',topic:'Lab',startTime:'09:00',endTime:'11:00',room:'Lab 101',assignments:[{facultyId:'f1',doeCredit:2}]});
+ m.addSession(adfa,'2027-28','VTMD 304',{id:'cross-b',date:'2027-09-15',topic:'Anatomy',startTime:'10:00',endTime:'12:00',room:'Lab 101',assignments:[{facultyId:'f1',doeCredit:2}]});
+ m.finalizeCourse(adfa,'2027-28','VTMD 306');
+ const result=m.previewPublication(adfa,'2027-28','VTMD 306');
+ assert.ok(result.issues.some(x=>x.code==='ROOM_CONFLICT'&&/VTMD 304/.test(x.message)));
+ assert.ok(result.issues.some(x=>x.code==='INSTRUCTOR_CONFLICT'&&/VTMD 304/.test(x.message)));
+ assert.equal(result.canPublish,true);
+});

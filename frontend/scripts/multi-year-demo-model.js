@@ -248,6 +248,23 @@
           overlaps.push({room:s.room,startTime:s.startTime,endTime:s.endTime,facultyIds:(s.assignments||[]).map(x=>x.facultyId)});seen.set(key,overlaps);
         }
       }
+      // Check current Working sessions in other Courses of this same year;
+      // publication cannot validate room/instructor use in isolation.
+      const otherSessions=Object.entries(state.annual[year]||{})
+        .filter(([key])=>key!==row.code)
+        .flatMap(([courseCode,c])=>(c.working||[]).map(session=>({courseCode,session})));
+      for(const session of after){
+        if(!session.date||!session.startTime||!session.endTime)continue;
+        for(const other of otherSessions){
+          const x=other.session;
+          if(x.date!==session.date||!x.startTime||!x.endTime||session.startTime>=x.endTime||session.endTime<=x.startTime)continue;
+          if(session.room&&session.room===x.room)
+            problem('warn','ROOM_CONFLICT','Room overlaps '+other.courseCode+' in the same academic year',session.id);
+          const facultyIds=new Set((x.assignments||[]).map(a=>a.facultyId).filter(Boolean));
+          if((session.assignments||[]).some(a=>a.facultyId&&facultyIds.has(a.facultyId)))
+            problem('warn','INSTRUCTOR_CONFLICT','Instructor overlaps '+other.courseCode+' in the same academic year',session.id);
+        }
+      }
       return {year,code:row.code,sourceRevision:row.revision,currentPublishedVersion:published?.version||null,
         diff,doeImpact,issues,canPublish:!issues.some(x=>x.severity==='block')};
     }
