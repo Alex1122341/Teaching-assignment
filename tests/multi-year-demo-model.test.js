@@ -151,3 +151,17 @@ test('ADC Calendar projection omits private DOE credits',()=>{
  assert.ok(rows.length>0);
  assert.doesNotMatch(JSON.stringify(rows),/doeCredit/);
 });
+
+test('ordinary office roles cannot read private Published DOE or teaching credit',()=>{
+ const m=engine();const adc={uid:'adc1',role:'adc'};
+ assert.throws(()=>m.getDoe(adc,'2026-27'),/DOE.*denied|permission/i);
+ const teaching=m.getTeaching(adc,'2026-27');
+ assert.equal(teaching.length,1);
+ assert.doesNotMatch(JSON.stringify(teaching),/doeCredit/);
+});
+test('unsupported office role receives no year data by default',()=>{
+ const m=engine();const unknown={uid:'u1',role:'other_office'};
+ assert.throws(()=>m.getCalendar(unknown,'2026-27'),/unsupported|permission/i);
+ assert.throws(()=>m.getTeaching(unknown,'2026-27'),/unsupported|permission/i);
+ assert.throws(()=>m.getDoe(unknown,'2026-27'),/unsupported|permission/i);
+});
