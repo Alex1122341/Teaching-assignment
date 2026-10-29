@@ -181,3 +181,9 @@ test('legacy annual Role displayed dates never extend beyond April 30',()=>{
  const m=createEngine({source:data,storage:memory()});const roles=m.getState().roles['2026-27'];
  assert.equal(roles.find(r=>r.id==='r4').end,'2027-04-30');
 });
+
+test('Faculty-linked course roles cannot access all-year AFC conflict evidence',()=>{
+ const m=engine();const adc={uid:'adc1',role:'adc'};
+ assert.throws(()=>m.getConflicts(lead,'2026-27'),/office|scope|permission/i);
+ assert.doesNotThrow(()=>m.getConflicts(adc,'2026-27'));
+});
