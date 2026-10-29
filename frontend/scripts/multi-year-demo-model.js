@@ -80,7 +80,7 @@
         const prior=d.records[f.id]||{};
         const override=d.overrides[f.id]!==undefined?Number(d.overrides[f.id]):prior.override??null;
         const base=Math.round((values[f.id]||0)*100)/100;
-        records[f.id]={facultyId:f.id,base,override,effective:override===null?base:override,needsReview:Boolean(afterChange&&override!==null&&prior.base!==base)};
+        records[f.id]={facultyId:f.id,base,override,effective:override===null?base:override,needsReview:Boolean(prior.needsReview||(afterChange&&override!==null&&prior.base!==base))};
       }
       d.records=records;
     }
@@ -120,6 +120,7 @@
     function finalizeCourse(a,year,code){adfa(a);editable(year);const row=annual(year,code);row.finalizedRevision=row.revision;logged('course_finalized',a,year,{code:row.code,revision:row.revision});return row.revision}
     function publishCourse(a,year,code){who(a);editable(year);const row=annual(year,code);if(!canPublish(a,year,row))invalid('Course publisher scope permission required');
       if(row.finalizedRevision!==row.revision)invalid('Current Working revision is not finalized');
+      if(currentRelease(row)?.revision===row.revision)invalid('No changes: Working revision already published');
       const release={version:row.published.length+1,revision:row.revision,sessions:clone(row.working),at:stamp(),by:a.uid};row.published.push(release);refreshPublishedDoe(year,true);
       logged('course_published',a,year,{code:row.code,version:release.version});return clone(release);
     }
