@@ -48,7 +48,7 @@
       const override=target&&target.overrideDoe!==null&&target.overrideDoe!==undefined?Number(target.overrideDoe):null;
       doeRecords[f.id]={facultyId:f.id,base,effective:override===null?base:override,override,needsReview:false};
     }
-    return {version:1,faculty,users,catalog,afc:clone(source.afcRecords||[]),years:{'2026-27':{status:'active',revision:1}},annual,roles,doe:{'2026-27':{policy:{status:'approved',copiedFrom:null},released:true,records:doeRecords,overrides:{}}},archives:[],audit:[],preferences:{},serial:0};
+    return {version:1,faculty,users,catalog,afc:clone(source.afcRecords||[]),years:{'2026-27':{status:'active',revision:1}},annual,roles,doe:{'2026-27':{policy:{status:'approved',copiedFrom:null},released:true,records:doeRecords,overrides:{}}},archives:[],audit:clone(source.history||[]).map(h=>({event:h.changeType||h.eventType||'legacy_change',actor:h.actorFirebaseUid||h.actorName||'',year:h.academicYear||'2026-27',at:h.changedAtUtc||h.occurredAtUtc||'',legacy:true,detail:{original:h}})),preferences:{},serial:0};
   }
   function createEngine({source={},storage=null,now=()=>new Date()}={}){
     let state;
