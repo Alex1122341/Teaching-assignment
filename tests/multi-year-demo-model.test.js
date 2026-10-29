@@ -165,3 +165,19 @@ test('unsupported office role receives no year data by default',()=>{
  assert.throws(()=>m.getTeaching(unknown,'2026-27'),/unsupported|permission/i);
  assert.throws(()=>m.getDoe(unknown,'2026-27'),/unsupported|permission/i);
 });
+
+test('full-year Role with invalid next-year Faculty appointment becomes Draft',()=>{
+ const data=structuredClone(source);
+ data.faculty[1].active=true;data.faculty[1].appointmentValid=false;
+ data.roles.push({roleAssignmentId:'r3',academicYear:'2026-27',facultyId:'f2',roleType:'HICC',courseOrSubjectOrRotation:'VTMD 304: Anatomy',effectiveDate:'2026-05-01',expirationDate:'2027-04-30'});
+ const m=createEngine({source:data,storage:memory(),now:()=>new Date('2026-10-29T18:00:00Z')});
+ m.createYear(owner,'2027-28');
+ const r=m.getState().roles['2027-28'].find(x=>x.sourceId==='r3');
+ assert.equal(r.status,'draft');
+ assert.match(r.rolloverReason,/appointment/i);
+});
+test('legacy annual Role displayed dates never extend beyond April 30',()=>{
+ const data=structuredClone(source);data.roles.push({roleAssignmentId:'r4',academicYear:'2026-27',facultyId:'f1',roleType:'HICC',courseOrSubjectOrRotation:'VTMD 304',effectiveDate:'2026-07-01',expirationDate:'2027-06-30'});
+ const m=createEngine({source:data,storage:memory()});const roles=m.getState().roles['2026-27'];
+ assert.equal(roles.find(r=>r.id==='r4').end,'2027-04-30');
+});
