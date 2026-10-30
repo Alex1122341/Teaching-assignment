@@ -50,6 +50,15 @@ function createDashboardFunctions({ api,traineeApi }) {
         const response = await api.cancelAfcRecord(bearer(request), id, payload);
         return { status: response.status, jsonBody: response.body };
       }
+      const afcDates = /^\/api\/v1\/dashboard\/afc-records\/([^/]+)\/dates$/.exec(pathname);
+      if (afcDates) {
+        if (request.method !== 'POST') return { status: 405, headers: { Allow: 'POST' }, jsonBody: { error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required.' } } };
+        let payload, id;
+        try { id = decodeURIComponent(afcDates[1]); payload = typeof request.json === 'function' ? await request.json() : request.body; }
+        catch (_) { return { status: 400, jsonBody: { error: { code: 'INVALID_JSON', message: 'Request JSON or record identifier is invalid.' } } }; }
+        const response = await api.updateAfcRecordDates(bearer(request), id, payload);
+        return { status: response.status, jsonBody: response.body };
+      }
       const facultyUpdate = /^\/api\/v1\/dashboard\/faculty\/([^/]+)$/.exec(pathname);
       const facultyAction = /^\/api\/v1\/dashboard\/faculty\/([^/]+)\/(restore|deactivate)$/.exec(pathname);
       const rolePeriods = /^\/api\/v1\/dashboard\/roles\/([^/]+)\/periods$/.exec(pathname);

@@ -2,6 +2,8 @@
 // Faculty edits, role effective periods and AFC record writes for the demo.
 const { PROFILE_FIELDS } = require('../../../server/src/data/sql-faculty-admin-repository.js');
 const { afcView, sqlError, clone } = require('./core.js');
+const { isAdministratorRole } = require('../../../server/src/auth/role-policy.js');
+const { dateRange, versionOf, bumpVersion } = require('./afc-date-change.js');
 
 const AFC_REASONS = { university_travel: 'University Travel', vacation: 'Vacation', rsl: 'RSL', medical: 'Medical', mat: 'MAT', special: 'Special', other: 'Other' };
 const hexVersion = n => '0x' + Number(n).toString(16).toUpperCase().padStart(16, '0');
@@ -92,6 +94,26 @@ function createAfcWriteRepository(store) {
       store.audit({ domain: 'afc', changeType: 'afc_batch_created', actorFirebaseUid, actorName, after: created });
       store.commit();
       return { status: 'CREATED', rows: created };
+    },
+    async updateAfcDates({ afcRecordId, sourceKind, expectedVersion, startDate, endDate, actorFirebaseUid }) {
+      const actor = t().users.find(u => u.firebaseUid === actorFirebaseUid && u.active === true);
+      if (!actor || !isAdministratorRole(actor.baseRole)) throw sqlError(56402, 'Administrator permission required');
+      const row = t().afcRecords.find(r => r.afcRecordId === afcRecordId && r.sourceKind === sourceKind);
+      if (!row) throw sqlError(56403, 'Record not found');
+      if (row.active === false) throw sqlError(56406, 'Withdrawn record cannot be edited');
+      if (versionOf(row) !== String(expectedVersion || '').toUpperCase()) throw sqlError(56404, 'Version conflict');
+      if (row.startDate === startDate && row.endDate === endDate) throw sqlError(56408, 'Unchanged dates');
+      const days = dateRange(startDate, endDate);
+      const before = clone(row);
+      row.startDate = startDate;
+      row.endDate = endDate;
+      row.workDays = days;
+      row.versionToken = bumpVersion(versionOf(row));
+      store.audit({ domain: 'afc', changeType: 'afc_dates_changed', afcRecordId, facultyId: row.facultyId,
+        actorFirebaseUid, before: { startDate: before.startDate, endDate: before.endDate },
+        after: { startDate, endDate, workDays: days } });
+      store.commit();
+      return afcView(store, row);
     },
     async cancelAfcRecord({ afcRecordId, sourceKind, expectedVersion, actorFirebaseUid, actorName = null }) {
       const row = t().afcRecords.find(item => item.afcRecordId === afcRecordId && item.sourceKind === sourceKind);

@@ -16,7 +16,7 @@ const adminAuth = { verifyToken: auth.verifyToken, findUser: async () => ({ ...p
 
 test('W1H adds three independent exact-lowercase true gates and preserves W1C gates', () => {
   assert.deepEqual(createWriteGates({}), {
-    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: false, afcBatch: false, afcCancel: false, sessionEdit: false, sessionCreate: false,
+    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: false, afcBatch: false, afcCancel: false, afcEdit: false, sessionEdit: false, sessionCreate: false,
     afcRequest: false, afcDecision: false, afcArtifact: false, afcFormUpload: false, cccReplaceStage: false, cccReplaceCommit: false,
     taDraft: false, taReview: false, taFinal: false, taPublish: false, facultyAdmin: false,
     doeAdmin: false, doeManualAssignment: false, doePolicyPublish: false, doeRecalculate: false,
@@ -30,7 +30,7 @@ test('W1H adds three independent exact-lowercase true gates and preserves W1C ga
     PAWS_AFC_DECISION_WRITE_ENABLED: 'True',
     PAWS_AFC_ARTIFACT_WRITE_ENABLED: '1'
   }), {
-    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: true, afcBatch: false, afcCancel: false, sessionEdit: false, sessionCreate: false,
+    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: true, afcBatch: false, afcCancel: false, afcEdit: false, sessionEdit: false, sessionCreate: false,
     afcRequest: true, afcDecision: false, afcArtifact: false, afcFormUpload: false, cccReplaceStage: false, cccReplaceCommit: false,
     taDraft: false, taReview: false, taFinal: false, taPublish: false, facultyAdmin: false,
     doeAdmin: false, doeManualAssignment: false, doePolicyPublish: false, doeRecalculate: false,
@@ -41,7 +41,9 @@ test('W1H adds three independent exact-lowercase true gates and preserves W1C ga
     assert.equal(createWriteGates(env).afcRequest, false, String(value));
     assert.equal(createWriteGates({ PAWS_AFC_DECISION_WRITE_ENABLED: value }).afcDecision, false, String(value));
     assert.equal(createWriteGates({ PAWS_AFC_ARTIFACT_WRITE_ENABLED: value }).afcArtifact, false, String(value));
+    assert.equal(createWriteGates({ PAWS_AFC_EDIT_WRITE_ENABLED: value }).afcEdit, false, String(value));
   }
+  assert.equal(createWriteGates({ PAWS_AFC_EDIT_WRITE_ENABLED: 'true' }).afcEdit, true);
 });
 
 test('AFC request submit and withdraw are authenticated but never call repository while lifecycle gate is disabled', async () => {
@@ -93,7 +95,7 @@ test('write-capabilities endpoint requires an authenticated GET and advertises o
   });
   assert.deepEqual(await route(request('GET')), {
     status: 200,
-    jsonBody: { writeCapabilities: { sessionEdit: false, sessionCreate: false, afcSingle: false, afcBatch: false, requestLifecycle: true, decisions: false, approvedArtifactCreation: true } }
+    jsonBody: { writeCapabilities: { sessionEdit: false, sessionCreate: false, afcSingle: false, afcBatch: false, requestLifecycle: true, decisions: false, approvedArtifactCreation: true, dateChange: false } }
   });
   assert.equal((await route(request('POST'))).status, 405);
   const unauthenticatedRoute = createAfcRequestFunctions({ api: createAfcRequestApi({

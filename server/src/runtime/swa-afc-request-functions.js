@@ -56,7 +56,7 @@ function createAfcRequestFunctions({ api }) {
         && segments[1] === 'api'
         && segments[2] === 'v1'
         && segments[3] === 'afc-requests'
-        && ['withdraw', 'recommend', 'reject', 'approve'].includes(segments[5]);
+        && ['withdraw', 'recommend', 'reject', 'approve', 'date-change', 'dates'].includes(segments[5]);
       if (isRequestAction) {
         if (request.method !== 'POST') {
           return {
@@ -81,7 +81,9 @@ function createAfcRequestFunctions({ api }) {
         } catch (_) {
           return { status: 400, jsonBody: { error: { code: 'INVALID_JSON', message: 'Request JSON is invalid.' } } };
         }
-        return toHttp(await api[action](token, afcRequestId, payload));
+        // UX-07: faculty date change (new approval) and office date change (direct).
+        const handler = { 'date-change': 'changeDates', dates: 'officeChangeDates' }[action] || action;
+        return toHttp(await api[handler](token, afcRequestId, payload));
       }
 
       return { status: 404, jsonBody: { error: { code: 'NOT_FOUND', message: 'Route not found.' } } };
