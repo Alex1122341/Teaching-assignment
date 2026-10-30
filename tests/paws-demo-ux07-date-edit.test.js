@@ -128,7 +128,8 @@ test('AFC requester API requires a version for date changes, never accepting unv
     writeGates: { afcRequest: true, afcEdit: true }
   });
   const payload = {
-    ...range, termsAccepted: true, termsVersion: 'ucvm-afc-terms-page2-v1',
+    startDate: range.startDate, endDate: range.endDate, reason: range.reason, coverage: range.coverage,
+    termsAccepted: true, termsVersion: 'ucvm-afc-terms-page2-v1',
     termsSource: 'absence-from-campus-app.pdf#page=2',
     contactAddress: '123 Example Road', contactPhone: '403-555-0155',
     applicantSignature: { mode: 'typed', name: 'Synthetic Faculty', uid: f.original.requesterFirebaseUid,

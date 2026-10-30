@@ -6,7 +6,7 @@ const { createWriteGates } = require('../src/data/write-gates');
 
 test('write gate environment is per-domain and fail-closed for missing, false, and non-exact values', () => {
   assert.deepEqual(createWriteGates({}), {
-    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: false, afcBatch: false, afcCancel: false, sessionEdit: false, sessionCreate: false,
+    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: false, afcBatch: false, afcCancel: false, afcEdit: false, sessionEdit: false, sessionCreate: false,
     afcRequest: false, afcDecision: false, afcArtifact: false, afcFormUpload: false, cccReplaceStage: false, cccReplaceCommit: false,
     taDraft: false, taReview: false, taFinal: false, taPublish: false, facultyAdmin: false,
     doeAdmin: false, doeManualAssignment: false, doePolicyPublish: false, doeRecalculate: false,
@@ -23,7 +23,7 @@ test('write gate environment is per-domain and fail-closed for missing, false, a
     PAWS_UNRELATED_WRITE_ENABLED: 'true',
     PAWS_FACULTY_ADMIN_WRITE_ENABLED: 'true'
   }), {
-    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: true, afcBatch: false, afcCancel: false, sessionEdit: false, sessionCreate: false,
+    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: true, afcBatch: false, afcCancel: false, afcEdit: false, sessionEdit: false, sessionCreate: false,
     afcRequest: false, afcDecision: false, afcArtifact: false, afcFormUpload: false, cccReplaceStage: false, cccReplaceCommit: false,
     taDraft: true, taReview: true, taFinal: false, taPublish: false, facultyAdmin: true,
     doeAdmin: false, doeManualAssignment: false, doePolicyPublish: false, doeRecalculate: false,
@@ -34,12 +34,14 @@ test('write gate environment is per-domain and fail-closed for missing, false, a
     PAWS_DOE_POLICY_PUBLISH_ENABLED: 'true',
     PAWS_DOE_RECALC_WRITE_ENABLED: 'true'
   }), {
-    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: false, afcBatch: false, afcCancel: false, sessionEdit: false, sessionCreate: false,
+    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: false, afcBatch: false, afcCancel: false, afcEdit: false, sessionEdit: false, sessionCreate: false,
     afcRequest: false, afcDecision: false, afcArtifact: false, afcFormUpload: false, cccReplaceStage: false, cccReplaceCommit: false,
     taDraft: false, taReview: false, taFinal: false, taPublish: false, facultyAdmin: false,
     doeAdmin: true, doeManualAssignment: false, doePolicyPublish: true, doeRecalculate: true,
     schedulingTaskReview:false,calendarActivityStage:false,calendarActivityCommit:false,calendarActivityTime:false
   });
+  assert.equal(createWriteGates({ PAWS_AFC_EDIT_WRITE_ENABLED: 'true' }).afcEdit, true);
+  for (const denied of ['TRUE','True','1',' true','true ']) assert.equal(createWriteGates({ PAWS_AFC_EDIT_WRITE_ENABLED: denied }).afcEdit, false);
 });
 test('calendar activity gates independently require exact lowercase environment true',()=>{
  for(const [key,name] of [['calendarActivityStage','PAWS_CALENDAR_ACTIVITY_STAGE_ENABLED'],['calendarActivityCommit','PAWS_CALENDAR_ACTIVITY_COMMIT_ENABLED'],['calendarActivityTime','PAWS_CALENDAR_ACTIVITY_TIME_ENABLED']]){

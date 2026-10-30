@@ -33,7 +33,7 @@ function makeApi({ role = 'administrator', gates = {}, overrides = {} } = {}) {
 
 test('session create gate is independent, exact-true, and fail-closed by default', () => {
   assert.deepEqual(createWriteGates({}), {
-    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: false, afcBatch: false, afcCancel: false, sessionEdit: false, sessionCreate: false,
+    swapRequest: false, swapDecision: false, swapApply: false, afcSingle: false, afcBatch: false, afcCancel: false, afcEdit: false, sessionEdit: false, sessionCreate: false,
     afcRequest: false, afcDecision: false, afcArtifact: false, afcFormUpload: false, cccReplaceStage: false, cccReplaceCommit: false,
     taDraft: false, taReview: false, taFinal: false, taPublish: false, facultyAdmin: false,
     doeAdmin: false, doeManualAssignment: false, doePolicyPublish: false, doeRecalculate: false,
