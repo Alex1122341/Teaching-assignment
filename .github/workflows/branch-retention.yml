@@ -1,0 +1,48 @@
+name: PAWS Testing Branch Retention
+
+# Keep up to 10 refs (main included) for recovery; delete only verified-merged PR tips.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  schedule:
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Preview cleanup only; do not delete branches'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: paws-testing-branch-retention
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    if: >-
+      github.repository == 'UCVM-Teaching-Assignment/Teaching-assignment'
+      && (github.event_name != 'pull_request'
+      || github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Enforce 10-branch retention
+        run: node tools/maintenance/prune-merged-branches.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
