@@ -23,7 +23,12 @@
     const canRecommend=status==='pending_report_to'&&(isAdmin||(SELF_ROLES.has(normalizedRole)&&reportTo===actor));
     const canApprove=status==='pending_admin'&&isAdmin;
     const canReject=canRecommend||canApprove;
-    return{canWithdraw,canRecommend,canReject,canApprove};
+    // UX-07: an approved request can change dates. Faculty start a new approval;
+    // the ADFA office changes them directly. Pending requests are withdrawn instead.
+    const approved=status==='approved'&&!String(request?.supersededByAfcRequestId??'').trim();
+    const canChangeDates=approved&&SELF_ROLES.has(normalizedRole)&&requester===actor;
+    const canOfficeChangeDates=approved&&isAdmin;
+    return{canWithdraw,canRecommend,canReject,canApprove,canChangeDates,canOfficeChangeDates};
   }
 
   function createSqlAfcWorkflow(options={}){
@@ -38,7 +43,7 @@
     const ask=options.prompt||((message)=>root.prompt?.(message));
     const FormDataCtor=options.FormData||root.FormData||globalThis.FormData;
     const escape=options.escapeHtml||((value)=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
-    let requests=[],writeCapabilities={requestLifecycle:false,decisions:false,approvedArtifactCreation:false},loaded=false,busy=false,panelId='afc-panel',applicantSignature=null,submitInFlight=false,submitOutcomeUnconfirmed=false;
+    let requests=[],writeCapabilities={requestLifecycle:false,decisions:false,approvedArtifactCreation:false,dateChange:false},changeTargetId='',officeEditId='',loaded=false,busy=false,panelId='afc-panel',applicantSignature=null,submitInFlight=false,submitOutcomeUnconfirmed=false;
     const downloadInFlight=new Map();
     const panel=()=>doc?.getElementById?.(panelId)||null;
     function syncSubmitButton(){const currentForm=doc?.getElementById?.('afc-sql-form'),button=currentForm?.querySelector?.('button[type="submit"]');if(button)button.disabled=submitInFlight||submitOutcomeUnconfirmed;}
@@ -58,22 +63,27 @@
       if(!writeCapabilities.approvedArtifactCreation)messages.push('Creating a missing approved AFC PDF is currently unavailable; existing approved PDFs remain downloadable.');
       return messages.length?'<p class="afc-note" role="status">'+messages.map(e).join(' ')+'</p>':'';
     }
-    function statusLabel(value){return({pending_report_to:'Pending Reports To approval',pending_admin:'Pending ADMIN approval',approved:'Approved',rejected:'Rejected',withdrawn:'Withdrawn'}[value]||value||'Unknown')}
+    function statusLabel(value){return({pending_report_to:'Pending Reports To approval',pending_admin:'Pending ADMIN approval',approved:'Approved',rejected:'Rejected',withdrawn:'Withdrawn',superseded:'Replaced by new dates'}[value]||value||'Unknown')}
+    const PENDING=['pending_report_to','pending_admin'];
+    function openChangeFor(id){return requests.find(row=>String(row.replacesAfcRequestId??'')===String(id)&&PENDING.includes(String(row.status??'')))||null}
     function formHtml(){
       if(!SELF_ROLES.has(actorRole())||!writeCapabilities.requestLifecycle)return'';
       const displayName=profile().displayName||user()?.displayName||user()?.email||'Signed-in account';
-      return '<details class="afc-new"><summary>New AFC request</summary><form id="afc-sql-form">'+
-        '<p class="afc-autofill">Submitting as '+e(showFaculty(displayName))+'. The University API determines faculty identity and workflow routing.</p>'+
-        '<div class="afc-grid"><label>Start date<input type="date" name="startDate" required></label>'+
-        '<label>End date<input type="date" name="endDate" required></label>'+
-        '<label>Reason<select name="reason" required><option value="vacation">Vacation</option><option value="business_other">Business / Other</option></select></label></div>'+
+      const original=changeTargetId?findRequest(changeTargetId):null;
+      const reason=original?.reason==='business_other'?'business_other':'vacation';
+      const changeNote=original?'<p class="afc-note" role="status">Changing the dates of your approved request ('+e(original.startDate)+' – '+e(original.endDate)+'). Enter the new dates, sign again and submit. It goes through approval again; your current approved dates stay in effect until the new dates are approved. <button type="button" id="afc-sql-change-cancel">Cancel date change</button></p>':'';
+      return '<details class="afc-new"'+(original?' open':'')+'><summary>'+(original?'Change dates of an approved AFC request':'New AFC request')+'</summary><form id="afc-sql-form">'+changeNote+
+        '<p class="afc-autofill">Submitting as '+e(showFaculty(displayName))+'. The simulated Testing API determines faculty identity and workflow routing.</p>'+
+        '<div class="afc-grid"><label>'+(original?'New start date':'Start date')+'<input type="date" name="startDate" required value="'+e(original?.startDate||'')+'"></label>'+
+        '<label>'+(original?'New end date':'End date')+'<input type="date" name="endDate" required value="'+e(original?.endDate||'')+'"></label>'+
+        '<label>Reason<select name="reason" required><option value="vacation"'+(reason==='vacation'?' selected':'')+'>Vacation</option><option value="business_other"'+(reason==='business_other'?' selected':'')+'>Business / Other</option></select></label></div>'+
         '<label>Contact address<textarea name="contactAddress" required maxlength="500"></textarea></label>'+
         '<label>Phone number<input type="tel" name="contactPhone" required maxlength="50"></label>'+
-        '<label id="afc-sql-purpose-wrap" hidden>Purpose and destination<textarea name="purposeDestination" maxlength="1000"></textarea></label>'+
-        '<label>Coverage arrangements (required when the server finds teaching during this period)<textarea name="coverage" maxlength="2000"></textarea></label>'+
+        '<label id="afc-sql-purpose-wrap"'+(reason==='business_other'?'':' hidden')+'>Purpose and destination<textarea name="purposeDestination" maxlength="1000">'+e(original?.purposeDestination||'')+'</textarea></label>'+
+        '<label>Coverage arrangements (required when the server finds teaching during this period)<textarea name="coverage" maxlength="2000">'+e(original?.coverage||'')+'</textarea></label>'+
         '<label class="afc-terms"><input type="checkbox" name="termsAccepted" required> I have reviewed and accept the <a href="absence-from-campus-app.pdf#page=2" target="_blank" rel="noopener">AFC Terms &amp; Conditions (page 2)</a>.</label>'+
         '<div class="afc-signature-control"><button class="btn btn-secondary" type="button" id="afc-sql-sign">Choose signature</button><span><strong id="afc-sql-signature-status">Not signed</strong><small>Type, draw, or upload a signature image.</small></span></div>'+
-        '<div class="afc-submit-row"><button class="btn btn-primary" type="submit">Submit AFC request</button><span id="afc-sql-submit-status" role="status"></span></div>'+
+        '<div class="afc-submit-row"><button class="btn btn-primary" type="submit">'+(original?'Submit date change for approval':'Submit AFC request')+'</button><span id="afc-sql-submit-status" role="status"></span></div>'+
       '</form></details>';
     }
 
@@ -84,21 +94,29 @@
       if(request.coverage)details.push('<p><b>Coverage:</b> '+e(request.coverage)+'</p>');
       if(request.rejectionReason)details.push('<p class="error"><b>Rejected:</b> '+e(request.rejectionReason)+'</p>');
       if(status==='approved')details.push('<p class="afc-note" role="status">Approved.</p>');
+      const pendingChange=status==='approved'?openChangeFor(id):null;
+      if(pendingChange)details.push('<p class="afc-note" role="status">A date change to '+e(pendingChange.startDate)+' – '+e(pendingChange.endDate)+' is waiting for approval. These dates stay in effect until it is approved.</p>');
+      if(request.replacesAfcRequestId&&PENDING.includes(status))details.push('<p class="afc-note">Date change for an earlier approved request. The earlier dates stay in effect until this is approved.</p>');
+      if(status==='superseded')details.push('<p class="afc-note">These dates were replaced by an approved date change. Change History shows the old and new dates.</p>');
+      if(a.canWithdraw&&writeCapabilities.requestLifecycle)details.push('<p class="afc-note">To change the dates of a pending request, withdraw it and submit a new request.</p>');
       const controls=[];
       if(a.canWithdraw&&writeCapabilities.requestLifecycle)controls.push('<button type="button" data-afc-withdraw="'+e(id)+'">Withdraw request</button>');
       if(a.canRecommend&&writeCapabilities.decisions)controls.push('<button type="button" data-afc-action="recommend" data-afc-id="'+e(id)+'">Sign &amp; recommend</button>');
       if(a.canApprove&&writeCapabilities.decisions)controls.push('<button type="button" data-afc-action="approve" data-afc-id="'+e(id)+'">Sign &amp; approve</button>');
       if(a.canReject&&writeCapabilities.decisions)controls.push('<button type="button" data-afc-action="reject" data-afc-id="'+e(id)+'">Sign &amp; reject</button>');
       if(status==='approved'&&AFC_REQUEST_UUID.test(id))controls.push('<button type="button" data-afc-download="'+e(id)+'">Download Approved PDF</button>');
+      if(a.canChangeDates&&!pendingChange&&writeCapabilities.requestLifecycle&&writeCapabilities.dateChange)controls.push('<button type="button" data-afc-change-dates="'+e(id)+'">Change dates</button>');
+      if(a.canOfficeChangeDates&&!pendingChange&&writeCapabilities.dateChange&&request.versionToken)controls.push('<button type="button" data-afc-office-dates="'+e(id)+'">Edit dates</button>');
+      const officeEditor=officeEditId===id&&a.canOfficeChangeDates&&!pendingChange&&writeCapabilities.dateChange?'<div class="afc-grid" data-afc-office-editor="'+e(id)+'"><label>New start date<input type="date" data-afc-office-start value="'+e(request.startDate)+'"></label><label>New end date<input type="date" data-afc-office-end value="'+e(request.endDate)+'"></label><span><button type="button" data-afc-office-save="'+e(id)+'">Save dates</button> <button type="button" data-afc-office-cancel="'+e(id)+'">Cancel</button></span><p class="afc-note">The ADFA office change applies immediately without a new approval. Change History records the old and new dates; the approved PDF keeps the originally approved dates.</p><p class="afc-note" role="status" id="afc-office-status-'+e(id)+'"></p></div>':'';
       if(a.canRecommend&&ADMIN_ROLES.has(actorRole()))details.push('<p class="afc-note">An administrator may sign on behalf of Reports To; the server remains authoritative.</p>');
       return '<article class="afc-card"><header><strong>'+e(showFaculty(request.facultyName))+'</strong><span class="afc-status '+e(status)+'">'+e(statusLabel(status))+'</span></header>'+
         details.join('')+(status==='approved'?'<p class="afc-note" role="status" id="afc-download-status-'+e(id)+'"></p>':'')+
-        (controls.length?'<div class="afc-review">'+controls.join('')+'</div>':'')+'</article>';
+        (controls.length?'<div class="afc-review">'+controls.join('')+'</div>':'')+officeEditor+'</article>';
     }
 
     function render(){
       const target=panel();if(!target)return;
-      target.innerHTML='<div class="dashboard-heading"><div><h2>Absence from Campus</h2><p>Requests and approvals are stored in VetMed-Ops.</p></div><button type="button" id="afc-sql-refresh">Refresh</button></div>'+
+      target.innerHTML='<div class="dashboard-heading"><div><h2>Absence from Campus</h2><p>Testing Demo: synthetic AFC requests are stored in this browser, not University SQL or Firestore.</p></div><button type="button" id="afc-sql-refresh">Refresh</button></div>'+
         unavailableMessage()+formHtml()+'<div class="afc-list">'+(requests.map(card).join('')||'<p>No AFC requests are visible to this account.</p>')+'</div>';
       bind();
     }
@@ -123,8 +141,8 @@
       busy=true;const target=panel();if(target)target.innerHTML='<p class="afc-loading">Loading AFC requests…</p>';
       try{
         const api=client();const rows=await api.listAfcRequests();requests=Array.isArray(rows)?rows:[];
-        try{writeCapabilities=await api.afcWriteCapabilities()}catch(_){writeCapabilities={requestLifecycle:false,decisions:false,approvedArtifactCreation:false}}
-        if(!writeCapabilities||typeof writeCapabilities!=='object')writeCapabilities={requestLifecycle:false,decisions:false,approvedArtifactCreation:false};
+        try{writeCapabilities=await api.afcWriteCapabilities()}catch(_){writeCapabilities={requestLifecycle:false,decisions:false,approvedArtifactCreation:false,dateChange:false}}
+        if(!writeCapabilities||typeof writeCapabilities!=='object')writeCapabilities={requestLifecycle:false,decisions:false,approvedArtifactCreation:false,dateChange:false};
         loaded=true;if(force&&submitOutcomeUnconfirmed)submitOutcomeUnconfirmed=false;render();return requests
       }
       catch(error){if(target)target.innerHTML='<p class="error">'+e(error?.message||'AFC requests could not be loaded.')+'</p>';throw error}
@@ -155,8 +173,33 @@
     async function submit(payload){
       if(!SELF_ROLES.has(actorRole()))throw Error('Only Faculty, HICC, or VISC accounts may submit an AFC request.');
       if(!writeCapabilities.requestLifecycle)throw Error('AFC request submissions are currently unavailable.');
+      if(changeTargetId)return changeDates(changeTargetId,payload);
       const result=await performWrite(()=>client().submitAfcRequest(payload),'submission');
       applicantSignature=null;
+      return result;
+    }
+
+    // UX-07: the requester's date change for an approved request (new approval).
+    async function changeDates(id,payload){
+      const row=findRequest(id);
+      if(!row||!actionsFor(row).canChangeDates)throw Error('Only your own approved AFC request can have its dates changed. Withdraw a pending request and submit a new one.');
+      if(!writeCapabilities.requestLifecycle||!writeCapabilities.dateChange)throw Error('Changing AFC dates is currently unavailable.');
+      if(openChangeFor(id))throw Error('A date change for this request is already waiting for approval.');
+      if(payload?.startDate===row.startDate&&payload?.endDate===row.endDate)throw Error('The new dates are the same as the approved dates.');
+      const result=await performWrite(()=>client().submitAfcDateChange(id,{...payload,expectedVersion:row.versionToken}),'date change');
+      applicantSignature=null;changeTargetId='';render();
+      return result;
+    }
+
+    // UX-07: the ADFA office changes approved dates directly (no new approval).
+    async function officeChangeDates(id,startDate,endDate){
+      const row=findRequest(id);
+      if(!row||!actionsFor(row).canOfficeChangeDates)throw Error('Only an approved request can have its dates changed by the ADFA office.');
+      if(!writeCapabilities.dateChange)throw Error('Changing AFC dates is currently unavailable.');
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(String(startDate))||!/^\d{4}-\d{2}-\d{2}$/.test(String(endDate))||endDate<startDate)throw Error('Choose a valid start and end date.');
+      if(startDate===row.startDate&&endDate===row.endDate)throw Error('The new dates are the same as the current dates.');
+      const result=await performWrite(()=>client().changeApprovedAfcDates(id,{expectedVersion:row.versionToken,startDate,endDate}),'date change');
+      officeEditId='';render();
       return result;
     }
 
@@ -278,9 +321,10 @@
           submitInFlight=true;syncSubmitButton();
           const status=doc.getElementById('afc-sql-submit-status');if(status)status.textContent='Submitting…';
           try{
+            const wasDateChange=Boolean(changeTargetId);
             await submit(formPayload(form));form.reset();
             const signatureStatus=doc.getElementById('afc-sql-signature-status');if(signatureStatus)signatureStatus.textContent='Not signed';
-            const current=doc.getElementById('afc-sql-submit-status');if(current)current.textContent='Request submitted.';
+            const current=doc.getElementById('afc-sql-submit-status');if(current)current.textContent=wasDateChange?'Date change submitted for approval. Your current approved dates stay in effect until it is approved.':'Request submitted.';
           }catch(error){
             if(error?.code==='OUTCOME_UNCONFIRMED')submitOutcomeUnconfirmed=true;
             const current=doc.getElementById('afc-sql-submit-status');if(current)current.textContent=error?.message||'The request could not be submitted.';
@@ -291,6 +335,16 @@
       }
       const target=panel();if(!target?.querySelectorAll)return;
       const refresh=doc.getElementById('afc-sql-refresh');if(refresh)refresh.onclick=()=>load(true);
+      const changeCancel=doc.getElementById('afc-sql-change-cancel');if(changeCancel)changeCancel.onclick=()=>{changeTargetId='';applicantSignature=null;render()};
+      target.querySelectorAll('[data-afc-change-dates]').forEach(button=>button.onclick=()=>{changeTargetId=button.dataset.afcChangeDates;applicantSignature=null;render();doc.getElementById('afc-sql-form')?.scrollIntoView?.({block:'start'})});
+      target.querySelectorAll('[data-afc-office-dates]').forEach(button=>button.onclick=()=>{officeEditId=button.dataset.afcOfficeDates;render()});
+      target.querySelectorAll('[data-afc-office-cancel]').forEach(button=>button.onclick=()=>{officeEditId='';render()});
+      target.querySelectorAll('[data-afc-office-save]').forEach(button=>button.onclick=async()=>{
+        const id=button.dataset.afcOfficeSave,box=button.closest?.('[data-afc-office-editor]'),status=doc.getElementById('afc-office-status-'+id);
+        button.disabled=true;if(status)status.textContent='Saving…';
+        try{await officeChangeDates(id,box?.querySelector?.('[data-afc-office-start]')?.value||'',box?.querySelector?.('[data-afc-office-end]')?.value||'')}
+        catch(error){const current=doc.getElementById('afc-office-status-'+id);if(current)current.textContent=error?.message||'AFC dates could not be changed.';button.disabled=false}
+      });
       target.querySelectorAll('[data-afc-withdraw]').forEach(button=>button.onclick=()=>withdraw(button.dataset.afcWithdraw).catch(error=>root.alert?.(error.message)));
       target.querySelectorAll('[data-afc-action]').forEach(button=>button.onclick=()=>captureDecision(button.dataset.afcId,button.dataset.afcAction).catch(error=>root.alert?.(error.message)));
       target.querySelectorAll('[data-afc-download]').forEach(button=>button.onclick=async()=>{
@@ -307,7 +361,7 @@
       panelId=nextPanel;mode=nextMode;return api;
     }
 
-    const api={mount,load,submit,withdraw,recommend:(id,signature)=>decide(id,'recommend',signature),reject:(id,signature,reason)=>decide(id,'reject',signature,reason),approve:(id,signature)=>decide(id,'approve',signature),downloadApprovedArtifact,decide,actionsFor,formPayload,getRequests:()=>[...requests],teachingListHtml:()=>'',unavailable:false};
+    const api={mount,load,submit,withdraw,changeDates,officeChangeDates,startDateChange:id=>{changeTargetId=String(id??'');render()},recommend:(id,signature)=>decide(id,'recommend',signature),reject:(id,signature,reason)=>decide(id,'reject',signature,reason),approve:(id,signature)=>decide(id,'approve',signature),downloadApprovedArtifact,decide,actionsFor,formPayload,getRequests:()=>[...requests],teachingListHtml:()=>'',unavailable:false};
     return api;
   }
 

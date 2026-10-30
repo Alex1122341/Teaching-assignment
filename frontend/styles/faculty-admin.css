@@ -165,3 +165,7 @@ body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;background:var(--bg);colo
 
 .afc-forms-card{margin:16px 0;padding:18px;border:1px solid #dce1e8;border-radius:5px;background:#fff}.afc-forms-card header p{max-width:78ch;color:#59657a;line-height:1.5}.afc-forms-card h3{margin:0 0 8px}.afc-forms-card h4{margin:20px 0 10px}.afc-form-preview{padding:12px;background:#f5f7fa;border-radius:4px;overflow-wrap:anywhere}.afc-form-preview .btn{margin-left:8px}.afc-forms-card .field-grid{margin-top:14px}.afc-forms-card input[type=file]{max-width:100%}
 .ccc-preview-table{max-height:360px;overflow:auto;margin:10px 0 18px}.ccc-preview-table th{position:sticky;top:0;background:#f5f7fa}.ccc-confirm{display:flex;align-items:flex-start;gap:10px;line-height:1.5;margin:18px 0}.ccc-confirm input{flex-shrink:0;margin-top:4px}#ccc-replacement .aux-note{overflow-wrap:anywhere}#ccc-replacement details{margin:12px 0}#ccc-replacement summary{cursor:pointer;font-weight:600}
+
+/* UX-07: inline AFC date edit (ADFA office) */
+.afc-date-edit-form{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:6px 0}
+.afc-date-edit-form label{display:flex;flex-direction:column;gap:4px;font-size:12px}

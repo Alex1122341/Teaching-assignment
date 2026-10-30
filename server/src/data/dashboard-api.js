@@ -349,24 +349,55 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
     async afcRecordWriteCapabilities(token) {
       return guarded(token, scope => {
         if (!scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot manage AFC records.');
-        return result(200, { writeCapabilities: { afcSingle: writeGates.afcSingle === true, afcBatch: writeGates.afcBatch === true, afcCancel: writeGates.afcCancel === true } });
+        return result(200, { writeCapabilities: { afcSingle: writeGates.afcSingle === true, afcBatch: writeGates.afcBatch === true, afcCancel: writeGates.afcCancel === true, afcEdit: writeGates.afcEdit === true } });
       });
     },
     async cancelAfcRecord(token, afcRecordId, payload = {}) {
       const auth = await authorize(token);
       if (auth.status) return auth;
-      if (!auth.scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot cancel AFC records.');
+      if (!auth.scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot withdraw AFC records.');
       if (writeGates.afcCancel !== true) return writeDisabled();
       if (!UUID.test(text(afcRecordId))) return error(400, 'INVALID_AFC_RECORD_ID', 'A valid AFC record is required.');
       const sourceKind = text(payload?.sourceKind), expectedVersion = text(payload?.expectedVersion);
       if (!['manual', 'import'].includes(sourceKind)) return error(400, 'INVALID_AFC_SOURCE', 'Select a manual or imported AFC record.');
-      if (!/^[0-9a-f]{16}$/i.test(expectedVersion)) return error(400, 'INVALID_AFC_VERSION', 'Refresh the AFC records before deleting.');
+      if (!/^[0-9a-f]{16}$/i.test(expectedVersion)) return error(400, 'INVALID_AFC_VERSION', 'Refresh the AFC records before withdrawing.');
       try {
         const row = await writeRepository.cancelAfcRecord({ afcRecordId: text(afcRecordId), sourceKind, expectedVersion, actorFirebaseUid: auth.decoded.uid, actorName: auth.profile.displayName, requestId: randomUUID() });
         if (!row) return error(503, 'SQL_UNAVAILABLE', 'The SQL write service is unavailable.');
         return result(200, { afcRecord: normalizeAfcRecord(row) });
       } catch (caught) {
-        const known = { 53602: [403, 'ROLE_DENIED', 'Administrator permission is required.'], 53603: [404, 'AFC_RECORD_NOT_FOUND', 'This AFC record no longer exists.'], 53604: [409, 'AFC_RECORD_CHANGED', 'This AFC record changed. Refresh and review it before deleting.'] }[Number(caught?.number)];
+        const known = { 53602: [403, 'ROLE_DENIED', 'Administrator permission is required.'], 53603: [404, 'AFC_RECORD_NOT_FOUND', 'This AFC record no longer exists.'], 53604: [409, 'AFC_RECORD_CHANGED', 'This AFC record changed. Refresh and review it before withdrawing.'] }[Number(caught?.number)];
+        return known ? error(...known) : error(503, 'SQL_UNAVAILABLE', 'The SQL write service is unavailable.');
+      }
+    },
+    // UX-07: the ADFA office changes the dates of an active AFC record directly.
+    // No new approval; the old and new dates are recorded in Change History.
+    async updateAfcRecordDates(token, afcRecordId, payload = {}) {
+      const auth = await authorize(token);
+      if (auth.status) return auth;
+      if (!auth.scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot change AFC dates.');
+      if (writeGates.afcEdit !== true) return writeDisabled();
+      if (!UUID.test(text(afcRecordId))) return error(400, 'INVALID_AFC_RECORD_ID', 'A valid AFC record is required.');
+      const sourceKind = text(payload?.sourceKind), expectedVersion = text(payload?.expectedVersion);
+      if (!['manual', 'import'].includes(sourceKind)) return error(400, 'INVALID_AFC_SOURCE', 'Select a manual or imported AFC record.');
+      if (!/^[0-9a-f]{16}$/i.test(expectedVersion)) return error(400, 'INVALID_AFC_VERSION', 'Refresh the AFC records before changing dates.');
+      const startDate = strictDate(payload?.startDate), endDate = strictDate(payload?.endDate);
+      if (!startDate || !endDate) return error(400, 'INVALID_DATE', 'AFC dates must use YYYY-MM-DD calendar dates.');
+      if (endDate < startDate) return error(400, 'INVALID_DATE_RANGE', 'End date must be on or after start date.');
+      const requestId = UUID.test(text(payload?.requestId)) ? text(payload.requestId) : randomUUID();
+      try {
+        const row = await writeRepository.updateAfcDates({ afcRecordId: text(afcRecordId), sourceKind, expectedVersion, startDate, endDate, workDays: null, actorFirebaseUid: auth.decoded.uid, requestId });
+        if (!row) return error(503, 'SQL_UNAVAILABLE', 'The SQL write service is unavailable.');
+        return result(200, { afcRecord: normalizeAfcRecord(row) });
+      } catch (caught) {
+        const known = {
+          56402: [403, 'ROLE_DENIED', 'Administrator permission is required.'],
+          56403: [404, 'AFC_RECORD_NOT_FOUND', 'This AFC record no longer exists.'],
+          56404: [409, 'AFC_RECORD_CHANGED', 'This AFC record changed. Refresh and review it before changing dates.'],
+          56405: [400, 'INVALID_DATE_RANGE', 'AFC dates are invalid.'],
+          56406: [409, 'AFC_RECORD_INACTIVE', 'A withdrawn AFC record cannot have its dates changed.'],
+          56408: [409, 'AFC_DATES_UNCHANGED', 'The new dates are the same as the current dates.']
+        }[Number(caught?.number)];
         return known ? error(...known) : error(503, 'SQL_UNAVAILABLE', 'The SQL write service is unavailable.');
       }
     },

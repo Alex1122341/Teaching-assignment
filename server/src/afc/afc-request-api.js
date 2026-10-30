@@ -127,7 +127,17 @@ function mapRepositoryError(caught) {
     51506: [409, 'REQUEST_CONFLICT', 'The AFC request could not be created because its identifier already exists.'],
     51507: [404, 'REQUEST_NOT_FOUND', 'A pending AFC request was not found for this requester.'],
     51508: [409, 'INVALID_STATE', 'This AFC request can no longer be withdrawn.'],
-    51509: [409, 'REPORT_TO_UNAVAILABLE', 'The assigned Reports-To account is unavailable and must be corrected before submission.']
+    51509: [409, 'REPORT_TO_UNAVAILABLE', 'The assigned Reports-To account is unavailable and must be corrected before submission.'],
+    51510: [409, 'DATE_CHANGE_NOT_ALLOWED', 'Only an approved AFC request can have its dates changed. Withdraw a pending request and submit a new one.'],
+    51511: [409, 'DATE_CHANGE_PENDING', 'A date change for this AFC request is already waiting for approval.'],
+    51512: [422, 'AFC_DATES_UNCHANGED', 'The new dates are the same as the approved dates.'],
+    56402: [403, 'ROLE_DENIED', 'Administrator permission is required.'],
+    56403: [404, 'REQUEST_NOT_FOUND', 'This AFC request no longer exists.'],
+    56404: [409, 'REQUEST_CHANGED', 'This AFC request changed. Refresh and review it before changing dates.'],
+    56405: [422, 'INVALID_DATE_RANGE', 'AFC dates are invalid.'],
+    56406: [409, 'DATE_CHANGE_NOT_ALLOWED', 'Only an approved AFC request can have its dates changed.'],
+    56407: [409, 'DATE_CHANGE_PENDING', 'A faculty date change for this request is waiting for approval.'],
+    56408: [422, 'AFC_DATES_UNCHANGED', 'The new dates are the same as the current dates.']
   }[number];
   return known ? error(known[0], known[1], known[2]) : error(503, 'SQL_UNAVAILABLE', 'The AFC request service is temporarily unavailable.');
 }
@@ -147,7 +157,10 @@ function normalizeRequest(row = {}) {
     purposeDestination: row.purposeDestination == null ? null : text(row.purposeDestination),
     coverage: row.coverage == null ? null : text(row.coverage),
     submittedAtUtc: row.submittedAtUtc || null,
-    updatedAtUtc: row.updatedAtUtc || null
+    updatedAtUtc: row.updatedAtUtc || null,
+    replacesAfcRequestId: row.replacesAfcRequestId || null,
+    supersededByAfcRequestId: row.supersededByAfcRequestId || null,
+    versionToken: /^[0-9a-f]{16}$/i.test(text(row.versionToken)) ? text(row.versionToken).toUpperCase() : null
   };
 }
 
@@ -190,7 +203,8 @@ function createAfcRequestApi({ verifyToken, findUser, repository, idFactory = ra
           afcBatch: writeGates.afcBatch === true,
           requestLifecycle: writeGates.afcRequest === true,
           decisions: writeGates.afcDecision === true,
-          approvedArtifactCreation: writeGates.afcArtifact === true
+          approvedArtifactCreation: writeGates.afcArtifact === true,
+          dateChange: writeGates.afcEdit === true
         }
       });
     },
@@ -229,6 +243,67 @@ function createAfcRequestApi({ verifyToken, findUser, repository, idFactory = ra
           actorName: text(auth.profile.displayName)
         });
         return result(201, { afcRequest: normalizeRequest(row) });
+      } catch (caught) {
+        return mapRepositoryError(caught);
+      }
+    },
+
+    // UX-07: the requester changes the dates of their own approved request. The
+    // full request form is signed again and goes through the normal approval;
+    // the old dates stay approved until the change is approved.
+    async changeDates(token, afcRequestId, payload) {
+      const auth = await authorize(token);
+      if (auth.status) return auth;
+      if (!auth.scope.selfService) return error(403, 'ROLE_DENIED', 'Only the requester can change the dates of their AFC request.');
+      if (writeGates.afcRequest !== true || writeGates.afcEdit !== true) return writeDisabled();
+      const id = text(afcRequestId);
+      if (!UUID.test(id)) return error(400, 'INVALID_REQUEST_ID', 'AFC request id is not a valid identifier.');
+      const expectedVersion = text(payload?.expectedVersion);
+      if (!/^[0-9a-f]{16}$/i.test(expectedVersion)) return error(400, 'INVALID_REQUEST_VERSION', 'Reload the original approved AFC request before changing dates.');
+      const validated = validateSubmitPayload(payload, auth.decoded.uid);
+      if (validated.status) return validated;
+      try {
+        const row = await repository.submitDateChange({
+          expectedVersion,
+          replacesAfcRequestId: id,
+          afcRequestId: idFactory(),
+          ...validated,
+          signatureMode: validated.signature.mode,
+          signatureName: validated.signature.name,
+          signatureSignedAt: validated.signature.signedAt,
+          signatureFingerprint: validated.signature.fingerprint,
+          signatureImageDataUrl: validated.signature.imageDataUrl,
+          actorFirebaseUid: auth.decoded.uid,
+          actorName: text(auth.profile.displayName)
+        });
+        if (!row) return error(503, 'SQL_UNAVAILABLE', 'The AFC request service is temporarily unavailable.');
+        return result(201, { afcRequest: normalizeRequest({ ...row, replacesAfcRequestId: id }) });
+      } catch (caught) {
+        return mapRepositoryError(caught);
+      }
+    },
+
+    // UX-07: the ADFA office changes the dates of an approved request directly.
+    // No new approval; Change History records the old and new dates.
+    async officeChangeDates(token, afcRequestId, payload) {
+      const auth = await authorize(token);
+      if (auth.status) return auth;
+      if (!auth.scope.administrator) return error(403, 'ROLE_DENIED', 'Only the ADFA office can change approved AFC dates directly.');
+      if (writeGates.afcEdit !== true) return writeDisabled();
+      const id = text(afcRequestId);
+      if (!UUID.test(id)) return error(400, 'INVALID_REQUEST_ID', 'AFC request id is not a valid identifier.');
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return error(400, 'INVALID_JSON', 'AFC date JSON must be an object.');
+      const expectedVersion = text(payload.expectedVersion);
+      if (!/^[0-9a-f]{16}$/i.test(expectedVersion)) return error(400, 'INVALID_REQUEST_VERSION', 'Refresh the AFC requests before changing dates.');
+      const startDate = text(payload.startDate), endDate = text(payload.endDate);
+      const days = workDays(startDate, endDate);
+      if (days === null) return error(422, 'INVALID_DATE_RANGE', 'AFC dates are outside the supported calendar or invalid.');
+      if (days < 1) return error(422, 'NO_WORK_DAYS', 'The selected range contains no working days.');
+      const requestId = UUID.test(text(payload.requestId)) ? text(payload.requestId) : idFactory();
+      try {
+        const row = await repository.updateApprovedRequestDates({ afcRequestId: id, expectedVersion, startDate, endDate, workDays: days, actorFirebaseUid: auth.decoded.uid, requestId });
+        if (!row) return error(503, 'SQL_UNAVAILABLE', 'The AFC request service is temporarily unavailable.');
+        return result(200, { afcRequest: { afcRequestId: row.afcRecordId || id, facultyId: row.facultyId || null, status: 'approved', startDate: text(row.startDate), endDate: text(row.endDate), workDays: Number(row.workDays || days), versionToken: text(row.versionToken) || null } });
       } catch (caught) {
         return mapRepositoryError(caught);
       }

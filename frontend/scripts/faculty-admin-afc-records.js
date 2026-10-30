@@ -65,12 +65,20 @@
     }
     return {submit,isUnconfirmed:()=>unconfirmed};
   }
-  function renderRows(rows,{facultyName,canCancel:allowed=false,busy=()=>false,renderPdf=()=>'<span class="muted">N/A</span>'}={}) {
+  function renderRows(rows,{facultyName,canCancel:allowed=false,canEdit:editAllowed=false,editingKey='',busy=()=>false,renderPdf=()=>'<span class="muted">N/A</span>'}={}) {
     return rows.map(row => {
       const key = `${row.sourceKind}:${row.afcRecordId}`;
-      const canCancel = allowed && row.active !== false && /^[0-9a-f]{16}$/i.test(row.versionToken || '');
-      const action = canCancel ? `<button class="btn" type="button" data-afc-cancel="${esc(key)}" ${busy(key) ? 'disabled' : ''}>${busy(key) ? 'Deleting…' : 'Delete'}</button>` : row.active === false ? 'Archived' : 'Unavailable';
-      return `<tr><td><button type="button" class="btn-link" data-afc-person="${esc(row.facultyId)}">${esc(facultyName(row, 'Name unavailable'))}</button></td><td>${esc(row.startDate || '—')}</td><td>${esc(row.endDate || '—')}</td><td>${esc(row.reason || row.legacyPurpose || row.reasonCode || '—')}</td><td>${esc(row.notes || row.legacyPurpose || '—')}</td><td>${esc(norm(row.sourceKind) === 'manual' ? 'Manual' : 'Imported')}</td><td>${row.active === false ? 'No' : 'Yes'}</td><td>${renderPdf(row)}</td><td>${action}</td></tr>`;
+      const editable = row.active !== false && /^[0-9a-f]{16}$/i.test(row.versionToken || '');
+      const canCancel = allowed && editable;
+      const canEdit = editAllowed && editable;
+      const buttons = [
+        canEdit ? `<button class="btn" type="button" data-afc-edit="${esc(key)}" ${busy(key) ? 'disabled' : ''}>Edit dates</button>` : '',
+        canCancel ? `<button class="btn" type="button" data-afc-cancel="${esc(key)}" ${busy(key) ? 'disabled' : ''}>${busy(key) ? 'Withdrawing…' : 'Withdraw'}</button>` : ''
+      ].filter(Boolean).join(' ');
+      const action = buttons || (row.active === false ? 'Withdrawn' : 'Unavailable');
+      // UX-07: the ADFA office changes the dates directly; Change History keeps old and new dates.
+      const editor = canEdit && editingKey === key ? `<tr class="afc-date-edit" data-afc-edit-row="${esc(key)}"><td colspan="9"><div class="afc-date-edit-form"><label>New start date<input type="date" data-afc-edit-start value="${esc(row.startDate || '')}"></label><label>New end date<input type="date" data-afc-edit-end value="${esc(row.endDate || '')}"></label><button class="btn btn-primary" type="button" data-afc-edit-save="${esc(key)}" ${busy(key) ? 'disabled' : ''}>${busy(key) ? 'Saving…' : 'Save dates'}</button><button class="btn" type="button" data-afc-edit-cancel="${esc(key)}">Cancel</button><span class="muted">Was ${esc(row.startDate || '—')} to ${esc(row.endDate || '—')}. The change is recorded in Change History.</span></div></td></tr>` : '';
+      return `<tr><td><button type="button" class="btn-link" data-afc-person="${esc(row.facultyId)}">${esc(facultyName(row, 'Name unavailable'))}</button></td><td>${esc(row.startDate || '—')}</td><td>${esc(row.endDate || '—')}</td><td>${esc(row.reason || row.legacyPurpose || row.reasonCode || '—')}</td><td>${esc(row.notes || row.legacyPurpose || '—')}</td><td>${esc(norm(row.sourceKind) === 'manual' ? 'Manual' : 'Imported')}</td><td>${row.active === false ? 'Withdrawn' : 'Active'}</td><td>${renderPdf(row)}</td><td>${action}</td></tr>${editor}`;
     }).join('') || '<tr><td colspan="9" class="empty">No AFC records match the current filters.</td></tr>';
   }
   function profileAfc(records,{selfMode=false,renderPdf=()=>'<span class="muted">N/A</span>'}={}) {
@@ -84,31 +92,66 @@
     const past = records.filter(archived).sort((a,b) => text(b.endDate).localeCompare(text(a.endDate)));
     const table = rows => rows.length?'<div class="table-wrap"><table class="data-table"><thead><tr>'+['Start','End','Availability status','Reason','Notes','Source','PDF'].map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+rows.map(record => {
       const start = dateOnly(record.startDate), end = dateOnly(record.endDate);
-      const status = record.active === false ? 'Inactive' : !start || !end ? 'Dates need review' : end < today ? 'Past' : start <= today ? 'Current' : 'Upcoming';
+      const status = record.active === false ? 'Withdrawn' : !start || !end ? 'Dates need review' : end < today ? 'Past' : start <= today ? 'Current' : 'Upcoming';
       const values=[record.startDate,record.endDate,status,record.reason||record.reasonCode||record.purpose,record.notes||record.legacyPurpose,record.sourceKind||'Source unavailable'];return '<tr>'+values.map(v=>'<td>'+esc(v??'—')+'</td>').join('')+'<td>'+renderPdf(record)+'</td></tr>';
     }).join('')+'</tbody></table></div>':'<div class="afc-none">No records in this group.</div>';
     const fold = (label, rows, open = false) => `<details class="afc-fold" ${open ? 'open' : ''}><summary><span>${label}</span><span>${rows.length} record${rows.length === 1 ? '' : 's'}</span></summary>${table(rows)}</details>`;
-    return `<section class="section wide"><div class="section-title">Away from Campus · Availability & HR Archive</div><div class="afc-wrap">${fold('Current / Upcoming', upcoming, true)}${fold('Past / Inactive · HR Archive', past)}<div class="afc-privacy">${selfMode ? 'Your private Away from Campus / availability records.' : 'Confidential availability and HR records. Detailed reasons follow your Dashboard permissions.'} PDF: N/A means no original was archived, including legacy records.</div></div></section><section id="faculty-afc-originals" class="section wide"></section>`;
+    return `<section class="section wide"><div class="section-title">Away from Campus · Availability & HR Archive</div><div class="afc-wrap">${fold('Current / Upcoming', upcoming, true)}${fold('Past / Withdrawn · HR Archive', past)}<div class="afc-privacy">${selfMode ? 'Your private Away from Campus / availability records.' : 'Confidential availability and HR records. Detailed reasons follow your Dashboard permissions.'} PDF: N/A means no original was archived, including legacy records.</div></div></section><section id="faculty-afc-originals" class="section wide"></section>`;
   }
 
-  function createActions({api,facultyName,canCancel,getRecords,render,refresh,refreshRecords,notify,confirm}) {
+  function createActions({api,facultyName,canCancel,canEdit=()=>false,getRecords,render,refresh,refreshRecords,notify,confirm}) {
     const afcCancelInFlight=new Set();
+    let editingKey='';
+    const findRow=key=>getRecords().find(record => `${record.sourceKind}:${record.afcRecordId}` === key);
+    const validDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(value)&&new Date(value+'T12:00:00Z').toISOString().slice(0,10)===value;
+    function startEdit(key){ if(!canEdit()||afcCancelInFlight.has(key))return; const row=findRow(key); if(!row||row.active===false)return; editingKey=key; render(); }
+    function cancelEdit(){ editingKey=''; render(); }
+    async function saveDates(key,startDate,endDate) {
+      if (!canEdit() || afcCancelInFlight.has(key)) return false;
+      const row = findRow(key);
+      if (!row || row.active === false || !/^[0-9a-f]{16}$/i.test(row.versionToken || '')) return false;
+      if (!validDate(startDate) || !validDate(endDate)) { notify('Choose a valid start and end date.', true); return false; }
+      if (endDate < startDate) { notify('End date must be on or after start date.', true); return false; }
+      if (startDate === row.startDate && endDate === row.endDate) { notify('The new dates are the same as the current dates.', true); return false; }
+      afcCancelInFlight.add(key); render();
+      try {
+        await api.updateDashboardAfcRecordDates(row.afcRecordId, { sourceKind: row.sourceKind, expectedVersion: row.versionToken, startDate, endDate });
+        editingKey='';
+        await refresh();
+        notify(`AFC dates changed from ${row.startDate} – ${row.endDate} to ${startDate} – ${endDate}. The change is in Change History.`);
+        return true;
+      } catch (error) {
+        notify(error?.message || 'AFC dates could not be changed.', true);
+        if (error?.status === 409 || error?.status === 404) await refreshRecords();
+        return false;
+      } finally { afcCancelInFlight.delete(key); render(); }
+    }
     async function cancel(key) {
     if (!canCancel() || afcCancelInFlight.has(key)) return;
     const row = getRecords().find(record => `${record.sourceKind}:${record.afcRecordId}` === key);
     if (!row || row.active === false || !/^[0-9a-f]{16}$/i.test(row.versionToken || '')) return;
-    if (!confirm(`Delete the AFC record for ${facultyName(row, 'this faculty member')} (${row.startDate} to ${row.endDate})?\n\nIt will stop affecting availability. Its history and audit record will be retained.`)) return;
+    if (!confirm(`Withdraw the AFC record for ${facultyName(row, 'this faculty member')} (${row.startDate} to ${row.endDate})?\n\nIt will stop affecting availability. Its history and audit record will be retained.`)) return;
     afcCancelInFlight.add(key); render();
     try {
       await api.cancelDashboardAfcRecord(row.afcRecordId, { sourceKind: row.sourceKind, expectedVersion: row.versionToken });
       await refresh();
-      notify('AFC record deleted from active availability. History retained.');
+      notify('AFC record withdrawn. It no longer affects availability; its history is kept.');
     } catch (error) {
-      notify(error?.message || 'AFC record could not be deleted.', true);
+      notify(error?.message || 'AFC record could not be withdrawn.', true);
       if (error?.status === 409 || error?.status === 404) await refreshRecords();
     } finally { afcCancelInFlight.delete(key); render(); }
   }
-    return {cancel,isBusy:key=>afcCancelInFlight.has(key)};
+    // Click wiring for the inline office date editor; returns true when handled.
+    function handleEditClick(event){
+      const target=event?.target;
+      const edit=target?.closest?.('[data-afc-edit]');if(edit){startEdit(edit.dataset.afcEdit);return true;}
+      if(target?.closest?.('[data-afc-edit-cancel]')){cancelEdit();return true;}
+      const save=target?.closest?.('[data-afc-edit-save]');if(!save)return false;
+      const row=save.closest?.('[data-afc-edit-row]');
+      saveDates(save.dataset.afcEditSave,row?.querySelector?.('[data-afc-edit-start]')?.value||'',row?.querySelector?.('[data-afc-edit-end]')?.value||'');
+      return true;
+    }
+    return {cancel,startEdit,cancelEdit,saveDates,handleEditClick,canEdit,editingKey:()=>editingKey,isBusy:key=>afcCancelInFlight.has(key)};
   }
   function facultyLabel(row, rows, facultyName) {
     const label = text(facultyName(row, 'Name unavailable'));
