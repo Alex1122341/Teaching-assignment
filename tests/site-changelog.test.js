@@ -71,3 +71,12 @@ test('every agent entrypoint and PR workflow require change log updates',()=>{
    assert.match(workflow,/pull_request\.base\.sha/);
  }
 });
+
+test('browser smoke expects the current Change Log title, not a hard-coded release title',()=>{
+ const smoke=read('tools/paws-browser-smoke.js');
+ const current=JSON.parse(read('CHANGELOG.json'));
+ assert.ok(current.entries.length>0);
+ assert.match(smoke,/expectedChangeLogTitle=JSON\.parse\(fs\.readFileSync\(path\.join\(root,'CHANGELOG\.json'\)/);
+ assert.match(smoke,/JSON\.stringify\(expectedChangeLogTitle\)/);
+ assert.doesNotMatch(smoke,/body\.includes\('Faculty future activation and site Change Log'\)/);
+});

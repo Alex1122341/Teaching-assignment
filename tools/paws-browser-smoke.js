@@ -12,6 +12,9 @@ const {findChrome,createStaticServer}=require('./browser-smoke');
 const root=path.resolve(__dirname,'..');
 const site=path.join(root,'.deploy-static');
 const USER_KEY='ucvm-pages-demo-user-v2';
+// Compare browser-visible release notes with the current source record, not a fixed title.
+const expectedChangeLogTitle=JSON.parse(fs.readFileSync(path.join(root,'CHANGELOG.json'),'utf8')).entries[0]?.title;
+if(typeof expectedChangeLogTitle!=='string'||!expectedChangeLogTitle.trim())throw Error('CHANGELOG.json needs a current title');
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 const CHECKS=Object.freeze([
@@ -80,7 +83,7 @@ async function main(){
    if(errors.length)problems.push(`${label}: script error ${errors[0].split('\n')[0]}`);
    if(apiCalls.length)problems.push(`${label}: request reached the real PAWS API ${apiCalls[0]}`);
    if(check.page==='index.html'&&check.uid==='uid-developer'&&ok){
-     const changelog=await cdp.send('Runtime.evaluate',{expression:"(async function verifyChangeLogDialog(){\n  const open=document.getElementById('site-changelog-open');\n  const dialog=document.getElementById('site-changelog-dialog');\n  const close=document.getElementById('site-changelog-close');\n  if(!open||!dialog||!close)return {ok:false,error:'Missing Change Log controls'};\n  open.click();\n  let body='';\n  for(let i=0;i<40;i++){\n    await new Promise(resolve=>setTimeout(resolve,100));\n    body=document.getElementById('site-changelog-entries')?.textContent||'';\n    if(body.includes('Faculty future activation and site Change Log'))break;\n  }\n  const wasOpen=dialog.open;\n  const width=dialog.getBoundingClientRect().width;\n  close.click();\n  return {ok:wasOpen&&!dialog.open&&width>=600&&body.includes('Faculty future activation and site Change Log'),\n    opened:wasOpen,closed:!dialog.open,width,loaded:body.includes('Faculty future activation and site Change Log')};\n})()",awaitPromise:true,returnByValue:true});
+     const changelog=await cdp.send('Runtime.evaluate',{expression:"(async function verifyChangeLogDialog(){\n  const open=document.getElementById('site-changelog-open');\n  const dialog=document.getElementById('site-changelog-dialog');\n  const close=document.getElementById('site-changelog-close');\n  if(!open||!dialog||!close)return {ok:false,error:'Missing Change Log controls'};\n  open.click();\n  let body='';\n  for(let i=0;i<40;i++){\n    await new Promise(resolve=>setTimeout(resolve,100));\n    body=document.getElementById('site-changelog-entries')?.textContent||'';\n    if(body.includes(__EXPECTED_CHANGELOG_TITLE__))break;\n  }\n  const wasOpen=dialog.open;\n  const width=dialog.getBoundingClientRect().width;\n  close.click();\n  return {ok:wasOpen&&!dialog.open&&width>=600&&body.includes(__EXPECTED_CHANGELOG_TITLE__),\n    opened:wasOpen,closed:!dialog.open,width,loaded:body.includes(__EXPECTED_CHANGELOG_TITLE__)};\n})()".replaceAll('__EXPECTED_CHANGELOG_TITLE__',JSON.stringify(expectedChangeLogTitle)),awaitPromise:true,returnByValue:true});
      const result=changelog.result?.value;
      if(!result?.ok)problems.push(label+': Change Log dialog open/load/close failed '+JSON.stringify(result||changelog.exceptionDetails||'no result').slice(0,300));
      else console.log('ok   homepage Change Log opens as a large window, shows PR updates and closes');
