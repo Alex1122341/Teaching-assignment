@@ -42,6 +42,6 @@ The following preserves legacy User Management acceptance requirements; it is **
 
 ## Paused production release — historical control, not a current task
 
-The old Azure Static Web Apps production Environment workflow required a required reviewer, **Prevent self-review**, and a separate **Approve and deploy** action after merging a reviewed `main` commit. The old `AZURE_STATIC_WEB_APPS_API_TOKEN` is a historical secret reference; it is not used by the normal Pages Frontend Demo workflow. **Do not recreate that deployment path from this guide.**
+The old Azure Static Web Apps production Environment workflow required a required reviewer, **Prevent self-review**, and a separate **Approve and deploy** action after merging a reviewed `main` commit. The old `AZURE_STATIC_WEB_APPS_API_TOKEN` was held as an **environment secret** and is a historical reference; it is not used by the normal Pages Frontend Demo workflow. **Do not recreate that deployment path from this guide.**
 
 University SQL Beta belongs to a different repository/service and requires its own authenticated data migration, acceptance and explicit authorization. Historical Firebase/Azure commands here have deliberately been removed from the active setup guide.

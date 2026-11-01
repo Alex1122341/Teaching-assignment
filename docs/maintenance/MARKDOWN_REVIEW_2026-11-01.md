@@ -5,7 +5,7 @@
 ## Changes
 
 - Removed **36** redundant, superseded or one-off Beta release/freeze/promotion/reconciliation notes (approximately 98 KB). Every original is recoverable from Git history.
-- Removed the duplicate `docs/PERFORMANCE_REPORT.md`; the historical retained copy is `docs/performance/2026-legacy-performance-report.md`.
+- Removed a duplicate root-level performance report (the historical retained copy is `docs/performance/2026-legacy-performance-report.md`).
 - Removed the superseded 2026-10-20 Dashboard History reset presentation note; `docs/dashboard-history-archive-restoration-20261020.md` preserves its replacement decision.
 - Kept the main Faculty Availability full acceptance report and other substantial safety evidence; removed repeated interim reconciliation/freeze notes.
 - Replaced the old 27 KB Spark/Azure `docs/SETUP.md` with the current Testing setup and explicit historical production/account caveats.
