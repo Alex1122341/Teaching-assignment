@@ -271,7 +271,7 @@
             setStatus('This Faculty member is inactive or starts after the selected session date.',true);
             return;
           }
-          target.value += `${target.value.trim() ? '\\n' : ''}${id} | Lecturer`; target.focus();
+          target.value += `${target.value.trim() ? '\n' : ''}${id} | Lecturer`; target.focus();
         } else setStatus(`Canonical Faculty ID: ${id}`);
       }
     });
