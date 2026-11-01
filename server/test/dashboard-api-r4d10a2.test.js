@@ -453,13 +453,18 @@ test('Y: read-only Dashboard routes reject methods while Faculty detail exposes 
   for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
     for (const url of urls) {
       const response = await app(request(url, { method }));
+      if (url === '/api/v1/dashboard/faculty' && method === 'POST') {
+        assert.equal(response.status, 503);
+        assert.equal(response.jsonBody.error.code, 'WRITE_DISABLED');
+        continue;
+      }
       if (url.endsWith('/' + FACULTY_ID) && method === 'PATCH') {
         assert.equal(response.status, 503);
         assert.equal(response.jsonBody.error.code, 'WRITE_DISABLED');
         continue;
       }
       assert.equal(response.status, 405, method + ' ' + url);
-      assert.equal(response.headers.Allow, url.endsWith('/' + FACULTY_ID) ? 'GET, PATCH' : 'GET', method + ' ' + url);
+      assert.equal(response.headers.Allow, url.endsWith('/' + FACULTY_ID) ? 'GET, PATCH' : url === '/api/v1/dashboard/faculty' ? 'GET, POST' : 'GET', method + ' ' + url);
       assert.equal(response.jsonBody.error.code, 'METHOD_NOT_ALLOWED');
     }
   }
