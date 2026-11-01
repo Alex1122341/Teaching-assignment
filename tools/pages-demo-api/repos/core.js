@@ -6,6 +6,7 @@ const { resolveAcademicYear } = require('../../../server/src/data/academic-year.
 const { resolveTeachingDoe, resolveRoleDoe } = require('../../../server/src/domain/doe-calculator.js');
 const { DOE_RULES } = require('../../../server/src/domain/doe-rule-book.js');
 const { uuidFor } = require('../ids.js');
+const activation = require('../faculty-activation.js');
 
 const GRID_START = '07:30:00';
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -43,7 +44,16 @@ function sessionView(store, session, { includeAssignmentTargets = false, include
 }
 
 function createUserRepository(store) {
-  return { async findByUid(uid) { const row = store.tables.users.find(user => user.firebaseUid === uid); return row ? clone(row) : null; } };
+  return { async findByUid(uid) {
+    const row=store.tables.users.find(user=>user.firebaseUid===uid);
+    if(!row)return null;
+    const result=clone(row);
+    if(['faculty','hicc','visc'].includes(String(result.baseRole||'').trim().toLowerCase())){
+      const member=store.tables.faculty.find(f=>f.facultyId===result.facultyId);
+      if(!activation.effectiveActive(member,store.now()))result.active=false;
+    }
+    return result;
+  }};
 }
 
 function createSessionRepository(store) {
@@ -54,11 +64,11 @@ function createSessionRepository(store) {
   function recordSessionChange(sessionId, action, before, after, actorFirebaseUid, actorName) {
     store.audit({ domain: 'teaching', changeType: action, sessionId, actorFirebaseUid, actorName, before, after });
   }
-  function buildAssignments(sessionId, sessionType, startTime, endTime, assignments) {
+  function buildAssignments(sessionId, sessionType, startTime, endTime, assignments, sessionDate) {
     return (assignments || []).map((row, index) => {
       const hours = startTime && endTime ? Math.round(((Number(endTime.slice(0, 2)) * 60 + Number(endTime.slice(3, 5))) - (Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3, 5)))) / 6) / 10 : null;
       const resolved = resolveTeachingDoe({ sessionType, teachingRole: row.teachingRole, creditedHours: hours });
-      if (!t().faculty.some(f => f.facultyId === row.facultyId && f.active)) throw sqlError(51254, 'Faculty invalid');
+      activation.assertAssignable(store,row.facultyId,sessionDate);
       return { sessionAssignmentId: uuidFor(`assignment:${sessionId}:${row.facultyId}:${index}:${Date.now()}`), facultyId: row.facultyId, teachingRole: row.teachingRole || null, labLead: row.teachingRole === 'Lab Primary' ? 'Yes' : '', creditedHours: hours, doeRate: resolved.rate ?? null, doeQuantity: hours, doeUnit: 'credited hour', doeCredit: resolved.calculatedDoe ?? null, doeStatus: resolved.calculatedDoe == null ? 'needs_review' : 'calculated', sourceFacultyName: facultyName(store, row.facultyId) };
     });
   }
@@ -75,6 +85,7 @@ function createSessionRepository(store) {
       if (!session) return null;
       if (patch.courseCode !== undefined && !course(patch.courseCode)) throw sqlError(51243, 'Course not found');
       if (patch.date !== undefined && !academicYearOk(session.academicYear, patch.date)) throw sqlError(51245, 'Date outside year');
+      if(patch.date !== undefined)activation.assertCanReschedule(store,session,patch.date);
       const before = clone(session);
       for (const key of Object.keys(patch)) session[key] = patch[key];
       if (patch.courseCode !== undefined) { const c = course(patch.courseCode); session.courseCode = c.courseCode; session.courseName = c.courseName; }
@@ -88,7 +99,7 @@ function createSessionRepository(store) {
       if (!c) throw sqlError(51251, 'Course not found');
       const id = uuidFor(`session:new:${session.courseCode}:${session.date}:${session.startTime}:${Date.now()}:${Math.random()}`);
       const row = { id, academicYear: session.academicYear, curriculumYear: String(session.curriculumYear), courseCode: c.courseCode, courseName: c.courseName, topic: session.topic, sessionType: session.sessionType, date: session.date, startTime: session.startTime.length === 5 ? session.startTime + ':00' : session.startTime, endTime: session.endTime.length === 5 ? session.endTime + ':00' : session.endTime, room: session.room || null, updatedAtUtc: store.nowIso(), assignments: [] };
-      row.assignments = buildAssignments(id, row.sessionType, row.startTime, row.endTime, session.assignments);
+      row.assignments = buildAssignments(id, row.sessionType, row.startTime, row.endTime, session.assignments, row.date);
       t().sessions.push(row);
       recordSessionChange(id, 'session_created', null, clone(row), actorFirebaseUid, actorName);
       store.commit();
@@ -107,7 +118,7 @@ function createSessionRepository(store) {
       const session = find(sessionId);
       if (!session) return null;
       const before = clone(session.assignments);
-      session.assignments = buildAssignments(sessionId, session.sessionType, session.startTime, session.endTime, assignments);
+      session.assignments = buildAssignments(sessionId, session.sessionType, session.startTime, session.endTime, assignments, session.date);
       recordSessionChange(sessionId, 'assignments_replaced', before, clone(session.assignments), actorFirebaseUid, actorName);
       store.commit();
       return sessionView(store, session, { includeAssignmentTargets: true });
@@ -176,7 +187,7 @@ function createDashboardRepository(store) {
       const roles = rolesFor(resolvedYear).filter(row => !facultyId || row.facultyId === facultyId);
       return {
         academicYear: resolvedYear,
-        activeFacultyCount: t().faculty.filter(row => row.active).length,
+        activeFacultyCount: t().faculty.filter(row => activation.effectiveActive(row,store.now())).length,
         sessionCount: sessions.length,
         assignmentCount: sessions.reduce((sum, row) => sum + row.assignments.filter(a => !facultyId || a.facultyId === facultyId).length, 0),
         courseCount: new Set(sessions.map(row => row.courseCode)).size,
@@ -190,15 +201,15 @@ function createDashboardRepository(store) {
     },
     async faculty({ academicYear: year, search = null, limit = 500, facultyId = null, status = 'active' } = {}) {
       const resolvedYear = resolveAcademicYear(year);
-      if (!['active', 'inactive', 'all'].includes(status)) throw new Error('Invalid Faculty status filter');
+      if (!['active', 'pending', 'inactive', 'all'].includes(status)) throw new Error('Invalid Faculty status filter');
       return t().faculty
-        .filter(row => status === 'all' || (status === 'active' ? row.active : !row.active))
+        .filter(row => status === 'all' || activation.facultyStatus(row,store.now()) === status)
         .filter(row => !facultyId || row.facultyId === facultyId)
         .filter(row => !search || [row.displayName, row.storedDisplayName, row.email, row.ucid].some(v => like(v, search)))
         .sort((a, b) => a.preferredLastName.localeCompare(b.preferredLastName))
         .slice(0, limit || 500)
         .map(row => ({
-          facultyId: row.facultyId, preferredFirstName: row.preferredFirstName, preferredLastName: row.preferredLastName, displayName: row.displayName, ucid: row.ucid, email: row.email, recordType: row.recordType, stream: row.stream, rank: row.rank, fte: row.fte, reportsToFacultyId: row.reportsToFacultyId || '', reportsToName: facultyName(store, row.reportsToFacultyId), active: row.active, updatedAtUtc: row.updatedAtUtc, teachingArea: row.profile.teachingArea, professionalCategory: row.profile.professionalCategory,
+          facultyId: row.facultyId, preferredFirstName: row.preferredFirstName, preferredLastName: row.preferredLastName, displayName: row.displayName, ucid: row.ucid, email: row.email, recordType: row.recordType, stream: row.stream, rank: row.rank, fte: row.fte, reportsToFacultyId: row.reportsToFacultyId || '', reportsToName: facultyName(store, row.reportsToFacultyId), active: activation.effectiveActive(row,store.now()), administrativeActive: row.active === true, activationDate: row.activationDate || null, updatedAtUtc: row.updatedAtUtc, teachingArea: row.profile.teachingArea, professionalCategory: row.profile.professionalCategory,
           sessionCount: t().sessions.filter(s => s.academicYear === resolvedYear && s.assignments.some(a => a.facultyId === row.facultyId)).length,
           roleCount: rolesFor(resolvedYear).filter(r => r.facultyId === row.facultyId).length,
           afcCount: t().afcRecords.filter(a => a.facultyId === row.facultyId).length,
@@ -216,13 +227,13 @@ function createDashboardRepository(store) {
     },
     async facultyById({ facultyId, academicYear: year, includeInactive = false } = {}) {
       const record = t().faculty.find(row => row.facultyId === facultyId);
-      if (!record || (!record.active && !includeInactive)) return null;
+      if (!record || (!activation.effectiveActive(record,store.now()) && !includeInactive)) return null;
       const resolvedYear = resolveAcademicYear(year);
       const teachingAssignments = teachingAssignmentsFor(store, facultyId, resolvedYear);
       const target = t().targets.find(row => row.facultyId === facultyId && row.academicYear === resolvedYear);
       const profile = record.profile;
       return {
-        faculty: { facultyId: record.facultyId, recordType: record.recordType, preferredFirstName: record.preferredFirstName, preferredLastName: record.preferredLastName, displayName: record.displayName, storedDisplayName: record.storedDisplayName, hrName: record.hrName, hrNameSource: 'Faculty Master List (synthetic)', ucid: record.ucid, email: record.email, stream: record.stream, rank: record.rank, fte: record.fte, fteSourceReference: 'Faculty Master List (synthetic)', fteSourceRow: null, fteSourceUpdatedAtUtc: null, reportsToFacultyId: record.reportsToFacultyId || '', reportsToName: facultyName(store, record.reportsToFacultyId), active: record.active, updatedAtUtc: record.updatedAtUtc, versionToken: record.versionToken },
+        faculty: { facultyId: record.facultyId, recordType: record.recordType, preferredFirstName: record.preferredFirstName, preferredLastName: record.preferredLastName, displayName: record.displayName, storedDisplayName: record.storedDisplayName, hrName: record.hrName, hrNameSource: 'Faculty Master List (synthetic)', ucid: record.ucid, email: record.email, stream: record.stream, rank: record.rank, fte: record.fte, fteSourceReference: 'Faculty Master List (synthetic)', fteSourceRow: null, fteSourceUpdatedAtUtc: null, reportsToFacultyId: record.reportsToFacultyId || '', reportsToName: facultyName(store, record.reportsToFacultyId), active: activation.effectiveActive(record,store.now()), administrativeActive: record.active === true, activationDate: record.activationDate || null, updatedAtUtc: record.updatedAtUtc, versionToken: record.versionToken },
         academicYear: resolvedYear,
         professionalProfile: { ...profile },
         jointAppointments: [],

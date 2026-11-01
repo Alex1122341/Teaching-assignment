@@ -1,5 +1,7 @@
 # Repository organization and simplification
 
+> **Historical PR #133 work journal (2026-10-22).** The checkboxes below record the original implementation and are not pending tasks for current agents. Refer to the [current environment map](testing-environments.md) for source/build ownership.
+
 ## Goal and scope
 The Owner requested additional cleanup in existing PR #133: make source easier to locate, simplify unnecessary repetition, and preserve the active application. Starting checkpoint: `8249a331a2069d2172db304cc7dff586a7f8df02`.
 

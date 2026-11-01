@@ -72,14 +72,14 @@ test('Pages workflow leaves the independent Test workflow in place',()=>{
 
 test('setup docs define the fixed Pages frontend demo boundary',()=>{
   const setup=read('docs/SETUP.md');
-  assert.match(setup,/https:\/\/alex1122341\.github\.io\/Teaching-assignment\//);
+  assert.match(setup,/https:\/\/ucvm-teaching-assignment\.github\.io\/Teaching-assignment\//);
   assert.match(setup,/GitHub Pages/i);
   assert.match(setup,/Frontend Demo/i);
   assert.match(setup,/browser-local|browser local/i);
   assert.match(setup,/synthetic/i);
   assert.match(setup,/no cloud writes|cloud writes.*none|does not require Firebase/i);
   assert.match(setup,/DOE.*disabled|authoritative DOE.*off/i);
-  assert.match(setup,/alex1122341\.github\.io/);
+  assert.match(setup,/ucvm-teaching-assignment\.github\.io/);
   assert.match(setup,/latest successful.*pull request|latest successful.*PR/i);
   assert.match(setup,/TEST SITE|fixed test/i);
 });

@@ -9,7 +9,7 @@
     let saving = false;
     function actions(f) {
       if (!canWrite() || !f?.facultyId || !f.updatedAtUtc) return '';
-      return `<div class="faculty-admin-actions"><button type="button" class="btn btn-primary" data-faculty-edit="1">Edit Faculty</button>${f.active === false ? '<button type="button" class="btn" data-faculty-restore="1">Restore Faculty</button>' : '<button type="button" class="btn" data-faculty-deactivate="1">Deactivate Faculty</button>'}</div>`;
+      return `<div class="faculty-admin-actions"><button type="button" class="btn btn-primary" data-faculty-edit="1">Edit Faculty</button>${(f.administrativeActive === undefined ? f.active === false : f.administrativeActive === false) ? '<button type="button" class="btn" data-faculty-restore="1">Restore Faculty</button>' : '<button type="button" class="btn" data-faculty-deactivate="1">Deactivate Faculty</button>'}</div>`;
     }
     function editAction(facultyId) { return canWrite() && facultyId ? `<button type="button" class="btn btn-small" data-faculty-edit-id="${esc(facultyId)}">Edit Faculty</button>` : ''; }
     function relationshipWarning(linked = {}) {
@@ -20,9 +20,11 @@
       const attrs = `${options.max ? ` maxlength="${options.max}"` : ''}${options.step ? ` step="${options.step}"` : ''}`;
       return `<label class="field ${options.full || options.max >= 4000 ? 'full' : ''}"><span class="field-label">${esc(label)}</span>${options.max >= 4000 ? `<textarea class="textarea" rows="3" name="${esc(name)}"${attrs}>${esc(value ?? '')}</textarea>` : `<input class="input" name="${esc(name)}" type="${options.type || 'text'}" value="${esc(value ?? '')}"${attrs}>`}</label>`;
     }
-    function open(f, profile = {}, detail = {}) {
-      if (saving || !canWrite() || !f?.facultyId || !f.updatedAtUtc) return;
+    function open(f = {}, profile = {}, detail = {}) {
+      if (saving || !canWrite() || (f?.facultyId && !f.updatedAtUtc)) return;
       ++editSequence;
+      const creating = !f?.facultyId;
+      f = { recordType: 'faculty', ...f };
       const p = profile || {}, roster = getFaculty();
       const fields = new Map([
         ['preferredFirstName','Preferred first name',f.preferredFirstName,128],['preferredLastName','Preferred last name',f.preferredLastName,128],
@@ -30,6 +32,7 @@
         ['recordType','Record type',f.recordType,32],['stream','Stream',f.stream,128],['rank','Rank',f.rank,128]
       ].map(([key,label,value,max]) => [key, control(key,label,value,{max})]));
       fields.set('fte',control('fte','FTE',f.fte,{type:'number',step:'0.0001'}));
+      fields.set('activationDate',control('activationDate','Faculty active from (YYYY-MM-DD)',f.activationDate,{type:'date'}));
       fields.set('reportsToFacultyId',`<label class="field"><span class="field-label">Reports to</span><select class="select" name="reportsToFacultyId"><option value="">No supervisor</option>${roster.filter(r => r.facultyId !== f.facultyId).map(r => `<option value="${esc(r.facultyId)}" ${r.facultyId === f.reportsToFacultyId ? 'selected' : ''}>${esc(facultyName(r, r.facultyId))}${r.active === false ? ' · inactive' : ''}</option>`).join('')}${f.reportsToFacultyId && !roster.some(r => r.facultyId === f.reportsToFacultyId) ? `<option selected value="${esc(f.reportsToFacultyId)}">${esc(f.reportsToFacultyId)} · current linked record</option>` : ''}</select></label>`);
       const profileFields = [
         ['teachingArea','Teaching area',512],['professionalCategory','Professional category',256],['serviceDate','Service date'],
@@ -41,16 +44,21 @@
       profileFields.forEach(([key,label,max,type,step]) => fields.set(key,control(key,label,p[key],{max,type,step})));
       const group = (title, content) => `<section class="form-section"><h3 class="form-section-title">${title}</h3><div class="field-grid">${content.join('')}</div></section>`;
       const identityKeys = ['preferredFirstName','preferredLastName','displayName','ucid','email','reportsToFacultyId'];
-      const appointmentKeys = ['recordType','stream','rank','fte','serviceDate','priorYearsExperience'];
+      const appointmentKeys = ['recordType','stream','rank','fte','activationDate','serviceDate','priorYearsExperience'];
       const specialtyKeys = profileFields.map(([key]) => key).filter(key => !appointmentKeys.includes(key));
       const controls = keys => keys.map(key => fields.get(key));
-      $('faculty-record-fields').innerHTML = group('Identity & contact', [`<div class="field full"><span class="field-label">Faculty ID (immutable)</span><div class="field-value">${esc(f.facultyId)}</div></div>`, ...controls(identityKeys)]) + group('Appointment', controls(appointmentKeys)) + group('Specialty & education', controls(specialtyKeys));
-      $('faculty-record-title').textContent = `Edit Faculty · ${facultyName(f, f.facultyId)}`;
-      const form = $('faculty-record-form'); form.dataset.facultyId = f.facultyId; form.dataset.expectedUpdatedAtUtc = f.updatedAtUtc;
-      form.dataset.expectedProfileVersion = p.profileVersion || '';
+      $('faculty-record-fields').innerHTML = group('Identity & contact', [`<div class="field full"><span class="field-label">Faculty ID (immutable)</span><div class="field-value">${creating ? 'Assigned when saved' : esc(f.facultyId)}</div></div>`, ...controls(identityKeys)]) + group('Appointment', controls(appointmentKeys)) + group('Specialty & education', controls(specialtyKeys));
+      $('faculty-record-title').textContent = creating ? 'Add New Faculty' : `Edit Faculty · ${facultyName(f, f.facultyId)}`;
+      const form = $('faculty-record-form');
+      form.dataset.facultyId = creating ? '' : f.facultyId;
+      form.dataset.expectedUpdatedAtUtc = creating ? '' : f.updatedAtUtc;
+      form.dataset.expectedProfileVersion = creating ? '' : (p.profileVersion || '');
+      $('faculty-record-description').textContent = creating
+        ? 'Create a canonical Faculty record now. A future start date keeps it inactive until that date.'
+        : 'Update the canonical Faculty record and professional profile.';
       $('faculty-record-status').textContent = ''; $('faculty-record-save').disabled = false;
       if (!$('faculty-record-editor').open) $('faculty-record-editor').showModal();
-      if (typeof onEditOpen === 'function') onEditOpen(form, f, p, detail);
+      if (!creating && typeof onEditOpen === 'function') onEditOpen(form, f, p, detail);
     }
     async function editById(facultyId) {
       if (!canWrite() || !facultyId || typeof getFacultyDetail !== 'function') return;
@@ -71,7 +79,7 @@
         expectedProfileVersion: form.dataset.expectedProfileVersion || null,
         preferredFirstName: str('preferredFirstName'), preferredLastName: str('preferredLastName'), displayName: String(value('displayName')).trim(),
         ucid: str('ucid'), email: str('email'), recordType: String(value('recordType')).trim(), stream: str('stream'), rank: str('rank'),
-        fte: num('fte'), reportsToFacultyId: str('reportsToFacultyId'), professionalProfile: {
+        fte: num('fte'), reportsToFacultyId: str('reportsToFacultyId'), activationDate: str('activationDate'), professionalProfile: {
           teachingArea: str('teachingArea'), professionalCategory: str('professionalCategory'), serviceDate: str('serviceDate'),
           priorYearsExperience: num('priorYearsExperience'), dvmEarnedDate: str('dvmEarnedDate'), dvmType: str('dvmType'),
           mastersEarnedDate: str('mastersEarnedDate'), mastersArea: str('mastersArea'), phdEarnedDate: str('phdEarnedDate'), phdArea: str('phdArea'),
@@ -88,8 +96,20 @@
       $('faculty-record-cancel').disabled = true; $('faculty-record-close').disabled = true;
       try {
         button.disabled = true; status.textContent = 'Saving canonical Faculty record…';
-        await UCVM_PAWS_DATA.updateDashboardFaculty(id,payload(form));
-        $('faculty-record-editor').close(); notify('Faculty record saved.'); await onChanged(id);
+        const values = payload(form);
+        let finalId = id;
+        let saved = null;
+        if (id) {
+          saved = await UCVM_PAWS_DATA.updateDashboardFaculty(id,values);
+        } else {
+          const { expectedUpdatedAtUtc, expectedProfileVersion, ...createValues } = values;
+          saved = await UCVM_PAWS_DATA.createDashboardFaculty(createValues);
+          finalId = saved?.faculty?.facultyId;
+          if (!finalId) throw new Error('The Faculty API did not return an identifier; reload Lookup before retrying.');
+        }
+        $('faculty-record-editor').close();
+        notify(id ? 'Faculty record saved.' : 'New Faculty record created.');
+        await onChanged(finalId, saved?.faculty?.active === false ? (saved?.faculty?.administrativeActive === false ? 'inactive' : 'pending') : 'active');
       } catch (error) { status.textContent = error?.message || 'Faculty record could not be saved.'; button.disabled = false; }
       finally { saving = false; $('faculty-record-cancel').disabled = false; $('faculty-record-close').disabled = false; }
     }
@@ -101,17 +121,23 @@
     }
     async function restore(f) {
       if (!window.confirm(`Restore ${facultyName(f, f.facultyId)} as the same Faculty record? Its Faculty ID and existing relationships will be preserved.`)) return;
-      try { await UCVM_PAWS_DATA.restoreDashboardFaculty(f.facultyId,{expectedUpdatedAtUtc:f.updatedAtUtc}); notify('Existing Faculty record restored.'); await onChanged(f.facultyId,'active'); }
+      try { await UCVM_PAWS_DATA.restoreDashboardFaculty(f.facultyId,{expectedUpdatedAtUtc:f.updatedAtUtc}); notify('Existing Faculty record restored.'); await onChanged(f.facultyId,'all'); }
       catch (error) { notify(error?.message || 'Faculty record could not be restored.',true); }
     }
     return Object.freeze({
       actions, editAction, relationshipWarning,
+      refreshWriteControls() {
+        const btn = $('faculty-create-btn');
+        btn?.classList?.toggle('hidden',!canWrite());
+        if (btn) btn.disabled = !canWrite();
+      },
       bind() {
         const close = () => { if (!saving) { ++editSequence; $('faculty-record-editor')?.close(); } };
         bind($('faculty-record-cancel'),'click',close);
         bind($('faculty-record-close'),'click',close);
         bind($('faculty-record-editor'),'cancel',event => { if (saving) event.preventDefault(); else ++editSequence; });
         bind($('faculty-record-form'),'submit',submit);
+        bind($('faculty-create-btn'),'click',() => open({}, {}, {}));
         bind(document,'click',event => {
           const action = event.target?.closest?.('[data-faculty-edit-id]');
           if (!action || !canWrite()) return;

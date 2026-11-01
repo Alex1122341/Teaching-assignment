@@ -3,13 +3,15 @@
 const { PROFILE_FIELDS } = require('../../../server/src/data/sql-faculty-admin-repository.js');
 const { afcView, sqlError, clone } = require('./core.js');
 const { isAdministratorRole } = require('../../../server/src/auth/role-policy.js');
+const { uuidFor } = require('../ids.js');
+const activation=require('../faculty-activation.js');
 const { dateRange, versionOf, bumpVersion } = require('./afc-date-change.js');
 
 const AFC_REASONS = { university_travel: 'University Travel', vacation: 'Vacation', rsl: 'RSL', medical: 'Medical', mat: 'MAT', special: 'Special', other: 'Other' };
 const hexVersion = n => '0x' + Number(n).toString(16).toUpperCase().padStart(16, '0');
 
-function facultyDto(row) {
-  return { facultyId: row.facultyId, preferredFirstName: row.preferredFirstName, preferredLastName: row.preferredLastName, displayName: row.displayName, ucid: row.ucid, email: row.email, recordType: row.recordType, stream: row.stream, rank: row.rank, fte: row.fte, reportsToFacultyId: row.reportsToFacultyId || null, active: row.active, updatedAtUtc: row.updatedAtUtc, profileVersion: row.profile.profileVersion, professionalProfile: Object.fromEntries(PROFILE_FIELDS.map(field => [field, row.profile[field] ?? null])) };
+function facultyDto(store,row) {
+  return { facultyId: row.facultyId, preferredFirstName: row.preferredFirstName, preferredLastName: row.preferredLastName, displayName: row.displayName, ucid: row.ucid, email: row.email, recordType: row.recordType, stream: row.stream, rank: row.rank, fte: row.fte, reportsToFacultyId: row.reportsToFacultyId || null, active: activation.effectiveActive(row,store.now()), administrativeActive: row.active === true, activationDate: row.activationDate || null, updatedAtUtc: row.updatedAtUtc, profileVersion: row.profile.profileVersion, professionalProfile: Object.fromEntries(PROFILE_FIELDS.map(field => [field, row.profile[field] ?? null])) };
 }
 
 function createFacultyAdminRepository(store) {
@@ -18,11 +20,33 @@ function createFacultyAdminRepository(store) {
   const sameInstant = (a, b) => String(a || '').slice(0, 19) === String(b || '').slice(0, 19);
   const touch = (row, actor, action, before) => {
     row.updatedAtUtc = store.nowIso();
-    store.audit({ domain: 'lookup', changeType: action, facultyId: row.facultyId, actorFirebaseUid: actor, before, after: facultyDto(row) });
+    store.audit({ domain: 'lookup', changeType: action, facultyId: row.facultyId, actorFirebaseUid: actor, before, after: facultyDto(store,row) });
     store.commit();
-    return facultyDto(row);
+    return facultyDto(store,row);
   };
   return {
+    async createFaculty(input) {
+      const identity=String(input.ucid||'').trim().toLowerCase();
+      const email=String(input.email||'').trim().toLowerCase();
+      if(!identity&&!email)throw sqlError(56503,'UCID or email required for a new Faculty.');
+      if(t().faculty.some(f=>(identity&&String(f.ucid||'').trim().toLowerCase()===identity)||
+        (email&&String(f.email||'').trim().toLowerCase()===email)))
+        throw sqlError(52304,'Faculty identity already exists, including inactive entries.');
+      if(input.reportsToFacultyId&&!t().faculty.some(f=>f.facultyId===input.reportsToFacultyId))
+        throw sqlError(56503,'Supervisor does not exist.');
+      const facultyId=uuidFor('faculty:create:'+t().faculty.length+':'+store.nowIso()+':'+identity+':'+email);
+      const before=null;
+      const row={facultyId,preferredFirstName:input.preferredFirstName||null,
+        preferredLastName:input.preferredLastName||null,displayName:input.displayName,
+        storedDisplayName:[input.preferredLastName,input.preferredFirstName].filter(Boolean).join(', '),
+        ucid:input.ucid||null,email:input.email||null,recordType:input.recordType,
+        stream:input.stream||null,rank:input.rank||null,fte:input.fte,
+        reportsToFacultyId:input.reportsToFacultyId||null,activationDate:input.activationDate||null,
+        active:true,updatedAtUtc:store.nowIso(),
+        profile:{...(input.professionalProfile||{}),profileVersion:hexVersion(1)}};
+      t().faculty.push(row);
+      return touch(row,input.actorFirebaseUid,'faculty_created',before);
+    },
     async updateRolePeriods({ roleAssignmentId, expectedVersion, periods, actorFirebaseUid }) {
       const role = t().roles.find(row => row.roleAssignmentId === roleAssignmentId);
       if (!role) throw sqlError(53504, 'Appointment not found.');
@@ -39,10 +63,13 @@ function createFacultyAdminRepository(store) {
       const row = find(input.facultyId);
       if (!sameInstant(row.updatedAtUtc, input.expectedUpdatedAtUtc) || (input.expectedProfileVersion && input.expectedProfileVersion.toUpperCase() !== String(row.profile.profileVersion).toUpperCase())) throw sqlError(52305, 'Revision conflict');
       if (t().faculty.some(other => other.facultyId !== row.facultyId && ((input.ucid && other.ucid === input.ucid) || (input.email && other.email.toLowerCase() === String(input.email).toLowerCase())))) throw sqlError(52304, 'Identity conflict');
-      const before = facultyDto(row);
+      const before = facultyDto(store,row);
+      if(Object.prototype.hasOwnProperty.call(input,'activationDate')&&input.activationDate!==row.activationDate)
+        activation.assertActivationChange(store,row.facultyId,input.activationDate);
       for (const key of ['preferredFirstName', 'preferredLastName', 'ucid', 'email', 'recordType', 'stream', 'rank', 'fte', 'reportsToFacultyId']) if (input[key] !== undefined) row[key] = input[key];
       row.displayName = input.displayName || `${row.preferredFirstName} ${row.preferredLastName}`.trim();
       row.storedDisplayName = `${row.preferredLastName}, ${row.preferredFirstName}`;
+      if(Object.prototype.hasOwnProperty.call(input,'activationDate'))row.activationDate=input.activationDate;
       for (const field of PROFILE_FIELDS) if (input.professionalProfile && input.professionalProfile[field] !== undefined) row.profile[field] = input.professionalProfile[field];
       row.profile.profileVersion = hexVersion(parseInt(row.profile.profileVersion.slice(2), 16) + 1);
       return touch(row, input.actorFirebaseUid, 'faculty_updated', before);
@@ -50,13 +77,13 @@ function createFacultyAdminRepository(store) {
     async deactivateFaculty({ facultyId, expectedUpdatedAtUtc, actorFirebaseUid }) {
       const row = find(facultyId);
       if (!sameInstant(row.updatedAtUtc, expectedUpdatedAtUtc)) throw sqlError(52305, 'Revision conflict');
-      const before = facultyDto(row); row.active = false;
+      const before = facultyDto(store,row); row.active = false;
       return touch(row, actorFirebaseUid, 'faculty_deactivated', before);
     },
     async restoreFaculty({ facultyId, expectedUpdatedAtUtc, actorFirebaseUid }) {
       const row = find(facultyId);
       if (!sameInstant(row.updatedAtUtc, expectedUpdatedAtUtc)) throw sqlError(52305, 'Revision conflict');
-      const before = facultyDto(row); row.active = true;
+      const before = facultyDto(store,row); row.active = true;
       return touch(row, actorFirebaseUid, 'faculty_restored', before);
     }
   };

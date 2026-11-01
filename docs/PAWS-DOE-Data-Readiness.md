@@ -1,5 +1,7 @@
 # PAWS DOE Data Readiness
 
+> **Historical Beta snapshot (2026-10-04).** These row counts, missing-policy claims and source readings cannot be relied upon for current Faculty DOE. Reconcile the current MASTER and live Beta from authorized sources. The Testing Demo contains synthetic data only.
+
 **Environment:** live Beta `VetMed-Ops`
 **Academic year:** `2026-27`
 **Audit date:** 2026-10-04

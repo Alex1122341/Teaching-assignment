@@ -93,7 +93,7 @@
       <section class="detail-section"><div class="section-heading"><div><h3>ADFAD final assignment</h3><p>Authoritative assignment is separate from the HICC proposal and VISC decision.</p></div></div>${canFinalize ? `<p class="notice">Use exact canonical Faculty IDs. This action creates a new immutable finalization version.</p>${renderSessionRows(finalEditable,{editable:true,purpose:'final'})}<label class="note-field">Final note<textarea id="final-note" rows="3" maxlength="2000" placeholder="Decision context (optional)"></textarea></label><div class="action-row">${actionButton('save-final','Save final assignment')}</div>` : finalRows.length ? `<p class="version-label">Finalization version ${esc((pkg.finalization || [])[0]?.versionNumber || '')} · ${esc(displayFaculty((pkg.finalization || [])[0]?.actorName || ''))}</p>${renderSessionRows(finalRows,{purpose:'final'})}` : '<p class="muted">No ADFAD final assignment has been saved.</p>'}</section>
       <section class="detail-section"><div class="section-heading"><div><h3>Published state</h3><p>A later working or final change does not alter an existing release.</p></div></div><p class="muted">${status === 'adfad_finalized' ? (capabilities.taPublish ? 'This package is finalized and can be included when the academic year is published.' : 'Finalized; publication is currently disabled.') : 'This package has not reached final assignment.'}</p></section>
       <section class="detail-section"><div class="section-heading"><div><h3>Activity history</h3><p>Server audit events for this package.</p></div></div><div id="package-activity" class="activity-list"><span class="muted">Loading audit history…</span></div></section>
-      ${isAdmin() && facultyOptions.length ? `<details class="faculty-reference"><summary>Canonical Faculty picker reference</summary><p>Use the exact active Faculty ID and display name returned by the authorized dashboard list.</p><ul>${facultyOptions.slice(0,200).map(f=>`<li><button type="button" class="link-button" data-copy-faculty="${esc(f.facultyId)}">${esc(displayFaculty(f.displayName || f.name || f.facultyId))} · ${esc(f.facultyId)}</button></li>`).join('')}</ul></details>` : ''}`;
+      ${isAdmin() && facultyOptions.length ? `<details class="faculty-reference"><summary>Canonical Faculty picker reference</summary><p>Use canonical Faculty IDs. Pending Start members are eligible only for sessions on or after their start date.</p><ul>${facultyOptions.slice(0,200).map(f=>`<li><button type="button" class="link-button" data-copy-faculty="${esc(f.facultyId)}">${esc(displayFaculty(f.displayName || f.name || f.facultyId))} · ${esc(f.facultyId)}${f.activationDate ? ` · starts ${esc(f.activationDate)}` : ""}</button></li>`).join('')}</ul></details>` : ''}`;
     if (canReview) document.querySelectorAll('[data-workflow-action="approve"],[data-workflow-action="push-back"]').forEach(button => { button.dataset.revision = String(pkg.submittedRevision); });
     if (canFinalize) document.querySelectorAll('textarea[data-purpose="final"]').forEach(input => input.dataset.purpose = 'final');
     loadPackageHistory(pkg.packageId);
@@ -183,10 +183,14 @@
     $('publish-button').disabled = !isAdmin() || capabilities.taPublish !== true;
     $('publish-button').dataset.gateDisabled = String(!isAdmin() || capabilities.taPublish !== true);
   }
+  function eligibleOnSession(faculty,sessionDate) {
+    return faculty && faculty.administrativeActive!==false &&
+      (!faculty.activationDate || (sessionDate && sessionDate>=faculty.activationDate));
+  }
   async function loadFacultyReference() {
     if (!isAdmin()) return;
     const g=authGeneration;
-    try { const value = await UCVM_PAWS_DATA.dashboardFaculty({limit:200}); if(g!==authGeneration)return; facultyOptions=value; }
+    try { const value = await UCVM_PAWS_DATA.dashboardFaculty({limit:500,status:'all'}); if(g!==authGeneration)return; facultyOptions=(Array.isArray(value)?value:[]).filter(f=>f.administrativeActive!==false); }
     catch (_) { if(g!==authGeneration)return; facultyOptions = []; }
   }
   function formatEvidenceValue(value, suffix = '') { return value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? 'Unavailable' : `${Number(value).toFixed(2)}${suffix}`; }
@@ -257,7 +261,19 @@
     });
     $('detail-panel').addEventListener('click',event => {
       const action = event.target.closest('[data-workflow-action]'); if (action) { performAction(action.dataset.workflowAction,action); return; }
-      const copy = event.target.closest('[data-copy-faculty]'); if (copy) { const target = focusedAssignmentEditor?.isConnected ? focusedAssignmentEditor : null; const id=copy.dataset.copyFaculty; if (target) { target.value += `${target.value.trim() ? '\n' : ''}${id} | Lecturer`; target.focus(); } else setStatus(`Canonical Faculty ID: ${id}`); }
+      const copy = event.target.closest('[data-copy-faculty]'); if (copy) {
+        const target = focusedAssignmentEditor?.isConnected ? focusedAssignmentEditor : null;
+        const id=copy.dataset.copyFaculty;
+        if (target) {
+          const session=currentWorking().sessions.find(s=>s.sessionId===target.dataset.assignmentFor);
+          const faculty=facultyOptions.find(f=>f.facultyId===id);
+          if (!eligibleOnSession(faculty,session?.sessionDate)) {
+            setStatus('This Faculty member is inactive or starts after the selected session date.',true);
+            return;
+          }
+          target.value += `${target.value.trim() ? '\n' : ''}${id} | Lecturer`; target.focus();
+        } else setStatus(`Canonical Faculty ID: ${id}`);
+      }
     });
     $('detail-panel').addEventListener('focusin',event=>{if(event.target.matches('textarea[data-assignment-for]'))focusedAssignmentEditor=event.target;});
     $('detail-panel').addEventListener('focusout',event=>{if(event.target.matches('textarea[data-purpose="final"]'))loadDecisionEvidence();});

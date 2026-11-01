@@ -15,12 +15,14 @@ const path = require('node:path');
 const { ROOT } = require('./build/frontend-paths');
 const { buildStaticBundle } = require('./build/static-bundle');
 const { buildDemoApi } = require('./pages-demo-api/build');
+const { publishChangelog } = require('./site-changelog');
 
 async function buildPawsPages({ root = ROOT, minify = true } = {}) {
   const output = path.join(root, '.deploy-static');
   const site = buildStaticBundle({ root, output });
+  const changelog = publishChangelog(root, output);
   const api = await buildDemoApi({ outfile: path.join(output, 'pages-demo-api.js'), minify });
-  return { ...site, demoApi: path.basename(api.outfile) };
+  return { ...site, demoApi: path.basename(api.outfile), changeLogEntries: changelog.entries };
 }
 
 module.exports = { buildPawsPages };

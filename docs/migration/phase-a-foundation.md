@@ -1,6 +1,6 @@
 # Phase A — Shared Foundation and Server/Database Port
 
-Status: **server and database layer ported; browser layer not started**
+**Historical phase-A status (2026-10-23):** server and database layer ported; browser layer not started. **Current status:** the browser PAWS Frontend Demo was subsequently ported and is served by the Testing PR Pages workflow. The original Phase A notes below remain migration evidence, not a current task list.
 Last updated: 2026-10-23
 
 ---

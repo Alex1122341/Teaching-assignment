@@ -94,5 +94,7 @@
   "workspace-navigation.js",
   "office-workspace.js",
   "faculty-route-access.js",
-  "testing-only-features.js"
+  "testing-only-features.js",
+  "site-changelog.js",
+  "site-changelog.css"
 ]

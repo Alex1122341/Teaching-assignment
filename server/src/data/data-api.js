@@ -18,13 +18,15 @@ const SESSION_CREATE_SQL_ERRORS = new Map([
   [51252, { status: 400, code: 'SESSION_DATE_OUTSIDE_ACADEMIC_YEAR' }],
   [51253, { status: 409, code: 'DUPLICATE_SESSION_CONFLICT' }],
   [51254, { status: 400, code: 'SESSION_FACULTY_INVALID' }],
-  [51255, { status: 409, code: 'DUPLICATE_REQUEST_CONFLICT' }]
+  [51255, { status: 409, code: 'DUPLICATE_REQUEST_CONFLICT' }],
+  [56551, { status: 422, code: 'FACULTY_START_DATE_CONFLICT' }]
 ]);
 const SESSION_ASSIGNMENT_SQL_ERRORS = new Map([
   [51260, { status: 404, code: 'SESSION_NOT_FOUND' }],
   [51261, { status: 400, code: 'SESSION_FACULTY_INVALID' }],
   [51262, { status: 409, code: 'ASSIGNMENT_HAS_RECORDED_DATA' }],
-  [51263, { status: 409, code: 'ASSIGNMENT_HAS_RECORDED_DOE' }]
+  [51263, { status: 409, code: 'ASSIGNMENT_HAS_RECORDED_DOE' }],
+  [56551, { status: 422, code: 'FACULTY_START_DATE_CONFLICT' }]
 ]);
 const { writeDisabled } = require('./write-gates');
 
@@ -35,7 +37,8 @@ const SESSION_EDIT_SQL_ERRORS = new Map([
   [51243, { status: 400, code: 'COURSE_NOT_FOUND', message: 'The course code was not found.' }],
   [51244, { status: 409, code: 'SESSION_ACADEMIC_YEAR_INVALID', message: 'The session academic year is invalid.' }],
   [51245, { status: 400, code: 'SESSION_DATE_OUTSIDE_ACADEMIC_YEAR', message: 'The date does not match the session academic year.' }],
-  [51246, { status: 409, code: 'DUPLICATE_SESSION_CONFLICT', message: 'The edit conflicts with an existing session.' }]
+  [51246, { status: 409, code: 'DUPLICATE_SESSION_CONFLICT', message: 'The edit conflicts with an existing session.' }],
+  [56551, { status: 422, code: 'FACULTY_START_DATE_CONFLICT', message: 'This Faculty member is inactive or cannot be scheduled before their official start date.' }]
 ]);
 const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '') &&
   !Number.isNaN(Date.parse(value + 'T00:00:00Z')) && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;

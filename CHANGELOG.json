@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "date": "2026-11-01",
+      "pr": 99,
+      "title": "Future Faculty activation, public Change Log and Markdown documentation cleanup",
+      "changes": [
+        "Faculty Lookup: add a new Faculty member, set a future activation date, and distinguish Pending Start from manually inactive staff.",
+        "Calendar and Teaching Assignments: prevent assignments before the Faculty member's activation date while allowing eligible future sessions.",
+        "Add a large Change Log window on the PAWS homepage with an Open button and a Close button.",
+        "Require every future PR to describe its updates in the Change Log; agents must follow the repository rules and CI validates the record.",
+        "These features use synthetic browser-local Testing data; no live SQL or Firestore records are modified.",
+        "Reviewed all 198 Markdown documents and removed 36 redundant or superseded Beta freeze, release and reconciliation notes; preserved security, design, migration and acceptance evidence in active files and Git history.",
+        "Updated the Testing setup and documentation index and corrected historical Firebase/Azure references so old deployment instructions cannot be mistaken for the active Demo route."
+      ]
+    }
+  ]
+}

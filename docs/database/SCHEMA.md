@@ -424,3 +424,27 @@ For authorized *manual/imported* AFC record sources, keep stable IDs and `active
 8. **Acceptance:** synthetic-only fixtures; stale original revision, concurrent replacement, date move onto teaching, absent coverage, withdraw/reject preserving old dates, authorized ADFAD direct edit, unauthorized faculty denial, original PDF immutability, audit reconstruction, and non-mutation of `tester-teaching`/University SQL.
 
 **Not executed:** Beta SQL `database/azure-sql/064_afc_date_edit.sql` and its rollback/acceptance scripts are SQL Server references only. They must **not** be run as Firestore migrations or copied verbatim into `firebase/firestore.rules`. A future Firestore implementation requires its own reviewed PR, deployment permission, rules/index tests, synthetic seed, rollback evidence and explicit approval.
+
+
+## Planned Firestore Faculty future activation contract (Testing PR #99)
+
+**Deployment scope:** The default PAWS Github Pages testing build uses `tools/pages-demo-api/` with synthetic `localStorage` data. These are future schema and rules recommendations, **not** applied Firestore migrations or deployed rules. SQL Beta PR #155 / SQL065 is only a reference.
+
+### Proposed Faculty fields and status
+
+- `faculty/{facultyId}.administrativeActive` (boolean, administrator-controlled), independent of appointment dates.
+- `faculty/{facultyId}.activationDate` (nullable `YYYY-MM-DD` calendar date, campus-local America/Edmonton semantics).
+- Derived `effectiveActive = administrativeActive && (activationDate == null || activationDate <= campusToday)`.
+- Derived statuses are **Active**, **Pending Start** (administratively enabled but future activation), **Inactive** (manually disabled). Pending staff are not treated as manually disabled.
+- Existing Faculty with no activation date preserve their existing active state. Do not rewrite historical assignment/DOE/AFC data to calculate a new status.
+
+### Proposed trusted writes and validation
+
+1. Authorized ADFAD administrator creates a new canonical Faculty document using a new immutable ID; keep professional profile linked by the same ID. A UCID or email is required; reject duplicates case-insensitively even if the previous record is inactive. Create an immutable audit event.
+2. Date editing requires a version/revision check; reject moving the activation date after any existing related course, working revision, finalization or published schedule. Keep historical records and manual DOE overrides unchanged.
+3. Manual deactivate changes the administrative enablement only, retaining Faculty ID, activation date, roles, DOE and relationships. Restore the same ID without bypassing the future start date.
+4. Every canonical course assignment create/update (Calendar single and bulk, teaching draft/final/publish, date reschedule) checks the Faculty administrative state and compares the **session date**, not today, to the activation date. Activation day is allowed; the previous day is not. Return a bounded `FACULTY_START_DATE_CONFLICT`, not partial writes.
+5. Auth/Faculty access must be checked by trusted backend enforcement and Firebase Rules before private data is returned; do not rely on a browser-computed status or the Frontend Demo role selector. Allow admin lookup of Pending/Inactive but never widen ordinary Faculty reads.
+6. Implement the cross-document date comparison and profile/assignment mutation atomically in a trusted server/transaction, with Firestore rule/index budget evaluation, old-data compatibility, synthetic integration tests and rollback evidence **before** enabling real Firestore Lab writes.
+
+**Status:** Prototype implemented only in browser-local Frontend Demo, PR #99. No actual Firestore collections/rules changed and no database data migrated.

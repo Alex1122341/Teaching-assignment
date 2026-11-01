@@ -420,6 +420,9 @@
       async updateRolePeriods(roleAssignmentId,payload={}){
         return request('/api/v1/dashboard/roles/'+encodeURIComponent(roleAssignmentId)+'/periods',{method:'PUT',body:payload});
       },
+      async createDashboardFaculty(payload={}){
+        return request('/api/v1/dashboard/faculty',{method:'POST',body:payload});
+      },
       async updateDashboardFaculty(facultyId,payload={}){
         const id=String(facultyId??'').trim();if(!id)throw new Error('facultyId is required.');
         return request('/api/v1/dashboard/faculty/'+encodeURIComponent(id),{method:'PATCH',body:payload});

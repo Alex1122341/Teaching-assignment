@@ -86,7 +86,7 @@
     return { __id: id, facultyId: id, preferredFirstName: first, preferredLastName: last,
       preferredFullName: facultyName(r, id), displayName: facultyName(r, id),
       ucid: text(r.ucid), email: text(r.email), recordType: text(r.recordType), stream: text(r.stream), rank: text(r.rank), fte: present(r.fte) ? r.fte : undefined,
-      reportsToFacultyId: text(r.reportsToFacultyId), reportsToName: facultyName(r.reportsToName), active: r.active !== false, teachingArea: text(r.teachingArea), professionalCategory: text(r.professionalCategory),
+      reportsToFacultyId: text(r.reportsToFacultyId), reportsToName: facultyName(r.reportsToName), active: r.active !== false, administrativeActive: (r.administrativeActive ?? r.active) !== false, activationDate: text(r.activationDate), teachingArea: text(r.teachingArea), professionalCategory: text(r.professionalCategory),
       updatedAtUtc: text(r.updatedAtUtc),
       sessionCount: number(r.sessionCount), roleCount: number(r.roleCount), afcCount: number(r.afcCount), jointAppointmentCount: number(r.jointAppointmentCount) };
   }
@@ -107,6 +107,7 @@
       if(g!==authGeneration)return;
       dashboardSummary = summary && typeof summary === 'object' && !Array.isArray(summary) ? summary : {};
       facultyAdminWriteEnabled = canWrite === true;
+      facultyManagement?.refreshWriteControls?.();
       window.__pawsDoeWriteCapabilities = doeGates || {};
       faculty = (Array.isArray(rows) ? rows : []).map(rosterRecord);
       activeFaculty = facultyStatus === 'active' ? faculty : (Array.isArray(activeRows) ? activeRows : []).map(rosterRecord);
@@ -369,7 +370,7 @@
     const focusFacultyId = typeof focusId === 'string' ? focusId : active?.matches?.('.person-select') ? active.closest('.person-row')?.dataset.id : null;
     const rows = filteredLookup(); const count = $('result-count'); if (count) count.textContent = rows.length;
     if (selectedId && !rows.some(row => row.__id === selectedId)) selectedId = null;
-    const list = $('result-list'); if (list) list.innerHTML = rows.map(row => `<div class="person-row ${row.__id === selectedId ? 'active' : ''}" data-id="${esc(row.__id)}"><button type="button" class="person-select" aria-pressed="${row.__id === selectedId}"><span class="person-name">${esc(row.preferredFullName || row.__id)}${row.active === false ? ' <span class="faculty-inactive-badge">Inactive</span>' : ''}</span><span class="person-meta">${esc(row.rank)}${row.teachingArea ? ' · ' + esc(row.teachingArea) : ''}</span><span class="person-meta">${esc(display(row.sessionCount)+' sessions · '+display(row.roleCount)+' roles · '+VIEW.lookupMetricsText(row.facultyId,lookupMetrics))}</span></button>${facultyManagement.editAction(row.facultyId)}</div>`).join('') || '<div class="empty">No matching faculty.</div>';
+    const list = $('result-list'); if (list) list.innerHTML = rows.map(row => `<div class="person-row ${row.__id === selectedId ? 'active' : ''}" data-id="${esc(row.__id)}"><button type="button" class="person-select" aria-pressed="${row.__id === selectedId}"><span class="person-name">${esc(row.preferredFullName || row.__id)}${row.active === false ? ` <span class="faculty-inactive-badge">${row.administrativeActive===false?'Inactive':'Pending start'}</span>` : ''}</span><span class="person-meta">${esc(row.rank)}${row.teachingArea ? ' · ' + esc(row.teachingArea) : ''}</span><span class="person-meta">${esc(display(row.sessionCount)+' sessions · '+display(row.roleCount)+' roles · '+VIEW.lookupMetricsText(row.facultyId,lookupMetrics))}</span></button>${facultyManagement.editAction(row.facultyId)}</div>`).join('') || '<div class="empty">No matching faculty.</div>';
     document.querySelectorAll('.person-select').forEach(node => on(node, 'click', event => { selectedId = node.closest('.person-row').dataset.id; selectedDetail = null; ++detailLoadToken; renderLookup(event.detail === 0 || document.activeElement === node ? selectedId : undefined); }));
     if (focusFacultyId) {
       const focusedRow = [...document.querySelectorAll('#result-list .person-row')].find(node => node.dataset.id === focusFacultyId);
@@ -435,7 +436,7 @@
     const roles = Array.isArray(data.roles) ? data.roles : []; const assignments = Array.isArray(data.teachingAssignments) ? data.teachingAssignments : [];
     const badges = [facultyRecord.rank, present(facultyRecord.fte) ? `FTE ${facultyRecord.fte}` : '', facultyRecord.stream, facultyRecord.recordType].filter(Boolean).map(value => `<span class="badge">${esc(value)}</span>`).join('');
     const identity = field('Preferred name', facultyName(facultyRecord)) + field('HR name', facultyRecord.hrName || 'Not imported from an exact source match') + field('HR name source', facultyRecord.hrNameSource) + field('UCID', facultyRecord.ucid) + field('Email', facultyRecord.email) + field('Reports to', facultyName(facultyRecord.reportsToName));
-    const appointment = field('Rank', facultyRecord.rank) + field('Stream', facultyRecord.stream) + field('FTE', facultyRecord.fte) + field('Record type', facultyRecord.recordType) + field('Service date', profile?.serviceDate) + field('Prior years experience', profile?.priorYearsExperience) + field('Active', facultyRecord.active === false ? 'No' : 'Yes');
+    const appointment = field('Rank', facultyRecord.rank) + field('Stream', facultyRecord.stream) + field('FTE', facultyRecord.fte) + field('Record type', facultyRecord.recordType) + field('Service date', profile?.serviceDate) + field('Prior years experience', profile?.priorYearsExperience) + field('Start',facultyRecord.activationDate)+field('Status',facultyRecord.administrativeActive===false?'Inactive':facultyRecord.active===false?'Pending':'Active');
     const professional = profile ? field('Teaching area', profile.teachingArea, true) + field('Professional category', profile.professionalCategory) + field('DVM earned', profile.dvmEarnedDate) + field('DVM type', profile.dvmType) + field('Masters earned', profile.mastersEarnedDate) + field('Masters area', profile.mastersArea, true) + field('PhD earned', profile.phdEarnedDate) + field('PhD area', profile.phdArea, true) + field('Board certified date', profile.boardCertifiedDate) + field('Board certification count', profile.boardCertificationCount) + field('Board certification', profile.boardCertification, true) + field('ABVMA license number', profile.abvmaLicenseNumber) + field('ABVMA member type', profile.abvmaMemberType) : '';
     const specialty = [profile?.teachingArea, profile?.boardCertification].filter(present);
     const specialtyHtml = specialty.length ? `<div class="specialty-box"><strong>Specialty / focus:</strong> ${specialty.map(esc).join(' · ')}</div>` : '';
@@ -623,8 +624,9 @@
     onEditOpen: (form, f, p, detail) => { rolePeriodsEditor.remember(detail); facultyDoeEdit?.mount(form, f); const roles = rolePeriodsEditor.rolesFor(f.facultyId); form.querySelector('#faculty-record-fields')?.insertAdjacentHTML('beforeend', '<section class="form-section"><h3>Roles &amp; Appointments · effective periods</h3>' + roles.map(r => '<p>' + esc(r.roleType) + ' · ' + esc(r.courseOrSubjectOrRotation) + ' · ' + esc(window.PAWS_ROLE_PERIODS.status(r).label) + ' ' + rolePeriodsEditor.action(r) + '</p>').join('') + '</section>'); },
     notify: showToast,
     onChanged: async (id, requestedStatus) => {
-      if (requestedStatus === 'inactive' && facultyStatus === 'active') facultyStatus = 'inactive';
-      else if (requestedStatus === 'active' && facultyStatus === 'inactive') facultyStatus = 'active';
+      if (['all','pending'].includes(requestedStatus)) facultyStatus=requestedStatus;
+      else if (requestedStatus==='inactive'&&facultyStatus==='active') facultyStatus='inactive';
+      else if(requestedStatus==='active'&&facultyStatus!=='active') facultyStatus='active';
       if ($('faculty-status-filter')) $('faculty-status-filter').value = facultyStatus;
       selectedId = id; invalidateFacultyDetails(); await loadAdminDashboard(); await selectFacultyDetail(id);
     }

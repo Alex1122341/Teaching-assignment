@@ -1,5 +1,7 @@
 # Graphify: consult relationships before tracing
 
+> **Snapshot:** the bundled graph/report was generated in October 2026. Revalidate the source fingerprint and actual code before treating any edge or missing edge as authoritative; the report is not current deployment or deletion evidence.
+
 The checked-in [raw index](graphify/graph.json), [relationship overview](graphify/DEPENDENCIES.html) and [file/symbol tree](graphify/SCRIPT_MAP.html) describe **this Testing repository**, including its PAWS Demo and legacy Lab paths. [Receipt](graphify/receipt.json) records source SHA, code-input fingerprint, raw hash, counts, warnings and verified edges. Generated graph data is public source metadata, not user data, and never belongs in a deployment allowlist.
 
 ## First use and freshness
