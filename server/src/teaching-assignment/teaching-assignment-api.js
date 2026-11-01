@@ -41,6 +41,7 @@ function createTeachingAssignmentApi({verifyToken,findUser,repository,writeGates
       return ok(key?{[key]:value}:value);
     }
     catch (error) {
+      if (Number(error?.number || error?.code)===56551)return fail(422,'FACULTY_START_DATE_CONFLICT','A Faculty member is inactive or the course date precedes their official start date.');
       if (conflict(error)) return fail(409,'REVISION_CONFLICT','The workflow changed. Reload it and retry against the current revision.');
       const n=Number(error?.number || error?.code);
       if (n>=52100 && n<52200) return fail(n===52111?404:400,'TEACHING_ASSIGNMENT_INVALID',String(error.message || 'The workflow request was rejected.'));
