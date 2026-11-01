@@ -4,6 +4,7 @@
 const { isAdministratorRole } = require('../../../server/src/auth/role-policy.js');
 const { uuidFor } = require('../ids.js');
 const { clone, sqlError } = require('./core.js');
+const { assertAssignable } = require('../faculty-activation.js');
 
 const userOf = (store, uid) => store.tables.users.find(u => u.firebaseUid === uid) || {};
 const conflict = () => Object.assign(new Error('Revision conflict'), { number: 52109, code: 'REVISION_CONFLICT' });
@@ -58,6 +59,11 @@ function createTeachingAssignmentRepository(store) {
       if (!['draft', 'changes_requested'].includes(p.status)) throw sqlError(52102, 'The package is not editable in its current stage.');
       const base = p.revisions.at(-1).sessions;
       const next = base.map(s => { const edit = sessions.find(x => x.sessionId === s.sessionId); return edit ? { ...s, assignments: (edit.assignments || []).map(a => ({ facultyId: a.facultyId, facultyName: name(store, a.facultyId), teachingRole: a.teachingRole || '' })) } : s; });
+      for(const edit of sessions) {
+        const corresponding=next.find(s=>s.sessionId===edit.sessionId);
+        if(corresponding)for(const a of corresponding.assignments||[])
+          if(a.facultyId)assertAssignable(store,a.facultyId,corresponding.sessionDate);
+      }
       p.workingRevision += 1; p.revisions.push({ revisionNumber: p.workingRevision, sessions: next, note: revisionNote || '' }); p.status = 'draft';
       return touch(p, actorFirebaseUid, 'draft_saved');
     },
@@ -93,6 +99,11 @@ function createTeachingAssignmentRepository(store) {
       const p = find(packageId); if (!p) throw sqlError(52111, 'Not found');
       if (p.workingRevision !== expectedWorkingRevision) throw conflict();
       if (!['submitted_to_adfad', 'adfad_finalized'].includes(p.status)) throw sqlError(52106, 'The package has not been submitted to ADFAD.');
+      const currentSessions=p.revisions.at(-1).sessions;
+      for(const a of assignments) {
+        const session=currentSessions.find(s=>s.sessionId===a.sessionId);
+        if(a.facultyId)assertAssignable(store,a.facultyId,session?.sessionDate);
+      }
       p.finalization = assignments.map(a => ({ sessionId: a.sessionId, facultyId: a.facultyId, teachingRole: a.teachingRole || '', facultyName: name(store, a.facultyId) }));
       p.finalNote = finalNote || ''; p.status = 'adfad_finalized';
       return touch(p, actorFirebaseUid, 'adfad_finalized');
