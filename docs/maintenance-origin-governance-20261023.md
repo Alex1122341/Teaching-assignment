@@ -1,9 +1,0 @@
-# Maintenance origin-only freeze promotion — 2026-10-23
-
-Prior accepted main: ad605dbb9ab92457df972703c723e2b991fa284c. Prior name productba915e99ca06677d58e129f6fb671bd40d21600e remains immutable historical evidence. New reviewed product00ed3f0b2a7936b7957797df944b0fdd91341946 changes exactly one shipped file, paws-api-origin.js, replacing the dead temporary hostname with the actual recovered Production tunnel.
-
-Product review: independent maintenance_origin_product_review READY, no Critical/Important findings; read-only source review, not tests or deployment acceptance. Current main's85 static assets all matched the live site before repair. This promotion preserves their complete inventory, API110 runtime files plus3 build/package inputs, all SQL, PDFs and binary assets. API and static share the new source anchor; API bytes do not change. No removed protected path or drift exception. Production API remains924cc67/trustAnchor5b135df; a Hosting-only origin repair does not misreport an API upgrade.
-
-The separate governance commit changes only baseline tooling/report, preservation of dated governance checks, new maintenance assertions and documentation. Faculty-name/Availability receipts are now checked against their exact prior accepted main Git objects instead of requiring the current baseline to remain that historical product forever. Existing assertions remain; new current-promotion assertions cover the single-origin delta and zero API/SQL/governance runtime drift.
-
-Owner explicitly requests immediate live restoration and has waived local test suites/installations. No tests or green CI run is claimed. Repository/artifact freeze and exact-source inventory checks are release-integrity checks, alongside independent governance review and real served-file/runtime/SQL/CORS/browser verification. Publish only the merged exact-main allowlist Hosting artifact; preserve rollback release/version and keep PR125 isolated.

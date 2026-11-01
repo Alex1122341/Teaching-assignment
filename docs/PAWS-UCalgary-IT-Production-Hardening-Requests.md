@@ -1,5 +1,7 @@
 # PAWS — UCalgary IT Production / Hardening Requests
 
+> **Historical draft, not an approved IT ticket or a current deployment plan.** Confirm the present University SQL Beta/SSO/hosting architecture before sending requests. The public Testing Pages Frontend Demo is browser-local, not a production host.
+
 **Status:** Draft for post-Beta acceptance. No requests have been sent to UCalgary IT.
 **Current Beta ingress:** temporary Cloudflare Quick Tunnel to loopback `127.0.0.1:18787`; not production infrastructure.
 

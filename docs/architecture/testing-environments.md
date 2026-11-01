@@ -25,9 +25,9 @@ The normal PR workflow is `.github/workflows/github-pages-test.yml`: exact PR he
 
 Firebase Lab publishes only with its manual confirmation and optional explicit publish input. The two workflow concurrency groups differ, so coordinate operators before overwriting the shared URL. Repository secrets contain configuration; never print them. Public Web SDK config is not an Admin credential. Keep any real DOE API origin blank in Lab and use trusted admin tooling for DOE writes.
 
-This change adds documentation/acceptance material only. It does not seed a cloud database, create real users, enable write gates, run migrations, or deploy the SQL Beta.
+Documentation changes do not seed cloud data, create real users, enable trusted write gates, run database migrations or deploy the SQL Beta. The PR Pages workflow **can** republish the browser-local test site.
 
-## Known baseline differences
+## Known baseline differences (originally recorded on 2026-10-28)
 
 1. Existing AGENTS.md described an old Alex1122341 repository and Lab default; current workflow actually uses this organization and PAWS Frontend Demo. The new entry documents supersede that description.
 2. Legacy `web/js/core/faculty-access.js` still schedules an administrator Dashboard redirect. Calendar-home is a product requirement; record a failing acceptance case until the runtime is changed and tested.

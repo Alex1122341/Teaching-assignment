@@ -1,5 +1,7 @@
 # PAWS Data Quality — Needs Review
 
+> **Historical read-only Beta snapshot (2026-10-04).** The review queue and counts below are not today's Master/DOE reconciliation. Requery authoritative sources before action. Do not edit real data through the synthetic Testing Demo.
+
 **Environment:** live Beta, `VetMed-Ops`
 **Academic year in source:** `2026-27`
 **Audit date:** 2026-10-04

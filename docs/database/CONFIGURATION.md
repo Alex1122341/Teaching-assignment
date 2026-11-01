@@ -99,12 +99,13 @@ firebase deploy --only firestore:rules,firestore:indexes --project <project-id>
 
 The active browser test runtime is the fixed GitHub Pages site:
 
-`https://alex1122341.github.io/Teaching-assignment/`
+`https://ucvm-teaching-assignment.github.io/Teaching-assignment/`
 
-For the current frontend-first phase, GitHub Pages does **not** connect to Cloud Firestore or Firebase Authentication. After the normal build and CI verification, `tools/stage-github-pages.js` injects:
+For the default Frontend Demo, GitHub Pages does **not** connect to Cloud Firestore or Firebase Authentication. `tools/build-paws-pages.js` builds the current `frontend/` pages and browser-local `tools/pages-demo-api/`, then `tools/stage-github-pages.js --mode paws` injects:
 
 - `pages-demo-data.js` — the deterministic synthetic dataset from `tools/seed/dataset.js`
 - `pages-demo-runtime.js` — an in-browser Firebase Auth/Firestore compatibility layer
+- `pages-demo-api.js` — the synthetic PAWS API with browser-local persistence
 
 The staged demo auto-signs a synthetic account, supports role switching, reads/writes browser-local demo state, and provides a reset control. No demo write leaves the browser.
 
