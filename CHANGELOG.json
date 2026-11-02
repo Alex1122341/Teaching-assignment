@@ -25,6 +25,20 @@
       ]
     },
     {
+      "date": "2026-11-01",
+      "pr": 96,
+      "title": "Multi-year Planning, Course rollover and Publish Review in PAWS Testing",
+      "changes": [
+        "Added Academic Year selection in Calendar, Faculty Dashboard and Teaching Assignments, with Planning, Review, Active and Archived phases.",
+        "Owners can create an empty next year; authorized staff can preview and selectively copy previous Published Courses, sessions, eligible instructors and schedules.",
+        "Added per-Course Working and Published versions, Publish Review with conflicts and DOE impact, and Publish Changes.",
+        "Added annual DOE rule and result release, internal Working DOE comparison, manual Override review, and automatic recalculation after published changes.",
+        "Added annual role renewal, cross-year Teaching and DOE comparison, Owner archival and restoration, and frozen historical conflicts.",
+        "New-year Faculty assignments and role renewals respect future Faculty activation dates.",
+        "Testing-only browser-local data: legacy 2026-27 Calendar is masked on other years; no live SQL or Firestore data is changed."
+      ]
+    },
+    {
       "date": "2026-10-30",
       "pr": 97,
       "title": "AFC date changes and clearer withdrawal history",
