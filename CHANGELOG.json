@@ -3,6 +3,15 @@
   "entries": [
     {
       "date": "2026-11-01",
+      "pr": 100,
+      "title": "Add recent feature updates to the homepage Change Log",
+      "changes": [
+        "The homepage Change Log now includes concise summaries of AFC changes, SWAP approvals, the All Approvals queue, movable Testing controls and PAWS Beta-style Testing pages from recent merged PRs.",
+        "The history clearly separates Testing-only functionality from live University data, and excludes infrastructure-only PRs and unmerged features."
+      ]
+    },
+    {
+      "date": "2026-11-01",
       "pr": 99,
       "title": "Future Faculty activation, public Change Log and Markdown documentation cleanup",
       "changes": [
@@ -13,6 +22,56 @@
         "These features use synthetic browser-local Testing data; no live SQL or Firestore records are modified.",
         "Reviewed all 198 Markdown documents and removed 36 redundant or superseded Beta freeze, release and reconciliation notes; preserved security, design, migration and acceptance evidence in active files and Git history.",
         "Updated the Testing setup and documentation index and corrected historical Firebase/Azure references so old deployment instructions cannot be mistaken for the active Demo route."
+      ]
+    },
+    {
+      "date": "2026-10-30",
+      "pr": 97,
+      "title": "AFC date changes and clearer withdrawal history",
+      "changes": [
+        "Faculty can request new dates for an approved AFC. The original dates remain in effect until the revised request is approved.",
+        "ADFAD can edit approved AFC dates directly; authorized administrators can also correct dates on manual or imported AFC records.",
+        "Updated Withdraw and Withdrawn wording in AFC records and history.",
+        "Date changes check request versions and teaching coverage, and keep a before-and-after change history."
+      ]
+    },
+    {
+      "date": "2026-10-28",
+      "pr": 93,
+      "title": "Restore final SWAP approval in the Testing site",
+      "changes": [
+        "Fixed a DOE preview issue that could leave Approve & apply to timetable disabled for an authorized ADFA-stage SWAP request.",
+        "Final SWAP approval can now update the assigned Faculty in the synthetic Testing timetable."
+      ]
+    },
+    {
+      "date": "2026-10-28",
+      "pr": 92,
+      "title": "Actionable approvals and movable Testing panels",
+      "changes": [
+        "All Approvals now supports authorized AFC recommendations, approvals and rejections, plus stage-specific SWAP Approve, Reject and Push Back actions.",
+        "Final SWAP timetable changes and DOE-sensitive transfers still require the full request review and appropriate permissions.",
+        "The Test Site banner and Demo Role Tester can be moved or collapsed, with their display preferences kept across page navigation.",
+        "Replaced remaining visible VISTA labels with PAWS."
+      ]
+    },
+    {
+      "date": "2026-10-28",
+      "pr": 91,
+      "title": "Use PAWS Beta-style pages on the Testing website",
+      "changes": [
+        "The shared Testing website now presents the PAWS Beta-style Calendar, Faculty/Admin and Teaching Assignments pages.",
+        "Testing-only features are identified with a T badge.",
+        "All browser Testing workflows still use synthetic, local demo data rather than live University SQL or Firestore records."
+      ]
+    },
+    {
+      "date": "2026-10-24",
+      "pr": 89,
+      "title": "Bring Beta features into the PAWS Testing codebase",
+      "changes": [
+        "Imported the Beta Calendar, Faculty, Teaching Assignments, AFC, SWAP, CCC, DOE and reporting application modules and related APIs.",
+        "This was a code migration, not a live feature release. PR #91 subsequently switched the shared Testing website to these Beta-style pages using synthetic data."
       ]
     }
   ]
