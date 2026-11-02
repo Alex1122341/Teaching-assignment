@@ -3,6 +3,18 @@
   "entries": [
     {
       "date": "2026-11-01",
+      "pr": 101,
+      "title": "2027–28 synthetic Courses, Sessions and Faculty assignment examples",
+      "changes": [
+        "The PAWS Testing Academic Year workspace now includes 2027–28 sample data: 3 Courses, 9 Working Sessions, 5 Published Sessions and fictional demo Faculty assignments.",
+        "Examples include a Published Course, another Course awaiting Publish Changes, and a Draft-only Course for testing approval and Faculty visibility.",
+        "One synthetic 2028 AFC overlap demonstrates conflict review; 2027–28 DOE stays Pending until its annual rules and results are published.",
+        "Existing browser-local 2027–28 Courses are not overwritten. Owners can load the example into an already-created empty year using Load 2027–28 Sample Data.",
+        "Sample data remain entirely in the browser-local Testing Demo and do not modify 2026–27 records, live SQL, Firestore or University Faculty information."
+      ]
+    },
+    {
+      "date": "2026-11-01",
       "pr": 100,
       "title": "Add recent feature updates to the homepage Change Log",
       "changes": [

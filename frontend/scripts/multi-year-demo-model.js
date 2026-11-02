@@ -52,7 +52,7 @@
     }
     return {version:1,faculty,users,catalog,afc:clone(source.afcRecords||[]),years:{'2026-27':{status:'active',revision:1}},annual,roles,doe:{'2026-27':{policy:{status:'approved',copiedFrom:null},released:true,records:doeRecords,overrides:{}}},archives:[],audit:clone(source.history||[]).map(h=>({event:h.changeType||h.eventType||'legacy_change',actor:h.actorFirebaseUid||h.actorName||'',year:h.academicYear||'2026-27',at:h.changedAtUtc||h.occurredAtUtc||'',legacy:true,detail:{original:h}})),preferences:{},serial:0};
   }
-  function createEngine({source={},storage=null,now=()=>new Date()}={}){
+  function createEngine({source={},storage=null,now=()=>new Date(),sampleYear2027=false}={}){
     let state;
     try{const saved=storage&&storage.getItem(STORAGE_KEY);if(saved){const decoded=JSON.parse(saved);if(decoded&&decoded.version===1&&decoded.years&&decoded.annual&&decoded.catalog)state=decoded}}catch(_){/* invalid local demo data; recreate safely */}
     if(!state)state=bootstrap(source);
@@ -107,6 +107,59 @@
         return {...clone(r),id:'renew-'+year+'-'+index,sourceId:r.id,start:startOf(year),end:endOf(year),status:full&&eligible?'confirmed':'draft',rolloverReason:!full?'partial year':!person?.active?'inactive Faculty':!person?.appointmentValid?'invalid Appointment':person?.activationDate&&person.activationDate>startOf(year)?'future Faculty activation':'eligible full year'};
       });
       logged('year_created',a,year,{previous,roles:state.roles[year].length});return getState().years[year];
+    }
+    // Synthetic 2027-28 showcase. It is isolated from Beta and only runs in
+    // the browser-local Testing Demo (or from an explicit Owner action).
+    // Existing annual Courses are never overwritten or silently replaced.
+    function seed2027Sample(a){
+      ownerOnly(a);
+      const year='2027-28';
+      const available=['VTMD 200','VTMD 304','VTMD 422','VTMD 306']
+        .filter(code=>state.catalog.some(c=>c.code===code));
+      for(const row of state.catalog)if(available.length<3&&!available.includes(row.code))available.push(row.code);
+      const people=state.faculty.filter(f=>effectiveOn(f,'2027-09-01')).slice(0,5);
+      if(available.length<3||people.length<4)invalid('Synthetic 2027-28 sample requires at least three Catalog Courses and four eligible demo Faculty.');
+      if(state.years[year]){
+        editable(year);
+        if(Object.keys(state.annual[year]||{}).length)
+          invalid('2027-28 already contains Courses; sample data will not overwrite existing work.');
+      }else createYear(a,year);
+      const [first,second,third]=available;
+      const [f1,f2,f3,f4]=people;
+      const session=(code,id,date,topic,kind,startTime,endTime,room,credits)=>({
+        id:'sample-2027-28-'+id,courseCode:code,date,topic,sessionType:kind,
+        startTime,endTime,room,
+        assignments:credits.map(([person,amount,role])=>({facultyId:person.id,teachingRole:role,doeCredit:amount}))
+      });
+      const firstWorking=[
+        session(first,'a1','2027-09-07','Introduction to clinical cases','LEC','08:30','09:30','HSB 1401',[[f1,2,'Lecture']]),
+        session(first,'a2','2027-09-14','Small-group case review','SRL','10:00','11:50','HSB 1403',[[f2,3,'SRL']]),
+        session(first,'a3','2027-09-21','Hands-on teaching lab','LAB','13:00','14:50','Clinical Skills Lab',[[f1,4,'Lab Primary'],[f3,2,'Lab Secondary']])
+      ];
+      const secondPublished=[
+        session(second,'b1','2027-10-04','Introduction and learning objectives','LEC','08:30','09:30','HSB 1401',[[f3,2,'Lecture']]),
+        session(second,'b2','2027-10-11','Applied practical','LAB','13:00','14:50','Anatomy Lab',[[f2,3,'Lab Primary']])
+      ];
+      const secondWorking=clone(secondPublished);
+      secondWorking[0].assignments=[{facultyId:f4.id,teachingRole:'Lecture',doeCredit:2}];
+      secondWorking.push(session(second,'b3','2027-10-18','New case discussion - awaiting publication','SRL','10:00','11:50','HSB 1403',[[f4,2,'SRL']]));
+      const thirdWorking=[
+        session(third,'c1','2028-01-18','Winter term introduction','LEC','10:00','11:50','HSB 1401',[[f3,2,'Lecture']]),
+        session(third,'c2','2028-01-25','Small group discussion','SRL','10:00','11:50','HSB 1403',[[f4,3,'SRL']]),
+        session(third,'c3','2028-02-01','Practical lab - AFC review example','LAB','13:00','14:50','Anatomy Lab',[[f2,4,'Lab Primary']])
+      ];
+      const snapshot=code=>state.catalog.find(c=>c.code===code).title;
+      const release=(sessions,revision=1)=>[{version:1,revision,sessions:clone(sessions),at:'2026-11-01T00:00:00.000Z',by:'demo-synthetic-fixture'}];
+      state.annual[year]={
+        [first]:{code:first,title:snapshot(first),working:clone(firstWorking),revision:1,finalizedRevision:1,published:release(firstWorking),publishers:[],sampleFixture:true},
+        [second]:{code:second,title:snapshot(second),working:clone(secondWorking),revision:2,finalizedRevision:1,published:release(secondPublished),publishers:[],sampleFixture:true},
+        [third]:{code:third,title:snapshot(third),working:clone(thirdWorking),revision:1,finalizedRevision:0,published:[],publishers:[],sampleFixture:true}
+      };
+      const afcId='sample-2027-28-afc';
+      if(!state.afc.some(row=>row.afcRecordId===afcId))
+        state.afc.push({afcRecordId:afcId,facultyId:f2.id,startDate:'2028-02-01',endDate:'2028-02-01',active:true,sourceKind:'synthetic-demo'});
+      logged('synthetic_2027_28_sample_loaded',a,year,{courses:3,workingSessions:9,publishedSessions:5});
+      return {year,courses:3,workingSessions:9,publishedSessions:5};
     }
     function addCourse(a,year,code){staff(a);editable(year);const key=codeFor(code),item=state.catalog.find(c=>c.code===key);if(!item)invalid('Course not found in shared Catalog');
       if(state.annual[year][key])invalid('Annual Course already exists');
@@ -327,8 +380,9 @@
     function confirmRole(a,year,id){adfa(a);editable(year);const role=(state.roles[year]||[]).find(r=>r.id===id);if(!role)invalid('Role not found');if(role.status!=='draft')invalid('Role is not draft');role.status='confirmed';logged('annual_role_confirmed',a,year,{roleId:id});return clone(role)}
     function setPreferredYear(a,year){who(a);inspect(year);state.preferences[a.uid]=year;persist()}
     function getPreferredYear(a){who(a);const current=currentYear(now());if(isFaculty(a))return state.years[current]?current:Object.keys(state.years)[0];return state.years[state.preferences[a.uid]]?state.preferences[a.uid]:state.years[current]?current:Object.keys(state.years)[0]}
-    function reset(){state=bootstrap(source);persist();return getState()}
-    return Object.freeze({getState,createYear,addCourse,previewRollover,rolloverCourse,setYearPhase,previewPublication,compareYears,updateCatalog,addSession,editAssignment,finalizeCourse,publishCourse,approvePolicy,publishDoe,setOverride,getTeaching,getCalendar,getDoe,getWorkingDoe,getConflicts,addAfc,retireYear,restoreYear,copyHistorical,confirmRole,setPreferredYear,getPreferredYear,reset,currentYear});
+    function reset(){state=bootstrap(source);if(sampleYear2027)seed2027Sample({uid:'demo-synthetic-fixture',role:'owner'});persist();return getState()}
+    if(sampleYear2027&&!state.years['2027-28'])seed2027Sample({uid:'demo-synthetic-fixture',role:'owner'});
+    return Object.freeze({getState,createYear,seed2027Sample,addCourse,previewRollover,rolloverCourse,setYearPhase,previewPublication,compareYears,updateCatalog,addSession,editAssignment,finalizeCourse,publishCourse,approvePolicy,publishDoe,setOverride,getTeaching,getCalendar,getDoe,getWorkingDoe,getConflicts,addAfc,retireYear,restoreYear,copyHistorical,confirmRole,setPreferredYear,getPreferredYear,reset,currentYear});
   }
   return Object.freeze({createEngine,STORAGE_KEY,currentYear,validateYear});
 });

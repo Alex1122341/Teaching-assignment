@@ -18,7 +18,7 @@
   function load(){
     const demo=root.UCVM_PAWS_DEMO_API;
     if(!demo||!root.PAWS_MULTI_YEAR_DEMO_MODEL)throw Error('This workspace is only available in the PAWS browser-local Demo.');
-    if(!engine)engine=root.PAWS_MULTI_YEAR_DEMO_MODEL.createEngine({storage:root.localStorage,source:demo.store.tables});
+    if(!engine)engine=root.PAWS_MULTI_YEAR_DEMO_MODEL.createEngine({storage:root.localStorage,source:demo.store.tables,sampleYear2027:true});
     return engine;
   }
   function actual(){const a=identity();if(!a)throw Error('Sign in to a synthetic Demo account before opening Academic Years.');return a;}
@@ -223,10 +223,12 @@
     const visible=names.filter(n=>n[0]==='rollover'||n[0]==='review'?showStaff:n[0]==='archive'?(isAdfa(a.role)||['adc','lab'].includes(a.role)):n[0]==='catalog'?showStaff:n[0]==='courses'?(showStaff||a.role==='faculty'):true);
     let body='';try{body=({calendar:()=>viewCalendar(a,s),teaching:()=>viewTeaching(a,s),courses:()=>viewCourses(a,s),doe:()=>viewDoe(a,s),roles:()=>viewRoles(a,s),archive:()=>viewArchive(a,s),catalog:()=>viewCatalog(a,s),rollover:()=>viewRollover(a,s),review:()=>viewReview(a,s),compare:()=>viewComparison(a,s)})[tab]();}catch(error){body=wrap('Access',E(error.message))}
     const createYear=a.role==='owner'&&s.years[selectedYear].status!=='archived'?'<button data-my-action="create-year" type="button">Create Next Year</button>':'';
+    const sampleButton=a.role==='owner'&&selectedYear==='2027-28'&&s.years[selectedYear].status!=='archived'&&!Object.keys(s.annual[selectedYear]||{}).length
+      ?'<button data-my-action="load-2027-28-sample" type="button">Load 2027-28 Sample Data</button>':'';
     const stage=s.years[selectedYear].status,transitions={planning:['review'],review:['planning','active'],active:['review']};
     const phaseControl=isAdfa(a.role)&&stage!=='archived'?'<label>Change phase '+select('phase',[stage,...(transitions[stage]||[])],x=>x,x=>PHASE_LABELS[x]).replace('<select ','<select data-my-phase ')+'</label>':'';
     dialog.innerHTML='<div class="paws-my-shell"><header class="paws-my-head"><div><small>PAWS · Testing site only · Browser-local simulation</small><h2>Academic Year Workspace</h2><p>'+E(a.name)+' · '+E(a.role)+' · No database connection</p></div><button data-my-action="close" type="button" aria-label="Close Academic Year Workspace">Close ×</button></header>'+
-      '<div class="paws-my-toolbar"><label>Academic Year <select data-my-year>'+opts(available,x=>x,x=>x+' · '+s.years[x].status)+'</select></label><span class="paws-my-phase-badge">'+E(PHASE_LABELS[stage])+'</span>'+phaseControl+createYear+'<button data-my-action="reset" type="button">Reset multi-year Demo</button></div>'+
+      '<div class="paws-my-toolbar"><label>Academic Year <select data-my-year>'+opts(available,x=>x,x=>x+' · '+s.years[x].status)+'</select></label><span class="paws-my-phase-badge">'+E(PHASE_LABELS[stage])+'</span>'+phaseControl+createYear+sampleButton+'<button data-my-action="reset" type="button">Reset multi-year Demo</button></div>'+
       '<nav class="paws-my-tabs" aria-label="Multi-year test views">'+visible.map(x=>'<button class="'+(tab===x[0]?'active':'')+'" data-my-tab="'+E(x[0])+'" type="button">'+E(x[1])+'</button>').join('')+'</nav>'+
       (message?'<p class="paws-my-notice" role="status">'+E(message)+'</p>':'')+'<div class="paws-my-body">'+body+'</div></div>';
     const selectEl=dialog.querySelector('[data-my-year]');if(selectEl)selectEl.value=selectedYear;
@@ -249,6 +251,10 @@
     if(action==='create-year'){
       const years=Object.keys(state().years).sort(),last=years[years.length-1],start=Number(last.slice(0,4))+1,next=start+'-'+String((start+1)%100).padStart(2,'0');
       m.createYear(a,next);selectedYear=next;selectedCode='';rolloverPreview=null;tab='rollover';m.setPreferredYear(a,next);
+    }
+    if(action==='load-2027-28-sample'&&root.confirm('Add synthetic 2027-28 Courses and Sessions to this empty year? Existing data will be preserved.')){
+      const result=m.seed2027Sample(a);selectedYear=result.year;selectedCode='';tab='courses';
+      message='Loaded '+result.courses+' example Courses and '+result.workingSessions+' Working Sessions (browser-local only).';
     }
     if(action==='finalize')m.finalizeCourse(a,selectedYear,selectedCode);
     if(action==='review-publish'){tab='review';message='Review the changes and validation results before publishing.';}
