@@ -3,6 +3,15 @@
   "entries": [
     {
       "date": "2026-11-01",
+      "pr": 100,
+      "title": "Add recent feature updates to the homepage Change Log",
+      "changes": [
+        "The homepage Change Log now includes concise summaries of AFC changes, SWAP approvals, the All Approvals queue, movable Testing controls and PAWS Beta-style Testing pages from recent merged PRs.",
+        "The history clearly separates Testing-only functionality from live University data, and excludes infrastructure-only PRs and unmerged features."
+      ]
+    },
+    {
+      "date": "2026-11-01",
       "pr": 99,
       "title": "Future Faculty activation, public Change Log and Markdown documentation cleanup",
       "changes": [
