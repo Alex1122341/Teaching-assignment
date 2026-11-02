@@ -5,6 +5,7 @@
 const { isAdministratorRole } = require('../../../server/src/auth/role-policy.js');
 const { sha256Hex, uuidFor, toHex, sha256Bytes } = require('../ids.js');
 const { clone, sqlError, facultyName } = require('./core.js');
+const { dateRange, versionOf, bumpVersion, requireCoverage, ensureApprovedRecord } = require('./afc-date-change.js');
 
 const userOf = (store, uid) => store.tables.users.find(u => u.firebaseUid === uid) || null;
 const fp = text => sha256Hex(`signature:${text}`);
@@ -29,7 +30,7 @@ function requests(store) {
   });
 }
 
-const rowView = q => ({ afcRequestId: q.afcRequestId, facultyId: q.facultyId, facultyName: q.facultyName, requesterFirebaseUid: q.requesterFirebaseUid, reportToFirebaseUid: q.reportToFirebaseUid, status: q.status, startDate: q.startDate, endDate: q.endDate, workDays: q.workDays, reason: q.reason, purposeDestination: q.purposeDestination, coverage: q.coverage, submittedAtUtc: q.submittedAtUtc, updatedAtUtc: q.updatedAtUtc });
+const rowView = q => ({ afcRequestId: q.afcRequestId, facultyId: q.facultyId, facultyName: q.facultyName, requesterFirebaseUid: q.requesterFirebaseUid, reportToFirebaseUid: q.reportToFirebaseUid, status: q.status, startDate: q.startDate, endDate: q.endDate, workDays: q.workDays, reason: q.reason, purposeDestination: q.purposeDestination, coverage: q.coverage, submittedAtUtc: q.submittedAtUtc, updatedAtUtc: q.updatedAtUtc, replacesAfcRequestId: q.replacesAfcRequestId || null, supersededByAfcRequestId: q.supersededByAfcRequestId || null, versionToken: versionOf(q) });
 const decisionView = q => ({ afcRequestId: q.afcRequestId, status: q.status, rejectionReason: q.rejectionReason, approvedAtUtc: q.approvedAtUtc, updatedAtUtc: q.updatedAtUtc });
 
 function reportToFor(store, facultyId) {
@@ -50,11 +51,65 @@ function createAfcRequestRepository(store) {
       const member = store.tables.faculty.find(f => f.facultyId === user.facultyId);
       const reportTo = reportToFor(store, user.facultyId);
       const now = store.nowIso();
-      const row = { ...input, afcRequestId: input.afcRequestId, facultyId: user.facultyId, facultyName: member.displayName, requesterFirebaseUid: user.firebaseUid, reportToFirebaseUid: reportTo, status: reportTo ? 'pending_report_to' : 'pending_admin', submittedAtUtc: now, updatedAtUtc: now, rejectionReason: null, approvedAtUtc: null, approvals: [] };
+      const row = { ...input, afcRequestId: input.afcRequestId, facultyId: user.facultyId, facultyName: member.displayName, requesterFirebaseUid: user.firebaseUid, reportToFirebaseUid: reportTo, status: reportTo ? 'pending_report_to' : 'pending_admin', submittedAtUtc: now, updatedAtUtc: now, versionToken: versionOf(null), rejectionReason: null, approvedAtUtc: null, approvals: [] };
       requests(store).unshift(row);
       store.audit({ domain: 'afc', changeType: 'afc_request_submitted', facultyId: user.facultyId, actorFirebaseUid: user.firebaseUid, after: rowView(row) });
       store.commit();
       return rowView(row);
+    },
+    // Same approval route as a new AFC request. The earlier approved dates
+    // remain active until approval of this linked request.
+    async submitDateChange(input) {
+      const original = requests(store).find(q => q.afcRequestId === input.replacesAfcRequestId);
+      if (!original || original.requesterFirebaseUid !== input.actorFirebaseUid) throw sqlError(51510, 'Only the original requester can change dates');
+      if (original.status !== 'approved' || original.supersededByAfcRequestId) throw sqlError(51510, 'Only active approved AFC requests can change dates');
+      if (versionOf(original) !== String(input.expectedVersion || '').toUpperCase()) throw sqlError(56404, 'Request changed; reload');
+      if (requests(store).some(q => q.replacesAfcRequestId === original.afcRequestId && ['pending_report_to', 'pending_admin'].includes(q.status))) throw sqlError(51511, 'A date change is already pending');
+      if (original.startDate === input.startDate && original.endDate === input.endDate) throw sqlError(51512, 'Dates unchanged');
+      dateRange(input.startDate, input.endDate);
+      const teaching = requireCoverage(store, original.facultyId, input.startDate, input.endDate, input.coverage);
+      const actor = userOf(store, input.actorFirebaseUid);
+      if (!actor || actor.active !== true || actor.facultyId !== original.facultyId) throw sqlError(51501, 'Faculty account is unavailable');
+      const reportTo = reportToFor(store, original.facultyId);
+      const now = store.nowIso();
+      const row = { ...input, expectedVersion: undefined, afcRequestId: input.afcRequestId, facultyId: original.facultyId,
+        facultyName: original.facultyName, requesterFirebaseUid: input.actorFirebaseUid, reportToFirebaseUid: reportTo,
+        replacesAfcRequestId: original.afcRequestId, replacesVersion: versionOf(original), versionToken: versionOf(null),
+        teachingSessions: teaching, status: reportTo ? 'pending_report_to' : 'pending_admin', submittedAtUtc: now,
+        updatedAtUtc: now, approvedAtUtc: null, rejectionReason: null, approvals: [] };
+      requests(store).unshift(row);
+      store.audit({ domain: 'afc', changeType: 'afc_date_change_requested', facultyId: row.facultyId,
+        actorFirebaseUid: input.actorFirebaseUid, before: rowView(original), after: rowView(row) });
+      store.commit();
+      return rowView(row);
+    },
+    // ADFAD direct edit: version check and before/after audit. Browser Demo only.
+    async updateApprovedRequestDates(input) {
+      if (!isAdministratorRole(userOf(store, input.actorFirebaseUid)?.baseRole)) throw sqlError(56402, 'Administrator required');
+      const original = requests(store).find(q => q.afcRequestId === input.afcRequestId);
+      if (!original) throw sqlError(56403, 'AFC request not found');
+      if (original.status !== 'approved' || original.supersededByAfcRequestId) throw sqlError(56406, 'Request not approved');
+      if (versionOf(original) !== String(input.expectedVersion || '').toUpperCase()) throw sqlError(56404, 'Stale AFC version');
+      if (requests(store).some(q => q.replacesAfcRequestId === original.afcRequestId && ['pending_report_to', 'pending_admin'].includes(q.status))) throw sqlError(56407, 'Faculty date change is pending');
+      if (original.startDate === input.startDate && original.endDate === input.endDate) throw sqlError(56408, 'Dates unchanged');
+      const days = dateRange(input.startDate, input.endDate);
+      const teaching = requireCoverage(store, original.facultyId, input.startDate, input.endDate, original.coverage);
+      const before = rowView(original);
+      const record = ensureApprovedRecord(store, original);
+      original.startDate = input.startDate;
+      original.endDate = input.endDate;
+      original.workDays = days;
+      original.teachingSessions = teaching;
+      original.updatedAtUtc = store.nowIso();
+      original.versionToken = bumpVersion(versionOf(original));
+      record.startDate = input.startDate;
+      record.endDate = input.endDate;
+      record.versionToken = bumpVersion(versionOf(record));
+      store.audit({ domain: 'afc', changeType: 'afc_dates_changed', facultyId: original.facultyId,
+        actorFirebaseUid: input.actorFirebaseUid, before, after: rowView(original) });
+      store.commit();
+      return { afcRecordId: original.afcRequestId, facultyId: original.facultyId,
+        startDate: original.startDate, endDate: original.endDate, workDays: original.workDays, versionToken: versionOf(original) };
     },
     async withdrawRequest({ afcRequestId, actorFirebaseUid }) {
       const q = requests(store).find(x => x.afcRequestId === afcRequestId && x.requesterFirebaseUid === actorFirebaseUid && ['pending_report_to', 'pending_admin'].includes(x.status));
@@ -91,8 +146,26 @@ function createAfcApprovalRepository(store) {
       const q = find(input.afcRequestId);
       if (q.status !== 'pending_admin') throw sqlError(q.status === 'pending_report_to' ? 51608 : 51603, 'Invalid state');
       if (!isAdministratorRole(userOf(store, input.actorFirebaseUid)?.baseRole)) throw sqlError(51604, 'Role denied');
+      // Recheck the original revision at final approval; a stale replacement must
+      // never supersede newer office dates or a second approved replacement.
+      let original = null;
+      if (q.replacesAfcRequestId) {
+        original = requests(store).find(item => item.afcRequestId === q.replacesAfcRequestId);
+        if (!original || original.status !== 'approved' || versionOf(original) !== q.replacesVersion) throw sqlError(56404, 'Original approved request changed; reload before approval');
+        const priorRecord = ensureApprovedRecord(store, original);
+        priorRecord.active = false;
+        priorRecord.versionToken = bumpVersion(versionOf(priorRecord));
+        const before = rowView(original);
+        original.status = 'superseded';
+        original.supersededByAfcRequestId = q.afcRequestId;
+        original.updatedAtUtc = store.nowIso();
+        original.versionToken = bumpVersion(versionOf(original));
+        store.audit({ domain: 'afc', changeType: 'afc_dates_changed', facultyId: q.facultyId,
+          actorFirebaseUid: input.actorFirebaseUid, before, after: { replacementRequestId: q.afcRequestId, dates: { startDate: q.startDate, endDate: q.endDate } } });
+      }
       q.approvals.push(sign(input, 'admin', 'approved')); q.status = 'approved'; q.approvedAtUtc = store.nowIso();
-      store.tables.afcRecords.unshift({ afcRecordId: uuidFor(`afc-from-request:${q.afcRequestId}`), facultyId: q.facultyId, startDate: q.startDate, endDate: q.endDate, reasonCode: q.reason === 'vacation' ? 'vacation' : 'university_travel', reason: q.reason === 'vacation' ? 'Vacation' : 'University Travel', purpose: q.purposeDestination || '', notes: 'Approved AFC request', legacyPurpose: q.purposeDestination || 'Vacation', active: true, sourceKind: 'manual', createdAtUtc: q.approvedAtUtc, createdByName: 'AFC approval', recordKey: `AFC-R-${q.afcRequestId.slice(0, 8)}`, versionToken: q.afcRequestId.replace(/-/g, '').slice(0, 16).toUpperCase(), documentId: null });
+      q.versionToken = bumpVersion(versionOf(q));
+      ensureApprovedRecord(store, q);
       return done(q, 'afc_request_approved', input.actorFirebaseUid);
     }
   };

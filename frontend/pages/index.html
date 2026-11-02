@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="swap-workflow-sql.css">
 
   <link rel="stylesheet" href="workspace.css">
+  <link rel="stylesheet" href="site-changelog.css">
   <link rel="stylesheet" href="multi-year-demo.css">
 </head>
 <body class="auth-locked">
@@ -21,7 +22,7 @@
         <div class="ucalgary-wordmark">UNIVERSITY OF CALGARY</div>
         <div class="ucalgary-faculty">Faculty of Veterinary Medicine</div>
       </div>
-      <div class="timetable-top-actions"><button class="masthead-link hidden" id="faculty-dashboard-btn">Faculty Dashboard</button><button class="masthead-link hidden" type="button" id="ccc-schedule-btn">CCC Schedule</button><button class="masthead-link hidden" id="teaching-assignments-btn">Teaching Assignments</button><button class="masthead-link hidden" id="swap-inbox-btn">SWAP &amp; Approvals</button><div class="ucalgary-product">Teaching Assignment &amp; Academic Scheduling</div></div>
+      <div class="timetable-top-actions"><button class="masthead-link" type="button" id="site-changelog-open">Change Log</button><button class="masthead-link hidden" id="faculty-dashboard-btn">Faculty Dashboard</button><button class="masthead-link hidden" type="button" id="ccc-schedule-btn">CCC Schedule</button><button class="masthead-link hidden" id="teaching-assignments-btn">Teaching Assignments</button><button class="masthead-link hidden" id="swap-inbox-btn">SWAP &amp; Approvals</button><div class="ucalgary-product">Teaching Assignment &amp; Academic Scheduling</div></div>
     </div>
     <div class="ucalgary-gold-rule"></div>
   </header>
@@ -224,6 +225,18 @@
     </div>
   </section>
 
+  <dialog id="site-changelog-dialog" class="site-changelog-dialog" aria-labelledby="site-changelog-title">
+    <div class="site-changelog-shell">
+      <header class="site-changelog-header">
+        <h2 id="site-changelog-title">Change Log</h2>
+        <button type="button" id="site-changelog-close" class="site-changelog-close" aria-label="Close Change Log">Close</button>
+      </header>
+      <div id="site-changelog-entries" class="site-changelog-entries" aria-live="polite">
+        <p class="site-changelog-message">Open to view the latest updates.</p>
+      </div>
+    </div>
+  </dialog>
+
   <div class="modal-container" id="modal"></div>
   <section class="ccc-schedule-overlay" id="ccc-schedule-overlay" role="dialog" aria-modal="true" aria-labelledby="ccc-schedule-heading" aria-hidden="true" hidden><div class="ccc-schedule-shell"><header class="ccc-schedule-header"><div><h2 id="ccc-schedule-heading">CCC Schedule</h2><p>Community Care Clinic · Current scheduled faculty</p></div><button type="button" id="ccc-schedule-close" aria-label="Close CCC schedule">×</button></header><div class="ccc-schedule-controls"><label>Academic year <select id="ccc-schedule-year"></select></label><label>Search <input id="ccc-schedule-search" type="search" placeholder="Faculty, block, date" /></label><button id="ccc-schedule-refresh" type="button">Refresh</button></div><p class="ccc-schedule-status" id="ccc-schedule-status" role="status" aria-live="polite"></p><div class="ccc-schedule-body" id="ccc-schedule-body"></div></div></section>
   <section class="leadership-directory-overlay" id="leadership-directory-overlay" aria-hidden="true" hidden><div class="leadership-directory-shell" role="dialog" aria-modal="true" aria-labelledby="leadership-directory-heading" aria-describedby="leadership-directory-subtitle"><header class="leadership-directory-header"><div><h2 id="leadership-directory-heading">HICC–CC List</h2><p id="leadership-directory-subtitle"></p></div><button type="button" id="leadership-directory-close" aria-label="Close list">×</button></header><div class="leadership-directory-controls"><label class="leadership-search">Search appointments<input type="search" id="leadership-directory-search" placeholder="Name, course, role or date" aria-controls="leadership-directory-body" maxlength="200"></label><label class="leadership-sort">Sort by<select id="leadership-directory-sort"><option value="scope">Course / subject order</option><option value="faculty">Faculty name</option><option value="end-date">End date · earliest first</option></select></label><button type="button" id="leadership-directory-clear" disabled>Clear search</button><label class="leadership-population"><input type="checkbox" id="leadership-directory-show-all"> Show inactive / upcoming</label><button type="button" id="leadership-directory-refresh">Refresh</button></div><p class="leadership-directory-status" id="leadership-directory-status" role="status" aria-live="polite"></p><div class="leadership-directory-body" id="leadership-directory-body"></div></div></section>
@@ -248,7 +261,7 @@
   <script src="lab-session-detail.js"></script><script src="calendar-activity-placement.js"></script><script src="calendar-activities.js"></script><script src="calendar-search.js"></script><script src="ccc-schedule.js"></script><script src="leadership-directory.js"></script><script src="workspace-navigation.js"></script><script src="schedule-filter-view.js"></script><script src="timetable.js"></script>
   <script src="afc-workflow-sql.js"></script>
   <script src="afc-workflow.js"></script>
-  <script src="change-history.js"></script><script src="afc-timetable-panel.js"></script>
+  <script src="change-history.js"></script><script src="afc-timetable-panel.js"></script><script src="site-changelog.js"></script>
   <script src="multi-year-demo-model.js"></script>
   <script src="multi-year-demo.js"></script>
 </body>

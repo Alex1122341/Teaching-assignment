@@ -385,3 +385,66 @@ The trusted admin job re-reads the **current** session before recalculating, der
 The active test writer is `.github/workflows/firebase-doe-admin.yml`, which authenticates to the isolated `vista-teaching-lab` project using a GitHub Environment secret and invokes the existing server-side DOE services. Because Firebase Admin SDK access is outside client Security Rules, the workflow itself is guarded by manual dispatch, a hard project-id lock and typed confirmation for destructive operations.
 
 Legacy fields such as `facultySummary2026_27`, `managedRoles2026_27` and `workloadPolicy2026_27` remain migration/source evidence only. New authoritative DOE state belongs in the canonical DOE collections above.
+
+---
+
+## 12. Proposed Beta PR #150–#152 AFC migration (documentation only; NOT deployed)
+
+**Source:** Beta PR #150 (documentation reconciliation), PR #151 (Withdraw / Withdrawn wording), PR #152 (UX-07 AFC date edit; SQL migration 064). **Target when implemented:** isolated `vista-teaching-lab` Firestore. **Implementation state:** proposed contract only. No collection, Security Rule, index, migration, or stored document is changed by this Markdown update. The default PAWS GitHub Pages Testing site uses browser-local synthetic records, not live Firestore; its AFC date edits do not prove Firestore persistence or security.
+
+### PR #150 and #151: no database migration
+
+PR #150 contains documentation and repository-maintenance changes. In this repository, retain the environment/role boundaries of `PAWS_CONSTITUTION.md`, `docs/architecture/testing-environments.md`, and `docs/security/role-matrix.md`; do not copy Beta SQL runtime assumptions into the Firestore Lab. PR #151 changes administrator AFC record wording from Delete / Archived / Inactive to Withdraw / Withdrawn, but the underlying state remains `active: false`. **Legacy ambiguity:** historical records with `active: false` might have been merely disabled; do not rewrite them as proven user withdrawals or fabricate an actor/time.
+
+### PR #152: proposed fields and collections
+
+Retain the current `afc_requests/{requestId}` structure, append-only `afc_audit`, and immutable original PDF chunks. When a real trusted Firestore implementation is approved, extend each request with:
+
+| Field | Type | Proposed purpose |
+| --- | --- | --- |
+| `versionToken` | string (16 uppercase hex) or server-managed monotonic revision | Optimistic concurrency; cannot be supplied as a new request's authoritative version by an arbitrary client |
+| `replacesAfcRequestId` | string or null | On a new Faculty date-change request, links to the original approved request |
+| `replacesVersion` | string or null, private/server-managed | Snapshot of original revision at submission, rechecked at final approval |
+| `supersededByAfcRequestId` | string or null | On prior approved request after a linked replacement is finally approved |
+| `teachingSessionsSnapshot` | bounded list/map, private | Derived from the faculty's teaching assignments in the *new* date interval; no personal data in public projections |
+| `dateChangeAuditRef` | string or null | Optional reference to immutable before/after audit evidence |
+| `status` extension | `superseded` | Terminal state for a *previously approved* request whose linked replacement was approved |
+
+For authorized *manual/imported* AFC record sources, keep stable IDs and `active`; propose `versionToken` / `updatedAt` fields and an append-only `afc_dates_changed` audit event for direct ADFAD edits. Do not automatically reinterpret or overwrite historical `active:false` records.
+
+### Proposed transaction and authorization invariants
+
+1. **Faculty date-change submission:** only the active request owner, only from `approved` and not already superseded; validate full new AFC form/terms/signature, expected original revision, valid working dates, new coverage and real teaching conflicts. Reject duplicates if a linked date change is pending. Create a *new* request in `pending_report_to` or `pending_admin` using the currently authorized Reports-To mapping. Leave the old approved dates and availability untouched.
+2. **Final approval:** require the authorized current approver and a matching original revision; in a single trusted transaction approve the replacement, mark the old request `superseded`, update the private active-availability projection to the new range, and append **before/after** events. If a revision, approval, identity or scope changed, reject without a partial update. A rejection/withdrawal of the replacement leaves the old approved interval active.
+3. **ADFAD direct approved-request edit:** only active ADFAD administrators; require an exact original version and no pending replacement; validate new dates and *recompute* teaching conflicts/coverage before changing the active interval. In one transaction update the request and derived availability, bump revision and append `afc_dates_changed` with actor/time/original/new dates. Never silently carry stale `teachingSessionsSnapshot` across a changed interval.
+4. **Manual AFC record date edit:** similarly check source kind, active status, version and dates, then change the record and its approved availability projection atomically. Withdrawn records cannot be modified.
+5. **Privacy and append-only evidence:** do not allow ordinary Faculty accounts to list another person's AFC reason, date range, contact information, signatures or PDF. Only owner, correctly assigned Reports-To and authorized ADFAD office may read detail; public timetable availability remains binary. `afc_audit` and original PDFs must not be edited or deleted. Preserve historical approved PDF bytes even when dates are superseded; a new approved PDF is a separately versioned artifact, never an overwrite.
+6. **Backend enforcement:** implement these conditions in trusted transactions / reviewed Firestore rules and test deny cases with real Firebase Auth; the Pages Demo's role selector and localStorage are *not* proof of server authorization. Browser client cannot forge the original version, approve its own request or write audit/result collections directly.
+7. **Indexes and budget:** before deployment, review indexes for (`replacesAfcRequestId`, `status`) and private authorized scope lists. Recalculate the Rules evaluation budget from `tests/rules-evaluation-budget.test.js`; reject a release that exceeds the evaluation limit.
+8. **Acceptance:** synthetic-only fixtures; stale original revision, concurrent replacement, date move onto teaching, absent coverage, withdraw/reject preserving old dates, authorized ADFAD direct edit, unauthorized faculty denial, original PDF immutability, audit reconstruction, and non-mutation of `tester-teaching`/University SQL.
+
+**Not executed:** Beta SQL `database/azure-sql/064_afc_date_edit.sql` and its rollback/acceptance scripts are SQL Server references only. They must **not** be run as Firestore migrations or copied verbatim into `firebase/firestore.rules`. A future Firestore implementation requires its own reviewed PR, deployment permission, rules/index tests, synthetic seed, rollback evidence and explicit approval.
+
+
+## Planned Firestore Faculty future activation contract (Testing PR #99)
+
+**Deployment scope:** The default PAWS Github Pages testing build uses `tools/pages-demo-api/` with synthetic `localStorage` data. These are future schema and rules recommendations, **not** applied Firestore migrations or deployed rules. SQL Beta PR #155 / SQL065 is only a reference.
+
+### Proposed Faculty fields and status
+
+- `faculty/{facultyId}.administrativeActive` (boolean, administrator-controlled), independent of appointment dates.
+- `faculty/{facultyId}.activationDate` (nullable `YYYY-MM-DD` calendar date, campus-local America/Edmonton semantics).
+- Derived `effectiveActive = administrativeActive && (activationDate == null || activationDate <= campusToday)`.
+- Derived statuses are **Active**, **Pending Start** (administratively enabled but future activation), **Inactive** (manually disabled). Pending staff are not treated as manually disabled.
+- Existing Faculty with no activation date preserve their existing active state. Do not rewrite historical assignment/DOE/AFC data to calculate a new status.
+
+### Proposed trusted writes and validation
+
+1. Authorized ADFAD administrator creates a new canonical Faculty document using a new immutable ID; keep professional profile linked by the same ID. A UCID or email is required; reject duplicates case-insensitively even if the previous record is inactive. Create an immutable audit event.
+2. Date editing requires a version/revision check; reject moving the activation date after any existing related course, working revision, finalization or published schedule. Keep historical records and manual DOE overrides unchanged.
+3. Manual deactivate changes the administrative enablement only, retaining Faculty ID, activation date, roles, DOE and relationships. Restore the same ID without bypassing the future start date.
+4. Every canonical course assignment create/update (Calendar single and bulk, teaching draft/final/publish, date reschedule) checks the Faculty administrative state and compares the **session date**, not today, to the activation date. Activation day is allowed; the previous day is not. Return a bounded `FACULTY_START_DATE_CONFLICT`, not partial writes.
+5. Auth/Faculty access must be checked by trusted backend enforcement and Firebase Rules before private data is returned; do not rely on a browser-computed status or the Frontend Demo role selector. Allow admin lookup of Pending/Inactive but never widen ordinary Faculty reads.
+6. Implement the cross-document date comparison and profile/assignment mutation atomically in a trusted server/transaction, with Firestore rule/index budget evaluation, old-data compatibility, synthetic integration tests and rollback evidence **before** enabling real Firestore Lab writes.
+
+**Status:** Prototype implemented only in browser-local Frontend Demo, PR #99. No actual Firestore collections/rules changed and no database data migrated.

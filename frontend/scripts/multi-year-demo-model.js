@@ -21,7 +21,7 @@
   const canAdfa=a=>['owner','developer','adfa_general','adfa_regular','administrator','admin'].includes(normalized(a&&a.role).toLowerCase());
   const owner=a=>normalized(a&&a.role).toLowerCase()==='owner';
   function bootstrap(source){
-    const faculty=clone(source.faculty||[]).map(f=>({id:f.facultyId,name:f.displayName||f.preferredLastName||f.facultyId,active:f.active!==false,appointmentValid:f.appointmentValid!==false,contractDoe:Number(f.contractTeachingDoe)||0}));
+    const faculty=clone(source.faculty||[]).map(f=>({id:f.facultyId,name:f.displayName||f.preferredLastName||f.facultyId,active:f.active!==false,activationDate:typeof f.activationDate==='string'?f.activationDate:null,appointmentValid:f.appointmentValid!==false,contractDoe:Number(f.contractTeachingDoe)||0}));
     const users=clone(source.users||[]).map(u=>({uid:u.firebaseUid,role:u.baseRole,facultyId:u.facultyId||null,name:u.displayName||u.firebaseUid}));
     const catalog=clone(source.courses||[]).map(c=>({code:codeFor(c.courseCode),title:c.courseName||c.courseCode,curriculumYear:c.curriculumYear||null}));
     const grouping={};
@@ -68,6 +68,7 @@
     const ownerOnly=a=>{who(a);if(!owner(a))invalid('Owner only')};
     const annual=(year,code)=>{inspect(year);const row=state.annual[year]&&state.annual[year][codeFor(code)];if(!row)invalid('Annual Course not found');return row};
     const faculty=fid=>state.faculty.find(f=>f.id===fid);
+    const effectiveOn=(f,date)=>Boolean(f?.active&&f?.appointmentValid&&(!f.activationDate||(date&&date>=f.activationDate)));
     const currentRelease=row=>row.published[row.published.length-1]||null;
     const publicationRows=year=>Object.values(state.annual[year]||{}).flatMap(c=>{const release=currentRelease(c);return release?release.sessions.map(s=>({...clone(s),courseCode:c.code,courseName:c.title})):[]});
     function computeCredits(year){
@@ -101,9 +102,9 @@
       const previous=String(Number(year.slice(0,4))-1)+'-'+String(Number(year.slice(0,4))%100).padStart(2,'0');if(!state.years[previous])invalid('Prior academic year required');
       state.years[year]={status:'planning',revision:1};state.annual[year]={};state.doe[year]={policy:{status:'draft',copiedFrom:previous},released:false,records:{},overrides:{}};
       state.roles[year]=(state.roles[previous]||[]).map((r,index)=>{
-        const person=faculty(r.facultyId),eligible=Boolean(person?.active&&person?.appointmentValid);
+        const person=faculty(r.facultyId),eligible=effectiveOn(person,startOf(year));
         const full=r.start<=startOf(previous)&&r.end>=endOf(previous);
-        return {...clone(r),id:'renew-'+year+'-'+index,sourceId:r.id,start:startOf(year),end:endOf(year),status:full&&eligible?'confirmed':'draft',rolloverReason:!full?'partial year':!person?.active?'inactive Faculty':!person?.appointmentValid?'invalid Appointment':'eligible full year'};
+        return {...clone(r),id:'renew-'+year+'-'+index,sourceId:r.id,start:startOf(year),end:endOf(year),status:full&&eligible?'confirmed':'draft',rolloverReason:!full?'partial year':!person?.active?'inactive Faculty':!person?.appointmentValid?'invalid Appointment':person?.activationDate&&person.activationDate>startOf(year)?'future Faculty activation':'eligible full year'};
       });
       logged('year_created',a,year,{previous,roles:state.roles[year].length});return getState().years[year];
     }
@@ -117,11 +118,15 @@
       const date=normalized(input&&input.date);if(date<startOf(year)||date>=nextOf(year))invalid('Session date outside academic year');
       const id=normalized(input.id)||'demo-session-'+(++state.serial);if(row.working.some(s=>s.id===id))invalid('Session already exists');
       const assignments=clone(input.assignments||[]).map(x=>({facultyId:x.facultyId||null,teachingRole:x.teachingRole||'',doeCredit:Number(x.doeCredit)||0}));
-      for(const x of assignments)if(x.facultyId&&!faculty(x.facultyId))invalid('Unknown Faculty');
+      for(const x of assignments){
+        if(x.facultyId&&!faculty(x.facultyId))invalid('Unknown Faculty');
+        if(x.facultyId&&faculty(x.facultyId)?.activationDate&&date<faculty(x.facultyId).activationDate)invalid('Faculty cannot be assigned before activation date');
+      }
       row.working.push({id,courseCode:row.code,date,topic:normalized(input.topic),sessionType:normalized(input.sessionType),startTime:normalized(input.startTime),endTime:normalized(input.endTime),room:normalized(input.room),assignments});
       row.revision++;row.finalizedRevision=0;logged('session_added',a,year,{code:row.code,id});return id;
     }
     function editAssignment(a,year,code,id,fid){staff(a);editable(year);const row=annual(year,code);if(!canPublish(a,year,row))invalid('Course scope permission required');const s=row.working.find(x=>x.id===id);if(!s)invalid('Session not found');if(fid&&!faculty(fid))invalid('Unknown Faculty');
+      if(fid&&faculty(fid)?.activationDate&&(!s.date||s.date<faculty(fid).activationDate))invalid('Faculty cannot be assigned before activation date');
       const old=s.assignments[0]||{};s.assignments=[{facultyId:fid||null,teachingRole:old.teachingRole||'Instructor',doeCredit:Number(old.doeCredit)||0}];
       row.revision++;row.finalizedRevision=0;logged('assignment_updated',a,year,{code:row.code,sessionId:id});return clone(s);
     }
@@ -179,7 +184,7 @@
           date:options.schedule?shiftDate(session.date,years):'',topic:session.topic||'',sessionType:session.sessionType||'',
           startTime:options.schedule?session.startTime||'':'',endTime:options.schedule?session.endTime||'':'',
           room:options.schedule?session.room||'':'',
-          assignments:options.instructors?(session.assignments||[]).filter(x=>faculty(x.facultyId)?.active&&faculty(x.facultyId)?.appointmentValid).map(clone):[]
+          assignments:options.instructors?(session.assignments||[]).filter(x=>{const f=faculty(x.facultyId);return f?.active&&f?.appointmentValid&&(!f.activationDate||(options.schedule&&shiftDate(session.date,years)>=f.activationDate));}).map(clone):[]
         }));
       }
       state.annual[preview.destinationYear][preview.code]=course;
@@ -231,6 +236,7 @@
         for(const x of s.assignments||[]){
           const f=faculty(x.facultyId);
           if(!f||!f.active||!f.appointmentValid)problem('block','INACTIVE_FACULTY','Instructor is inactive or ineligible',s.id);
+          if(date&&f?.activationDate&&date<f.activationDate)problem('block','FUTURE_FACULTY_START','Instructor starts after the Session date',s.id);
           if(date)for(const afc of state.afc){
             if(afc.active!==false&&afc.facultyId===x.facultyId&&date>=afc.startDate&&date<=afc.endDate)
               problem('warn','AFC_CONFLICT','Instructor has an AFC overlap',s.id);
@@ -315,7 +321,7 @@
     function restoreYear(a,year){ownerOnly(a);const y=inspect(year);if(y.status!=='archived')invalid('Academic year is not archived');y.status='active';y.revision++;const count=conflictRows(year).length;logged('year_restored',a,year,{liveConflicts:count});return{liveConflicts:count};}
     function copyHistorical(a,year,code,sessionId,sourceId){staff(a);editable(year);const row=annual(year,code);if(!canPublish(a,year,row))invalid('Course scope permission required');const s=row.working.find(x=>x.id===sessionId);if(!s)invalid('Target Session not found');
       const previous=String(Number(year.slice(0,4))-1)+'-'+String(Number(year.slice(0,4))%100).padStart(2,'0');const history=publicationRows(previous).find(x=>x.id===sourceId&&x.courseCode===row.code);
-      if(!history||!history.assignments.length)invalid('Published historical assignment not found');const chosen=history.assignments.find(x=>faculty(x.facultyId)?.active);if(!chosen)invalid('Historical Faculty no longer eligible');
+      if(!history||!history.assignments.length)invalid('Published historical assignment not found');const chosen=history.assignments.find(x=>effectiveOn(faculty(x.facultyId),s.date));if(!chosen)invalid('Historical Faculty no longer eligible');
       s.assignments=clone([chosen]);row.revision++;row.finalizedRevision=0;logged('historical_assignment_copied',a,year,{code:row.code,sourceId,sessionId});return clone(chosen);
     }
     function confirmRole(a,year,id){adfa(a);editable(year);const role=(state.roles[year]||[]).find(r=>r.id===id);if(!role)invalid('Role not found');if(role.status!=='draft')invalid('Role is not draft');role.status='confirmed';logged('annual_role_confirmed',a,year,{roleId:id});return clone(role)}

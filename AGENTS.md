@@ -25,3 +25,10 @@ Read [the graph guide](docs/architecture/script-dependency-graph.md). Consult th
 - Build/test the selected artifact. Root package scripts and workflow files are authoritative for commands.
 - Manual acceptance uses synthetic fixtures and the specified Demo/Lab/backend lane. Missing fixtures/adapters are Blocked, not Pass or silently N/A.
 - Report tested SHA/mode, changed files, tests, evidence and remaining gaps. Separate implementation, simulation, real persistence/security acceptance and human signoff.
+
+## Mandatory PR Change Log (all agents)
+- **Every PR** (including tests, documentation, refactors, fixes, UI and backend work) MUST add or update its own PR-numbered entry in the repository root `CHANGELOG.json` before it can pass CI or be marked ready/merged. If the PR number is unknown, create a draft PR first, then add its entry before acceptance. Never substitute another PR's entry.
+- Use `schemaVersion: 1` with `entries: [{ "date": "YYYY-MM-DD", "pr": 123, "title": "Short plain-English summary", "changes": ["A concrete update"] }]`. Preserve all previous entries. Keep descriptions concise, understandable and faithful to what was actually implemented or deployed.
+- The change log is **public**. Do not add staff identifiers, confidential Faculty details, private records, credentials, internal-only information or unverified production deployment claims. Distinguish the synthetic PAWS Frontend Demo from real Firebase/SQL behavior.
+- The `tools/check-pr-changelog.js` gate compares the PR-specific entry with the PR base commit. Both the Test and GitHub Pages workflows must reject absent/unchanged PR entries. No agent may bypass the check or silently ignore failure.
+- The PAWS homepage Change Log is a single large read-only floating dialog opened with **Change Log** and closed with **Close** or Escape. Its published `changelog.json` derives exclusively from root `CHANGELOG.json` during the Frontend Demo build. No extra user-facing search/filter or manual edit UI is requested.

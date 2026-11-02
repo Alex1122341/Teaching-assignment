@@ -16,3 +16,7 @@ PAWS helps UCVM staff coordinate teaching, faculty workload/DOE, appointments, a
 Record the remote, branch/HEAD, clean or dirty state, selected build mode and test-site PR/SHA. Historical SQL/Azure reports and copied Beta code are reference material; they do not make this site a production backend. Preserve another person's uncommitted work.
 
 Finish with a precise handoff: files changed, commit/PR, tests executed versus skipped, environment tested, evidence and remaining gaps. After every merge, rebuild Graphify from the exact merged main and verify a representative edge against source. Never convert Demo results into real Auth, SQL, email, storage or security signoff.
+
+## Every PR must update the public Change Log
+Before completing, merging, handing off or marking ready, **every PR** must add or update an entry for its own PR number in root `CHANGELOG.json`. Include a real date, plain-English title and specific changes. Preserve the full history; do not reuse an unrelated PR's entry. Open a draft PR first when a number is needed. Describe tested/unfinished work honestly and never include secrets or private Faculty information.
+Every agent (Codex or otherwise) must follow this rule. Both required PR CI workflows run `tools/check-pr-changelog.js`; a missing or unchanged entry must fail. The homepage Change Log is a simple large, read-only Open/Close floating window populated from the published JSON.

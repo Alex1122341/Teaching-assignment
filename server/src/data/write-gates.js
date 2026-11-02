@@ -17,6 +17,7 @@ function createWriteGates(env = {}) {
     afcSingle: env.PAWS_AFC_SINGLE_WRITE_ENABLED === 'true',
     afcBatch: env.PAWS_AFC_BATCH_WRITE_ENABLED === 'true',
     afcCancel: env.PAWS_AFC_CANCEL_WRITE_ENABLED === 'true',
+    afcEdit: env.PAWS_AFC_EDIT_WRITE_ENABLED === 'true',
     sessionEdit: env.PAWS_SESSION_EDIT_WRITE_ENABLED === 'true',
     sessionCreate: env.PAWS_SESSION_CREATE_WRITE_ENABLED === 'true',
     afcRequest: env.PAWS_AFC_REQUEST_WRITE_ENABLED === 'true',

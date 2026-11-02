@@ -50,6 +50,15 @@ function createDashboardFunctions({ api,traineeApi }) {
         const response = await api.cancelAfcRecord(bearer(request), id, payload);
         return { status: response.status, jsonBody: response.body };
       }
+      const afcDates = /^\/api\/v1\/dashboard\/afc-records\/([^/]+)\/dates$/.exec(pathname);
+      if (afcDates) {
+        if (request.method !== 'POST') return { status: 405, headers: { Allow: 'POST' }, jsonBody: { error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required.' } } };
+        let payload, id;
+        try { id = decodeURIComponent(afcDates[1]); payload = typeof request.json === 'function' ? await request.json() : request.body; }
+        catch (_) { return { status: 400, jsonBody: { error: { code: 'INVALID_JSON', message: 'Request JSON or record identifier is invalid.' } } }; }
+        const response = await api.updateAfcRecordDates(bearer(request), id, payload);
+        return { status: response.status, jsonBody: response.body };
+      }
       const facultyUpdate = /^\/api\/v1\/dashboard\/faculty\/([^/]+)$/.exec(pathname);
       const facultyAction = /^\/api\/v1\/dashboard\/faculty\/([^/]+)\/(restore|deactivate)$/.exec(pathname);
       const rolePeriods = /^\/api\/v1\/dashboard\/roles\/([^/]+)\/periods$/.exec(pathname);
@@ -58,7 +67,8 @@ function createDashboardFunctions({ api,traineeApi }) {
         let payload; try {payload=await request.json();} catch {return {status:400,jsonBody:{error:{code:'INVALID_JSON',message:'Invalid JSON.'}}};}
         const response=await api.updateRolePeriods(bearer(request),rolePeriods[1],payload);return {status:response.status,jsonBody:response.body};
       }
-      const isFacultyWrite = (!!facultyAction && request.method === 'POST') || (!!facultyUpdate && request.method === 'PATCH');
+      const isFacultyCreate = pathname === '/api/v1/dashboard/faculty' && request.method === 'POST';
+      const isFacultyWrite = isFacultyCreate || (!!facultyAction && request.method === 'POST') || (!!facultyUpdate && request.method === 'PATCH');
       if ((facultyAction && request.method !== 'POST') || (facultyUpdate && !['GET', 'PATCH'].includes(request.method))) {
         const allow = facultyAction ? 'POST' : 'GET, PATCH';
         return { status: 405, headers: { Allow: allow }, jsonBody: { error: { code: 'METHOD_NOT_ALLOWED', message: `${allow} required.` } } };
@@ -73,8 +83,8 @@ function createDashboardFunctions({ api,traineeApi }) {
       if (request.method !== 'GET' && !(isAfcRecords && request.method === 'POST') && !(isAfcBatch && request.method === 'POST') && !isFacultyWrite) {
         return {
           status: 405,
-          headers: { Allow: isAfcBatch ? 'POST' : isAfcRecords ? 'GET, POST' : facultyAction ? 'POST' : facultyUpdate ? 'GET, PATCH' : 'GET' },
-          jsonBody: { error: { code: 'METHOD_NOT_ALLOWED', message: isAfcBatch ? 'POST required.' : isAfcRecords ? 'GET or POST required.' : facultyAction ? 'POST required.' : facultyUpdate ? 'GET or PATCH required.' : 'GET required.' } }
+          headers: { Allow: isAfcBatch ? 'POST' : isAfcRecords ? 'GET, POST' : facultyAction ? 'POST' : facultyUpdate ? 'GET, PATCH' : pathname === '/api/v1/dashboard/faculty' ? 'GET, POST' : 'GET' },
+          jsonBody: { error: { code: 'METHOD_NOT_ALLOWED', message: isAfcBatch ? 'POST required.' : isAfcRecords ? 'GET or POST required.' : facultyAction ? 'POST required.' : facultyUpdate ? 'GET or PATCH required.' : pathname === '/api/v1/dashboard/faculty' ? 'GET or POST required.' : 'GET required.' } }
         };
       }
 
@@ -91,6 +101,13 @@ function createDashboardFunctions({ api,traineeApi }) {
         return { status: response.status, jsonBody: response.body };
       }
 
+      if (isFacultyCreate) {
+        let payload;
+        try { payload = typeof request.json === 'function' ? await request.json() : request.body; }
+        catch (_) { return { status: 400, jsonBody: { error: { code: 'INVALID_JSON', message: 'Request JSON is invalid.' } } }; }
+        const response = await api.createFaculty(token, payload);
+        return { status: response.status, jsonBody: response.body };
+      }
       if (isFacultyWrite) {
         let payload;
         try { payload = typeof request.json === 'function' ? await request.json() : request.body; }

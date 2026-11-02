@@ -95,6 +95,8 @@
   "office-workspace.js",
   "faculty-route-access.js",
   "testing-only-features.js",
+  "site-changelog.js",
+  "site-changelog.css",
   "multi-year-demo-model.js",
   "multi-year-demo.js",
   "multi-year-demo.css"

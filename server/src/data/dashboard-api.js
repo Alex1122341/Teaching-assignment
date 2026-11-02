@@ -97,7 +97,7 @@ function strictUtcVersion(value) {
 
 function validateFacultyUpdate(payload, facultyId) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { error: error(400, 'INVALID_JSON', 'Faculty update JSON must be an object.') };
-  const allowed = new Set(['expectedUpdatedAtUtc', 'expectedProfileVersion', 'preferredFirstName', 'preferredLastName', 'displayName', 'ucid', 'email', 'recordType', 'stream', 'rank', 'fte', 'reportsToFacultyId', 'professionalProfile']);
+  const allowed = new Set(['expectedUpdatedAtUtc', 'expectedProfileVersion', 'preferredFirstName', 'preferredLastName', 'displayName', 'ucid', 'email', 'recordType', 'stream', 'rank', 'fte', 'reportsToFacultyId', 'activationDate', 'professionalProfile']);
   if (Object.keys(payload).some(key => !allowed.has(key))) return { error: error(400, 'INVALID_FACULTY_FIELDS', 'Faculty update contains unsupported fields.') };
   const expectedUpdatedAtUtc = strictUtcVersion(payload.expectedUpdatedAtUtc);
   if (!expectedUpdatedAtUtc) {
@@ -150,13 +150,38 @@ function validateFacultyUpdate(payload, facultyId) {
     else if (!Number.isFinite(Number(raw)) || Number(raw) < 0 || Number(raw) > max) return { error: error(400, 'INVALID_FACULTY_FIELDS', `Professional profile field '${field}' is outside the Faculty schema range.`) };
     else professionalProfile[field] = Number(raw);
   }
-  return { value: { expectedUpdatedAtUtc, expectedProfileVersion, ...faculty, professionalProfile } };
+  const activationDate = payload.activationDate === undefined || payload.activationDate === null || payload.activationDate === ''
+    ? null : strictDate(payload.activationDate);
+  if (payload.activationDate !== undefined && payload.activationDate !== null && payload.activationDate !== '' && !activationDate)
+    return { error: error(400, 'INVALID_FACULTY_ACTIVATION_DATE', 'Activation date must be a real YYYY-MM-DD date.') };
+  return { value: { expectedUpdatedAtUtc, expectedProfileVersion, ...faculty,
+    ...(Object.prototype.hasOwnProperty.call(payload, 'activationDate') ? { activationDate } : {}),
+    professionalProfile } };
+}
+
+function validateFacultyCreate(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
+      'expectedUpdatedAtUtc' in payload || 'expectedProfileVersion' in payload)
+    return { error: error(400, 'INVALID_FACULTY_FIELDS', 'New Faculty records must not specify an existing record version.') };
+  const fakeId = '00000000-0000-4000-8000-000000000001';
+  const validated = validateFacultyUpdate({
+    ...payload, expectedUpdatedAtUtc: '2000-01-01T00:00:00.000Z', expectedProfileVersion: null
+  }, fakeId);
+  if (validated.error) return validated;
+  const { expectedUpdatedAtUtc, expectedProfileVersion, ...value } = validated.value;
+  if (!value.ucid && !value.email)
+    return { error: error(400, 'INVALID_FACULTY_FIELDS', 'A UCID or email is required to prevent duplicate Faculty identities.') };
+  return { value };
 }
 
 function facultyWriteFailure(caught) {
   if ((caught && caught.code === 'FACULTY_REVISION_CONFLICT') || Number(caught && caught.number) === 52305) return error(409, 'FACULTY_REVISION_CONFLICT', 'This Faculty record changed after you opened it. Reload it before saving.');
   if ((caught && caught.code === 'FACULTY_IDENTITY_CONFLICT') || Number(caught && caught.number) === 52304) return error(409, 'FACULTY_IDENTITY_CONFLICT', 'This UCID or email already belongs to a Faculty record, possibly an inactive one. Find and restore that record instead.');
   if ([2601, 2627].includes(Number(caught && caught.number))) return error(409, 'FACULTY_IDENTITY_CONFLICT', 'This UCID or email already belongs to a Faculty record, possibly an inactive one. Find and restore that record instead.');
+  if (Number(caught && caught.number) === 56552) return error(409, 'FACULTY_START_CONFLICT', 'Existing teaching assignments occur before the proposed activation date. Review those assignments first.');
+  if (Number(caught && caught.number) === 56551) return error(422, 'FACULTY_NOT_ELIGIBLE_FOR_SESSION', 'A Faculty assignment cannot precede their start date or follow manual deactivation.');
+  if (Number(caught && caught.number) === 56502) return error(403, 'ROLE_DENIED', 'Faculty administration is not authorized.');
+  if (Number(caught && caught.number) === 56503) return error(400, 'INVALID_FACULTY_FIELDS', 'Faculty creation or activation failed validation.');
   if (Number(caught && caught.number) === 52303) return error(404, 'FACULTY_NOT_FOUND', 'Faculty record was not found.');
   if (Number(caught && caught.number) === 52306) return error(400, 'INVALID_FACULTY_FIELDS', 'Faculty data failed SQL validation.');
   return error(503, 'SQL_UNAVAILABLE', 'The Faculty write service is temporarily unavailable.');
@@ -349,24 +374,55 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
     async afcRecordWriteCapabilities(token) {
       return guarded(token, scope => {
         if (!scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot manage AFC records.');
-        return result(200, { writeCapabilities: { afcSingle: writeGates.afcSingle === true, afcBatch: writeGates.afcBatch === true, afcCancel: writeGates.afcCancel === true } });
+        return result(200, { writeCapabilities: { afcSingle: writeGates.afcSingle === true, afcBatch: writeGates.afcBatch === true, afcCancel: writeGates.afcCancel === true, afcEdit: writeGates.afcEdit === true } });
       });
     },
     async cancelAfcRecord(token, afcRecordId, payload = {}) {
       const auth = await authorize(token);
       if (auth.status) return auth;
-      if (!auth.scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot cancel AFC records.');
+      if (!auth.scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot withdraw AFC records.');
       if (writeGates.afcCancel !== true) return writeDisabled();
       if (!UUID.test(text(afcRecordId))) return error(400, 'INVALID_AFC_RECORD_ID', 'A valid AFC record is required.');
       const sourceKind = text(payload?.sourceKind), expectedVersion = text(payload?.expectedVersion);
       if (!['manual', 'import'].includes(sourceKind)) return error(400, 'INVALID_AFC_SOURCE', 'Select a manual or imported AFC record.');
-      if (!/^[0-9a-f]{16}$/i.test(expectedVersion)) return error(400, 'INVALID_AFC_VERSION', 'Refresh the AFC records before deleting.');
+      if (!/^[0-9a-f]{16}$/i.test(expectedVersion)) return error(400, 'INVALID_AFC_VERSION', 'Refresh the AFC records before withdrawing.');
       try {
         const row = await writeRepository.cancelAfcRecord({ afcRecordId: text(afcRecordId), sourceKind, expectedVersion, actorFirebaseUid: auth.decoded.uid, actorName: auth.profile.displayName, requestId: randomUUID() });
         if (!row) return error(503, 'SQL_UNAVAILABLE', 'The SQL write service is unavailable.');
         return result(200, { afcRecord: normalizeAfcRecord(row) });
       } catch (caught) {
-        const known = { 53602: [403, 'ROLE_DENIED', 'Administrator permission is required.'], 53603: [404, 'AFC_RECORD_NOT_FOUND', 'This AFC record no longer exists.'], 53604: [409, 'AFC_RECORD_CHANGED', 'This AFC record changed. Refresh and review it before deleting.'] }[Number(caught?.number)];
+        const known = { 53602: [403, 'ROLE_DENIED', 'Administrator permission is required.'], 53603: [404, 'AFC_RECORD_NOT_FOUND', 'This AFC record no longer exists.'], 53604: [409, 'AFC_RECORD_CHANGED', 'This AFC record changed. Refresh and review it before withdrawing.'] }[Number(caught?.number)];
+        return known ? error(...known) : error(503, 'SQL_UNAVAILABLE', 'The SQL write service is unavailable.');
+      }
+    },
+    // UX-07: the ADFA office changes the dates of an active AFC record directly.
+    // No new approval; the old and new dates are recorded in Change History.
+    async updateAfcRecordDates(token, afcRecordId, payload = {}) {
+      const auth = await authorize(token);
+      if (auth.status) return auth;
+      if (!auth.scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot change AFC dates.');
+      if (writeGates.afcEdit !== true) return writeDisabled();
+      if (!UUID.test(text(afcRecordId))) return error(400, 'INVALID_AFC_RECORD_ID', 'A valid AFC record is required.');
+      const sourceKind = text(payload?.sourceKind), expectedVersion = text(payload?.expectedVersion);
+      if (!['manual', 'import'].includes(sourceKind)) return error(400, 'INVALID_AFC_SOURCE', 'Select a manual or imported AFC record.');
+      if (!/^[0-9a-f]{16}$/i.test(expectedVersion)) return error(400, 'INVALID_AFC_VERSION', 'Refresh the AFC records before changing dates.');
+      const startDate = strictDate(payload?.startDate), endDate = strictDate(payload?.endDate);
+      if (!startDate || !endDate) return error(400, 'INVALID_DATE', 'AFC dates must use YYYY-MM-DD calendar dates.');
+      if (endDate < startDate) return error(400, 'INVALID_DATE_RANGE', 'End date must be on or after start date.');
+      const requestId = UUID.test(text(payload?.requestId)) ? text(payload.requestId) : randomUUID();
+      try {
+        const row = await writeRepository.updateAfcDates({ afcRecordId: text(afcRecordId), sourceKind, expectedVersion, startDate, endDate, workDays: null, actorFirebaseUid: auth.decoded.uid, requestId });
+        if (!row) return error(503, 'SQL_UNAVAILABLE', 'The SQL write service is unavailable.');
+        return result(200, { afcRecord: normalizeAfcRecord(row) });
+      } catch (caught) {
+        const known = {
+          56402: [403, 'ROLE_DENIED', 'Administrator permission is required.'],
+          56403: [404, 'AFC_RECORD_NOT_FOUND', 'This AFC record no longer exists.'],
+          56404: [409, 'AFC_RECORD_CHANGED', 'This AFC record changed. Refresh and review it before changing dates.'],
+          56405: [400, 'INVALID_DATE_RANGE', 'AFC dates are invalid.'],
+          56406: [409, 'AFC_RECORD_INACTIVE', 'A withdrawn AFC record cannot have its dates changed.'],
+          56408: [409, 'AFC_DATES_UNCHANGED', 'The new dates are the same as the current dates.']
+        }[Number(caught?.number)];
         return known ? error(...known) : error(503, 'SQL_UNAVAILABLE', 'The SQL write service is unavailable.');
       }
     },
@@ -397,7 +453,7 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
     async faculty(token, { academicYear: year, search, limit, status = 'active' } = {}) {
       const resolved = resolveYear(year);
       if (resolved.error) return resolved.error;
-      if (!['active', 'inactive', 'all'].includes(status)) return error(400, 'INVALID_FACULTY_STATUS', 'Faculty status must be active, inactive, or all.');
+      if (!['active', 'pending', 'inactive', 'all'].includes(status)) return error(400, 'INVALID_FACULTY_STATUS', 'Faculty status must be active, pending, inactive, or all.');
       return guarded(token, scope => {
         if (!scope.administrator && status !== 'active') return error(403, 'ROLE_DENIED', 'This role can only read its own active Faculty record.');
         return repository
@@ -448,6 +504,21 @@ function createDashboardApi({ verifyToken, findUser, repository, writeRepository
         if (periods.some((p,i)=>!validDate(p.startDate) || (p.endDate!==null && (!validDate(p.endDate)||p.endDate<p.startDate)) || (i>0 && (!periods[i-1].endDate || periods[i-1].endDate>=p.startDate)))) return error(400,'INVALID_ROLE_PERIODS','Enter real start dates and non-overlapping periods; end dates are inclusive.');
         try { const schedule = await writeRepository.updateRolePeriods({roleAssignmentId,expectedVersion,periods,actorFirebaseUid:decoded.uid}); return result(200,{schedule}); }
         catch(caught) { const n=caught.number||caught.originalError?.info?.number; return n===53504?error(404,'ROLE_NOT_FOUND','Appointment not found.'):n===53509?error(409,'STALE_ROLE_PERIODS','Appointment changed. Reload before editing.'):n===53503?error(403,'ROLE_DENIED','Role edit denied.'):error(503,'ROLE_PERIOD_SAVE_FAILED','Effective periods could not be saved.'); }
+      });
+    },
+
+    async createFaculty(token, payload) {
+      return guarded(token, async (scope, decoded) => {
+        if (!scope.administrator) return error(403, 'ROLE_DENIED', 'This role cannot create Faculty records.');
+        if (writeGates.facultyAdmin !== true) return writeDisabled();
+        const validated = validateFacultyCreate(payload);
+        if (validated.error) return validated.error;
+        try {
+          const faculty = await writeRepository.createFaculty({
+            actorFirebaseUid: text(decoded && decoded.uid), ...validated.value
+          });
+          return result(201, { faculty });
+        } catch (caught) { return facultyWriteFailure(caught); }
       });
     },
 

@@ -237,19 +237,25 @@
       afcSingleWriteEnabled:()=> writeCapabilities.afcSingle===true,
       afcBatchWriteEnabled:()=> writeCapabilities.afcBatch===true,
       afcCancelWriteEnabled:()=> writeCapabilities.afcCancel===true,
+      afcEditWriteEnabled:()=> writeCapabilities.afcEdit===true,
       async refreshAfcRecordWriteCapabilities(){
         try {
           const body=await request('/api/v1/dashboard/afc-records/write-capabilities');
           const value=body&&typeof body.writeCapabilities==='object'?body.writeCapabilities:{};
-          writeCapabilities=Object.freeze({...writeCapabilities,afcSingle:value.afcSingle===true,afcBatch:value.afcBatch===true,afcCancel:value.afcCancel===true});
+          writeCapabilities=Object.freeze({...writeCapabilities,afcSingle:value.afcSingle===true,afcBatch:value.afcBatch===true,afcCancel:value.afcCancel===true,afcEdit:value.afcEdit===true});
         } catch (_) {
-          writeCapabilities=Object.freeze({...writeCapabilities,afcSingle:false,afcBatch:false,afcCancel:false});
+          writeCapabilities=Object.freeze({...writeCapabilities,afcSingle:false,afcBatch:false,afcCancel:false,afcEdit:false});
         }
-        return {afcSingle:writeCapabilities.afcSingle,afcBatch:writeCapabilities.afcBatch,afcCancel:writeCapabilities.afcCancel};
+        return {afcSingle:writeCapabilities.afcSingle,afcBatch:writeCapabilities.afcBatch,afcCancel:writeCapabilities.afcCancel,afcEdit:writeCapabilities.afcEdit};
       },
       async cancelDashboardAfcRecord(afcRecordId,payload={}){
         const id=String(afcRecordId??'').trim();if(!id)throw new Error('AFC record is required.');
         const body=await request('/api/v1/dashboard/afc-records/'+encodeURIComponent(id)+'/cancel',{method:'POST',body:pickFields(payload,['sourceKind','expectedVersion'])});
+        return body.afcRecord;
+      },
+      async updateDashboardAfcRecordDates(afcRecordId,payload={}){
+        const id=String(afcRecordId??'').trim();if(!id)throw new Error('AFC record is required.');
+        const body=await request('/api/v1/dashboard/afc-records/'+encodeURIComponent(id)+'/dates',{method:'POST',body:pickFields(payload,['sourceKind','expectedVersion','startDate','endDate','requestId'])});
         return body.afcRecord;
       },
       facultyAdminWriteEnabled:()=> facultyAdminWriteCapability===true,
@@ -290,7 +296,8 @@
           afcBatch:value.afcBatch===true,
           requestLifecycle:value.requestLifecycle===true,
           decisions:value.decisions===true,
-          approvedArtifactCreation:value.approvedArtifactCreation===true
+          approvedArtifactCreation:value.approvedArtifactCreation===true,
+          dateChange:value.dateChange===true
         });
         return writeCapabilities;
       },
@@ -412,6 +419,9 @@
       },
       async updateRolePeriods(roleAssignmentId,payload={}){
         return request('/api/v1/dashboard/roles/'+encodeURIComponent(roleAssignmentId)+'/periods',{method:'PUT',body:payload});
+      },
+      async createDashboardFaculty(payload={}){
+        return request('/api/v1/dashboard/faculty',{method:'POST',body:payload});
       },
       async updateDashboardFaculty(facultyId,payload={}){
         const id=String(facultyId??'').trim();if(!id)throw new Error('facultyId is required.');
@@ -619,7 +629,7 @@
       },
       async afcWriteCapabilities(){
         const capabilities=await this.refreshWriteCapabilities();
-        return {requestLifecycle:capabilities.requestLifecycle===true,decisions:capabilities.decisions===true,approvedArtifactCreation:capabilities.approvedArtifactCreation===true};
+        return {requestLifecycle:capabilities.requestLifecycle===true,decisions:capabilities.decisions===true,approvedArtifactCreation:capabilities.approvedArtifactCreation===true,dateChange:capabilities.dateChange===true};
       },
       async submitAfcRequest(payload={}){
         const body=pickFields(payload,[
@@ -627,6 +637,17 @@
           'termsAccepted','termsVersion','termsSource','applicantSignature'
         ]);
         return afcRequestResult('/api/v1/afc-requests',{method:'POST',body});
+      },
+      async submitAfcDateChange(afcRequestId,payload={}){
+        const body=pickFields(payload,[
+          'expectedVersion','startDate','endDate','reason','purposeDestination','coverage','contactAddress','contactPhone',
+          'termsAccepted','termsVersion','termsSource','applicantSignature'
+        ]);
+        return afcRequestResult(requestPath(afcRequestId,'date-change'),{method:'POST',body});
+      },
+      async changeApprovedAfcDates(afcRequestId,payload={}){
+        const body=pickFields(payload,['expectedVersion','startDate','endDate','requestId']);
+        return afcRequestResult(requestPath(afcRequestId,'dates'),{method:'POST',body});
       },
       async withdrawAfcRequest(afcRequestId){
         return afcRequestResult(requestPath(afcRequestId,'withdraw'),{method:'POST'});

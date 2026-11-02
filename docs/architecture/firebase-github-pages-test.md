@@ -1,83 +1,17 @@
-# Firebase + GitHub Pages test architecture
+# Firebase + GitHub Pages: historical Lab proposal
 
-## Active path
+> **Historical Firebase Lab architecture, not the default PAWS Testing site.** This dated proposal once treated GitHub Pages as a Firebase Auth/Firestore client for `vista-teaching-lab`. It does not describe the current publicly deployed Frontend Demo.
 
-```text
-Browser
-  |
-  v
-GitHub Pages
-https://alex1122341.github.io/Teaching-assignment/
-  |
-  +--> Firebase Authentication (vista-teaching-lab)
-  |
-  +--> Firestore ordinary application data (vista-teaching-lab)
-  |
-  +--> pending DOE recalculation requests (non-authoritative)
-  |
-  X--> no DOE API URL
-  X--> no browser authoritative DOE results/evidence
+## Current Frontend Demo
 
-GitHub Actions: Firebase DOE Admin Job
-  |
-  +--> recalculate-queue re-reads current session facts
-  |
-  +--> test-only Firebase Admin credential
-  |
-  +--> existing DOE service layer
-  |
-  v
-Firestore authoritative DOE collections (vista-teaching-lab)
-```
+The normal same-repository PR workflow runs `tools/build-paws-pages.js` and `tools/stage-github-pages.js --mode paws`. It publishes the PAWS `frontend/` app with the synthetic `tools/pages-demo-api/` browser adapter, simulated authentication and browser-local state. No real Firebase/SQL writes occur.
 
-## Why this is the current development architecture
+Site: https://ucvm-teaching-assignment.github.io/Teaching-assignment/ (verify the banner's latest PR and commit SHA).
 
-- It removes Azure quota/deployment dependencies from feature development.
-- The public fixed Pages URL can exercise real Firebase Authentication and Firestore behavior against isolated synthetic data.
-- DOE remains server-authoritative because client Security Rules continue to deny authoritative DOE mutations.
-- Existing DOE calculation/service code is reused by a short-lived trusted job instead of a continuously hosted API.
-- The same design can later be migrated to a production backend without changing the canonical DOE model.
+## Optional, separately controlled Firebase Lab
 
-## Firestore collection groups
+`.github/workflows/firebase-lab-pages.yml` is a manual workflow targeting only `vista-teaching-lab`; it may use real Auth and Firestore but no authoritative client-side DOE writer. Read [testing environments](testing-environments.md), [database configuration](../database/CONFIGURATION.md), [Firestore schema](../database/SCHEMA.md), and [rules runbook](../operations/Firestore-rules-publication-runbook.md).
 
-- Identity: `users`
-- Faculty source: `faculty`
-- Timetable source/projection: `sessions`, `calendar_sessions`
-- Workflow/audit: change-request, approval and append-only log collections documented in `docs/database/SCHEMA.md`
-- DOE policy: `doe_policies`, `doe_policy_versions`, `doe_rules`, selectors, inputs, parameters, tiers, references, mappings and exceptions
-- DOE facts/evidence: `doe_assignments`, `doe_calculation_records`, `doe_faculty_targets`
-- DOE request queue: `doe_recalculation_requests` (non-authoritative; browser can only create a strict pending request)
-- DOE operations/evidence: `doe_impact_runs`, `doe_impact_rows`, `doe_publications`, `doe_recalculation_batches`, `doe_audit_log`
+The earlier proposal for `doe_recalculation_requests`, a trusted queue consumer, DOE recalculation evidence and lab service credentials is **historical design**, not a claim that a cloud queue, rule set, secret or University production service is currently deployed.
 
-## GitHub configuration
-
-Pinned public client configuration:
-
-- `tools/lab-firebase-web-config.json` — public Web SDK JSON for `vista-teaching-lab`
-- refresh with `npm run config:pin:lab` after an authenticated `firebase login`
-- this file contains client metadata only; it must never contain a service-account credential or private key
-
-GitHub Environment `firebase-lab-admin`:
-
-- secret `FIREBASE_LAB_SERVICE_ACCOUNT_JSON` — test-only Admin SDK credential
-
-Do not place the service-account JSON in repository variables, source files, issues or workflow logs.
-
-## Test-site deployment behavior
-
-`.github/workflows/github-pages-test.yml` runs only for same-repository pull requests targeting `main`. It checks out the exact PR head, runs root/server tests plus the Firebase emulator suite, generates the lab runtime configuration, verifies the project boundary, builds `.deploy-static`, injects the test banner and deploys the single fixed Pages environment.
-
-A newer successful PR replaces the previous test build at the same URL.
-
-
-## Firebase-only timetable mutation flow
-
-1. An authorized timetable/admin workflow edits the source session.
-2. If the session contains faculty assignments, the browser removes any prior DOE result/provenance fields from those edited assignments. It never calculates replacement DOE.
-3. The source `sessions/{id}`, matching `calendar_sessions/{id}`, and a strict `pending` `doe_recalculation_requests/{requestId}` document are committed together.
-4. Until recalculation runs, derived views treat those assignments as missing/needs-review rather than as authoritative DOE.
-5. An operator runs **Firebase DOE Admin Job > recalculate-queue** with confirmation `PROCESS-QUEUE`.
-6. The job re-reads each current session, resolves the current Active policy for the Academic Year, and runs the existing server-side DOE recalculation scoped to the current session assignments.
-7. The trusted writer stores DOE provenance/calculation evidence and marks the request completed. Failed requests remain pending for retry.
-
-This queue is a command/request channel, not a result channel. Firestore Security Rules still deny browser mutation of authoritative DOE policy, calculation, publication, batch and audit collections.
+**Do not use this archived proposal as an authorization to publish Firebase rules, run an Admin job or configure an Azure origin.**
